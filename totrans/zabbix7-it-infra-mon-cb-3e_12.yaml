@@ -1,563 +1,828 @@
 - en: '12'
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: '12'
 - en: Advanced Zabbix Database Management
+  id: totrans-1
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 高级 Zabbix 数据库管理
 - en: Whether you’ve been using Zabbix for a while or you are looking toward setting
     up your first production instance, database management is important right from
     the start. A lot of the time, people set up their Zabbix database and don’t know
     yet that it will be a big database. The Zabbix housekeeper just can’t keep up
     when your database grows beyond a certain size, and that’s when we need to look
     for different options.
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: 无论你是已经使用 Zabbix 一段时间，还是正在准备设置你的第一个生产实例，数据库管理从一开始就非常重要。很多时候，人们设置了 Zabbix 数据库，却没有意识到它将会成为一个庞大的数据库。当数据库超过一定大小时，Zabbix
+    清理进程无法跟上，这时我们就需要考虑不同的方案。
 - en: In this chapter, we’ll look into keeping our Zabbix database from using up 100%
     disk space when the Zabbix housekeeper is not keeping up. For MySQL users, we’ll
     look into using database partitioning to keep our database in check. For PostgreSQL
     users, we’ll look toward the TimescaleDB support. Last but not least, we’ll also
     check out how to secure our connection between the Zabbix server and the database.
+  id: totrans-3
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们将讨论如何防止 Zabbix 数据库在 Zabbix 清理进程无法跟上的情况下占用 100% 的磁盘空间。对于 MySQL 用户，我们将研究如何使用数据库分区来控制数据库的大小。对于
+    PostgreSQL 用户，我们将关注 TimescaleDB 的支持。最后，我们还将了解如何确保 Zabbix 服务器与数据库之间的连接安全。
 - en: 'We’ll do all this in the following recipes:'
+  id: totrans-4
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将在以下方案中完成这些任务：
 - en: Setting up MySQL partitioning for your Zabbix database
+  id: totrans-5
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 为 Zabbix 数据库设置 MySQL 分区
 - en: Using the PostgreSQL TimescaleDB functionality
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 PostgreSQL 的 TimescaleDB 功能
 - en: Securing your Zabbix MySQL database
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 保护你的 Zabbix MySQL 数据库
 - en: Without further ado, let’s get started on these recipes and learn all about
     managing our database.
+  id: totrans-8
   prefs: []
   type: TYPE_NORMAL
+  zh: 不再废话，让我们开始这些方案，了解如何管理我们的数据库。
 - en: Technical requirements
+  id: totrans-9
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 技术要求
 - en: We are going to need some new servers for these recipes. One Linux server needs
     to run Zabbix server 7 with MySQL (MariaDB) set up; we’ll call this host `lar-book-mysql-
     mgmt`. We will also need a Linux server running Zabbix server 7 with PostgreSQL,
     which we’ll call `lar-book-postgresql-mgmt`.
+  id: totrans-10
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将需要一些新的服务器来实现这些方案。首先，一台 Linux 服务器需要运行带有 MySQL（MariaDB）设置的 Zabbix 服务器 7；我们将这台主机称为`lar-book-mysql-mgmt`。我们还需要一台运行带有
+    PostgreSQL 的 Zabbix 服务器 7 的 Linux 服务器，我们称之为`lar-book-postgresql-mgmt`。
 - en: We’ll also need two servers for creating a secure Zabbix database setup. One
     server will be running the MySQL (MariaDB) database; let’s call this server `lar-book-secure-db`.
     Then, connecting externally to a Zabbix database, we’ll have our Zabbix server,
     which we’ll call `lar-book-secure-zbx`.
+  id: totrans-11
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们还需要两台服务器来创建一个安全的 Zabbix 数据库设置。一台服务器将运行 MySQL（MariaDB）数据库；我们将这台服务器称为`lar-book-secure-db`。然后，外部连接到
+    Zabbix 数据库，我们将有一台 Zabbix 服务器，我们称之为`lar-book-secure-zbx`。
 - en: 'The code files can also be accessed in the GitHub repository here:'
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: 代码文件也可以在 GitHub 仓库中访问，链接如下：
 - en: '[https://github.com/PacktPublishing/Zabbix-7-IT-Infrastructure-Monitoring-Cookbook/tree/main/chapter12](https://github.com/PacktPublishing/Zabbix-7-IT-Infrastructure-Monitoring-Cookbook/tree/main/chapter12)'
+  id: totrans-13
   prefs: []
   type: TYPE_NORMAL
+  zh: '[https://github.com/PacktPublishing/Zabbix-7-IT-Infrastructure-Monitoring-Cookbook/tree/main/chapter12](https://github.com/PacktPublishing/Zabbix-7-IT-Infrastructure-Monitoring-Cookbook/tree/main/chapter12)'
 - en: Setting up MySQL partitioning for your Zabbix database
+  id: totrans-14
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 为 Zabbix 数据库设置 MySQL 分区
 - en: When working with a MySQL database, the biggest issue we face is how MySQL stores
     its data by default. There is no real order to the data that we can use if we
     want to drop large chunks of data. MySQL partitioning solves this issue; let’s
     see how we can configure it to use for our Zabbix database.
+  id: totrans-15
   prefs: []
   type: TYPE_NORMAL
+  zh: 在使用 MySQL 数据库时，我们面临的最大问题是 MySQL 默认存储数据的方式。如果我们想删除大量数据，默认的存储方式没有实际的顺序可以利用。MySQL
+    分区可以解决这个问题；让我们看看如何配置它来用于 Zabbix 数据库。
 - en: Important note
+  id: totrans-16
   prefs: []
   type: TYPE_NORMAL
+  zh: 重要提示
 - en: 'Here at Opensource ICT Solutions, we have fixed the script to work with MySQL
     8\. The script should work for *any* MySQL setup once more. Check out the link
     for more information: [https://github.com/OpensourceICTSolutions/zabbix-mysql-partitioning-perl](https://github.com/OpensourceICTSolutions/zabbix-mysql-partitioning-perl).'
+  id: totrans-17
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 Opensource ICT Solutions，我们已经修复了脚本，使其能够与 MySQL 8 一起工作。这个脚本应该可以再次适用于 *任何* MySQL
+    设置。有关更多信息，请查看链接：[https://github.com/OpensourceICTSolutions/zabbix-mysql-partitioning-perl](https://github.com/OpensourceICTSolutions/zabbix-mysql-partitioning-perl)。
 - en: Getting ready
+  id: totrans-18
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: For this recipe, we are going to need a running Zabbix server with a MySQL database.
     I’ll be using MariaDB in my example, but any MySQL flavor should be about the
     same. The Linux host I’ll be using is called `lar-book-mysql-mgmt`, which already
     meets the requirements.
+  id: totrans-19
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于本教程，我们需要一个运行中的 Zabbix 服务器，并且该服务器必须有一个 MySQL 数据库。我将在示例中使用 MariaDB，但任何 MySQL
+    变种应该差不多。我将使用名为 `lar-book-mysql-mgmt` 的 Linux 主机，该主机已经满足要求。
 - en: If you are running these steps in a production environment, make sure to create
     your database backups first as things can always go wrong.
+  id: totrans-20
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你在生产环境中执行这些步骤，请确保首先创建数据库备份，因为事情总是可能出错。
 - en: How to do it…
+  id: totrans-21
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 如何操作…
 - en: First things first, let’s log in to our Linux CLI to execute our commands.
+  id: totrans-22
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 首先，登录到我们的 Linux CLI 执行命令。
 - en: It’s a good idea to use TMUX because partitioning can take several days for
     big databases. TMUX will keep the sessions open in the background, even if we
     lose the SSH connection. If TMUX is not installed, install it first before proceeding.
+  id: totrans-23
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 使用 TMUX 是个好主意，因为分区对于大型数据库来说可能需要几天时间。即使我们丢失 SSH 连接，TMUX 也会保持会话在后台打开。如果没有安装 TMUX，请先安装它，然后再继续。
 - en: 'The RHEL-based command is as follows:'
+  id: totrans-24
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 基于 RHEL 的命令如下：
 - en: '[PRE0]'
+  id: totrans-25
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: 'The Ubuntu command is as follows:'
+  id: totrans-26
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 基于 Ubuntu 的命令如下：
 - en: '[PRE1]'
+  id: totrans-27
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: 'Open a new **tmux** session by issuing the following command:'
+  id: totrans-28
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 通过执行以下命令打开一个新的 **tmux** 会话：
 - en: '[PRE2]'
+  id: totrans-29
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: Important note
+  id: totrans-30
   prefs: []
   type: TYPE_NORMAL
+  zh: 重要提示
 - en: It’s not required to run partitioning in a **tmux** window, but it’s definitely
     smart. Partitioning a big database can take a long time. You could move your database
     to another machine with ample resources (CPU, memory, and disk speed) to partition,
     or if that’s not a possibility stop the Zabbix server process for the duration
     of the partitioning process.
+  id: totrans-31
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 **tmux** 窗口中运行分区并不是必需的，但绝对是明智之举。分区一个大数据库可能需要很长时间。你可以将数据库移到另一台资源充足（CPU、内存和磁盘速度）的机器上进行分区，或者如果这不可行，可以在分区过程中停止
+    Zabbix 服务器进程。
 - en: 'Now, let’s log in to the MySQL application as the root user with the following
     command:'
+  id: totrans-32
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，使用以下命令以 root 用户身份登录 MySQL 应用程序：
 - en: '[PRE3]'
+  id: totrans-33
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: 'Now, move to use the Zabbix database with the following command:'
+  id: totrans-34
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，使用以下命令切换到 Zabbix 数据库：
 - en: '[PRE4]'
+  id: totrans-35
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: 'We are going to need to partition some tables here, but to do this, we need
     to know the UNIX timestamp on our tables:'
+  id: totrans-36
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们将需要对一些表进行分区，但要做到这一点，我们需要知道表中的 UNIX 时间戳：
 - en: '[PRE5]'
+  id: totrans-37
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: 'You will receive an output like this:'
+  id: totrans-38
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 你将收到如下输出：
 - en: '![Figure 12.1 – MySQL returning a timestamp on the table history](img/B19803_12_01.jpg)'
+  id: totrans-39
   prefs: []
   type: TYPE_IMG
+  zh: '![图 12.1 – MySQL 返回历史表上的时间戳](img/B19803_12_01.jpg)'
 - en: Figure 12.1 – MySQL returning a timestamp on the table history
+  id: totrans-40
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 12.1 – MySQL 返回历史表上的时间戳
 - en: 'This timestamp should be about the same for every single table we are going
     to partition. Verify this by running the same query for the remaining history
     tables:'
+  id: totrans-41
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 这个时间戳应该对我们要分区的每个表大致相同。通过对剩余的历史表运行相同的查询来验证这一点：
 - en: '[PRE6]'
+  id: totrans-42
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: 'A table might return a different value or even no value at all. We need to
     take this into account when creating our partitions. A table showing **NULL**
     has no data, but an earlier date means we need an earlier partition:'
+  id: totrans-43
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 一个表可能返回不同的值，甚至没有任何值。在创建分区时我们需要考虑这一点。显示**NULL**的表没有数据，但较早的日期意味着我们需要更早的分区：
 - en: '![Figure 12.2 – MySQL returning a timestamp on the history_log table](img/B19803_12_02.jpg)'
+  id: totrans-44
   prefs: []
   type: TYPE_IMG
+  zh: '![图 12.2 – MySQL 返回历史日志表上的时间戳](img/B19803_12_02.jpg)'
 - en: Figure 12.2 – MySQL returning a timestamp on the history_log table
+  id: totrans-45
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 12.2 – MySQL 返回历史日志表上的时间戳
 - en: 'Let’s start with the **history** table. We are going to partition this table
     by day, and we are going to do this up until the date it is today; for me, it
     is **18-06-2023**. Let’s prepare the following MySQL query (for example, in a
     notepad):'
+  id: totrans-46
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们从 **history** 表开始。我们将按天对这个表进行分区，直到今天的日期；对我来说是 **18-06-2023**。让我们准备以下 MySQL
+    查询（例如，保存在记事本中）：
 - en: '[PRE7]'
+  id: totrans-47
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: Tip
+  id: totrans-48
   prefs: []
   type: TYPE_NORMAL
+  zh: 提示
 - en: If we only have 7 days of history data, creating this list by hand is not that
     hard. If we want to do it on a big existing database, it can be a big list to
     edit by hand. It’s easy to create a big list using software such as Excel or by
     creating a small script.
+  id: totrans-49
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果我们只有 7 天的历史数据，手动创建这个列表并不困难。如果我们要在一个大型现有数据库上执行这项操作，这可能会是一个需要手动编辑的大列表。使用像 Excel
+    这样的软件或编写一个小脚本来生成大列表会比较容易。
 - en: Make sure that the oldest partition here matches the timestamp we collected
     in *step 9*. In my case, the oldest data was from June 11, 2023, so this is my
     oldest partition. Also, make sure that your newest partition matches the date
     you are partitioning on.
+  id: totrans-50
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 确保这里最旧的分区与我们在*第9步*中收集的时间戳相匹配。在我的案例中，最旧的数据来自2023年6月11日，因此这是我的最旧分区。另外，确保你最新的分区与正在分区的日期相匹配。
 - en: 'Copy and paste the prepared MySQL query from *step 9* and press *Enter*. This
     might take a while, as your table might be quite large. After you’re done, you
     will see the following:'
+  id: totrans-51
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 从*第9步*中复制并粘贴准备好的MySQL查询，并按*Enter*键。这可能需要一段时间，因为你的表可能非常大。完成后，你将看到以下内容：
 - en: '![Figure 12.3 – MySQL returning a successful query result for the history table](img/B19803_12_03.jpg)'
+  id: totrans-52
   prefs: []
   type: TYPE_IMG
+  zh: '![图12.3 – MySQL成功返回历史表的查询结果](img/B19803_12_03.jpg)'
 - en: Figure 12.3 – MySQL returning a successful query result for the history table
+  id: totrans-53
   prefs: []
   type: TYPE_NORMAL
+  zh: 图12.3 – MySQL成功返回历史表的查询结果
 - en: 'Do the same partitioning for the remaining history tables; make sure to use
     the other UNIX timestamps for the earliest partition:'
+  id: totrans-54
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 对剩余的历史表进行相同的分区；确保使用其他UNIX时间戳来进行最早的分区：
 - en: '**history_uint**'
+  id: totrans-55
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**history_uint**'
 - en: '**history_str**'
+  id: totrans-56
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**history_str**'
 - en: '**history_text**'
+  id: totrans-57
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**history_text**'
 - en: '**history_log**'
+  id: totrans-58
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**history_log**'
 - en: '**history_bin**'
+  id: totrans-59
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**history_bin**'
 - en: Once you’ve partitioned all the history tables, let’s partition the **trends**
     tables. We have two of these called **trends** and **trends_uint**.
+  id: totrans-60
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 一旦你完成所有历史表的分区，接下来让我们对**trends**表进行分区。我们有两个这样的表，分别是**trends**和**trends_uint**。
 - en: 'We are going to check the timestamps again with the following:'
+  id: totrans-61
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们将使用以下命令再次检查时间戳：
 - en: '[PRE8]'
+  id: totrans-62
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: For these tables, it’s important to focus on what the earliest month is. For
     my tables, this is month 06 of the year 2023.
+  id: totrans-63
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 对于这些表，重要的是要关注最早的月份。对于我的表，这是2023年6月。
 - en: 'Now, let’s prepare and execute the partitioning for this table. Let’s do two
     extra partitions starting from the earliest date seen in the timestamp in *step
     14*:'
+  id: totrans-64
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，让我们为这个表准备并执行分区。让我们从*第14步*中看到的最早时间戳开始，做两个额外的分区：
 - en: '[PRE9]'
+  id: totrans-65
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: 'Again, we partition from the earliest collected UNIX timestamp, up until the
     current month. But there’s no harm in creating some new partitions for future
     data:'
+  id: totrans-66
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 再次从最早收集的UNIX时间戳开始分区，一直到当前月份。但是，为未来的数据创建一些新分区也无妨：
 - en: '![Figure 12.4 – MySQL returning a successful query result for the trends table](img/B19803_12_04.jpg)'
+  id: totrans-67
   prefs: []
   type: TYPE_IMG
+  zh: '![图12.4 – MySQL成功返回趋势表的查询结果](img/B19803_12_04.jpg)'
 - en: Figure 12.4 – MySQL returning a successful query result for the trends table
+  id: totrans-68
   prefs: []
   type: TYPE_NORMAL
+  zh: 图12.4 – MySQL成功返回趋势表的查询结果
 - en: Do the same thing for the **trends_uint** table.
+  id: totrans-69
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 对**trends_uint**表做同样的操作。
 - en: 'That concludes the actual partitioning of the database. Let’s make sure our
     partitions remain managed. On your Zabbix database Linux host, download the partitioning
     script with the following command:'
+  id: totrans-70
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 这就结束了数据库的实际分区。让我们确保我们的分区保持管理。在你的Zabbix数据库Linux主机上，使用以下命令下载分区脚本：
 - en: '[PRE10]'
+  id: totrans-71
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: 'If you can’t use **wget**, simply download the script from the following link:
     [https://github.com/OpensourceICTSolutions/zabbix-mysql-partitioning-perl/blob/main/mysql_zbx_part.pl](https://github.com/OpensourceICTSolutions/zabbix-mysql-partitioning-perl/blob/main/mysql_zbx_part.pl).'
+  id: totrans-72
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 如果你不能使用**wget**，只需从以下链接下载脚本：[https://github.com/OpensourceICTSolutions/zabbix-mysql-partitioning-perl/blob/main/mysql_zbx_part.pl](https://github.com/OpensourceICTSolutions/zabbix-mysql-partitioning-perl/blob/main/mysql_zbx_part.pl)。
 - en: 'Alternatively, you can download the partitioning script using the Packt GitHub
     here:'
+  id: totrans-73
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 或者，你也可以使用此GitHub链接下载分区脚本：
 - en: '[https://github.com/PacktPublishing/Zabbix-7-IT-Infrastructure-Monitoring-Cookbook/tree/main/chapter12/mysql_zbx_part.pl](https://github.com/PacktPublishing/Zabbix-7-IT-Infrastructure-Monitoring-Cookbook/tree/main/chapter12/mysql_zbx_part.pl)'
+  id: totrans-74
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: '[https://github.com/PacktPublishing/Zabbix-7-IT-Infrastructure-Monitoring-Cookbook/tree/main/chapter12/mysql_zbx_part.pl](https://github.com/PacktPublishing/Zabbix-7-IT-Infrastructure-Monitoring-Cookbook/tree/main/chapter12/mysql_zbx_part.pl)'
 - en: 'Now, create the directory and move the script to the **/usr/lib/zabbix/** folder
     with the following command:'
+  id: totrans-75
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，使用以下命令创建目录并将脚本移动到**/usr/lib/zabbix/**文件夹：
 - en: '[PRE11]'
+  id: totrans-76
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE11]'
 - en: 'We are going to customize some details in the script. Edit the script with
     the following:'
+  id: totrans-77
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们将自定义脚本中的一些细节。使用以下内容编辑脚本：
 - en: '[PRE12]'
+  id: totrans-78
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE12]'
 - en: 'We need to edit some text in the following part:'
+  id: totrans-79
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 我们需要编辑以下部分的文本：
 - en: '![Figure 12.5 – MySQL Zabbix partitioning script user parameters](img/B19803_12_05.jpg)'
+  id: totrans-80
   prefs: []
   type: TYPE_IMG
+  zh: '![图12.5 – MySQL Zabbix分区脚本用户参数](img/B19803_12_05.jpg)'
 - en: Figure 12.5 – MySQL Zabbix partitioning script user parameters
+  id: totrans-81
   prefs: []
   type: TYPE_NORMAL
+  zh: 图12.5 – MySQL Zabbix分区脚本用户参数
 - en: Edit **$db_schema** to match your Zabbix database name.
+  id: totrans-82
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 编辑**$db_schema**，使其匹配你的Zabbix数据库名称。
 - en: Edit **$db_user_name** to match your Zabbix database username.
+  id: totrans-83
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 编辑**$db_user_name**以匹配你的 Zabbix 数据库用户名。
 - en: Edit **$db_password** to match your Zabbix database password.
+  id: totrans-84
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 编辑**$db_password**以匹配你的 Zabbix 数据库密码。
 - en: Now, at the **$tables** variable, we are going to add some of the most important
     details. This is where we’ll add how many days of history data we want to keep
     and how many months of trends data. Add your values; the default settings keep
     30 days of history data and 12 months of trends data.
+  id: totrans-85
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，在**$tables**变量中，我们将添加一些最重要的细节。在这里我们将添加要保留多少天的历史数据以及多少个月的趋势数据。添加你的值；默认设置保留
+    30 天的历史数据和 12 个月的趋势数据。
 - en: Also, make sure to edit the **my $curr_tz = Etc/UTC;** line to match your own
     time zone. I will use Europe/Amsterdam, for example.
+  id: totrans-86
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 同时，确保编辑**my $curr_tz = Etc/UTC;**行，以匹配你自己的时区。例如，我将使用 Europe/Amsterdam。
 - en: Tip
+  id: totrans-87
   prefs: []
   type: TYPE_NORMAL
+  zh: 提示
 - en: If you are using a version of Zabbix before 2.2 or a MySQL version before 5.6
     or if you are running MySQL 8, then there are some extra lines of configuration
     that need to be commented and uncommented in the script. If this applies to you,
     read the comments in the **mysql_zbx_part.pl** script file and edit it. Additionally,
     check out the GitHub repo mentioned in the introduction of this recipe.
+  id: totrans-88
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你使用的是 Zabbix 2.2 版本之前的版本，或 MySQL 5.6 版本之前的版本，或者你正在运行 MySQL 8，那么脚本中需要注释掉并取消注释一些额外的配置行。如果适用于你，请阅读**mysql_zbx_part.pl**脚本文件中的注释并进行编辑。另外，请查看本食谱引言中提到的
+    GitHub 仓库。
 - en: Before executing the script, we are going to need to install some Perl dependencies.
     On RHEL-based systems, we need additional repositories.
+  id: totrans-89
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在执行脚本之前，我们需要安装一些 Perl 依赖项。在基于 RHEL 的系统上，我们需要额外的仓库。
 - en: 'The RHEL8-based commands are as follows:'
+  id: totrans-90
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 基于 RHEL8 的命令如下：
 - en: '[PRE13]'
+  id: totrans-91
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE13]'
 - en: Install the dependencies with the following commands.
+  id: totrans-92
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 使用以下命令安装依赖项。
 - en: 'The RHEL-based commands are as follows:'
+  id: totrans-93
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 基于 RHEL 的命令如下：
 - en: '[PRE14]'
+  id: totrans-94
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE14]'
 - en: 'The Ubuntu commands are as follows:'
+  id: totrans-95
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: Ubuntu 命令如下：
 - en: '[PRE15]'
+  id: totrans-96
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE15]'
 - en: 'Make the script executable with the following command:'
+  id: totrans-97
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 使用以下命令使脚本可执行：
 - en: '[PRE16]'
+  id: totrans-98
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE16]'
 - en: 'Then, this is the moment where we should be ready to execute the script to
     see whether it is working. Let’s execute it:'
+  id: totrans-99
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 然后，这是我们应该准备好执行脚本并查看它是否正常工作的时刻。让我们执行它：
 - en: '[PRE17]'
+  id: totrans-100
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE17]'
 - en: 'Once your script has finished running, let’s see whether it was successful
     with the following command:'
+  id: totrans-101
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 一旦脚本执行完毕，让我们通过以下命令查看它是否成功：
 - en: '[PRE18]'
+  id: totrans-102
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE18]'
 - en: 'You should see an output like this:'
+  id: totrans-103
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 你应该看到如下输出：
 - en: '![Figure 12.6 – MySQL Zabbix partitioning script results](img/B19803_12_07.jpg)'
+  id: totrans-104
   prefs: []
   type: TYPE_IMG
+  zh: '![图 12.6 – MySQL Zabbix 分区脚本结果](img/B19803_12_07.jpg)'
 - en: Figure 12.6 – MySQL Zabbix partitioning script results
+  id: totrans-105
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 12.6 – MySQL Zabbix 分区脚本结果
 - en: 'Now, execute the following command:'
+  id: totrans-106
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，执行以下命令：
 - en: '[PRE19]'
+  id: totrans-107
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE19]'
 - en: 'To automate the execution of the script, add the following line to the file:'
+  id: totrans-108
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 要自动执行脚本，请将以下行添加到文件中：
 - en: '[PRE20]'
+  id: totrans-109
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE20]'
 - en: The last thing we are going to need to do is to go to the Zabbix frontend. Navigate
     to **Administration** | **Housekeeping**.
+  id: totrans-110
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们需要做的最后一件事是进入 Zabbix 前端。导航到**管理** | **日常维护**。
 - en: 'As the script will take over database history and trend deletion, the housekeeping
     for the **History** and **Trends** tables must be disabled. It will look like
     the following:'
+  id: totrans-111
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 由于脚本将接管数据库历史和趋势的删除，必须禁用**历史**和**趋势**表的日常维护。它将如下所示：
 - en: "![Figure 12.7 – Zabbix Administration | General | Housekeeping disabled for\
     \ History an\uFEFFd Trends](img/B19803_12_08.jpg)"
+  id: totrans-112
   prefs: []
   type: TYPE_IMG
+  zh: '![图 12.7 – Zabbix 管理 | 一般 | 历史和趋势的日常维护被禁用](img/B19803_12_08.jpg)'
 - en: Figure 12.7 – Zabbix Administration | General | Housekeeping disabled for History
     and Trends
+  id: totrans-113
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 12.7 – Zabbix 管理 | 一般 | 历史和趋势的日常维护被禁用
 - en: That concludes our Zabbix database partitioning setup.
+  id: totrans-114
   prefs: []
   type: TYPE_NORMAL
+  zh: 这就是我们 Zabbix 数据库分区设置的结束。
 - en: How it works…
+  id: totrans-115
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 它是如何工作的…
 - en: Database partitioning seems like a daring task at first, but once you break
     it down into chunks, it is not that hard to do. It is simply the process of breaking
     down our most important Zabbix database tables into time-based partitions. Once
     these partitions are set up, we simply need to manage these tables with a script
     and we’re ready.
+  id: totrans-116
   prefs: []
   type: TYPE_NORMAL
+  zh: 数据库分区看起来像是一个大胆的任务，但一旦将其拆分成小块，其实并不难。它只是将我们最重要的 Zabbix 数据库表分解为基于时间的分区的过程。一旦这些分区设置好，我们只需要通过脚本管理这些表，就可以了。
 - en: 'Look at the following figure, and let’s say today is **19-06-2023**. We have
     a lot of partitions managed by the script. All of our **history** data today is
     going to be written to the partition for this day and all of our **trends** data
     is going to be written into the partition for this month:'
+  id: totrans-117
   prefs: []
   type: TYPE_NORMAL
+  zh: 请看下图，假设今天是**2023年06月19日**。我们有很多由脚本管理的分区。今天我们所有的**历史**数据将写入当天的分区，而所有的**趋势**数据将写入本月的分区：
 - en: '![Figure 12.8 – Zabbix partitioning illustration](img/B19803_12_09.jpg)'
+  id: totrans-118
   prefs: []
   type: TYPE_IMG
+  zh: '![图 12.8 – Zabbix 分区示意图](img/B19803_12_09.jpg)'
 - en: Figure 12.8 – Zabbix partitioning illustration
+  id: totrans-119
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 12.8 – Zabbix 分区示意图
 - en: The actual script does only two things. It creates new partitions and it deletes
     old partitions.
+  id: totrans-120
   prefs: []
   type: TYPE_NORMAL
+  zh: 实际的脚本只做两件事。它创建新的分区，并删除旧的分区。
 - en: For deleting partitions, once a partition reaches an age older than specified
     in the `$tables` variable, it drops the entire partition.
+  id: totrans-121
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于删除分区，当一个分区的年龄超过`$tables`变量中指定的时间时，它将删除整个分区。
 - en: For creating partitions, every time the script is run, it creates 10 partitions
     in the future starting from today, except, of course, when a partition already
     exists.
+  id: totrans-122
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于创建分区，每次运行脚本时，它会从今天开始创建未来的 10 个分区，当然，前提是该分区尚不存在。
 - en: This is better than using the housekeeper for one clear reason. It’s simply
     faster! The Zabbix housekeeper goes through our database data line by line to
     check the UNIX timestamp and then it deletes that line when it reaches data older
     than specified. This takes time and resources. Dropping a partition, though, is
     almost instant.
+  id: totrans-123
   prefs: []
   type: TYPE_NORMAL
+  zh: 这样做比使用 Zabbix housekeeper 有一个明显的优点，那就是速度更快！Zabbix housekeeper 会逐行检查数据库数据的 UNIX
+    时间戳，并在数据超过指定时间后删除该行。这需要时间和资源。而删除分区几乎是瞬间完成的。
 - en: One downside of partitioning a Zabbix database, though, is that we can no longer
     use the frontend item history and trend configuration. This means we can’t specify
     different history and trends for different items; it’s all global now.
+  id: totrans-124
   prefs: []
   type: TYPE_NORMAL
+  zh: 然而，分区 Zabbix 数据库的一个缺点是，我们将无法使用前端的历史和趋势配置。这意味着我们不能为不同的项指定不同的历史和趋势；现在一切都是全局的。
 - en: See also
+  id: totrans-125
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 另见
 - en: When I first started using Zabbix, I did not have a book like this one. Instead,
     I relied heavily on the resources available online and my own skillset. There
     are loads of great guides for partitioning and other stuff available on the internet.
@@ -565,934 +830,1389 @@
     something available online. You might also want to check out some amazing books
     written by our Zabbix peers and, of course, if you’ve figured out something by
     yourself, sharing is caring!
+  id: totrans-126
   prefs: []
   type: TYPE_NORMAL
+  zh: 当我第一次使用 Zabbix 时，我没有像这本书这样的参考资料。相反，我依赖于网上可用的资源和自己的技能。有很多关于分区和其他内容的优秀指南可供参考。如果这本书没有提到某些内容，确保去
+    Google 上查找看看是否有相关信息。你还可以查看我们 Zabbix 同行写的一些精彩书籍，当然，如果你自己解决了某个问题，分享就是关爱！
 - en: Using the PostgreSQL TimescaleDB functionality
+  id: totrans-127
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用 PostgreSQL TimescaleDB 功能
 - en: TimescaleDB is an open source relational PostgreSQL database extension for time-based
     series data. Using PostgreSQL TimescaleDB is a solid way to work around using
     the Zabbix housekeeper to manage your PostgreSQL database. In this recipe, we
     will go over the installation of PostgreSQL TimescaleDB on a new server and how
     to set it up with Zabbix.
+  id: totrans-128
   prefs: []
   type: TYPE_NORMAL
+  zh: TimescaleDB 是一个开源的关系型 PostgreSQL 数据库扩展，用于基于时间的序列数据。使用 PostgreSQL TimescaleDB
+    是绕过使用 Zabbix housekeeper 来管理 PostgreSQL 数据库的可靠方法。在本食谱中，我们将介绍如何在新服务器上安装 PostgreSQL
+    TimescaleDB，并与 Zabbix 配合使用。
 - en: Getting ready
+  id: totrans-129
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: We will need an empty Linux server. I’ll be using my server called `lar-book-
     postgresql-mgmt`.
+  id: totrans-130
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们需要一台空的 Linux 服务器。我将使用名为`lar-book-postgresql-mgmt`的服务器。
 - en: How to do it…
+  id: totrans-131
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 如何操作……
 - en: We have a bit of a different process for RHEL-based and Ubuntu systems, which
     is why we have split this *How to do it…* section in two. We will start with Ubuntu
     systems.
+  id: totrans-132
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于基于 RHEL 的系统和 Ubuntu 系统，我们有一些不同的流程，这也是我们将 *如何操作…* 部分分为两部分的原因。我们将从 Ubuntu 系统开始。
 - en: Ubuntu installation
+  id: totrans-133
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: Ubuntu 安装
 - en: 'Let’s log in to our Linux CLI and add the PostgreSQL repo with the following
     commands:'
+  id: totrans-134
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 让我们登录到 Linux CLI，并使用以下命令添加 PostgreSQL 仓库：
 - en: '[PRE21]'
+  id: totrans-135
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE21]'
 - en: 'Now, add the TimescaleDB repository:'
+  id: totrans-136
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，添加 TimescaleDB 仓库：
 - en: '[PRE22]'
+  id: totrans-137
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE22]'
 - en: 'Now, install TimescaleDB with the installation command:'
+  id: totrans-138
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，使用以下安装命令安装 TimescaleDB：
 - en: '[PRE23]'
+  id: totrans-139
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE23]'
 - en: 'Start and enable PostgreSQL 12:'
+  id: totrans-140
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 启动并启用 PostgreSQL 12：
 - en: '[PRE24]'
+  id: totrans-141
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE24]'
 - en: Now, continue with the *TimescaleDB configuration* section of this recipe.
+  id: totrans-142
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，继续本食谱中的*TimescaleDB 配置*部分。
 - en: RHEL-based installation
+  id: totrans-143
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 基于 RHEL 的安装
 - en: 'Let’s start by logging in to our Linux CLI. We will need PostgreSQL version
     11 or higher. Let’s install version 12; first, disable AppStream:'
+  id: totrans-144
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 让我们从登录到 Linux CLI 开始。我们需要 PostgreSQL 版本 11 或更高版本。让我们安装版本 12；首先，禁用 AppStream：
 - en: '[PRE25]'
+  id: totrans-145
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE25]'
 - en: 'Add the correct repository:'
+  id: totrans-146
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 添加正确的仓库：
 - en: '[PRE26]'
+  id: totrans-147
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE26]'
 - en: 'Then, install PostgreSQL:'
+  id: totrans-148
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 然后，安装 PostgreSQL：
 - en: '[PRE27]'
+  id: totrans-149
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE27]'
 - en: 'Make sure to initialize the database:'
+  id: totrans-150
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 确保初始化数据库：
 - en: '[PRE28]'
+  id: totrans-151
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE28]'
 - en: 'Now, add the repo information to the file and save it:'
+  id: totrans-152
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，将仓库信息添加到文件中并保存：
 - en: '[PRE29]'
+  id: totrans-153
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE29]'
 - en: 'Install TimescaleDB with the installation command:'
+  id: totrans-154
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 使用安装命令安装 TimescaleDB：
 - en: '[PRE30]'
+  id: totrans-155
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE30]'
 - en: Now, continue with the *TimescaleDB configuration* section of this recipe.
+  id: totrans-156
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，继续执行本配方的 *TimescaleDB 配置* 部分。
 - en: TimescaleDB configuration
+  id: totrans-157
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: TimescaleDB 配置
 - en: 'In this section, we’ll go over how to set up TimescaleDB after finishing the
     installation process. There’s a lot more to configure, so let’s check it out:'
+  id: totrans-158
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本节中，我们将介绍在完成安装过程后如何设置 TimescaleDB。还有更多的配置内容，让我们一起来看看：
 - en: 'Let’s start by running the following command:'
+  id: totrans-159
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 让我们首先运行以下命令：
 - en: '[PRE31]'
+  id: totrans-160
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE31]'
 - en: 'Sometimes this does not work, and you want to specify the PostgreSQL location
     like this:'
+  id: totrans-161
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 有时这不起作用，您可以像这样指定 PostgreSQL 的位置：
 - en: '[PRE32]'
+  id: totrans-162
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE32]'
 - en: Go through the steps and answer the questions with **yes** or **no** accordingly.
     For a first-time setup, **yes** for everything is good.
+  id: totrans-163
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 按照步骤操作，并根据提示用 **yes** 或 **no** 回答问题。对于首次设置，所有选项选择 **yes** 是合适的。
 - en: 'Now, restart PostgreSQL:'
+  id: totrans-164
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，重新启动 PostgreSQL：
 - en: '[PRE33]'
+  id: totrans-165
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE33]'
 - en: If you haven’t already, download and install Zabbix with the following.
+  id: totrans-166
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 如果您还没有安装，请使用以下命令下载并安装 Zabbix。
 - en: 'The RHEL-based commands are as follows:'
+  id: totrans-167
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 基于 RHEL 的命令如下：
 - en: '[PRE34]'
+  id: totrans-168
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE34]'
 - en: 'The Ubuntu commands are as follows:'
+  id: totrans-169
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: Ubuntu 的命令如下：
 - en: '[PRE35]'
+  id: totrans-170
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE35]'
 - en: 'Create the initial database with the following:'
+  id: totrans-171
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 使用以下命令创建初始数据库：
 - en: '[PRE36]'
+  id: totrans-172
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE36]'
 - en: 'Import the database schema for PostgreSQL:'
+  id: totrans-173
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 导入 PostgreSQL 的数据库架构：
 - en: '[PRE37]'
+  id: totrans-174
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE37]'
 - en: 'Add the database password to the Zabbix configuration file by editing it:'
+  id: totrans-175
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 通过编辑 Zabbix 配置文件，将数据库密码添加到其中：
 - en: '[PRE38]'
+  id: totrans-176
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE38]'
 - en: 'Add the following lines, where **password** is your password as set in *step
     6* and **DBHost** is empty:'
+  id: totrans-177
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 添加以下行，其中 **password** 是在*第 6 步*中设置的密码，**DBHost** 留空：
 - en: '[PRE39]'
+  id: totrans-178
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE39]'
 - en: 'Now, enable the TimescaleDB extension with the following command:'
+  id: totrans-179
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，使用以下命令启用 TimescaleDB 扩展：
 - en: '[PRE40]'
+  id: totrans-180
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE40]'
 - en: 'Unpack the **timescale.sql** script located in your Zabbix share folder:'
+  id: totrans-181
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 解压位于 Zabbix 共享文件夹中的 **timescale.sql** 脚本：
 - en: '[PRE41]'
+  id: totrans-182
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE41]'
 - en: 'Now, let’s run **timescale.sql**:'
+  id: totrans-183
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，让我们运行 **timescale.sql**：
 - en: '[PRE42]'
+  id: totrans-184
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE42]'
 - en: 'We need to do one more thing before moving to the frontend. We need to edit
     the **pg_hba.conf** file to allow our Zabbix frontend to connect. Edit the following
     file:'
+  id: totrans-185
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在进入前端之前，我们还需要做一件事。我们需要编辑 **pg_hba.conf** 文件以允许我们的 Zabbix 前端进行连接。编辑以下文件：
 - en: '[PRE43]'
+  id: totrans-186
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE43]'
 - en: 'Make sure the following lines match in your file; they need to end with **md5**:'
+  id: totrans-187
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 确保文件中的以下行与之匹配；它们需要以 **md5** 结尾：
 - en: '[PRE44]'
+  id: totrans-188
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE44]'
 - en: 'Now, start Zabbix and finish the frontend setup using the following commands:'
+  id: totrans-189
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，启动 Zabbix 并使用以下命令完成前端设置：
 - en: 'On RHEL-based systems:'
+  id: totrans-190
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 在基于 RHEL 的系统上：
 - en: '[PRE45]'
+  id: totrans-191
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE45]'
 - en: 'On Ubuntu systems:'
+  id: totrans-192
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 在 Ubuntu 系统上：
 - en: '[PRE46]'
+  id: totrans-193
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE46]'
 - en: Once we navigate to the frontend and we’ve logged in to our setup, navigate
     to **Administration** | **Housekeeping**.
+  id: totrans-194
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 一旦我们进入前端并登录到我们的设置，导航到**管理** | **日常维护**。
 - en: 'We can now edit the following parameters to match our preferences, and TimescaleDB
     will take care of maintaining the data retention period:'
+  id: totrans-195
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，我们可以编辑以下参数以匹配我们的偏好，TimescaleDB 将负责维护数据保留期限：
 - en: "![Figure 12.9 – Zabbix Administration | Housekeeping, \uFEFF\uFEFFTimescaleDB-specific\
     \ op\uFEFFtions](img/B19803_12_10.jpg)"
+  id: totrans-196
   prefs: []
   type: TYPE_IMG
+  zh: "![图 12.9 – Zabbix 管理 | 日常维护，\uFEFFTimescaleDB 特定选项](img/B19803_12_10.jpg)"
 - en: Figure 12.9 – Zabbix Administration | Housekeeping, TimescaleDB-specific options
+  id: totrans-197
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 12.9 – Zabbix 管理 | 日常维护，TimescaleDB 特定选项
 - en: How it works…
+  id: totrans-198
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 它是如何工作的……
 - en: Using the TimescaleDB functionality with your Zabbix setup is a solid integration
     with your PostgreSQL database. The extension is supported by Zabbix, and you can
     expect it to only get better in the near future.
+  id: totrans-199
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用 TimescaleDB 功能与您的 Zabbix 设置集成，可以与 PostgreSQL 数据库实现稳固的集成。该扩展由 Zabbix 支持，预计在不久的将来将变得更好。
 - en: 'Now, how TimescaleDB works is by dividing up your PostgreSQL hypertable into
     time-based chunks. If we look at the following figure, we can see how that looks:'
+  id: totrans-200
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，TimescaleDB 的工作原理是将您的 PostgreSQL 超表按时间分割成数据块。如果我们查看下图，我们可以看到它的样子：
 - en: '![Figure 12.10 – TimescaleDB hypertable chunks diagram](img/B19803_12_11.jpg)'
+  id: totrans-201
   prefs: []
   type: TYPE_IMG
+  zh: '![图 12.10 – TimescaleDB 超表数据块示意图](img/B19803_12_11.jpg)'
 - en: Figure 12.10 – TimescaleDB hypertable chunks diagram
+  id: totrans-202
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 12.10 – TimescaleDB 超表数据块示意图
 - en: These time-based chunks are a lot faster to drop from the database than using
     the Zabbix housekeeper. The Zabbix housekeeper goes through our database data
     line by line to check the UNIX timestamp, and then it drops the line when it reaches
     data that is older than specified. This takes time and resources. Dropping a chunk,
     though, is almost instantaneous.
+  id: totrans-203
   prefs: []
   type: TYPE_NORMAL
+  zh: 这些基于时间的块比使用 Zabbix housekeeper 从数据库中删除要快得多。Zabbix housekeeper 会逐行遍历我们的数据库数据，检查
+    UNIX 时间戳，然后当数据超过指定时间时删除该行。这个过程需要时间和资源。而删除一个块几乎是瞬间完成的。
 - en: Another great thing about using TimescaleDB with a Zabbix database is that we
     can still use the frontend item history and trend configuration. On top of that,
     TimescaleDB can compress our data, to keep databases smaller.
+  id: totrans-204
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用 TimescaleDB 与 Zabbix 数据库结合的另一个优点是，我们仍然可以使用前端的项目历史记录和趋势配置。更重要的是，TimescaleDB
+    可以压缩我们的数据，以保持数据库的较小体积。
 - en: The downside is that we can’t specify different history and trends for different
     items; it’s all global now.
+  id: totrans-205
   prefs: []
   type: TYPE_NORMAL
+  zh: 缺点是我们不能为不同的项目指定不同的历史记录和趋势；现在这一切都是全局的。
 - en: See also
+  id: totrans-206
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 另见
 - en: 'This recipe details the installation of PostgreSQL TimescaleDB. As this process
     is constantly changing, you might need to include some new information from the
     official TimescaleDB documentation. Check out their documentation here:'
+  id: totrans-207
   prefs: []
   type: TYPE_NORMAL
+  zh: 本教程详细介绍了 PostgreSQL TimescaleDB 的安装。由于这个过程在不断变化，你可能需要从官方 TimescaleDB 文档中获取一些新的信息。你可以在这里查看它们的文档：
 - en: '[https://docs.timescale.com/latest/getting-started/installation/rhel-centos/installation-yum](https://docs.timescale.com/latest/getting-started/installation/rhel-centos/installation-yum)'
+  id: totrans-208
   prefs: []
   type: TYPE_NORMAL
+  zh: '[https://docs.timescale.com/latest/getting-started/installation/rhel-centos/installation-yum](https://docs.timescale.com/latest/getting-started/installation/rhel-centos/installation-yum)'
 - en: Securing your Zabbix MySQL database
+  id: totrans-209
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 保护你的 Zabbix MySQL 数据库
 - en: Another great added feature for the Zabbix server is the ability to encrypt
     data between the database and Zabbix components. This is particularly useful when
     you are running a split database and the Zabbix server over the network. A **Man-in-the-Middle**
     (**MITM**) attack or other attacks can be executed on the network to gain access
     to your monitoring data.
+  id: totrans-210
   prefs: []
   type: TYPE_NORMAL
+  zh: Zabbix 服务器的另一个伟大功能是能够加密数据库与 Zabbix 组件之间的数据。这在你使用分离的数据库和 Zabbix 服务器通过网络连接时尤其有用。**中间人攻击**
+    (**MITM**) 或其他攻击可以在网络上执行，从而获取你的监控数据。
 - en: In this recipe, we’ll set up MySQL encryption between Zabbix components and
     the database to add another layer of security.
+  id: totrans-211
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本教程中，我们将设置 MySQL 加密，确保 Zabbix 组件和数据库之间增加另一层安全性。
 - en: Getting ready
+  id: totrans-212
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: We are going to need a Zabbix setup that uses an external database. I’ll be
     using the Linux `lar-book-secure-db` and `lar-book-secure-zbx` hosts.
+  id: totrans-213
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们需要一个使用外部数据库的 Zabbix 设置。我将使用 Linux 的 `lar-book-secure-db` 和 `lar-book-secure-zbx`
+    主机。
 - en: The new server called `lar-book-secure-zbx` will be used to connect externally
     to the `lar-book-secure-db` database server. The database servers won’t run our
     Zabbix server; this process will run on `lar-book-secure-zbx`.
+  id: totrans-214
   prefs: []
   type: TYPE_NORMAL
+  zh: 新的服务器 `lar-book-secure-zbx` 将用于外部连接到 `lar-book-secure-db` 数据库服务器。数据库服务器不会运行我们的
+    Zabbix 服务器；这个过程将运行在 `lar-book-secure-zbx` 上。
 - en: Make sure that MariaDB is already installed on the `lar-book-secure-db` host
     and that you are running a recent supported version that is able to use encryption.
     If you don’t know how to upgrade your database, check out the recipe named *Upgrading
     Zabbix database from older MariaDB versions to MariaDB 10.5* in [*Chapter 11*](B19803_11.xhtml#_idTextAnchor2025),
     *Maintaining Your Zabbix Setup*, or check the documentation online.
+  id: totrans-215
   prefs: []
   type: TYPE_NORMAL
+  zh: 确保 `lar-book-secure-db` 主机上已安装 MariaDB，并且你正在运行支持加密的最新版本。如果你不知道如何升级数据库，请查看 [*第
+    11 章*](B19803_11.xhtml#_idTextAnchor2025) 中名为 *从旧版本的 MariaDB 升级 Zabbix 数据库到 MariaDB
+    10.5* 的教程，或查阅在线文档。
 - en: How to do it…
+  id: totrans-216
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 如何操作…
 - en: 'Make sure your host files on both hosts from the *Getting ready* section contain
     the hostname and IP for your Linux hosts and edit the file with the following:'
+  id: totrans-217
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 确保*准备工作*部分中两个主机的主机文件包含 Linux 主机的主机名和 IP，并按以下内容编辑文件：
 - en: '[PRE47]'
+  id: totrans-218
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE47]'
 - en: 'Then, fill in the file with your hostnames and IPs. It will look like this:'
+  id: totrans-219
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 然后，在文件中填写你的主机名和 IP。文件应如下所示：
 - en: '[PRE48]'
+  id: totrans-220
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE48]'
 - en: 'On the **lar-book-secure-db** MySQL server, if you haven’t already, create
     the Zabbix database by logging in to MySQL:'
+  id: totrans-221
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在 **lar-book-secure-db** MySQL 服务器上，如果还没做过，请通过登录 MySQL 创建 Zabbix 数据库：
 - en: '[PRE49]'
+  id: totrans-222
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE49]'
 - en: 'Then, issue the following command to create the database:'
+  id: totrans-223
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 然后，执行以下命令以创建数据库：
 - en: '[PRE50]'
+  id: totrans-224
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE50]'
 - en: 'Also, make sure to create a user that will be able to access the database securely.
     Make sure the IP matches the IP from the Zabbix server (and one for the Zabbix
     frontend if they are separate):'
+  id: totrans-225
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 同时，确保创建一个可以安全访问数据库的用户。确保 IP 地址与 Zabbix 服务器的 IP 地址匹配（如果 Zabbix 前端与服务器分开，则还需要匹配该前端的
+    IP 地址）：
 - en: '[PRE51]'
+  id: totrans-226
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE51]'
 - en: 'Quit MySQL and then make sure to run the secure **mysql** script with the following:'
+  id: totrans-227
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 退出 MySQL，然后确保使用以下命令运行安全的**mysql**脚本：
 - en: '[PRE52]'
+  id: totrans-228
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE52]'
 - en: 'Log in to **lar-book-secure-zbx** and install the Zabbix server repo with the
     following command:'
+  id: totrans-229
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 登录到**lar-book-secure-zbx**并使用以下命令安装 Zabbix 服务器仓库：
 - en: '[PRE53]'
+  id: totrans-230
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE53]'
 - en: 'Let’s add the MariaDB repository on our server:'
+  id: totrans-231
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 让我们在服务器上添加 MariaDB 仓库：
 - en: '[PRE54]'
+  id: totrans-232
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE54]'
 - en: Then, install the Zabbix server and its required components.
+  id: totrans-233
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 然后，安装 Zabbix 服务器及其必需的组件。
 - en: 'Use the following RHEL-based command:'
+  id: totrans-234
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 使用以下基于 RHEL 的命令：
 - en: '[PRE55]'
+  id: totrans-235
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE55]'
 - en: 'Use the following Ubuntu command:'
+  id: totrans-236
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 使用以下 Ubuntu 命令：
 - en: '[PRE56]'
+  id: totrans-237
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE56]'
 - en: 'From the Zabbix server, connect to the remote database server and import the
     database schema and default data with the following command:'
+  id: totrans-238
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 从 Zabbix 服务器连接到远程数据库服务器，并使用以下命令导入数据库架构和默认数据：
 - en: '[PRE57]'
+  id: totrans-239
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE57]'
 - en: 'Now we are going to open the file called **openssl.cnf** and edit it by issuing
     the following command:'
+  id: totrans-240
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在我们将打开名为**openssl.cnf**的文件，并通过发出以下命令进行编辑：
 - en: '[PRE58]'
+  id: totrans-241
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE58]'
 - en: 'In this file, we need to edit the following lines:'
+  id: totrans-242
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在此文件中，我们需要编辑以下行：
 - en: '[PRE59]'
+  id: totrans-243
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE59]'
 - en: 'It will look like this filled out completely:'
+  id: totrans-244
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 完整填写后将如下所示：
 - en: "![Figure 12.11 – OpenSSL config file \uFEFFwith our personal defaults](img/B19803_12_12.jpg)"
+  id: totrans-245
   prefs: []
   type: TYPE_IMG
+  zh: '![图 12.11 – 带有我们个人默认设置的 OpenSSL 配置文件](img/B19803_12_12.jpg)'
 - en: Figure 12.11 – OpenSSL config file with our personal defaults
+  id: totrans-246
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 12.11 – 带有我们个人默认设置的 OpenSSL 配置文件
 - en: 'We can also see this line:'
+  id: totrans-247
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们还可以看到这一行：
 - en: '[PRE60]'
+  id: totrans-248
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE60]'
 - en: This means the default directory is **/etc/pki/CA**; if yours is different,
     act accordingly. Close the file by saving, and continue.
+  id: totrans-249
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 这意味着默认目录是**/etc/pki/CA**；如果您的目录不同，请相应调整。保存并关闭文件，继续操作。
 - en: 'Let’s create a new folder for our private certificates using the following
     command:'
+  id: totrans-250
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 让我们使用以下命令为我们的私有证书创建一个新文件夹：
 - en: '[PRE61]'
+  id: totrans-251
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE61]'
 - en: 'Now, let’s create our key pair in the new folder. Issue the following command:'
+  id: totrans-252
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，让我们在新文件夹中创建我们的密钥对。发出以下命令：
 - en: '[PRE62]'
+  id: totrans-253
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE62]'
 - en: 'You will be prompted for a password now:'
+  id: totrans-254
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在将提示您输入密码：
 - en: "![Figure 12.12 – Certificate generation respons\uFEFFe asking for a password](img/B19803_12_13.jpg)"
+  id: totrans-255
   prefs: []
   type: TYPE_IMG
+  zh: '![图 12.12 – 证书生成响应，要求输入密码](img/B19803_12_13.jpg)'
 - en: Figure 12.12 – Certificate generation response asking for a password
+  id: totrans-256
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 12.12 – 证书生成响应，要求输入密码
 - en: You might also be prompted to enter some information about your company. It
     will use the default we filled in earlier, so you can just press *Enter* up until
     **Common Name**.
+  id: totrans-257
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 您也可能会被提示输入一些有关公司信息的内容。它将使用我们之前填写的默认值，因此您可以直接按*Enter*，直到**常用名称**。
 - en: 'Fill in **Root CA** for **Common Name** and add your email address like this:'
+  id: totrans-258
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在**常用名称**处填写**根证书颁发机构**，并像这样添加您的电子邮件地址：
 - en: '![Figure 12.13 – Certificate generation response asking for information, Root
     CA](img/B19803_12_14.jpg)'
+  id: totrans-259
   prefs: []
   type: TYPE_IMG
+  zh: '![图 12.13 – 证书生成响应，要求输入信息，根证书颁发机构](img/B19803_12_14.jpg)'
 - en: Figure 12.13 – Certificate generation response asking for information, Root
     CA
+  id: totrans-260
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 12.13 – 证书生成响应，要求输入信息，根证书颁发机构
 - en: 'Next up is creating the actual signed certificates that our Zabbix server will
     use. Let’s make sure that OpenSSL has the right files to keep track of signed
     certificates:'
+  id: totrans-261
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 接下来是创建 Zabbix 服务器将使用的实际签名证书。让我们确保 OpenSSL 拥有跟踪已签名证书所需的正确文件：
 - en: '[PRE63]'
+  id: totrans-262
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE63]'
 - en: 'Then, create the folders to keep our certificates in:'
+  id: totrans-263
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 然后，创建文件夹以存放我们的证书：
 - en: '[PRE64]'
+  id: totrans-264
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE64]'
 - en: 'Now, let’s create our certificate signing request for the **lar-book-secure-zbx**
     Zabbix server with the following command:'
+  id: totrans-265
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，让我们使用以下命令为**lar-book-secure-zbx** Zabbix 服务器创建证书签名请求：
 - en: '[PRE65]'
+  id: totrans-266
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE65]'
 - en: 'You will be prompted to add a password and your company information again.
     Use the default up until **Common Name**. We will fill out our **Common Name**,
     which will be the server hostname, and we’ll add our email address like this:'
+  id: totrans-267
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 您将被提示再次输入密码和公司信息。在**常用名称**之前使用默认设置。我们将填写我们的**常用名称**，即服务器的主机名，并像这样添加我们的电子邮件地址：
 - en: '![Figure 12.14 – Certificate generation response asking for information, lar-book-secure-zbx](img/B19803_12_15.jpg)'
+  id: totrans-268
   prefs: []
   type: TYPE_IMG
+  zh: '![图 12.14 – 证书生成响应，要求输入信息，lar-book-secure-zbx](img/B19803_12_15.jpg)'
 - en: Figure 12.14 – Certificate generation response asking for information, lar-book-secure-zbx
+  id: totrans-269
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 12.14 – 证书生成响应，要求输入信息，lar-book-secure-zbx
 - en: 'Let’s do the same for our **lar-book-secure-db** server:'
+  id: totrans-270
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 让我们对**lar-book-secure-db**服务器执行相同的操作：
 - en: '[PRE66]'
+  id: totrans-271
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE66]'
 - en: 'The response will look like this:'
+  id: totrans-272
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 响应将如下所示：
 - en: '![Figure 12.15 – Certificate generation response asking for information, lar-book-secure-db](img/Image96555.jpg)'
+  id: totrans-273
   prefs: []
   type: TYPE_IMG
+  zh: '![图 12.15 – 证书生成响应请求信息，lar-book-secure-db](img/Image96555.jpg)'
 - en: Figure 12.15 – Certificate generation response asking for information, lar-book-secure-db
+  id: totrans-274
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 12.15 – 证书生成响应请求信息，lar-book-secure-db
 - en: Important note
+  id: totrans-275
   prefs: []
   type: TYPE_NORMAL
+  zh: 重要提示
 - en: Our certificates need to be created without a password; otherwise, our MariaDB
     and Zabbix applications won’t be able to use them. Make sure to specify the **-****nodes**
     option.
+  id: totrans-276
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们的证书需要在没有密码的情况下创建；否则，MariaDB 和 Zabbix 应用程序将无法使用它们。确保指定 **-****nodes** 选项。
 - en: 'Now, sign the certificate for **lar-book-secure-zbx** with the following command:'
+  id: totrans-277
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，使用以下命令为 **lar-book-secure-zbx** 签署证书：
 - en: '[PRE67]'
+  id: totrans-278
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE67]'
 - en: You will be prompted with the question **Sign the certificate? [y/n]**. Answer
     this and all the following questions with **Y**.
+  id: totrans-279
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 您将被提示询问**签署证书吗？[y/n]**。请回答**Y**，并对所有后续问题也回答**Y**。
 - en: 'Now, let’s do the same thing for the **lar-book-secure-db** certificate:'
+  id: totrans-280
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，让我们对 **lar-book-secure-db** 证书做同样的操作：
 - en: '[PRE68]'
+  id: totrans-281
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE68]'
 - en: 'Let’s log in to the **lar-book-secure-db** MySQL server and create a directory
     for our newly created certificates:'
+  id: totrans-282
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 让我们登录到 **lar-book-secure-db** MySQL 服务器，并为我们新创建的证书创建一个目录：
 - en: '[PRE69]'
+  id: totrans-283
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE69]'
 - en: 'Add the right permissions to the folder:'
+  id: totrans-284
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 为文件夹添加正确的权限：
 - en: '[PRE70]'
+  id: totrans-285
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE70]'
 - en: 'Now, back on the new **lar-book-secure-zbx** Zabbix server, copy over the files
     to the database server with the following commands:'
+  id: totrans-286
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，回到新的 **lar-book-secure-zbx** Zabbix 服务器，使用以下命令将文件复制到数据库服务器：
 - en: '[PRE71]'
+  id: totrans-287
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE71]'
 - en: 'Now, back on the **lar-book-secure-db** MySQL server, add the right permissions
     to the files:'
+  id: totrans-288
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，回到 **lar-book-secure-db** MySQL 服务器，为文件添加正确的权限：
 - en: '[PRE72]'
+  id: totrans-289
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE72]'
 - en: 'Edit the MariaDB configuration file with the following command:'
+  id: totrans-290
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 使用以下命令编辑 MariaDB 配置文件：
 - en: '[PRE73]'
+  id: totrans-291
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE73]'
 - en: 'Add the following lines to the configuration file under the **[****mysqld]**
     block:'
+  id: totrans-292
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在 **[****mysqld]** 块下的配置文件中添加以下行：
 - en: '[PRE74]'
+  id: totrans-293
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE74]'
 - en: 'Log in to MySQL with the following command:'
+  id: totrans-294
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 使用以下命令登录 MySQL：
 - en: '[PRE75]'
+  id: totrans-295
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE75]'
 - en: 'Make sure our Zabbix MySQL user requires SSL encryption with the following:'
+  id: totrans-296
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 确保我们的 Zabbix MySQL 用户需要 SSL 加密，使用以下命令：
 - en: '[PRE76]'
+  id: totrans-297
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE76]'
 - en: Make sure the IP matches the IP from the Zabbix server (and one for the Zabbix
     frontend, if they are separated), just like we did in *step 2*.
+  id: totrans-298
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 确保 IP 地址与 Zabbix 服务器的 IP 地址匹配（如果它们分开，还要确保 Zabbix 前端的 IP 地址匹配），就像我们在*步骤 2*中做的那样。
 - en: 'Quit out of the MariaDB CLI and then restart MariaDB with the following command:'
+  id: totrans-299
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 退出 MariaDB CLI，然后使用以下命令重启 MariaDB：
 - en: '[PRE77]'
+  id: totrans-300
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE77]'
 - en: 'Now, back on the **lar-book-secure-zbx** Zabbix server, create a new folder
     for our certificates:'
+  id: totrans-301
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，回到 **lar-book-secure-zbx** Zabbix 服务器，创建一个新文件夹来存放我们的证书：
 - en: '[PRE78]'
+  id: totrans-302
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE78]'
 - en: 'Copy the certificates over to this folder with the following:'
+  id: totrans-303
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 使用以下命令将证书复制到这个文件夹中：
 - en: '[PRE79]'
+  id: totrans-304
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE79]'
 - en: 'Edit the Zabbix server configuration file to use these certificates:'
+  id: totrans-305
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 编辑 Zabbix 服务器配置文件，以便使用这些证书：
 - en: '[PRE80]'
+  id: totrans-306
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE80]'
 - en: 'Make sure the following lines match our **lar-book-secure-db** database server’s
     setup:'
+  id: totrans-307
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 确保以下行与我们的 **lar-book-secure-db** 数据库服务器的设置匹配：
 - en: '[PRE81]'
+  id: totrans-308
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE81]'
 - en: 'Now, make sure our SSL-related configuration matches our new files:'
+  id: totrans-309
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，确保我们的 SSL 配置与新文件匹配：
 - en: '[PRE82]'
+  id: totrans-310
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE82]'
 - en: 'Also, make sure to add the right permissions to the SSL-related files:'
+  id: totrans-311
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 同时，请确保为与 SSL 相关的文件添加正确的权限：
 - en: '[PRE83]'
+  id: totrans-312
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE83]'
 - en: 'Start and enable the Zabbix server with the following commands:'
+  id: totrans-313
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 使用以下命令启动并启用 Zabbix 服务器：
 - en: 'RHEL-based systems:'
+  id: totrans-314
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 基于 RHEL 的系统：
 - en: '**systemctl restart zabbix-server zabbix-agent2** **httpd php-fpm**'
+  id: totrans-315
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**systemctl restart zabbix-server zabbix-agent2** **httpd php-fpm**'
 - en: '**systemctl enable zabbix-server zabbix-agent2** **httpd php-fpm**'
+  id: totrans-316
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**systemctl enable zabbix-server zabbix-agent2** **httpd php-fpm**'
 - en: 'Ubuntu systems:'
+  id: totrans-317
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: Ubuntu 系统：
 - en: '**systemctl restart zabbix-server zabbix-agent2** **apache2 php-fpm**'
+  id: totrans-318
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**systemctl restart zabbix-server zabbix-agent2** **apache2 php-fpm**'
 - en: '**systemctl enable zabbix-server zabbix-agent2** **apache2 php-fpm**'
+  id: totrans-319
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**systemctl enable zabbix-server zabbix-agent2** **apache2 php-fpm**'
 - en: 'Then, navigate to the Zabbix frontend and fill in the right information, as
     shown in the following screenshot:'
+  id: totrans-320
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 然后，导航到 Zabbix 前端并填写正确的信息，如下图所示：
 - en: "![Figure 12.16 – Zabbix frontend c\uFEFFonfiguration, database step](img/B19803_12_16.jpg)"
+  id: totrans-321
   prefs: []
   type: TYPE_IMG
+  zh: '![图 12.16 – Zabbix 前端配置，数据库步骤](img/B19803_12_16.jpg)'
 - en: Figure 12.16 – Zabbix frontend configuration, database step
+  id: totrans-322
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 12.16 – Zabbix 前端配置，数据库步骤
 - en: 'When we click **Next step**, we need to fill out some more information:'
+  id: totrans-323
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 当我们点击**下一步**时，我们需要填写一些更多的信息：
 - en: '![Figure 12.17 – Zabbix frontend configuration, server details step](img/B19803_12_17.jpg)'
+  id: totrans-324
   prefs: []
   type: TYPE_IMG
+  zh: '![图 12.17 – Zabbix 前端配置，服务器详情步骤](img/B19803_12_17.jpg)'
 - en: Figure 12.17 – Zabbix frontend configuration, server details step
+  id: totrans-325
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 12.17 – Zabbix 前端配置，服务器详情步骤
 - en: Then, after clicking **Next step**, **Next step**, and **Finish**, the frontend
     should now be configured and working.
+  id: totrans-326
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 然后，在点击**下一步**、**下一步**和**完成**后，前端应该已经配置好并且能够正常工作。
 - en: How it works…
+  id: totrans-327
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 它是如何工作的……
 - en: 'This was quite a long recipe, so let’s break it down quickly:'
+  id: totrans-328
   prefs: []
   type: TYPE_NORMAL
+  zh: 这是一篇比较长的教程，下面让我们快速总结一下：
 - en: In *steps 1* through *9*, we prepared our servers
+  id: totrans-329
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在*步骤 1*至*9*中，我们准备了我们的服务器
 - en: In *steps 10* through *37*, we executed everything needed to create our certificates
+  id: totrans-330
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在*步骤 10*至*37*中，我们执行了创建证书所需的所有操作
 - en: In *steps 38* through *47*, we set up our Zabbix frontend for encryption
+  id: totrans-331
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在*步骤 38*至*47*中，我们为 Zabbix 前端配置了加密
 - en: Going through all these steps, setting up your Zabbix database securely can
     seem like quite a daunting task, and it can be. Certificates, login procedures,
     loads of settings, and more can all add up to become very complicated, which is
     why I’d always recommend diving deeper into encryption methods before trying to
     set this up yourself.
+  id: totrans-332
   prefs: []
   type: TYPE_NORMAL
+  zh: 经过这些步骤后，安全地设置 Zabbix 数据库可能看起来是一项艰巨的任务，实际上确实如此。证书、登录程序、大量设置等因素都可能变得非常复杂，这也是我始终建议在尝试自己配置之前深入研究加密方法的原因。
 - en: If your setup requires encryption, though, this recipe is a solid starting point
     for your first-time setup. It works very well in an internal setting, as we are
     using private certificates.
+  id: totrans-333
   prefs: []
   type: TYPE_NORMAL
+  zh: 然而，如果您的配置需要加密，本文提供的配置方法是第一次设置的良好起点。它在内部环境中运行良好，因为我们使用的是私有证书。
 - en: Important note
+  id: totrans-334
   prefs: []
   type: TYPE_NORMAL
+  zh: 重要提示
 - en: Make sure to renew your SSL certificates, as they are only valid for however
     long we defined. In this case, it’s 365 days, so we will renew them every year.
     It’s also a good plan to monitor the expiry date of the certificate and create
     an alert in Zabbix for it.
+  id: totrans-335
   prefs: []
   type: TYPE_NORMAL
+  zh: 确保更新您的 SSL 证书，因为它们的有效期仅限于我们定义的时长。在这种情况下是365天，因此我们每年都会更新一次。一个不错的计划是监控证书的到期日期，并在
+    Zabbix 中为其创建警报。
 - en: 'All Zabbix components, except for communication between the Zabbix server and
     Zabbix frontend, can be encrypted, as shown in the following diagram:'
+  id: totrans-336
   prefs: []
   type: TYPE_NORMAL
+  zh: 除了 Zabbix 服务器与 Zabbix 前端之间的通信外，所有 Zabbix 组件都可以加密，如下图所示：
 - en: '![Figure 12.18 – Zabbix encryption scheme possibilities](img/B19803_12_18.jpg)'
+  id: totrans-337
   prefs: []
   type: TYPE_IMG
+  zh: '![图 12.18 – Zabbix 加密方案的可能性](img/B19803_12_18.jpg)'
 - en: Figure 12.18 – Zabbix encryption scheme possibilities
+  id: totrans-338
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 12.18 – Zabbix 加密方案的可能性
 - en: 'We’ve set up encryption between the following:'
+  id: totrans-339
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们已经在以下组件之间设置了加密：
 - en: The Zabbix server and MariaDB
+  id: totrans-340
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: Zabbix 服务器和 MariaDB
 - en: The Zabbix frontend and MariaDB
+  id: totrans-341
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: Zabbix 前端和 MariaDB
 - en: 'This means that when our Zabbix server or frontend requests or writes data
     to our database, it will be encrypted. Because our Zabbix applications are running
     on a different server than our Zabbix database, this might be important. For example,
     our setup might look like this:'
+  id: totrans-342
   prefs: []
   type: TYPE_NORMAL
+  zh: 这意味着，当我们的 Zabbix 服务器或前端请求或写入数据库数据时，它将被加密。因为我们的 Zabbix 应用程序运行在与 Zabbix 数据库不同的服务器上，这一点可能很重要。例如，我们的配置可能是这样的：
 - en: "![Figure 12.19 – Zabbix setup with an externa\uFEFFl network diagram](img/B19803_12_19.jpg)"
+  id: totrans-343
   prefs: []
   type: TYPE_IMG
+  zh: '![图 12.19 – 带有外部网络图的 Zabbix 配置](img/B19803_12_19.jpg)'
 - en: Figure 12.19 – Zabbix setup with an external network diagram
+  id: totrans-344
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 12.19 – 带有外部网络图的 Zabbix 配置
 - en: Let’s say the cloud is called **Some company** in a network that isn’t managed
     by us. There are several switches and routers in this network that are used for
     numerous clients with their own VLANs. If one of these devices gets compromised
     somehow, all of our Zabbix data could be seen by others.
+  id: totrans-345
   prefs: []
   type: TYPE_NORMAL
+  zh: 假设云平台的名称是**某公司**，并且其网络不由我们管理。该网络中有多个交换机和路由器，用于多个具有独立 VLAN 的客户。如果其中某个设备被攻破，我们的所有
+    Zabbix 数据都可能被他人查看。
 - en: Even if the network equipment is ours, there might still be a compromised device
     in the network and our data can be seen. This is why you might want to add encryption,
     to add that extra layer of security. Whether it’s breaches in other companies
     and their network that you want to secure against or whether it’s against your
     own breaches, securing your database as we did in this recipe might just save
     you from leaking all that data.
+  id: totrans-346
   prefs: []
   type: TYPE_NORMAL
+  zh: 即使网络设备是我们的，网络中仍然可能存在被攻破的设备，我们的数据也可能被查看。这就是为什么你可能想要添加加密，以增加额外的安全层。无论是防止其他公司及其网络的入侵，还是防止我们自己出现漏洞，像我们在本教程中做的那样保护数据库，可能会帮助你避免泄露所有数据。
