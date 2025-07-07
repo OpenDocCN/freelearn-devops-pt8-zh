@@ -1,51 +1,69 @@
 - en: Chapter 6. Clustering and Horizontal Scaling with LXC
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 第6章 使用LXC进行集群化和横向扩展
 - en: Running applications inside LXC containers provides for a convenient way of
     allocating and limiting resources, as we saw in earlier chapters. LXC is also
     great for creating clusters of applications, for example, a web-server farm that
     can be scaled horizontally or vertically.
+  id: totrans-1
   prefs: []
   type: TYPE_NORMAL
+  zh: 在LXC容器中运行应用程序提供了一种方便的资源分配和限制方式，正如我们在前面的章节中所看到的那样。LXC 也非常适合创建应用程序集群，例如，一个可以横向或纵向扩展的Web服务器集群。
 - en: Horizontal scaling is a way of adding more computing power to a cluster or a
     group of resources performing a common task. This is usually accomplished by adding
     more servers, virtual machines, or in the case of LXC, more containers to run
     the applications. In contrast, vertical scaling is done by adding more hardware
     or virtual resources, such as CPU and memory, to physical servers, VMs, or containers.
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: 横向扩展是向集群或执行共同任务的资源组中添加更多计算能力的一种方式。通常，这是通过添加更多的服务器、虚拟机，或在LXC的情况下，添加更多容器来运行应用程序来实现的。相反，纵向扩展是通过为物理服务器、虚拟机或容器添加更多硬件或虚拟资源（如CPU和内存）来实现的。
 - en: 'In this chapter, we are going to put all the knowledge you''ve gained so far
     toward do the following:'
+  id: totrans-3
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们将利用你迄今为止所学到的所有知识，做以下事情：
 - en: Creating a simple Apache cluster, running LXC on a minimal root filesystem with
     libvirt
+  id: totrans-4
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 创建一个简单的Apache集群，在最小根文件系统上运行LXC，并使用libvirt
 - en: Implementing a multinode web cluster with Apache and HAProxy using Open vSwitch
     and a mesh of GRE tunnels
+  id: totrans-5
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用Open vSwitch和GRE隧道网格实现带有Apache和HAProxy的多节点Web集群
 - en: Demonstrating how to add more containers by reusing the filesystem of existing
     LXC instances
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 演示如何通过重用现有LXC实例的文件系统来添加更多容器
 - en: Scaling applications with LXC
+  id: totrans-7
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用LXC扩展应用程序
 - en: LXC is pretty well-suited for virtual machine replacement in sense that it can
     contain a complete root filesystem for a Linux distribution, in which case, the
     only shared component with the host OS is the kernel. Applications can be installed
     in the container's root filesystem so that the host or other containers cannot
     share them. This isolation is useful if we want to run different versions of the
     same application and its dependencies, or different Linux distributions altogether.
+  id: totrans-8
   prefs: []
   type: TYPE_NORMAL
+  zh: LXC非常适合替代虚拟机，因为它可以容纳一个完整的Linux发行版根文件系统，在这种情况下，唯一与宿主操作系统共享的组件是内核。应用程序可以安装在容器的根文件系统中，使宿主机或其他容器无法共享它们。如果我们想运行相同应用程序及其依赖项的不同版本，或完全不同的Linux发行版，这种隔离是非常有用的。
 - en: On the other hand, libvirt LXC allows for the execution of a single process
     or a group of processes from a binary which is shared from the host OS by all
     containers. In this case, the containers share the host filesystem and only abstract
@@ -56,145 +74,212 @@
     on the minimal root filesystem in the container. We can then make a copy of the
     container's configuration file and the minimal root filesystem, and start it without
     many changes.
+  id: totrans-9
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一方面，libvirt LXC 允许从一个二进制文件执行单个进程或一组进程，这个二进制文件由所有容器共享，并来自宿主操作系统。在这种情况下，容器共享宿主文件系统，并且只抽象出某些目录。这对于某些应用场景非常有帮助，比如当应用程序可能不需要自己的专用文件系统时，例如，如果容器中的Linux发行版与宿主操作系统相同。扩展此类应用程序的关键是确保服务已安装在宿主机上，并且必要的配置文件在容器的最小根文件系统中存在。然后，我们可以复制容器的配置文件和最小根文件系统，并在没有太多更改的情况下启动它。
 - en: In the next two sections, we'll explore both scenarios. We'll start by building
     minimal root filesystem Apache containers with libvirt and load balancing them
     with HAProxy, and then move on to build an Apache cluster with LXC, and dedicated
     filesystems and network isolation with Open vSwitch with a mesh of GRE tunnels.
+  id: totrans-10
   prefs: []
   type: TYPE_NORMAL
+  zh: 在接下来的两节中，我们将探讨这两种情况。我们将首先通过libvirt构建最小根文件系统的Apache容器，并使用HAProxy进行负载均衡，然后转向使用LXC构建Apache集群，并通过Open
+    vSwitch与GRE隧道网格实现专用文件系统和网络隔离。
 - en: Scaling Apache in minimal root filesystem with libvirt LXC
+  id: totrans-11
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 在最小根文件系统中使用libvirt LXC扩展Apache
 - en: In this section, we'll demonstrate how to run multiple Apache servers on the
     same host using libvirt LXC and a minimal root filesystem for each container.
     The Apache binary and libraries will be shared among containers. Even though this
     approach may not be most suitable for Apache, but rather simpler single-threaded
     processes, it will help us demonstrate this concept in a more practical manner.
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这一部分，我们将展示如何使用 libvirt LXC 和为每个容器创建最小的根文件系统，在同一主机上运行多个 Apache 服务器。Apache 的二进制文件和库将被容器共享。尽管这种方法可能不适用于
+    Apache，而更适合简单的单线程进程，但它将帮助我们以更实际的方式展示这一概念。
 - en: 'For this example, we''ll use Ubuntu, but the same instructions apply to CentOS,
     as we demonstrated in [Chapter 2](ch02.html "Chapter 2. Installing and Running
     LXC on Linux Systems"), *Installing and Running LXC on Linux Systems*. Following
     are the steps for the example:'
+  id: totrans-13
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这个例子中，我们将使用 Ubuntu，但相同的指令适用于 CentOS，正如我们在[第 2 章](ch02.html "第 2 章. 在 Linux
+    系统上安装和运行 LXC")，*在 Linux 系统上安装和运行 LXC*中所展示的那样。以下是该示例的步骤：
 - en: 'Let''s begin by updating the OS and ensure it''s running the latest kernel:'
+  id: totrans-14
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 让我们从更新操作系统开始，确保它运行的是最新的内核：
 - en: '[PRE0]'
+  id: totrans-15
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: 'The latest libvirt package on Ubuntu Xenial as of this writing is shown here:'
+  id: totrans-16
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 截至本写作时，Ubuntu Xenial 上的最新 libvirt 包如下所示：
 - en: '[PRE1]'
+  id: totrans-17
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: 'Next, install the libvirt packages:'
+  id: totrans-18
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 接下来，安装 libvirt 包：
 - en: '[PRE2]'
+  id: totrans-19
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: 'Conveniently, libvirt created the bridge for us:'
+  id: totrans-20
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 方便的是，libvirt 为我们创建了桥接：
 - en: '[PRE3]'
+  id: totrans-21
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: 'We''ll be using the `default` libvirt network; let''s ensure it is present:'
+  id: totrans-22
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们将使用 `default` libvirt 网络；让我们确保它存在：
 - en: '[PRE4]'
+  id: totrans-23
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: 'To examine the `default` network and gateway that libvirt will use, run the
     following command:'
+  id: totrans-24
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 要检查 libvirt 使用的 `default` 网络和网关，请运行以下命令：
 - en: '[PRE5]'
+  id: totrans-25
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: 'The libvirt toolkit also started `dnsmasq`, which will assign the network settings
     to the LXC containers if we configure them to use DHCP:'
+  id: totrans-26
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: libvirt 工具包还启动了 `dnsmasq`，如果我们配置它们使用 DHCP，它将为 LXC 容器分配网络设置：
 - en: '[PRE6]'
+  id: totrans-27
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: 'We''ll be using the default `dnsmasq` config, but let''s ensure the DHCP range
     matches what `libvirt-net` knows from the preceding output:'
+  id: totrans-28
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们将使用默认的 `dnsmasq` 配置，但让我们确保 DHCP 范围与 `libvirt-net` 在前面的输出中所知道的范围匹配：
 - en: '[PRE7]'
+  id: totrans-29
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: Creating the minimal root filesystem for the containers
+  id: totrans-30
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 为容器创建最小的根文件系统
 - en: For this example, we are not going to use the provided templates or use the
     `debootstrap` command to build a full-fledged filesystem for the container, but
     instead create a minimal directory structure to host the configuring files for
     Apache and the container. The rest will be in the same `mount` namespace as the
     host OS, with the exception of a few directories that we are going to bind to
     the container.
+  id: totrans-31
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于这个例子，我们不会使用提供的模板，也不会使用 `debootstrap` 命令来构建完整的文件系统，而是创建一个最小的目录结构来托管 Apache
+    配置文件和容器。其他部分将与主机操作系统位于相同的 `mount` 命名空间中，除了几个我们将绑定到容器的目录。
 - en: 'Follow these steps to create the minimal root filesystem for the containers:'
+  id: totrans-32
   prefs: []
   type: TYPE_NORMAL
+  zh: 按照以下步骤为容器创建最小的根文件系统：
 - en: 'Let''s start by creating the directories; copy the necessary files and install
     Apache on the host:'
+  id: totrans-33
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 首先，创建目录；复制必要的文件并在主机上安装 Apache：
 - en: '[PRE8]'
+  id: totrans-34
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: 'Next, create the `index.html` page for Apache and configure the web server
     with its own unique PID file, which will later allow us to start multiple Apache
     processes:'
+  id: totrans-35
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 接下来，创建 Apache 的 `index.html` 页面，并配置 Web 服务器使用自己独特的 PID 文件，这将使我们以后能够启动多个 Apache
+    进程：
 - en: '[PRE9]'
+  id: totrans-36
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: 'Configure the network interfaces file to use DHCP, so we can leverage the `dnsmasq`
     server that `libvirtd` started earlier:'
+  id: totrans-37
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 配置网络接口文件以使用 DHCP，这样我们就可以利用之前 `libvirtd` 启动的 `dnsmasq` 服务器：
 - en: '[PRE10]'
+  id: totrans-38
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: Defining the Apache libvirt container
+  id: totrans-39
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 定义 Apache libvirt 容器
 - en: 'In order to build LXC containers with libvirt, we need to create the configuration
     file that contains the attributes of the containers. With the directory structure
     in place from the previous steps and Apache installed on the host, we can define
@@ -202,205 +287,305 @@
     we talked about libvirt in [Chapter 3](ch03.html "Chapter 3. Command-Line Operations
     Using Native and Libvirt Tools"), *Command-Line Operations Using Native and Libvirt
     Tools*. To view the configuration, run the following:'
+  id: totrans-40
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了使用 libvirt 构建 LXC 容器，我们需要创建一个包含容器属性的配置文件。根据前面步骤创建的目录结构以及主机上安装的 Apache，我们可以定义容器的配置文件。当我们在[第
+    3 章](ch03.html "第 3 章. 使用原生和 libvirt 工具的命令行操作")，*使用原生和 libvirt 工具的命令行操作*中谈到 libvirt
+    时，已经看到过类似的配置。要查看配置，请运行以下命令：
 - en: '[PRE11]'
+  id: totrans-41
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE11]'
 - en: 'What is new in the preceding configuration is that, instead of specifying `/sbin/init`
     as the type of init system, we configure libvirt to use a custom script—`startup.sh`.
     The script can be anything we like; in this case, it will start the networking
     in the container, configure the shell, execute `dhclient` to obtain the network
     settings from `dnsmasq`, and then start Apache and bash:'
+  id: totrans-42
   prefs: []
   type: TYPE_NORMAL
+  zh: 前面配置中的新变化是，我们不再指定`/sbin/init`作为初始化系统的类型，而是配置libvirt使用自定义脚本—`startup.sh`。该脚本可以是任何我们喜欢的脚本；在此情况下，它将启动容器中的网络配置，配置shell，执行`dhclient`从`dnsmasq`获取网络设置，然后启动Apache和bash：
 - en: '[PRE12]'
+  id: totrans-43
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE12]'
 - en: 'Next, make the script executable:'
+  id: totrans-44
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来，设置脚本为可执行：
 - en: '[PRE13]'
+  id: totrans-45
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE13]'
 - en: 'The root directory of the container should look like the following:'
+  id: totrans-46
   prefs: []
   type: TYPE_NORMAL
+  zh: 容器的根目录应该如下所示：
 - en: '[PRE14]'
+  id: totrans-47
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE14]'
 - en: 'Only two directories are present! We are now ready to define the container:'
+  id: totrans-48
   prefs: []
   type: TYPE_NORMAL
+  zh: 只有两个目录！我们现在准备定义容器：
 - en: '[PRE15]'
+  id: totrans-49
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE15]'
 - en: Starting the Apache libvirt container
+  id: totrans-50
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 启动Apache libvirt容器
 - en: 'With all the necessary components in place, let''s start the container and
     confirm that it''s running:'
+  id: totrans-51
   prefs: []
   type: TYPE_NORMAL
+  zh: 所有必要的组件就位后，让我们启动容器并确认它正在运行：
 - en: '[PRE16]'
+  id: totrans-52
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE16]'
 - en: When listing the processes on the host, notice how the container was started
     from the `libvirt_lxc` script, which is the parent process of the `startup.sh`
     script, which in turn launched Apache.
+  id: totrans-53
   prefs: []
   type: TYPE_NORMAL
+  zh: 在列出宿主上的进程时，注意容器是如何从`libvirt_lxc`脚本启动的，它是`startup.sh`脚本的父进程，后者又启动了Apache。
 - en: 'Connect to the container and ensure it was able to obtain an IP address and
     default gateway from `dnsmasq`:'
+  id: totrans-54
   prefs: []
   type: TYPE_NORMAL
+  zh: 连接到容器并确保它能够从`dnsmasq`获取IP地址和默认网关：
 - en: '[PRE17]'
+  id: totrans-55
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE17]'
 - en: 'Let''s connect to Apache from the host OS:'
+  id: totrans-56
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们从宿主操作系统连接到Apache：
 - en: '[PRE18]'
+  id: totrans-57
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE18]'
 - en: Note
+  id: totrans-58
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: The `192.168.122.70` IP address is what `dnsmasq` assigned to the container;
     you might need to replace it with whatever is the correct address on your system.
+  id: totrans-59
   prefs: []
   type: TYPE_NORMAL
+  zh: '`192.168.122.70`是`dnsmasq`分配给容器的IP地址；你可能需要将其替换为系统上的正确地址。'
 - en: Scaling Apache with libvirt LXC and HAProxy
+  id: totrans-60
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 使用libvirt LXC和HAProxy扩展Apache
 - en: 'For scaling Apache with libvirt LXC and HAProxy, follow these steps:'
+  id: totrans-61
   prefs: []
   type: TYPE_NORMAL
+  zh: 扩展Apache与libvirt LXC和HAProxy时，请按照以下步骤进行：
 - en: 'With one Apache container running, let''s quickly create a second one by copying
     the simple directory structure and libvirt config from the `http1` container:'
+  id: totrans-62
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 只运行一个Apache容器时，让我们通过复制`http1`容器的简单目录结构和libvirt配置来快速创建第二个容器：
 - en: '[PRE19]'
+  id: totrans-63
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE19]'
 - en: 'All we need to change is the name of the container, the PID file for Apache,
     and its index file:'
+  id: totrans-64
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们需要更改的只有容器的名称、Apache的PID文件和其索引文件：
 - en: '[PRE20]'
+  id: totrans-65
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE20]'
 - en: 'Define the new container and examine the directory structure that contains
     the root filesystem and the configuration files for both containers:'
+  id: totrans-66
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 定义新容器并检查包含根文件系统和两个容器配置文件的目录结构：
 - en: '[PRE21]'
+  id: totrans-67
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE21]'
 - en: 'Let''s start the new container and ensure both instances are running:'
+  id: totrans-68
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 让我们启动新容器并确保两个实例都在运行：
 - en: '[PRE22]'
+  id: totrans-69
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE22]'
 - en: 'To obtain more information about the Apache containers, run the following command:'
+  id: totrans-70
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 要获取有关Apache容器的更多信息，请运行以下命令：
 - en: '[PRE23]'
+  id: totrans-71
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE23]'
 - en: Note
+  id: totrans-72
   prefs:
   - PREF_IND
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: The `dominfo` output provides useful information about the container's memory
     and CPU utilization, which we can use for monitoring, alerting, and autoscaling,
     as we'll see in [Chapter 7](ch07.html "Chapter 7. Monitoring and Backups in a
     Containerized World"), *Monitoring and Backups in a Containerized World.* Note
     that the `OS Type` is set to `exe`, because the container's init system is a script.
+  id: totrans-73
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: '`dominfo`输出提供了关于容器内存和CPU利用率的有用信息，我们可以用来进行监控、警报和自动扩展，正如我们在[第7章](ch07.html "第7章
+    容器化世界中的监控与备份")，*容器化世界中的监控与备份*中所看到的那样。请注意，`OS类型`设置为`exe`，因为容器的初始化系统是一个脚本。'
 - en: 'Let''s test connectivity to Apache in the new container; replace the IP of
     the instance as necessary:'
+  id: totrans-74
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 让我们测试新容器中Apache的连通性；根据需要替换实例的IP：
 - en: '[PRE24]'
+  id: totrans-75
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE24]'
 - en: 'Both Apache processes are accessible from the host OS because of the common
     bridge they are all connected to. In order to access them from outside the host
     OS, we can install HAProxy on the server, with the IP addresses of the containers
     as its backend servers:'
+  id: totrans-76
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 由于所有容器都连接到相同的桥接网络，宿主操作系统可以访问这两个Apache进程。为了从宿主操作系统外部访问它们，我们可以在服务器上安装HAProxy，并将容器的IP地址作为其后端服务器：
 - en: '[PRE25]'
+  id: totrans-77
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE25]'
 - en: The IP addresses specified in the server lines of the `backend` section of the
     HAProxy config are those of the libvirt LXC containers. Update the files as needed.
+  id: totrans-78
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 在HAProxy配置的`backend`部分的服务器行中指定的IP地址是libvirt LXC容器的地址。根据需要更新文件。
 - en: In the `frontend` section of the config, we tell HAProxy to listen on port `80`
     and bind to all interfaces. In the `backend` section, we specify the IPs of both
     LXC containers. You might need to replace the IPs of the containers with those
     that `dnsmasq` provided on your system.
+  id: totrans-79
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 在配置的 `frontend` 部分，我们告诉 HAProxy 监听端口 `80` 并绑定到所有接口。在 `backend` 部分，我们指定了两个 LXC
+    容器的 IP 地址。您可能需要将容器的 IP 地址替换为 `dnsmasq` 在您的系统上提供的那些地址。
 - en: 'Restart HAProxy, since on Ubuntu, it starts automatically after package installation:'
+  id: totrans-80
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 重新启动 HAProxy，因为在 Ubuntu 上，包安装后它会自动启动：
 - en: '[PRE26]'
+  id: totrans-81
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE26]'
 - en: 'Then, ensure HAProxy is running and listening on port `80` on the host:'
+  id: totrans-82
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 然后，确保 HAProxy 正在运行，并且在主机上监听端口`80`：
 - en: '[PRE27]'
+  id: totrans-83
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE27]'
 - en: 'We configured HAProxy to use round robin for selecting backend nodes; let''s
     connect to it a few times and confirm we connected to Apache in each LXC container:'
+  id: totrans-84
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们配置了 HAProxy 使用轮询法来选择后端节点；现在，让我们连接几次并确认每次都连接到了每个 LXC 容器中的 Apache：
 - en: '[PRE28]'
+  id: totrans-85
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE28]'
 - en: 'Finally, we can stop one of the containers and ensure HAproxy will remove it
     from rotation:'
+  id: totrans-86
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 最后，我们可以停止其中一个容器，并确保 HAProxy 将其从轮询中移除：
 - en: '[PRE29]'
+  id: totrans-87
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE29]'
 - en: Apache might not be the best application to run in multiple containers on the
     same host. Nevertheless, it helps to demonstrate how easy it is to scale applications
     running in minimal LXC containers with libvirt LXC, behind a proxy, or how to
@@ -410,24 +595,36 @@
     that server. The preceding setup might seem simple, but it provides a powerful
     way to scale services in lightweight LXC containers that will not require much
     disk space.
+  id: totrans-88
   prefs: []
   type: TYPE_NORMAL
+  zh: Apache 可能不是在同一主机上运行多个容器的最佳应用程序。不过，它有助于展示如何在最小的 LXC 容器中扩展应用程序，如何在代理后使用 libvirt
+    LXC，或如何构建一个多租户环境。使用来自所有容器的共享二进制文件的附加好处是，升级这些文件时无需对每个 LXC 实例进行更改，而只需对主机操作系统进行更改，这些更改将在该服务器的所有容器中可见。前述设置可能看起来很简单，但它提供了一种强大的方法来扩展轻量级
+    LXC 容器中的服务，而不会占用太多磁盘空间。
 - en: Scaling Apache with a full LXC root filesystem and OVS GRE tunnels
+  id: totrans-89
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 通过完整的 LXC 根文件系统和 OVS GRE 隧道扩展 Apache
 - en: 'Running multiple containers on the same host with a minimal filesystem for
     each is great in some scenarios, but let''s focus on a more complex multiserver
     deployment example next. The following diagram shows the deployment we are going
     to build in this section:'
+  id: totrans-90
   prefs: []
   type: TYPE_NORMAL
+  zh: 在某些场景下，在同一主机上运行多个容器，并为每个容器提供最小文件系统是很好的，但接下来我们将重点介绍一个更复杂的多服务器部署示例。下图展示了我们将在本节中构建的部署结构：
 - en: '![Scaling Apache with a full LXC root filesystem and OVS GRE tunnels](img/image_06_001.jpg)'
+  id: totrans-91
   prefs: []
   type: TYPE_IMG
+  zh: '![通过完整的 LXC 根文件系统和 OVS GRE 隧道扩展 Apache](img/image_06_001.jpg)'
 - en: Multiserver LXC deployment with LXC and GRE tunnels
+  id: totrans-92
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用 LXC 和 GRE 隧道的多服务器 LXC 部署
 - en: We are going to use three servers—`lxc-lb`, `lxc-node-01`, and `lxc-node-02`.
     Each one will have LXC and OVS installed. The `lxc-lb` host will host a container
     running HAProxy, and later, HAProxy on the server itself. The `lxc-node-01` and
@@ -437,509 +634,745 @@
     and the hosts, and potentially other containers and their networks. All containers
     will obtain their network configurations from `dnsmasq` running on the `lxc-lb`
     host.
+  id: totrans-93
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将使用三台服务器——`lxc-lb`、`lxc-node-01` 和 `lxc-node-02`。每台服务器都会安装 LXC 和 OVS。`lxc-lb`
+    主机将托管一个运行 HAProxy 的容器，稍后还会在服务器本身上运行 HAProxy。`lxc-node-01` 和 `lxc-node-02` 服务器将有容器运行
+    Apache。所有 LXC 实例将在一个专用的私有网络上通过连接到 OVS 的 GRE 隧道网状结构进行通信。OVS GRE 网状结构将在容器与主机之间，以及潜在的其他容器和它们的网络之间创建网络隔离。所有容器将从在
+    `lxc-lb` 主机上运行的 `dnsmasq` 获取网络配置。
 - en: For this deployment, we'll use three EC2 instances from AWS, running the latest
     Ubuntu Xenial release.
+  id: totrans-94
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于这个部署，我们将使用来自 AWS 的三台 EC2 实例，运行最新的 Ubuntu Xenial 版本。
 - en: Configuring the load-balancer host
+  id: totrans-95
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 配置负载均衡主机
 - en: 'To configure the load balancer host, follow these steps:'
+  id: totrans-96
   prefs: []
   type: TYPE_NORMAL
+  zh: 配置负载均衡主机，请按照以下步骤操作：
 - en: 'Let''s start with the `lxc-lb` server. Examine what LXC versions are available
     and install the latest:'
+  id: totrans-97
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 让我们从 `lxc-lb` 服务器开始。检查可用的 LXC 版本并安装最新版本：
 - en: '[PRE30]'
+  id: totrans-98
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE30]'
 - en: 'After installing the LXC packages and templates, we ended up with the Linux
     bridge as well, however, we are not going to use it:'
+  id: totrans-99
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 安装 LXC 包和模板后，我们也得到了 Linux 桥接，但我们不会使用它：
 - en: '[PRE31]'
+  id: totrans-100
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE31]'
 - en: 'Next, install OVS and create a new bridge named `lxcovsbr0`:'
+  id: totrans-101
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 接下来，安装 OVS 并创建一个名为 `lxcovsbr0` 的新桥接：
 - en: '[PRE32]'
+  id: totrans-102
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE32]'
 - en: 'The default LXC network uses the `10.0.3.0/24` subnet; we are going to replace
     it with `192.168.0.0/24`. This helps in cases where there''s already an existing
     LXC network, and we would like to start a new one and isolate certain sets of
     containers, and also help demonstrate the concept:'
+  id: totrans-103
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 默认的LXC网络使用`10.0.3.0/24`子网；我们将其替换为`192.168.0.0/24`。这样可以在已有LXC网络的情况下启动一个新的网络并隔离某些容器集合，同时也有助于展示这一概念：
 - en: '[PRE33]'
+  id: totrans-104
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE33]'
 - en: 'Replace the name of the default Linux bridge with the OVS bridge we just created,
     and change the network:'
+  id: totrans-105
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 将默认的Linux桥接名称替换为我们刚刚创建的OVS桥接，并更改网络：
 - en: '[PRE34]'
+  id: totrans-106
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE34]'
 - en: 'The `dnsmasq` service is configured for the `10.0.3.0/24` network, but after
     a restart, it should listen on the new subnet we specified earlier. Let''s reboot
     the server to ensure the changes will persist:'
+  id: totrans-107
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: '`dnsmasq`服务配置为`10.0.3.0/24`网络，但重启后，它应该会监听我们之前指定的新的子网。让我们重启服务器以确保更改会生效：'
 - en: '[PRE35]'
+  id: totrans-108
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE35]'
 - en: 'As expected, `dnsmasq` will now offer IPs from the `192.168.0.0/24` subnet:'
+  id: totrans-109
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 如预期所示，`dnsmasq`现在将提供来自`192.168.0.0/24`子网的IP地址：
 - en: '[PRE36]'
+  id: totrans-110
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE36]'
 - en: 'Examine the OVS bridge; it should be up and configured with an IP:'
+  id: totrans-111
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 检查OVS桥接；它应该已经启动并配置了IP地址：
 - en: '[PRE37]'
+  id: totrans-112
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE37]'
 - en: Creating the load-balancer container
+  id: totrans-113
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 创建负载均衡器容器
 - en: 'To create the load-balancer container, follow these steps:'
+  id: totrans-114
   prefs: []
   type: TYPE_NORMAL
+  zh: 创建负载均衡器容器，请按照以下步骤进行：
 - en: 'We are going to use the Ubuntu template to create the root filesystem of the
     HAProxy container:'
+  id: totrans-115
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们将使用Ubuntu模板来创建HAProxy容器的根文件系统：
 - en: '[PRE38]'
+  id: totrans-116
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE38]'
 - en: 'The OVS bridge should now have the containers interfaces added as a port—the
     `vethUY97FY`, in this example:'
+  id: totrans-117
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: OVS桥接现在应该已经将容器接口添加为端口——在本例中为`vethUY97FY`：
 - en: '[PRE39]'
+  id: totrans-118
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE39]'
 - en: 'Attach to the new container and make sure it received an IP address from the
     DHCP server running on the same host:'
+  id: totrans-119
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 连接到新容器，确保它已从同一主机上运行的DHCP服务器获得IP地址：
 - en: '[PRE40]'
+  id: totrans-120
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE40]'
 - en: 'The container should have connectivity to the host and the Internet. Let''s
     test that before moving on:'
+  id: totrans-121
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 容器应该能够连接到主机和互联网。我们在继续之前先测试一下：
 - en: '[PRE41]'
+  id: totrans-122
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE41]'
 - en: If connectivity is not working, make sure the `dnsmasq` server properly assigned
     an IP address and that the container is connected to the OVS bridge, and the bridge
     interface is up with an IP address itself.
+  id: totrans-123
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果连接不可用，请确保`dnsmasq`服务器正确分配了IP地址，并且容器连接到了OVS桥接，且桥接接口本身已经启动并配置了IP地址。
 - en: Building the GRE tunnels
+  id: totrans-124
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 构建GRE隧道
 - en: '**Generic Routing Encapsulation** (**GRE**) is a tunneling protocol that allows
     for building virtual point-to-point networks over the **Internet Protocol** (**IP**).
     We can use it to create a network mesh between the OVS switches on the three hosts,
     thus connecting the LXC containers to an isolated network. Each server (or EC2
     instance in this example) will connect to each other. The OVS provides a convenient
     way for establishing the GRE tunnels.'
+  id: totrans-125
   prefs: []
   type: TYPE_NORMAL
+  zh: '**通用路由封装**（**GRE**）是一种隧道协议，允许通过**互联网协议**（**IP**）建立虚拟点对点网络。我们可以使用它在三个主机上的OVS交换机之间创建一个网络网状结构，从而将LXC容器连接到一个隔离的网络。每个服务器（或者在这个例子中的EC2实例）将彼此连接。OVS提供了一种方便的方式来建立GRE隧道。'
 - en: 'While still on the load-balancer host, create two GRE tunnels to the other
     two servers, replacing the IPs as necessary:'
+  id: totrans-126
   prefs: []
   type: TYPE_NORMAL
+  zh: 仍然在负载均衡器主机上，创建两个到其他两台服务器的GRE隧道，并根据需要替换IP地址：
 - en: '[PRE42]'
+  id: totrans-127
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE42]'
 - en: Note
+  id: totrans-128
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: Notice that preceding IP addresses are those of the actual servers, not the
     containers.
+  id: totrans-129
   prefs: []
   type: TYPE_NORMAL
+  zh: 请注意，前面提到的IP地址是实际服务器的地址，而不是容器的地址。
 - en: 'Listing all ports on the bridge will now show the GRE ports as well:'
+  id: totrans-130
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，列出桥接上的所有端口将显示GRE端口：
 - en: '[PRE43]'
+  id: totrans-131
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE43]'
 - en: 'Since we are creating a network mesh between OVS, packet loops may occur. To
     prevent topology loops, we need to enable the **Spanning Tree Protocol** (**STP**)
     on OVS. STP is a layer-2 protocol that prevents network loops when creating redundant
     and interconnected links between switches. To enable it on the OVS switch, execute
     the following command:'
+  id: totrans-132
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于我们正在OVS之间创建网络网状结构，可能会发生数据包循环。为了防止拓扑循环，我们需要在OVS上启用**生成树协议**（**STP**）。STP是一种二层协议，在创建冗余和互联的交换机连接时防止网络环路。要在OVS交换机上启用它，请执行以下命令：
 - en: '[PRE44]'
+  id: totrans-133
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE44]'
 - en: With all of the preceding steps completed, the first host is now configured.
     In the next section, we are going to configure the rest of the servers in a similar
     way.
+  id: totrans-134
   prefs: []
   type: TYPE_NORMAL
+  zh: 完成所有前述步骤后，第一个主机已经配置完成。在接下来的部分，我们将以类似的方式配置其余的服务器。
 - en: Configuring the Apache nodes
+  id: totrans-135
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 配置Apache节点
 - en: 'To configure the Apache nodes, follow these steps:'
+  id: totrans-136
   prefs: []
   type: TYPE_NORMAL
+  zh: 配置Apache节点，请按照以下步骤进行：
 - en: 'On the first Apache node, install LXC and OVS, and create the bridge:'
+  id: totrans-137
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在第一个Apache节点上，安装LXC和OVS，并创建桥接：
 - en: '[PRE45]'
+  id: totrans-138
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE45]'
 - en: 'Replace the name of the bridge and change the subnet:'
+  id: totrans-139
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 替换桥接名称并更改子网：
 - en: '[PRE46]'
+  id: totrans-140
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE46]'
 - en: 'Create the GRE tunnels to the other two servers, replacing the IPs as needed:'
+  id: totrans-141
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 创建到另外两个服务器的GRE隧道，并根据需要替换IP：
 - en: '[PRE47]'
+  id: totrans-142
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE47]'
 - en: 'Enable STP on the bridge:'
+  id: totrans-143
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在桥接器上启用STP：
 - en: '[PRE48]'
+  id: totrans-144
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE48]'
 - en: 'Next, let''s create an Ubuntu container named `apache`:'
+  id: totrans-145
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 接下来，让我们创建一个名为`apache`的Ubuntu容器：
 - en: '[PRE49]'
+  id: totrans-146
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE49]'
 - en: 'Time to configure the last node in a similar fashion:'
+  id: totrans-147
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 是时候以类似方式配置最后一个节点了：
 - en: '[PRE50]'
+  id: totrans-148
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE50]'
 - en: 'Create the GRE tunnels:'
+  id: totrans-149
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 创建GRE隧道：
 - en: '[PRE51]'
+  id: totrans-150
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE51]'
 - en: 'Also, enable STP on the switch:'
+  id: totrans-151
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 同时，在交换机上启用STP：
 - en: '[PRE52]'
+  id: totrans-152
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE52]'
 - en: 'Finally, create and start the Apache container:'
+  id: totrans-153
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 最后，创建并启动Apache容器：
 - en: '[PRE53]'
+  id: totrans-154
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE53]'
 - en: Installing Apache and HAProxy, and testing connectivity
+  id: totrans-155
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 安装Apache和HAProxy，并测试连接性
 - en: With all the servers configured, the containers started, and the GRE tunnels
     established, let's test the connectivity between each LXC instance. Since all
     containers are part of the same network, connected to each other through the OVS
     switches with the GRE tunnels, they should be able to communicate with each other.
     Most importantly, the Apache containers will obtain their network configuration
     through DHCP from the `dnsmasq` service running on the `lxc-lb` server.
+  id: totrans-156
   prefs: []
   type: TYPE_NORMAL
+  zh: 配置好所有服务器，启动容器，建立GRE隧道后，让我们测试每个LXC实例之间的连接性。由于所有容器都属于同一网络，并通过GRE隧道与OVS交换机互联，它们应该能够相互通信。最重要的是，Apache容器将通过在`lxc-lb`服务器上运行的`dnsmasq`服务通过DHCP获取网络配置。
 - en: 'To verify that each container received a lease, we can examine the `dnsmasq`
     lease file by executing the following command:'
+  id: totrans-157
   prefs: []
   type: TYPE_NORMAL
+  zh: 要验证每个容器是否接收到租约，我们可以通过执行以下命令检查`dnsmasq`租约文件：
 - en: '[PRE54]'
+  id: totrans-158
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE54]'
 - en: 'Getting a lease might take a few seconds; you might need to check the file
     a few times before any IP is recorded. Once all containers have IPs, we should
     be able to see them when listing the containers on each server:'
+  id: totrans-159
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 获取租约可能需要几秒钟；你可能需要多次检查该文件，才能看到任何IP记录。一旦所有容器都分配了IP，我们应该能够在列出每个服务器的容器时看到它们：
 - en: '[PRE55]'
+  id: totrans-160
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE55]'
 - en: 'Next, let''s install HAProxy in the `haproxy` container on the node `lxc-lb`
     server and test connectivity between containers:'
+  id: totrans-161
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 接下来，让我们在`lxc-lb`服务器上的`haproxy`容器中安装HAProxy，并测试容器之间的连接性：
 - en: '[PRE56]'
+  id: totrans-162
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE56]'
 - en: Note
+  id: totrans-163
   prefs:
   - PREF_IND
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: 'If you are building this example deployment on a cloud provider and `apt-get
     update` hangs, try reducing the MTU setting of the `eth0` interface inside the
     LXC containers as follows: `ifconfig eth0 mtu 1400`.'
+  id: totrans-164
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 如果你在云提供商上构建这个示例部署，并且`apt-get update`挂起，请尝试将LXC容器中`eth0`接口的MTU设置减少如下：`ifconfig
+    eth0 mtu 1400`。
 - en: 'Let''s view the `haproxy.cfg` configuration file:'
+  id: totrans-165
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 让我们查看`haproxy.cfg`配置文件：
 - en: '[PRE57]'
+  id: totrans-166
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE57]'
 - en: The HAProxy configuration is almost identical to the one we used earlier in
     this chapter.
+  id: totrans-167
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: HAProxy的配置几乎与我们在本章前面使用的配置相同。
 - en: Note
+  id: totrans-168
   prefs:
   - PREF_IND
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: Note that the IP addresses in the `backend` section of the HAProxy configuration
     file are those of the Apache containers running on the `lxc-node-01/02` servers.
+  id: totrans-169
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 请注意，HAProxy配置文件中`backend`部分的IP地址是运行在`lxc-node-01/02`服务器上的Apache容器的IP。
 - en: 'Restart HAProxy and ensure it''s running:'
+  id: totrans-170
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 重启HAProxy并确保其正常运行：
 - en: '[PRE58]'
+  id: totrans-171
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE58]'
 - en: Notice, from the preceding output how, unlike the previous example with libvirt
     LXC we saw earlier in the chapter, the init process is the parent process in the
     container now.
+  id: totrans-172
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 请注意，从前面的输出中可以看到，与本章前面看到的libvirt LXC示例不同，现在容器中的初始化进程是父进程。
 - en: 'Install Apache in the other two containers and create an `index.html` page
     for each:'
+  id: totrans-173
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在另外两个容器中安装Apache，并为每个容器创建`index.html`页面：
 - en: '[PRE59]'
+  id: totrans-174
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE59]'
 - en: 'From within the `haproxy` container, connect to port `80` that HAProxy is listening
     on, and the load balancer should forward the requests to the Apache containers:'
+  id: totrans-175
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 从`haproxy`容器内，连接到HAProxy正在监听的端口`80`，负载均衡器应该将请求转发到Apache容器：
 - en: '[PRE60]'
+  id: totrans-176
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE60]'
 - en: 'We should be able to connect to HAProxy from the `lxc-lb` host as well, since
     the host OS can talk to the containers through the OVS switch:'
+  id: totrans-177
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们应该也能够从`lxc-lb`主机连接到HAProxy，因为主机操作系统可以通过OVS交换机与容器通信：
 - en: '[PRE61]'
+  id: totrans-178
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE61]'
 - en: The preceding `192.168.0.26` address is the IP of the `haproxy` container; replace
     it with whatever `dnsmasq` assigned on your system.
+  id: totrans-179
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 前面的`192.168.0.26`地址是`haproxy`容器的IP地址；请根据系统中`dnsmasq`分配的IP地址进行替换。
 - en: 'Finally, we can install HAProxy on the `lxc-lb` server itself, which will allow
     us to connect to the Apache servers from the outside world, if, for example, the
     `lxc-lb` host has a public IP. In this case, we don''t have to run HAProxy in
     the container at all, though we can reuse the same config:'
+  id: totrans-180
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 最后，我们可以在`lxc-lb`服务器本身上安装HAProxy，这将允许我们从外部世界连接到Apache服务器，例如，如果`lxc-lb`主机具有公共IP。在这种情况下，我们完全不需要在容器中运行HAProxy，尽管我们可以重用相同的配置：
 - en: '[PRE62]'
+  id: totrans-181
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE62]'
 - en: 'Copy the config from the container (listed earlier in this section) and restart
     HAProxy:'
+  id: totrans-182
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 从容器中复制配置（如本节前面所列）并重启HAProxy：
 - en: '[PRE63]'
+  id: totrans-183
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE63]'
 - en: Note
+  id: totrans-184
   prefs:
   - PREF_IND
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: Note that the `10.1.34.23` IP address is the address of the `lxc-lb` server
     in this example. If your server has more than one IP address or a public one,
     you can use any of them, since we configured HAProxy to bind to all interfaces.
+  id: totrans-185
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 请注意，`10.1.34.23` IP 地址是此示例中 `lxc-lb` 服务器的地址。如果您的服务器有多个 IP 地址或公共 IP 地址，可以使用其中任何一个，因为我们已经配置了
+    HAProxy 绑定到所有接口。
 - en: With this, we have a simple setup that can be used in production to create highly
     available services and scale them horizontally by adding more servers and containers,
     behind a load balancer such as HAProxy or Nginx.
+  id: totrans-186
   prefs: []
   type: TYPE_NORMAL
+  zh: 通过这样做，我们建立了一个简单的设置，可以在生产环境中使用，通过添加更多的服务器和容器，并通过 HAProxy 或 Nginx 等负载均衡器来水平扩展服务。
 - en: Scaling the Apache service
+  id: totrans-187
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 扩展 Apache 服务
 - en: Setups such as the preceding ones can be fully automated by creating snapshots
     of the container's filesystem and configuration files, with the services already
     installed; then use those copies to start new containers on demand.
+  id: totrans-188
   prefs: []
   type: TYPE_NORMAL
+  zh: 像前面那样的设置可以通过创建容器文件系统和配置文件的快照来完全自动化，这些快照已经安装了所需的服务；然后使用这些副本按需启动新的容器。
 - en: 'To demonstrate how to manually scale Apache by adding more containers, follow
     these steps:'
+  id: totrans-189
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了演示如何通过添加更多容器来手动扩展 Apache，请按照以下步骤操作：
 - en: 'First, stop one of the Apache instances:'
+  id: totrans-190
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 首先，停止其中一个 Apache 实例：
 - en: '[PRE64]'
+  id: totrans-191
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE64]'
 - en: 'Next, copy its root filesystem and the LXC configuration file:'
+  id: totrans-192
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 接下来，复制其根文件系统和 LXC 配置文件：
 - en: '[PRE65]'
+  id: totrans-193
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE65]'
 - en: 'Change the name of the new container and remove the MAC address from the configuration
     file. LXC will dynamically assign a new one when the container starts:'
+  id: totrans-194
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 更改新容器的名称，并从配置文件中删除 MAC 地址。LXC 会在容器启动时动态分配一个新的地址：
 - en: '[PRE66]'
+  id: totrans-195
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE66]'
 - en: 'We now have two containers on the host:'
+  id: totrans-196
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，我们在主机上有两个容器：
 - en: '[PRE67]'
+  id: totrans-197
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE67]'
 - en: 'Let''s start them both:'
+  id: totrans-198
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 让我们启动这两个容器：
 - en: '[PRE68]'
+  id: totrans-199
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE68]'
 - en: 'Since we copied the entire root filesystem from the original container, the
     Apache service is already installed in the new instance. Now, start it and ensure
     it''s running:'
+  id: totrans-200
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 由于我们已经从原始容器复制了整个根文件系统，因此 Apache 服务已在新实例中安装。现在，启动它并确保它正在运行：
 - en: '[PRE69]'
+  id: totrans-201
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE69]'
 - en: A similar process to this can be fully automated with services such as Jenkins
     and distributed between different servers to achieve a level of service autoscaling.
     We'll explore this setup in further detail in [Chapter 7](ch07.html "Chapter 7. Monitoring
     and Backups in a Containerized World"), *Monitoring and Backups in a Containerized
     World*.
+  id: totrans-202
   prefs: []
   type: TYPE_NORMAL
+  zh: 这个过程类似的操作可以通过 Jenkins 等服务完全自动化，并分布到不同的服务器上，从而实现服务的自动扩展。我们将在 [第七章](ch07.html
+    "第七章：容器化世界中的监控与备份")中更详细地探讨这个设置，*容器化世界中的监控与备份*。
 - en: Summary
+  id: totrans-203
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 概述
 - en: Using LXC to scale various workloads requires a proxy service such as HAProxy
     or Nginx, and the actual service running in containers. Network connectivity and
     segmentation can be achieved using software-defined networks with OVS and GRE
     tunnels.
+  id: totrans-204
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用 LXC 扩展各种工作负载需要一个代理服务，如 HAProxy 或 Nginx，并且实际的服务运行在容器中。通过使用软件定义网络（OVS 和 GRE
+    隧道），可以实现网络连接和分段。
 - en: In this chapter, we looked at how to run Apache in simple libvirt-based LXC
     containers that do not require an entire root filesystem, but rather a minimal
     set of directories with the shared binaries and libraries from the host OS. We
     also created an Apache cluster behind a load balancer on multiple servers, and
     demonstrated a simple yet effective way of scaling it by duplicating an LXC container.
+  id: totrans-205
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们介绍了如何在简单的基于 libvirt 的 LXC 容器中运行 Apache，这些容器不需要整个根文件系统，而只需包含主机操作系统中共享的二进制文件和库的最小目录集。我们还在多个服务器上创建了一个负载均衡器后面的
+    Apache 集群，并演示了通过复制 LXC 容器来简单而有效地扩展它的方法。
 - en: In the next chapter, we'll build on what you've learned so far, show how to
     monitor and back up LXC, and create an autoscaling service with Jenkins and Sensu.
+  id: totrans-206
   prefs: []
   type: TYPE_NORMAL
+  zh: 在下一章中，我们将继续你所学到的内容，展示如何监控和备份 LXC，并使用 Jenkins 和 Sensu 创建一个自动扩展服务。
