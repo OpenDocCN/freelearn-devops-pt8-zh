@@ -1,0 +1,987 @@
+<html><head></head><body><div class="chapter" title="Chapter&#xA0;6.&#xA0;Fundamentals of Managing Servers with Chef and Puppet"><div class="titlepage"><div><div><h1 class="title"><a id="ch06"/>Chapter 6. Fundamentals of Managing Servers with Chef and Puppet</h1></div></div></div><p>In this chapter, we will cover the following recipes:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Getting started (notions and tools)</li><li class="listitem" style="list-style-type: disc">Installing the Chef Development kit and Puppet Collections</li><li class="listitem" style="list-style-type: disc">Creating a free hosted server Chef account and a Puppet server</li><li class="listitem" style="list-style-type: disc">Automatically bootstrapping a Chef client and a Puppet agent</li><li class="listitem" style="list-style-type: disc">Installing packages</li><li class="listitem" style="list-style-type: disc">Managing services</li><li class="listitem" style="list-style-type: disc">Managing files, directories, and templates</li><li class="listitem" style="list-style-type: disc">Handling dependencies</li><li class="listitem" style="list-style-type: disc">More dynamic code using notifications</li><li class="listitem" style="list-style-type: disc">Centrally sharing data using a Chef data bag and Hiera with Puppet</li><li class="listitem" style="list-style-type: disc">Creating functional roles</li><li class="listitem" style="list-style-type: disc">Managing external Chef cookbooks and Puppet modules</li></ul></div><div class="section" title="Introduction"><div class="titlepage"><div><div><h1 class="title"><a id="ch06lvl1sec68"/>Introduction</h1></div></div></div><p>Chef <a id="id589" class="indexterm"/>is an open source tool used to automate the configuration of systems and it integrates well with most IaaS such as Amazon Web Services, OpenStack, or Google Cloud. Using Chef, we write infrastructure code in Ruby that describes how every aspect of the system is expected to behave according to a number of conditions, then apply it through various client tools to ensure the defined state is applied.</p><p>In this chapter, you'll discover the essentials of managing servers using Chef code with the <span class="strong"><strong>Chef Development Kit</strong></span> (<span class="strong"><strong>Chef DK</strong></span>). You'll learn how to bootstrap a working Chef environment on a new server, how to install packages and manage services, how easy it is to generate dynamic configurations through files and templates, create useful functional roles, centrally share data to dynamically generate content, and show how to articulate dependencies between services while helping them notify each other of their state, so the whole deployment chain works in order. We'll also have an introduction on easily managing those dependencies, that will give an insight of how to deal with more complex infrastructures managed by Chef.</p><p>To <a id="id590" class="indexterm"/>illustrate all those features, throughout the chapter we will build a classic <span class="strong"><strong>LAMP</strong></span> (<span class="strong"><strong>Linux</strong></span>, <span class="strong"><strong>Apache</strong></span>, <span class="strong"><strong>MySQL</strong></span>, <span class="strong"><strong>PHP</strong></span>) server on CentOS 7.x, from scratch, 100% automated with Chef. This way, we'll go through all the features while progressively building our end project—a working LAMP server with external dependencies on the latest community MySQL 5.7 release, and more features.</p><p>All recipes are based on Chef. However, when possible, we'll try to show how things work similarly with Puppet, Chef's direct alternative.</p></div></div>
+<div class="section" title="Getting started (notions and tools)"><div class="titlepage"><div><div><h1 class="title"><a id="ch06lvl1sec69"/>Getting started (notions and tools)</h1></div></div></div><p>Chef is <a id="id591" class="indexterm"/>a very complex system, with a lot of notions and vocabulary that can be very discouraging at first. In this chapter, we'll go through all the most important notions, so it can also serve as a quick cheat sheet or reminder.</p><div class="section"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec154"/></h2></div></div></div><div class="section" title="Running Chef"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec110"/>Running Chef</h3></div></div></div><p>Chef can <a id="id592" class="indexterm"/>be used in multiple ways, the most important are the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc"><span class="strong"><strong>Client/server mode</strong></span>: An <a id="id593" class="indexterm"/>agent runs on every managed <a id="id594" class="indexterm"/>client, regularly getting updates from the server, and applying them. In this mode, all Chef code is distributed from the Chef server.</li><li class="listitem" style="list-style-type: disc">Chef-Solo: In this <a id="id595" class="indexterm"/>mode, the need for a Chef server is removed at the cost of less features, including important ones such as search, API, persistent storage of nodes information, and more. All Chef code needs to be sent over in some way to be applied manually.</li></ul></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note37"/>Note</h3><p>Other modes exist, such as Chef Zero, but they are beyond the scope of this book.</p></div></div><p>The multi-platform client is written in Ruby, while its server counterpart is written in Erlang. The Chef server is open source (Apache License at the time of this writing) and everyone <a id="id596" class="indexterm"/> can host it, and the company behind Chef is also proposing their own hosted version, with added features and support.</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note38"/>Note</h3><p>A Chef server is a combination of many technologies such as PostgreSQL, RabbitMQ, Redis, Nginx, and so on. Think about maintenance, backup, and performance before deploying your own.</p></div></div></div><div class="section" title="Chef plugins"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec111"/>Chef plugins</h3></div></div></div><p>Chef is <a id="id597" class="indexterm"/>also highly modular, with a great number of plugins available either directly from Chef, vendors, or the community. Plugins range from IaaS support such as AWS, OpenStack, VMware, or Digital Ocean to hardware management from Dell, HP, or IPMI interfaces, team workflow integration, or system-related concerns such as logs handling, security, and other similar features.</p></div><div class="section" title="Chef organizations"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec112"/>Chef organizations</h3></div></div></div><p>At the <a id="id598" class="indexterm"/>very top of a Chef hierarchy, we find an <span class="emphasis"><em>organization</em></span>. Nothing can be shared between organizations and this is usually where is defined a <span class="emphasis"><em>company</em></span>, different <span class="emphasis"><em>business units</em></span>, or even deliberately isolated corporate <span class="emphasis"><em>departments</em></span>. It's really up to everyone to know what has to be shared with whom to know what the Chef organization will be.</p></div><div class="section" title="Chef nodes"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec113"/>Chef nodes</h3></div></div></div><p>A node, in <a id="id599" class="indexterm"/>Chef terminology, is anything managed by Chef, be it physical or virtual, and every node has a number of characteristics or parameters that we'll set or change during the lifetime of the node.</p></div><div class="section" title="Chef environments"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec114"/>Chef environments</h3></div></div></div><p>Every <a id="id600" class="indexterm"/>node runs inside an environment. Environments are usually matching notions such as <span class="emphasis"><em>development</em></span>, <span class="emphasis"><em>staging</em></span>, or <span class="emphasis"><em>production</em></span>, but it's not uncommon to see creative uses to manage different applications or other groups of interest. Environments also have a set of characteristics set.</p></div><div class="section" title="Chef roles"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec115"/>Chef roles</h3></div></div></div><p>Roles <a id="id601" class="indexterm"/>are usually functional and generic, more than centered around a product. For example, we'll see a <span class="emphasis"><em>database</em></span> role way more often than a <span class="emphasis"><em>MySQL</em></span> role. Other roles can be <span class="emphasis"><em>monitoring-server</em></span> or <span class="emphasis"><em>loadbalancer</em></span>.</p></div><div class="section" title="Chef resources"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec116"/>Chef resources</h3></div></div></div><p>This is <a id="id602" class="indexterm"/>the single most important notion in Chef: a resource is any part of a system to be set in a desired state. This includes a package to be installed or removed, a service to be enabled or started, a file to be generated from a template, a user to be created or banned, and other expected elements of a system.</p></div><div class="section" title="Chef recipes"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec117"/>Chef recipes</h3></div></div></div><p>Recipes <a id="id603" class="indexterm"/>are simply plain Ruby files including a number of Chef resources describing a coherent desired state, such as a package to be installed, its configuration file written, and a service to be restarted.</p></div><div class="section" title="Chef cookbooks"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec118"/>Chef cookbooks</h3></div></div></div><p>Chef cookbooks <a id="id604" class="indexterm"/>are used to group many recipes under a coherent set, as well as every other file required to make it work. An example cookbook can be <span class="emphasis"><em>mysql</em></span>, and two recipes from this cookbook can be <span class="emphasis"><em>mysql::server</em></span> to manage the server, and <span class="emphasis"><em>mysql::client</em></span> to manage a client.</p></div><div class="section" title="Chef run list"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec119"/>Chef run list</h3></div></div></div><p>A <span class="emphasis"><em>run list</em></span> is a <a id="id605" class="indexterm"/>list of roles or recipes that a node has to apply. This is sent by the Chef server by request from the chef client.</p></div></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec155"/>There's more…</h2></div></div></div><p>Puppet is a configuration tool published by Puppet Labs, and is an alternative to Chef.</p><p>Puppet can also work in a standalone mode like Chef, but we will focus on a client/server architecture.</p><p>The Puppet infrastructure is mainly composed of:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A Puppet server acting as a main configuration server, which contains all the configuration code</li><li class="listitem" style="list-style-type: disc">A Puppet agent running on all infrastructure nodes, applying configurations</li></ul></div><p>Communication <a id="id606" class="indexterm"/>between agents and the server is <a id="id607" class="indexterm"/>done through HTTPS, and Puppet has its own PKI for the server certificate and for client certificates (client certificates are used to authenticate nodes to the server).</p><p>Puppet has its own <span class="strong"><strong>Domain Specific Language</strong></span> (<span class="strong"><strong>DSL</strong></span>). As for Chef, Puppet is using resources for installing packages, managing services, creating files, and more. A Puppet piece of code is called a <span class="strong"><strong>manifest</strong></span>, and is a file with a <code class="literal">.pp</code> extension. The code is structured using modules. For example, we can imagine an <code class="literal">apache</code> module containing resources for Apache installation and service management. We can also have a <code class="literal">mysql</code> module for the MySQL server, with its own resources.</p><p>There is <a id="id608" class="indexterm"/>also a main manifest, outside any module, which is the list of nodes of the infrastructure. For each node, we can specify which module(s) to use to perform the complete node installation. When a node is requesting its configuration from the server, the server compiles a <span class="emphasis"><em>catalog</em></span> of this node, and the Puppet agent applies this catalog.</p><p>We can write our own modules or use existing modules from GitHub of Puppet Forge. Puppet Forge hosts a lot of community modules, and some of them are supported by Puppet Labs.</p><p>In this chapter, we will first write our own code in order to learn some basics of the Puppet DSL. We will then use a module from Puppet Forge.</p></div></div>
+<div class="section" title="Installing the Chef Development kit and Puppet Collections"><div class="titlepage"><div><div><h1 class="title"><a id="ch06lvl1sec70"/>Installing the Chef Development kit and Puppet Collections</h1></div></div></div><p>The Chef <a id="id609" class="indexterm"/>ecosystem is as rich as Chef itself is complex; there's a myriad of tools filling almost every imaginable task we can think of. Chef being written in Ruby, a lot of those tools are also written in Ruby and over the years, the usual dependency hell between tools, plugins, code, and various Ruby versions led to a simple solution—the Chef DK. The Chef DK also brings a nice selection of the best tools and environments that work well together.</p><p>We'll see how to install the Chef DK and quickly describe what it includes.</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note39"/>Note</h3><p>The current Chef DK version is 1.1.16.</p></div></div><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec156"/>Getting ready</h2></div></div></div><p>To work through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">An Internet connection</li><li class="listitem" style="list-style-type: disc">A physical or virtual machine</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec157"/>How to do it…</h2></div></div></div><p>The Chef <a id="id610" class="indexterm"/>DK can be downloaded from <a class="ulink" href="https://downloads.chef.io/chef-dk/">https://downloads.chef.io/chef-dk/</a>. There're versions for most platforms: Debian, Red Hat-based systems, Ubuntu, and Windows. Simply download the package corresponding to your platform and install it. For example, using a recent Fedora, and installing the Red Hat package, the installation goes like this:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo dnf install chefdk-1.1.16-1.el7.x86_64.rpm</strong></span>
+</pre></div><p>Verify <a id="id611" class="indexterm"/>the installation worked as expected:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ chef --version</strong></span>
+<span class="strong"><strong>Chef Development Kit Version: 1.1.16</strong></span>
+</pre></div><p>That's it! Everything we need to start coding Chef recipes is there.</p><div class="section" title="Chef DK contents"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec120"/>Chef DK contents</h3></div></div></div><p>The Chef DK <a id="id612" class="indexterm"/>includes a selection of the best tools, including the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc"><span class="strong"><strong>Chef</strong></span>: A workflow <a id="id613" class="indexterm"/>tool</li><li class="listitem" style="list-style-type: disc"><span class="strong"><strong>Berkshelf</strong></span>: A cookbook <a id="id614" class="indexterm"/>dependency manager that does a lot more than that</li><li class="listitem" style="list-style-type: disc"><span class="strong"><strong>Test Kitchen</strong></span>: A full <a id="id615" class="indexterm"/>featured integration tests framework</li><li class="listitem" style="list-style-type: disc"><span class="strong"><strong>ChefSpec</strong></span>: easy <a id="id616" class="indexterm"/>unit testing of Chef code</li><li class="listitem" style="list-style-type: disc"><span class="strong"><strong>FoodCritic</strong></span>: static <a id="id617" class="indexterm"/>code analysis for quality and consistency</li></ul></div><p>The Chef DK also includes all the standard Chef commands (<code class="literal">chef-solo</code> or <code class="literal">chef-client</code> to apply cookbooks on nodes, or <code class="literal">knife</code> to manipulate Chef resources on the developer's workstation, among other tools).</p></div></div><div class="section" title="How it works…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec158"/>How it works…</h2></div></div></div><p>The whole Chef environment, as well as its dependencies is deployed under <code class="literal">/opt/chefdk</code>. The package we installed created symlinks from this directory to <code class="literal">/usr/bin</code> which is on the <code class="literal">$PATH</code>:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ ls -al /usr/bin/chef</strong></span>
+<span class="strong"><strong>lrwxrwxrwx. 1 root root 20 Oct  5 16:36 /usr/bin/chef -&gt; /opt/chefdk/bin/chef</strong></span>
+</pre></div><p>This way of packaging software includes all its dependencies, and as Chef relies heavily on Ruby, the Chef DK ships with an embedded version that does not conflict with a Ruby version that might already be installed on your system:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ /opt/chefdk/embedded/bin/ruby --version</strong></span>
+<span class="strong"><strong>ruby 2.3.1p112 (2016-04-26 revision 54768) [x86_64-linux]</strong></span>
+</pre></div></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec159"/>There's more…</h2></div></div></div><p>Starting from Puppet 4.x, Puppet Labs is providing repositories for both agent and server packages. These <a id="id618" class="indexterm"/>repositories are called <span class="strong"><strong>Puppet Collections</strong></span>. As <a id="id619" class="indexterm"/>for Chef, provided packages are shipped with an Embedded Ruby version.</p><p>All examples <a id="id620" class="indexterm"/>from this book have been developed with Puppet 4.8 (open source edition). Packages can be downloaded from <a class="ulink" href="https://docs.puppet.com/puppet/4.8/puppet_collections.html">https://docs.puppet.com/puppet/4.8/puppet_collections.html</a>.</p><p>First of all you need to install the <code class="literal">puppet-agent</code> package from <span class="emphasis"><em>Puppet Collections</em></span> on your workstation. Even if we won't be managing it using Puppet, these packages will install some commands necessary for upcoming examples.</p><p>Once the package is installed, all files are deployed under <code class="literal">/opt/puppetlabs</code>:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ ls -la /opt/puppetlabs/bin/puppet</strong></span>
+<span class="strong"><strong>lrwxrwxrwx 1 root root 20 Sep 22 18:42 /opt/puppetlabs/bin/puppet -&gt; ../puppet/bin/puppet</strong></span>
+<span class="strong"><strong>$ /opt/puppetlabs/puppet/bin/ruby -version</strong></span>
+<span class="strong"><strong>ruby 2.1.9p490 (2016-03-30 revision 54437) [x86_64-linux]</strong></span>
+</pre></div><p>For an easier use of the Embedded Ruby version, you need to add <code class="literal">/opt/puppetlabs/puppet/bin</code> to the <code class="literal">$PATH</code> environment variable. For example, on Linux systems, this can be done by appending the following line in the <code class="literal">.bashrc</code> file located in your home directory:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>export PATH=/opt/puppetlabs/puppet/bin:$PATH</strong></span>
+</pre></div></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec160"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The Chef <a id="id621" class="indexterm"/>documentation on installing the Chef DK: <a class="ulink" href="https://docs.chef.io/install_dk.html">https://docs.chef.io/install_dk.html</a></li><li class="listitem" style="list-style-type: disc">The <a id="id622" class="indexterm"/>Chef documentation on the Chef DK: <a class="ulink" href="https://docs.chef.io/release/devkit/">https://docs.chef.io/release/devkit/</a></li></ul></div></div></div>
+<div class="section" title="Creating a free hosted server Chef account and a Puppet server"><div class="titlepage"><div><div><h1 class="title"><a id="ch06lvl1sec71"/>Creating a free hosted server Chef account and a Puppet server</h1></div></div></div><p>In the <a id="id623" class="indexterm"/>preferred Chef client/server mode, we need a Chef server to centralize all the information and action. We can build our <a id="id624" class="indexterm"/>own, either for testing purposes or for production use (with the maintenance overhead that goes with it), or we can use <span class="emphasis"><em>Hosted Chef</em></span>, the Chef server hosted by the company who wrote Chef. You'll learn here how to create a free Hosted Chef account, so we can start coding with Chef as soon as possible and not worry about the server part. After this first step, we'll download the Chef <span class="emphasis"><em>Start Kit</em></span>, an archive containing a fully working Chef repository, with a sample role and cookbook <a id="id625" class="indexterm"/>we can use right away—and that's <a id="id626" class="indexterm"/>what we'll do by sending this sample cookbook to the server using our first <code class="literal">knife</code> command.</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note40"/>Note</h3><p>Remember: <code class="literal">knife</code> is the command to use from the developer's workstation to manipulate information and resources on the Chef server. The <code class="literal">knife</code> command is never used on a Chef node.</p></div></div><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec161"/>Getting ready</h2></div></div></div><p>To work through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">An Internet connection</li><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec162"/>How to do it…</h2></div></div></div><p>Follow <a id="id627" class="indexterm"/>these steps for Creating a free hosted server Chef account and a Puppet server:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Go to <a class="ulink" href="https://manage.chef.io/signup">https://manage.chef.io/signup</a>.</li><li class="listitem">Fill in the details, use a valid e-mail address, and validate.</li><li class="listitem">Click on the link in the e-mail to validate your account.</li><li class="listitem">Create a password you remember.</li><li class="listitem">Create a new Chef organization.</li><li class="listitem">Download the <span class="emphasis"><em>Starter Kit</em></span>.</li><li class="listitem">Uncompress the Starter Kit somewhere safe:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ unzip chef-starter.zip</strong></span>
+<span class="strong"><strong>Archive:  chef-starter.zip</strong></span>
+<span class="strong"><strong>  inflating: chef-repo/README.md</strong></span>
+<span class="strong"><strong>  inflating: chef-repo/cookbooks/starter/files/default/sample.txt</strong></span>
+<span class="strong"><strong>  inflating: chef-repo/cookbooks/starter/recipes/default.rb</strong></span>
+<span class="strong"><strong>  inflating: chef-repo/cookbooks/starter/attributes/default.rb</strong></span>
+<span class="strong"><strong>  inflating: chef-repo/cookbooks/starter/metadata.rb</strong></span>
+<span class="strong"><strong>  inflating: chef-repo/cookbooks/starter/templates/default/sample.erb</strong></span>
+<span class="strong"><strong>  inflating: chef-repo/cookbooks/chefignore</strong></span>
+<span class="strong"><strong>  inflating: chef-repo/.gitignore</strong></span>
+<span class="strong"><strong>  inflating: chef-repo/.chef/knife.rb</strong></span>
+<span class="strong"><strong>  inflating: chef-repo/roles/starter.rb</strong></span>
+<span class="strong"><strong>  inflating: chef-repo/.chef/iacbook.pem</strong></span>
+</pre></div></li><li class="listitem">Verify the connection to Hosted Chef using the <code class="literal">knife</code> command and request, for example, the list of the users (this will return you user):<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ cd chef-repo</strong></span>
+<span class="strong"><strong>$ knife user list</strong></span>
+<span class="strong"><strong>iacbook</strong></span>
+</pre></div></li><li class="listitem">Upload the initial <code class="literal">starter</code> cookbook, still using the <code class="literal">knife</code> command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife upload cookbooks/starter</strong></span>
+<span class="strong"><strong>Created cookbooks/starter</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec163"/>There's more…</h2></div></div></div><p>There's no hosted Puppet server offering. We need to deploy our own Puppet server. To simulate a small infrastructure, we will use Vagrant with Ubuntu boxes (for more information about Vagrant, please refer to <a class="link" href="ch01.html" title="Chapter 1. Vagrant Development Environments">Chapter 1</a>, Vagrant Development Environment). Let's start with a single node infrastructure, with only a Puppet server. Here is our Vagrantfile:</p><div class="informalexample"><pre class="programlisting">vm_memory = 2048
+vm_cpus = 2
+
+unless Vagrant.has_plugin?("vagrant-hostmanager")
+  raise 'vagrant-hostmanager is not installed!'
+end 
+
+Vagrant.configure("2") do |config|
+
+    config.hostmanager.enabled = true
+    config.hostmanager.manage_guest = true
+    config.hostmanager.manage_host = true
+
+    config.vm.define "puppet.pomes.pro" do |puppet|
+        puppet.vm.box="bento/ubuntu-16.04"
+        puppet.vm.hostname="puppet.pomes.pro"
+
+        puppet.vm.provider :virtualbox do |vb|
+                vb.memory = vm_memory
+                vb.cpus = vm_cpus
+        end
+
+        puppet.vm.network :private_network, ip: "192.168.50.10"
+        puppet.hostmanager.aliases = %w(puppet)
+        puppet.vm.provision :shell, :path =&gt; "puppet_master.sh"
+
+        puppet.vm.synced_folder "puppetcode", "/etc/puppetlabs/code/environments/production"
+    end
+end</pre></div><p>This Vagrant file relies on the <code class="literal">vagrant-hostmaster</code> plugin. If you don't already have it, you will need to install it manually using <code class="literal">vagrant plugin install vagrant-hostmanager</code>. This Vagrant plugin is used to create host entries in <code class="literal">/etc/hosts</code> in managed boxes <a id="id628" class="indexterm"/>and in your workstation. A shared folder will be <a id="id629" class="indexterm"/>used to edit code directly from your workstation.</p><p>The <code class="literal">puppet_master.sh</code> provisioning script is as follows:</p><div class="informalexample"><pre class="programlisting">#!/usr/bin/env bash
+
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+# puppetlabs URL
+DEBREPO="https://apt.puppetlabs.com/puppetlabs-release-pc1-xenial.deb"
+
+# Install the PuppetLabs repo
+echo "Configuring PuppetLabs repo..."
+debrepo=$(mktemp)
+wget --output-document=${debrepo} ${DEBREPO}
+dpkg -i ${debrepo}
+apt-get update
+
+# Install Puppet Server from puppetlabs
+# This will remove puppet-common package provided by the vagrant box (if any)
+echo "Installing Puppet..."
+apt-get install -y puppetserver
+
+# For tests, limit memory usage. 512m is enough
+sed -i 's/2g/512m/g' /etc/default/puppetserver
+
+# For tests, enable autosign for all csr
+echo "autosign=true" | tee --append /etc/puppetlabs/puppet/puppet.conf
+
+# Restart puppetserver
+service puppetserver restart
+
+# Ensure puppetserver is running and enable it on boot
+/opt/puppetlabs/bin/puppet resource service puppetserver ensure=running enable=true
+
+echo "Puppet server installed!"</pre></div><p>In this example, we are using a bundled Puppet server from the <span class="emphasis"><em>Puppet Collections</em></span> repository provided by Puppet Labs. For simplicity and following recipes in this chapter, the auto-signing feature has been enabled. This means that when a Puppet node is contacting <a id="id630" class="indexterm"/>the server for the first time, a CSR is generated on the node and the Puppet server automatically signs it: subsequent requests will be authenticated and secured.</p><p>Let's create <a id="id631" class="indexterm"/>the shared folder and start Vagrant:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>mkdir puppetcode</strong></span>
+<span class="strong"><strong>vagrant up</strong></span>
+</pre></div><p>We now have an Ubuntu Puppet server listening on <code class="literal">192.168.50.10</code>, with FQDN <code class="literal">puppet.pomes.pro</code>. A short name puppet is also available, and has been populated by the <code class="literal">vagrant-hostmanager</code> plugin.</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note41"/>Note</h3><p>Depending on your <code class="literal">sudo</code> configuration, Vagrant may ask you for your password. This is requested by the <code class="literal">vagrant-hostmanager</code> plugin in order to create entries in the <code class="literal">/etc/hosts</code> file of your workstation.</p></div></div></div></div>
+<div class="section" title="Automatically bootstrapping a Chef client and a Puppet agent"><div class="titlepage"><div><div><h1 class="title"><a id="ch06lvl1sec72"/>Automatically bootstrapping a Chef client and a Puppet agent</h1></div></div></div><p>The first <a id="id632" class="indexterm"/>thing we want to do when working with <a id="id633" class="indexterm"/>Chef is to get the Chef client actually bootstrapped on the targeted remote server. For the Chef client to be able to apply Chef code, it first needs to be configured and registered on the Chef server. Thankfully, this can be very easily done.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec164"/>Getting ready</h2></div></div></div><p>To work through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A remote server, with a user with SSH access</li><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec165"/>How to do it…</h2></div></div></div><p>Let's say we already have a server running somewhere available with a user. The minimal command line we can build is as follows:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The IP or FQDN of the host we want to configure (<code class="literal">1.2.3.4</code>)</li><li class="listitem" style="list-style-type: disc">The name under which to register the node on the Chef server (<code class="literal">my_node_hostname</code>)</li><li class="listitem" style="list-style-type: disc">The username to use to connect to the server (<code class="literal">sudoer</code> if not root).</li></ul></div><p>Navigate to the Chef repository on your workstation:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ cd chef-repo</strong></span>
+</pre></div><p>Now let's remotely install the Chef client on the remote host from your workstation, using an example <code class="literal">vagrant</code> user:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife bootstrap 1.2.3.4 -N my_node_hostname -x vagrant --sudo</strong></span>
+</pre></div><p>This <a id="id634" class="indexterm"/>will first download the latest available Chef version and install it. Then it will execute an initial <code class="literal">chef-client</code> run to register the node on the Chef server under the specified name. Here it will stop.</p><p>If we <a id="id635" class="indexterm"/>want to run a cookbook right after bootstrap (and we probably want to), just use the <code class="literal">-r</code> option to add cookbooks to the run list, so they are executed right away. Let's use the <code class="literal">starter</code> cookbook we uploaded earlier in this chapter, but feel free to use any other cookbook you may have already synchronized on the Chef server.</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife bootstrap 1.2.3.4 -N my_node_hostname -x vagrant --sudo -r "starter" </strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>192.168.146.129 resolving cookbooks for run list: ["starter"]</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>192.168.146.129 Recipe: starter::default</strong></span>
+<span class="strong"><strong>192.168.146.129   * log[Welcome to Chef, Sam Doe!] action write</strong></span>
+</pre></div></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec166"/>There's more…</h2></div></div></div><p>Using Puppet, we need to install the Puppet agent, once our node is created. Let's add a new node into the Vagrantfile we previously used for the Puppet server:</p><div class="informalexample"><pre class="programlisting">vm_memory = 2048
+vm_cpus = 2
+
+unless Vagrant.has_plugin?("vagrant-hostmanager")
+  raise 'vagrant-hostmanager is not installed!'
+end 
+
+Vagrant.configure("2") do |config|
+
+    config.hostmanager.enabled = true
+    config.hostmanager.manage_guest = true
+    config.hostmanager.manage_host = true
+
+    config.vm.define "puppet.pomes.pro" do |puppet|
+        puppet.vm.box="bento/ubuntu-16.04"
+        puppet.vm.hostname="puppet.pomes.pro"
+
+        puppet.vm.provider :virtualbox do |vb|
+                vb.memory = vm_memory
+                vb.cpus = vm_cpus
+        end
+
+        puppet.vm.network :private_network, ip: "192.168.50.10"
+        puppet.hostmanager.aliases = %w(puppet)
+        puppet.vm.provision :shell, :path =&gt; "puppet_master.sh"
+
+        puppet.vm.synced_folder "puppetcode", "/etc/puppetlabs/code/environments/production"
+    end
+
+<span class="strong"><strong>    config.vm.define "web.pomes.pro" do |web|</strong></span>
+<span class="strong"><strong>        web.vm.box="bento/ubuntu-16.04"</strong></span>
+<span class="strong"><strong>        web.vm.hostname="web.pomes.pro"</strong></span>
+
+<span class="strong"><strong>        web.vm.network :private_network, ip: "192.168.50.11"</strong></span>
+
+<span class="strong"><strong>        web.vm.provision :shell, :path =&gt; "puppet_node.sh"</strong></span>
+<span class="strong"><strong>    end</strong></span>
+end</pre></div><p>As you <a id="id636" class="indexterm"/>can see, there is now another shell script <code class="literal">puppet_node.sh</code> used <a id="id637" class="indexterm"/>for the provisioning of this new node:</p><div class="informalexample"><pre class="programlisting">#!/usr/bin/env bash
+
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+# puppetlabs URL
+DEBREPO="https://apt.puppetlabs.com/puppetlabs-release-pc1-xenial.deb"
+
+# Install the PuppetLabs repo
+echo "Configuring PuppetLabs repo..."
+debrepo=$(mktemp)
+wget --output-document=${debrepo} ${DEBREPO}
+dpkg -i ${debrepo}
+apt-get update
+
+# Install Puppet Agent from puppetlabs
+# This will remove puppet-common package provided by the vagrant box
+echo "Installing Agent..."
+apt-get install -y puppet-agent
+
+# Ensure puppet agent is stopped for our tests
+/opt/puppetlabs/bin/puppet resource service puppet ensure=stopped enable=false
+
+echo "Puppet agent installed!"</pre></div><p>We now also <a id="id638" class="indexterm"/>have an Ubuntu Puppet node <a id="id639" class="indexterm"/>with FQDN <code class="literal">web.pomes.pro</code> with IP <code class="literal">192.168.50.11</code>. By default, the Puppet agent is looking for a server named puppet—that's why this name has been defined as an alias to the puppet server. </p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note42"/>Note</h3><p>The Puppet agent has been explicitly stopped; during examples, we will start it on demand to see all changes.</p></div></div></div></div>
+<div class="section" title="Installing packages"><div class="titlepage"><div><div><h1 class="title"><a id="ch06lvl1sec73"/>Installing packages</h1></div></div></div><p>We <a id="id640" class="indexterm"/>need some packages for our server. Now <a id="id641" class="indexterm"/>our server is configured to use Chef and talk to a Chef server, let's install a few packages such as the Apache server, PHP, and MariaDB to build a classic LAMP server on a CentOS 7.2 server.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec167"/>Getting ready</h2></div></div></div><p>To work through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Chef client configuration on the remote host</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec168"/>How to do it…</h2></div></div></div><p>To install a package on a Red Hat-based system, we'd use either <code class="literal">yum</code> (until CentOS 7) or <code class="literal">dnf</code> (for Fedora after version 22). As we're using a CentOS 7 server, the Apache2 HTTP server <a id="id642" class="indexterm"/>package name is <code class="literal">httpd</code>, (it's <code class="literal">apache2</code> on Debian-based systems). Manually, we would have typed the following:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ dnf install httpd</strong></span>
+<span class="strong"><strong>$ yum install httpd</strong></span>
+</pre></div><p>Let's see <a id="id643" class="indexterm"/>how this translates into a repeatable process with a Chef cookbook.</p><div class="section" title="Generating an empty Apache cookbook"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec121"/>Generating an empty Apache cookbook</h3></div></div></div><p>Let's start <a id="id644" class="indexterm"/>by creating an empty cookbook from inside the Chef repository <code class="literal">cookbooks</code> folder to install Apache2 using the <code class="literal">chef</code> command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ cd chef-repo/cookbooks</strong></span>
+<span class="strong"><strong>$ chef generate cookbook apache</strong></span>
+<span class="strong"><strong>Generating cookbook apache</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>Your cookbook is ready. Type `cd apache` to enter it.</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>If you'd prefer to dive right in, the default recipe can be found at:</strong></span>
+<span class="strong"><strong>recipes/default.rb</strong></span>
+</pre></div><p>Now we need to tell Chef to install a package using the <code class="literal">package</code> resource.</p><p>Open that <code class="literal">apache/recipes/default.rb</code> file and type in the following:</p><div class="informalexample"><pre class="programlisting">package "httpd"</pre></div><p>That's the most basic way we can tell Chef to install a package. This will do the <code class="literal">install</code> action by default. To be a little bit more comprehensive, we can use the full block to do the same:</p><div class="informalexample"><pre class="programlisting">package "httpd" do
+  action :install
+end</pre></div></div><div class="section" title="Uploading the cookbook"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec122"/>Uploading the cookbook</h3></div></div></div><p>Still from <a id="id645" class="indexterm"/>inside the Chef repository, we now need to upload this new <code class="literal">apache</code> cookbook to the Chef server, so our servers can access it. To do this, we use the <code class="literal">knife</code> command on our workstation:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife cookbook upload apache</strong></span>
+<span class="strong"><strong>Uploading apache         [0.1.0]</strong></span>
+<span class="strong"><strong>Uploaded 1 cookbook.</strong></span>
+</pre></div><p>We just uploaded our first cookbook on the Chef server!</p><p>Let's confirm <a id="id646" class="indexterm"/>the cookbook is available remotely on the Chef server:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife cookbook list</strong></span>
+<span class="strong"><strong>apache    0.1.0</strong></span>
+<span class="strong"><strong>starter   1.0.0</strong></span>
+</pre></div></div><div class="section" title="Applying the cookbook"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec123"/>Applying the cookbook</h3></div></div></div><p>Now we <a id="id647" class="indexterm"/>have the <code class="literal">apache</code> cookbook remotely available, let's tell the Chef server that our particular node has to run it. Two options here are as follows:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">From the Chef server UI, select the host and click on <span class="strong"><strong>Edit</strong></span> on the <span class="strong"><strong>Run List</strong></span> box, then drag and drop the correct cookbook name on the <span class="strong"><strong>Current Run List</strong></span> column:<div class="mediaobject"><img src="graphics/B05671_06_01.jpg" alt="Applying the cookbook"/></div></li><li class="listitem" style="list-style-type: disc">From the <code class="literal">knife</code> CLI on the workstation, run the following:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife node run_list add &lt;nodename&gt; apache</strong></span>
+<span class="strong"><strong>nodename:</strong></span>
+<span class="strong"><strong>  run_list: recipe[apache]</strong></span>
+</pre></div></li></ul></div><p>Either way, we just told the Chef server to apply the <code class="literal">apache</code> cookbook on this particular server. Let's <a id="id648" class="indexterm"/>launch the Chef client on our remote node:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo chef-client</strong></span>
+<span class="strong"><strong>Starting Chef Client, version 12.15.19</strong></span>
+<span class="strong"><strong>resolving cookbooks for run list: ["apache"]</strong></span>
+<span class="strong"><strong>Synchronizing Cookbooks:</strong></span>
+<span class="strong"><strong>  - apache (0.1.0)</strong></span>
+<span class="strong"><strong>Installing Cookbook Gems:</strong></span>
+<span class="strong"><strong>Compiling Cookbooks...</strong></span>
+<span class="strong"><strong>Converging 1 resources</strong></span>
+<span class="strong"><strong>Recipe: apache::default</strong></span>
+<span class="strong"><strong>  * yum_package[httpd] action install</strong></span>
+<span class="strong"><strong>    - install version 2.4.6-40.el7.centos.4 of package httpd</strong></span>
+
+<span class="strong"><strong>Running handlers:</strong></span>
+<span class="strong"><strong>Running handlers complete</strong></span>
+<span class="strong"><strong>Chef Client finished, 1/1 resources updated in 32 seconds</strong></span>
+</pre></div><p>Chef just <a id="id649" class="indexterm"/>installed the Apache HTTP server package for us! If we launch the Chef client, it won't install it again, as it knows it's already there (look at the largely different execution times):</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo chef-client</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>Recipe: apache::default</strong></span>
+<span class="strong"><strong>  * yum_package[httpd] action install (up to date)</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>Chef Client finished, 0/1 resources updated in 04 seconds</strong></span>
+</pre></div><p>Verify if the package is really installed:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ which httpd</strong></span>
+<span class="strong"><strong>/usr/sbin/httpd</strong></span>
+<span class="strong"><strong>$ httpd -v</strong></span>
+<span class="strong"><strong>Server version: Apache/2.4.6 (CentOS)</strong></span>
+<span class="strong"><strong>Server built:   Jul 18 2016 15:30:14</strong></span>
+</pre></div></div><div class="section" title="Creating a MariaDB cookbook"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec124"/>Creating a MariaDB cookbook</h3></div></div></div><p>Let's use <a id="id650" class="indexterm"/>our knowledge to create a MariaDB cookbook the same way we just deployed Apache, from the Chef repository:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ chef generate cookbook cookbooks/mariadb</strong></span>
+</pre></div><p>We want to install two packages: <code class="literal">mariadb</code> for the client and the libraries, and <code class="literal">mariadb-server</code> for the server. Add the following on the <code class="literal">mariadb/recipes/default.rb</code> file:</p><div class="informalexample"><pre class="programlisting">package "mariadb" do
+  action :install
+end
+
+package "mariadb-server" do
+  action :install
+end</pre></div><p>Alternatively, as we're writing plain Ruby, let's rewrite it in a more idiomatic way:</p><div class="informalexample"><pre class="programlisting">%w(mariadb mariadb-server).each do |name|
+  package name do
+    action :install
+  end
+end</pre></div><p>Upload the cookbook from your workstation:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife cookbook upload mariadb</strong></span>
+</pre></div><p>Add the <code class="literal">mariadb</code> cookbook to the remote node's run list from your workstation:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife node run_list add &lt;nodename&gt; mariadb</strong></span>
+</pre></div><p>Run the <a id="id651" class="indexterm"/>Chef client on the remote host:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo chef-client</strong></span>
+<span class="strong"><strong>Starting Chef Client, version 12.15.19</strong></span>
+<span class="strong"><strong>resolving cookbooks for run list: ["apache", "mariadb"]</strong></span>
+<span class="strong"><strong>Synchronizing Cookbooks:</strong></span>
+<span class="strong"><strong>  - apache (0.1.0)</strong></span>
+<span class="strong"><strong>  - mariadb (0.1.0)</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>Recipe: mariadb::default</strong></span>
+<span class="strong"><strong>  * yum_package[mariadb] action install</strong></span>
+<span class="strong"><strong>    - install version 5.5.50-1.el7_2 of package mariadb</strong></span>
+<span class="strong"><strong>  * yum_package[mariadb-server] action install</strong></span>
+<span class="strong"><strong>    - install version 5.5.50-1.el7_2 of package mariadb-server</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>Chef Client finished, 2/3 resources updated in 25 seconds</strong></span>
+</pre></div><p>Verify that the MariaDB package is correctly installed:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ which mysql</strong></span>
+<span class="strong"><strong>/usr/bin/mysql</strong></span>
+<span class="strong"><strong>$ mysql --version</strong></span>
+<span class="strong"><strong>mysql  Ver 15.1 Distrib 5.5.50-MariaDB, for Linux (x86_64) using readline 5.1</strong></span>
+</pre></div></div><div class="section" title="Creating a PHP cookbook"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec125"/>Creating a PHP cookbook</h3></div></div></div><p>Let's reuse <a id="id652" class="indexterm"/>our knowledge to create a cookbook that will install the packages needed for PHP support:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ chef generate cookbook cookbooks/php</strong></span>
+</pre></div><p>Let's add our Chef code that will install the following three packages: the <code class="literal">php</code>, <code class="literal">php-cli</code>, and <code class="literal">php-mysql </code>packages (respectively for PHP support, command line, and PHP/MySQL support) in the <code class="literal">cookbooks/php/recipes/default.rb</code> file:</p><div class="informalexample"><pre class="programlisting">%w(php php-mysql).each do |name|
+  package name do
+    action :install
+  end
+end</pre></div><p>Upload this new <code class="literal">php</code> cookbook from your workstation:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife cookbook upload php</strong></span>
+</pre></div><p>Add the <code class="literal">php</code> cookbook to the remote node's run list from your workstation:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife node run_list add vagrant php</strong></span>
+</pre></div><p>Run the Chef client on the remote node:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo chef-client</strong></span>
+<span class="strong"><strong>$ php --version</strong></span>
+<span class="strong"><strong>PHP 5.4.16 (cli) (built: Aug 11 2016 21:24:59)</strong></span>
+</pre></div><p>We now <a id="id653" class="indexterm"/>know the very basics of deploying cookbooks and installing packages on a remote node, using Chef!</p></div></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec169"/>There's more…</h2></div></div></div><p>Using Puppet, a package installation is done using the <code class="literal">package</code> resource directive. The following example shows how to install an Apache 2.x server on Ubuntu systems:</p><div class="informalexample"><pre class="programlisting">  package { 
+      'apache2:
+          ensure =&gt; installed;
+  }</pre></div><p>To deploy a LAMP server on the box <code class="literal">web.pomes.pro</code>, we need Apache2, PHP, and the MariaDB server. In order to do a real example, perform the following steps:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Start Vagrant with the Vagrantfile from the previous recipe.</li><li class="listitem">Go into the <code class="literal">puppetcode</code> directory, which is the shared folder between your workstation and the Puppet server: <code class="literal">cd puppetcode</code></li><li class="listitem">We are about to create three modules (<code class="literal">apache</code>, <code class="literal">php</code>, and <code class="literal">mariadb</code>), so let's create a minimalist module layout for them:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>mkdir modules/apache</strong></span>
+<span class="strong"><strong>mkdir modules/apache/manifests</strong></span>
+<span class="strong"><strong>mkdir modules/apache/templates</strong></span>
+<span class="strong"><strong>mkdir modules/php</strong></span>
+<span class="strong"><strong>mkdir modules/php/manifests</strong></span>
+<span class="strong"><strong>mkdir modules/php/templates</strong></span>
+<span class="strong"><strong>mkdir modules/mariadb</strong></span>
+<span class="strong"><strong>mkdir modules/mariadb/manifests</strong></span>
+<span class="strong"><strong>mkdir modules/mariadb/templates</strong></span>
+</pre></div></li><li class="listitem">Create a <code class="literal">module/apache/manifests/init.pp</code> manifest file with the following content:<div class="informalexample"><pre class="programlisting">class apache {
+        package {'apache2':
+           ensure =&gt; present,
+      }
+}</pre></div></li><li class="listitem">Create a <code class="literal">module/php/manifests/init.pp</code> manifest file with the following content:<div class="informalexample"><pre class="programlisting">class php {
+        package {['php','php-mysql','libapache2-mod-php']:
+           ensure =&gt; present,
+      }
+}</pre></div></li><li class="listitem">Create a <code class="literal">module/mariadb/manifests/init.pp</code> manifest file with the following content:<div class="informalexample"><pre class="programlisting">class mariadb {
+        package {'mariadb-server':
+           ensure =&gt; present,
+      }
+}</pre></div></li><li class="listitem">Finally, create the main manifest <code class="literal">manifests/site.pp</code>, with the following content:<div class="informalexample"><pre class="programlisting">node 'web.pomes.pro' {
+    class {
+      'apache':;
+      'php':;
+      'mariadb':;
+    }
+}</pre></div></li></ol></div><p>That's it! With a few lines of code, all necessary binaries will be installed. We can now apply <a id="id654" class="indexterm"/>changes, using <code class="literal">puppet agent --test</code>:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ vagrant ssh web.pomes.pro</strong></span>
+<span class="strong"><strong>Welcome to Ubuntu 16.04.1 LTS (GNU/Linux 4.4.0-51-generic x86_64)</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>vagrant@web:~$ sudo -i</strong></span>
+<span class="strong"><strong>root@web:~# puppet agent --test</strong></span>
+<span class="strong"><strong>Info: Creating a new SSL key for web.pomes.pro</strong></span>
+<span class="strong"><strong>Info: Caching certificate for ca</strong></span>
+<span class="strong"><strong>Info: csr_attributes file loading from /etc/puppetlabs/puppet/csr_attributes.yaml</strong></span>
+<span class="strong"><strong>Info: Creating a new SSL certificate request for web.pomes.pro</strong></span>
+<span class="strong"><strong>Info: Certificate Request fingerprint (SHA256): 12:9E:DD:E5:85:C9:F2:56:92:1B:92:93:0A:3C:7B:00:DE:2A:45:C0:D9:F8:F6:D0:EC:9D:0B:6E:42:7E:74:33</strong></span>
+<span class="strong"><strong>Info: Caching certificate for web.pomes.pro</strong></span>
+<span class="strong"><strong>Info: Caching certificate_revocation_list for ca</strong></span>
+<span class="strong"><strong>Info: Caching certificate for ca</strong></span>
+<span class="strong"><strong>Info: Using configured environment 'production'</strong></span>
+<span class="strong"><strong>Info: Retrieving pluginfacts</strong></span>
+<span class="strong"><strong>Info: Retrieving plugin</strong></span>
+<span class="strong"><strong>Info: Caching catalog for web.pomes.pro</strong></span>
+<span class="strong"><strong>Info: Applying configuration version '1477085080'</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Apache/Package[apache2]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Php/Package[php]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Php/Package[php-mysql]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Php/Package[libapache2-mod-php]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Mariadb/Package[mariadb-server]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: Applied catalog in 59.77 seconds</strong></span>
+</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note43"/>Note</h3><p>Unlike what you might think, the <code class="literal">--test</code> option does apply changes. This option is used to test code immediately after a change and implies other options such as <code class="literal">--no-daemonize</code>, <code class="literal">--onetime</code>, and <code class="literal">--verbose</code>. If you need to do only a dry-run, you can use the <code class="literal">--noop</code> option combined with <code class="literal">–test</code>.</p></div></div></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec170"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The <a id="id655" class="indexterm"/>Chef <code class="literal">package</code> <a id="id656" class="indexterm"/>resource documentation: <a class="ulink" href="https://docs.chef.io/resource_package.html">https://docs.chef.io/resource_package.html</a></li><li class="listitem" style="list-style-type: disc">The Puppet <a id="id657" class="indexterm"/>package resource documentation: <a class="ulink" href="https://docs.puppet.com/puppet/4.8/types/package.html">https://docs.puppet.com/puppet/4.8/types/package.html</a></li></ul></div></div></div>
+<div class="section" title="Managing services"><div class="titlepage"><div><div><h1 class="title"><a id="ch06lvl1sec74"/>Managing services</h1></div></div></div><p>We've seen <a id="id658" class="indexterm"/>how to install system packages using the <code class="literal">package</code> resource. In this section, you'll discover how to manage system services, using <a id="id659" class="indexterm"/>a resource named <code class="literal">service</code>. We'll continue to build the LAMP server we started in the previous section by managing the Apache HTTP and MariaDB services right from Chef. This way we'll be able to manage any available service.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec171"/>Getting ready</h2></div></div></div><p>To work through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Chef client configuration on the remote host</li><li class="listitem" style="list-style-type: disc">The Chef code from the previous recipe</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec172"/>How to do it…</h2></div></div></div><p>The <a id="id660" class="indexterm"/>structure of the service resource is very <a id="id661" class="indexterm"/>similar to the <code class="literal">package</code> resource. We want to do two actions with our services: <span class="strong"><strong>enable</strong></span> them at boot and <span class="strong"><strong>start</strong></span> them right away. This translates into a simple Chef resource with an array of actions:</p><div class="informalexample"><pre class="programlisting">service "service_name" do
+  action [:enable, :start]
+end</pre></div><div class="section" title="Enabling and starting Apache service"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec126"/>Enabling and starting Apache service</h3></div></div></div><p>Add <a id="id662" class="indexterm"/>this <code class="literal">service</code> resource to the <code class="literal">apache/recipes/default.rb</code> file, just after the <code class="literal">package</code> resource:</p><div class="informalexample"><pre class="programlisting">service "httpd" do
+  action [:enable, :start]
+end</pre></div><p>Bump <a id="id663" class="indexterm"/>the cookbook version number on the <code class="literal">apache/metatada.rb</code> file:</p><div class="informalexample"><pre class="programlisting">version '0.2.0'</pre></div><p>This way, the Chef server will always keep version <code class="literal">0.1.0</code> with only the package installation, and a new version <code class="literal">0.2.0</code>, with the service support. We'll also be able to easily rollback to a previously running version.</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note44"/>Note</h3><p>When the Chef client runs, it always downloads and applies the latest version by default. It's advised to fix (or pin) versions where appropriate—especially in production.</p></div></div><p>Upload the new cookbook version:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife cookbook upload apache</strong></span>
+</pre></div><p>Now we have both versions of the cookbook available on the Chef server:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife cookbook show apache</strong></span>
+<span class="strong"><strong>apache   0.2.0  0.1.0</strong></span>
+</pre></div><p>Apply <a id="id664" class="indexterm"/>on the remote host:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo chef-client</strong></span>
+</pre></div><p>Verify <a id="id665" class="indexterm"/>the Apache service is indeed running:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ systemctl status httpd</strong></span>
+</pre></div><p>You can also navigate to the site's IP address in HTTP to see the default page displayed.</p></div><div class="section" title="Enabling and starting the MariaDB service"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec127"/>Enabling and starting the MariaDB service</h3></div></div></div><p>Do <a id="id666" class="indexterm"/>exactly the same for MariaDB's <code class="literal">mariadb</code> service in <code class="literal">mariadb/recipes/default.rb</code>:</p><div class="informalexample"><pre class="programlisting">service "mariadb" do
+  action [:enable, :start]
+end</pre></div><p>Don't forget <a id="id667" class="indexterm"/>to also bump the cookbook version in <code class="literal">mariadb/metadata.rb</code>:</p><div class="informalexample"><pre class="programlisting">version '0.2.0'</pre></div><p>Send the updated cookbook to the Chef server:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife cookbook upload mariadb</strong></span>
+</pre></div><p>Apply the new cookbook:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo chef-client</strong></span>
+</pre></div><p>Confirm the MariaDB service is now running:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ systemctl status mariadb</strong></span>
+</pre></div><p>Confirm we can access the MariaDB server from the node:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ mysql -e "show databases;"</strong></span>
+<span class="strong"><strong>+--------------------+</strong></span>
+<span class="strong"><strong>| Database           |</strong></span>
+<span class="strong"><strong>+--------------------+</strong></span>
+<span class="strong"><strong>| information_schema |</strong></span>
+<span class="strong"><strong>| test               |</strong></span>
+<span class="strong"><strong>+--------------------+</strong></span>
+</pre></div><p>We've just covered how to handle a system service using Chef, so you now know how to easily and repeatedly deploy packages and manage the corresponding service.</p></div></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec173"/>There's more…</h2></div></div></div><p>Using Puppet, services are also managed with a dedicated resource directive. Using the previous example, we now need to ensure that the corresponding services are running.</p><p>This <a id="id668" class="indexterm"/>resource needs to be added on both Apache and MariaDB modules. The new manifest for the Apache module is:</p><div class="informalexample"><pre class="programlisting">class apache {
+        package {'apache2':
+           ensure =&gt; present,
+        }
+
+<span class="strong"><strong>        service {'apache2':</strong></span>
+<span class="strong"><strong>           ensure =&gt; running,</strong></span>
+<span class="strong"><strong>           enable =&gt; true</strong></span>
+<span class="strong"><strong>        }</strong></span>
+}</pre></div><p>The <a id="id669" class="indexterm"/>new manifest for the MariaDB module is:</p><div class="informalexample"><pre class="programlisting">class mariadb {
+        package {'mariadb-server':
+           ensure =&gt; present,
+        }
+
+<span class="strong"><strong>        service {'mysql':</strong></span>
+<span class="strong"><strong>           ensure =&gt; running,</strong></span>
+<span class="strong"><strong>           enable =&gt; true</strong></span>
+<span class="strong"><strong>        }</strong></span>
+}</pre></div><p>The <code class="literal">ensure=&gt;running</code> property is used to check the service is running (and will start it if needed), and <code class="literal">enable=&gt;true</code> is used to start the service at boot.</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note45"/>Note</h3><p>The name of the service used in the service resource is the same as used in a root shell to stop/start/reload the service.</p></div></div></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec174"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The <a id="id670" class="indexterm"/>Chef <code class="literal">service</code> resource documentation: <a class="ulink" href="https://docs.chef.io/resource_service.html">https://docs.chef.io/resource_service.html</a></li><li class="listitem" style="list-style-type: disc">The <a id="id671" class="indexterm"/>Chef <code class="literal">metadata.rb</code> resource documentation: <a class="ulink" href="https://docs.chef.io/config_rb_metadata.html">https://docs.chef.io/config_rb_metadata.html</a></li><li class="listitem" style="list-style-type: disc">The <a id="id672" class="indexterm"/>Puppet <code class="literal">service</code> resource documentation: <a class="ulink" href="https://docs.puppet.com/puppet/4.8/types/service.html">https://docs.puppet.com/puppet/4.8/types/service.html</a></li></ul></div></div></div>
+<div class="section" title="Managing files, directories, and templates"><div class="titlepage"><div><div><h1 class="title"><a id="ch06lvl1sec75"/>Managing files, directories, and templates</h1></div></div></div><p>A very <a id="id673" class="indexterm"/>useful Chef feature is the ability to manage files <a id="id674" class="indexterm"/>right from the Chef code. Either plain files can <a id="id675" class="indexterm"/>be copied or dynamic files can be generated through templates. We'll leverage this feature to create an example PHP test file and dynamically <a id="id676" class="indexterm"/>generate Apache VirtualHosts for <a id="id677" class="indexterm"/>our LAMP server, so you'll know how to reuse it anywhere else.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec175"/>Getting ready</h2></div></div></div><p>To work <a id="id678" class="indexterm"/>through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Chef client configuration on the remote host</li><li class="listitem" style="list-style-type: disc">Optionally, the Chef code from the previous recipes</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec176"/>How to do it…</h2></div></div></div><p>We'll manage two different kinds of files in two different ways: a static file and a dynamic file generated from a template, so the most common usage is covered.</p><div class="section" title="Managing a simple static file"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec128"/>Managing a simple static file</h3></div></div></div><p>Let's begin <a id="id679" class="indexterm"/>by creating a basic PHP file that will only display the <code class="literal">phpinfo()</code> result. This is done using the simple <code class="literal">file</code> resource with the file path as argument, giving its content inline. Other optional properties of the <code class="literal">file</code> resource include ownership information or the file mode. Add a <code class="literal">file</code> resource to the <code class="literal">php/recipes/default.rb</code> recipe:</p><div class="informalexample"><pre class="programlisting">file '/var/www/html/phpinfo.php' do
+  content '&lt;?php phpinfo(); ?&gt;'
+  mode '0644'
+  owner 'root'
+  group 'root'
+end</pre></div><p>Don't forget to bump the version in <code class="literal">php/metadata.rb</code>:</p><div class="informalexample"><pre class="programlisting">version '0.2.0'</pre></div><p>Upload <a id="id680" class="indexterm"/>the new cookbook from your workstation:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife cookbook upload php</strong></span>
+</pre></div><p>Deploy using the Chef client on the remote node:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo chef-client</strong></span>
+</pre></div><p>If you <a id="id681" class="indexterm"/>now navigate to <a class="ulink" href="http://node-hostname/phpinfo.php">http://node-hostname/phpinfo.php</a>, you'll see the PHP information displayed.</p><p>This is the most static way of shipping a plain file.</p></div><div class="section" title="Managing dynamic files and directories from a template"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec129"/>Managing dynamic files and directories from a template</h3></div></div></div><p>Let's now <a id="id682" class="indexterm"/>create a generic Apache virtual host to fully control what we'll do with our LAMP server, and not just live with the default <a id="id683" class="indexterm"/>configuration shipped with our Linux distribution. We want the website's root folder to be <code class="literal">/var/www/&lt;sitename&gt;</code> and the configuration file will live under <code class="literal">/etc/httpd/conf.d/&lt;sitename&gt;.conf</code>. We'll ship a sample HTML index file as well, to validate we're running the correct virtual host.</p><p>Start by generating a new recipe in the Apache cookbook using the <code class="literal">chef</code> command, to manage a default Virtual Host:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ chef generate recipe cookbooks/apache virtualhost </strong></span>
+</pre></div><p>A new file named <code class="literal">apache/recipes/virtualhost.rb</code> is now created.</p><p>To store the name of our virtual host, let's create an <code class="literal">attribute</code>. An attribute is similar to a persisting node setting, declared in a cookbook in a file under the <code class="literal">attribute</code> directory, and can then be overridden by many mechanisms that we'll later discover. Start by generating an attributes file using the <code class="literal">chef</code> command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ chef generate attribute cookbooks/apache default</strong></span>
+</pre></div><p>This will create a new file under <code class="literal">apache/attributes/default.rb</code>. To set the <code class="literal">sitename</code> attribute with default value of <code class="literal">defaultsite</code>, add the following in this file:</p><div class="informalexample"><pre class="programlisting">default["sitename"] = "defaultsite"</pre></div><p>To create a new directory, let's use a resource named <code class="literal">directory</code> in the <code class="literal">apache/recipes/virtualhost.rb</code> file, with standard access rights. Note the Ruby <code class="literal">#{node["sitename"]}</code> syntax to access a node attribute from inside a string that will be recurring from now on:</p><div class="informalexample"><pre class="programlisting">directory "/var/www/#{node["sitename"]}" do
+  owner 'root'
+  group 'root'
+  mode '0755'
+  action :create
+end</pre></div><p>Let's reuse the <code class="literal">file</code> resource to create a basic <code class="literal">index.html</code> file with a simple string such as <code class="literal">Hello from Chef!</code> or whatever you find more appealing, in the <code class="literal">apache/recipes/virtualhost.rb</code> file:</p><div class="informalexample"><pre class="programlisting">file "/var/www/#{node["sitename"]}/index.html" do
+  owner 'root'
+  group 'root'
+  mode '0644'
+  content '&lt;html&gt;&lt;h1&gt;Hello from Chef!&lt;/h1&gt;&lt;/html&gt;'
+end</pre></div><p>Let's once <a id="id684" class="indexterm"/>again use the <code class="literal">chef</code> generator to create <a id="id685" class="indexterm"/>a new template for our Apache virtual host configuration file:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ chef generate template cookbooks/apache virtualhost</strong></span>
+</pre></div><p>This <a id="id686" class="indexterm"/>will create a template under <code class="literal">apache/templates/</code> named <code class="literal">virtuahost.erb</code>. This is a standard <span class="strong"><strong>ERB</strong></span> (short for <span class="strong"><strong>Embedded Ruby</strong></span>) template. This template file will contain the virtual host Apache configuration for our site.</p><p>Let's start by populating the content of this ERB with a minimal Apache configuration file, using a new <code class="literal">website</code> variable that we'll set in a minute.</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note46"/>Note</h3><p>A variable in an ERB template is prefixed with the <code class="literal">@</code> character.</p></div></div><div class="informalexample"><pre class="programlisting">&lt;VirtualHost *:80&gt;
+        ServerName &lt;%= @website %&gt;
+        DocumentRoot /var/www/&lt;%= @website %&gt;
+        ErrorLog /var/log/httpd/error-&lt;%= @website %&gt;.log
+        CustomLog /var/log/httpd/access-&lt;%= @website %&gt;.log combined
+        &lt;Directory /var/www/&lt;%= @website %&gt;/ &gt;
+          Options Indexes FollowSymLinks MultiViews
+          AllowOverride All
+          Order allow,deny
+          allow from all
+        &lt;/Directory&gt;
+&lt;/VirtualHost&gt;</pre></div><p>This way, the whole configuration is dynamic; we'll be able to instantiate this cookbook for any site name of our choice and it will be dedicated to it.</p><p>Now let's use the <code class="literal">template</code> resource to generate a file from the template we just created, in the <code class="literal">apache/recipes/virtualhost.rb</code> file. This resource takes a <code class="literal">source</code> parameter, which is the template file we just created, and the variables to be injected. In our case, we want to inject the value of the <code class="literal">sitename</code> attribute, so it can be accessed by the template as <code class="literal">@website</code>:</p><div class="informalexample"><pre class="programlisting">template "/etc/httpd/conf.d/#{node["sitename"]}.conf" do
+  source "virtualhost.erb"
+  owner 'root'
+  group 'root'
+  mode '0644'
+  variables(
+    :website =&gt; "#{node["sitename"]}"
+  )
+end</pre></div><p>Don't forget <a id="id687" class="indexterm"/>to bump the cookbook version in <code class="literal">apache/metadata.rb</code>:</p><div class="informalexample"><pre class="programlisting">version '0.3.0'</pre></div><p>Upload <a id="id688" class="indexterm"/>the cookbook to Chef server from the workstation:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife cookbook upload apache</strong></span>
+</pre></div><p>Add the newly-created recipe to the remote node run list:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife node run_list add &lt;node name&gt; apache::virtualhost</strong></span>
+</pre></div><p>Apply the new cookbook on the remote host:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo chef-client</strong></span>
+</pre></div><p>Restart the Apache server manually to take the changes into account (be sure we'll automate that in the next pages):</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo systemctl restart httpd</strong></span>
+</pre></div><p>Verify that the served page is the one we added:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ curl http://node_ip_or_hostname/</strong></span>
+<span class="strong"><strong>&lt;html&gt;&lt;h1&gt;Hello from Chef!&lt;/h1&gt;&lt;/html&gt;</strong></span>
+</pre></div><p>Good job! We've just covered how to manage files, directories, as well as dynamic templates, using pure Ruby code with Chef.</p></div></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec177"/>There's more…</h2></div></div></div><p>Now that we have a LAMP server with Puppet, let's create a virtual host! Our goals are as follows:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Removing the default virtual host provided by Ubuntu</li><li class="listitem" style="list-style-type: disc">Creating our own virtual host, with a specific <code class="literal">DocumentRoot</code> and dedicated log files</li><li class="listitem" style="list-style-type: disc">Deploying a simple PHP page displaying the result of the function <code class="literal">phpinfo()</code></li></ul></div><p>These three operations will be done using the <code class="literal">file</code> directive.</p><p>On Ubuntu, we need to remove the default website in order to have virtual hosting up and running. This <a id="id689" class="indexterm"/>can be done easily in the Apache <a id="id690" class="indexterm"/>manifest; a <code class="literal">file</code> directive for the deletion of <code class="literal">/etc/apache2/site-enabled/000-default.conf</code> will remove the symlink and will disable the site:</p><div class="informalexample"><pre class="programlisting">class apache {
+    package {'apache2':
+       ensure =&gt; present,
+    }
+
+    service {'apache2':
+       ensure =&gt; running,
+       enable =&gt; true
+    }
+
+<span class="strong"><strong>    file {'/etc/apache2/sites-enabled/000-default.conf':</strong></span>
+<span class="strong"><strong>       ensure =&gt; absent,</strong></span>
+<span class="strong"><strong>    }</strong></span>
+}</pre></div><p>Now let's create the code for the virtual host generation. The creation of a new virtual host must be done in <code class="literal">/etc/apache2/sites-available</code>, and will be generated from a template. Two languages are available:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">ERB for Embedded Ruby.</li><li class="listitem" style="list-style-type: disc">EPP for Embedded Puppet (Puppet 4 and higher). Let's choose this one.</li></ul></div><p>Our EPP template will use two parameters: the site name and the document root. Let's create a <code class="literal">vhost.epp</code> file in the <code class="literal">modules/apache/templates</code> directory:</p><div class="informalexample"><pre class="programlisting">&lt;VirtualHost *:80&gt;
+  ServerName &lt;%=$website%&gt;
+  DocumentRoot &lt;%=$docroot%&gt;
+  &lt;Directory &lt;%=$docroot%&gt;&gt;
+    Order deny,allow
+    Allow from all
+    AllowOverride All
+  &lt;/Directory&gt;
+  ErrorLog /var/log/apache2/error-&lt;%=$website%&gt;.log
+  CustomLog /var/log/apache2/access-&lt;%=$website%&gt;.log combined
+&lt;/VirtualHost&gt;</pre></div><p>Now we need to instantiate this template. The best way is to think about something we could reuse as many times as needed (in case we would like to add more sites).</p><p>We previously used a class statement, but each <code class="literal">class</code> in Puppet can be used only once per catalog (remember, a catalog is the result of the compilation for a node). Fortunately, the <code class="literal">define</code> statement is used to define a block of code that can be used multiple times.</p><p>So let's define a file, <code class="literal">module/apache/manifest/vhost.pp</code> that will use such a statement:</p><div class="informalexample"><pre class="programlisting">define apache::vhost (
+     $website,
+     $docroot
+) {
+
+  file { "/etc/apache2/sites-available/$website.conf":
+     ensure  =&gt; present,
+     owner   =&gt; 'root',
+     group   =&gt; 'root',
+     mode    =&gt; '0640',
+     content =&gt; epp('apache/vhost.epp',
+                     {'website' =&gt; $website, 
+                      'docroot'=&gt;$docroot}),
+  }
+
+  file { "/etc/apache2/sites-enabled/$website.conf":
+     ensure  =&gt; link,
+     target  =&gt; "/etc/apache2/sites-available/$website.conf",
+     require =&gt; File["/etc/apache2/sites-available/$website.conf"],
+  }
+}</pre></div><p>The website <a id="id691" class="indexterm"/>name and the document root are the two parameters for our <code class="literal">apache::vhost</code> statement and are passed to the <code class="literal">epp</code> function along <a id="id692" class="indexterm"/>with the template file name in the first <code class="literal">file</code> directive.</p><p>On Ubuntu, to enable a site, a link must be created in <code class="literal">/etc/apache2/site-enabled</code>; the second <code class="literal">file</code> directive will handle it.</p><p>Finally, we need to deploy our PHP file under the <code class="literal">DocumentRoot</code> directory. This can be done directly in the main manifest using <code class="literal">file</code> directives to create the <code class="literal">DocumentRoot</code> directory and the file itself:</p><div class="informalexample"><pre class="programlisting">node 'web.pomes.pro' {
+    $website=$fqdn;
+    $docroot="/var/www/$fqdn";
+
+    class {
+      'apache':;
+      'php':;
+      'mariadb':;
+    }
+    apache::vhost {$website:
+       website =&gt; $website,
+       docroot =&gt; $docroot,
+    }
+<span class="strong"><strong>    file { $docroot:</strong></span>
+<span class="strong"><strong>      ensure =&gt; directory,</strong></span>
+<span class="strong"><strong>      owner  =&gt; 'www-data',</strong></span>
+<span class="strong"><strong>      group  =&gt; 'www-data',</strong></span>
+<span class="strong"><strong>      mode   =&gt; '0755',</strong></span>
+<span class="strong"><strong>    }</strong></span>
+<span class="strong"><strong>    file {"$docroot/index.php":</strong></span>
+<span class="strong"><strong>      ensure  =&gt; present,</strong></span>
+<span class="strong"><strong>      owner   =&gt; 'www-data',</strong></span>
+<span class="strong"><strong>      group   =&gt; 'www-data',</strong></span>
+<span class="strong"><strong>      mode    =&gt; '0644',</strong></span>
+<span class="strong"><strong>      content =&gt; "&lt;?php phpinfo() ?&gt;",</strong></span>
+<span class="strong"><strong>    }</strong></span>
+}</pre></div><p>We can <a id="id693" class="indexterm"/>now run the Puppet agent again. For <a id="id694" class="indexterm"/>now, we need to restart Apache manually in order to have our virtual host running (as for Chef, we'll automate this in the next pages):</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@web:~# service apache2 reload</strong></span>
+</pre></div><p>Now you should see the phpinfo page on <code class="literal">http://web.pomes.pro</code>
+</p></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec178"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The Chef <a id="id695" class="indexterm"/>documentation on attributes: <a class="ulink" href="https://docs.chef.io/attributes.html">https://docs.chef.io/attributes.html</a></li><li class="listitem" style="list-style-type: disc">The Chef <a id="id696" class="indexterm"/>documentation on the directory resource: <a class="ulink" href="https://docs.chef.io/resource_directory.html">https://docs.chef.io/resource_directory.html</a></li><li class="listitem" style="list-style-type: disc">The <a id="id697" class="indexterm"/>Chef documentation on the file resource: <a class="ulink" href="https://docs.chef.io/resource_file.html">https://docs.chef.io/resource_file.html</a></li><li class="listitem" style="list-style-type: disc">The Chef <a id="id698" class="indexterm"/>documentation on the template resource: <a class="ulink" href="https://docs.chef.io/resource_template.html">https://docs.chef.io/resource_template.html</a></li><li class="listitem" style="list-style-type: disc">The <a id="id699" class="indexterm"/>Puppet <code class="literal">file</code> resource documentation: <a class="ulink" href="https://docs.puppet.com/puppet/4.8/types/file.html">https://docs.puppet.com/puppet/4.8/types/file.html</a></li><li class="listitem" style="list-style-type: disc">Using <a id="id700" class="indexterm"/>templates with Puppet: <a class="ulink" href="https://docs.puppet.com/puppet/4.8/lang_template.html">https://docs.puppet.com/puppet/4.8/lang_template.html</a></li></ul></div></div></div>
+<div class="section" title="Handling dependencies"><div class="titlepage"><div><div><h1 class="title"><a id="ch06lvl1sec76"/>Handling dependencies</h1></div></div></div><p>A very <a id="id701" class="indexterm"/>nifty feature of Chef is the ability to include recipes from one cookbook with another. This way, we can create cookbooks with a purpose, like a product or an end result. An example of such a cookbook could be an application <a id="id702" class="indexterm"/>cookbook named <span class="emphasis"><em>MyCloudApp</em></span>, with calls to, or inclusions of, other cookbooks such as Apache, MySQL, or any other cookbook it might need.</p><p>Until now, we added recipe after recipe to the run list of our host. This is not optimal, and less than desirable when managing a lot of nodes. The idea here is to create a new cookbook dedicated to an imaginary MySite application, that will reference and depend on all the other recipes, so we can only load this MySite cookbook and be done with it.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec179"/>Getting ready</h2></div></div></div><p>To work through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Chef client configuration on the remote host</li><li class="listitem" style="list-style-type: disc">Optionally, the Chef code from the previous recipes</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec180"/>How to do it…</h2></div></div></div><p>We know we want to create a new cookbook named <code class="literal">mysite</code> so we can centralize everything related to making this application work in the same place. Let's use the <code class="literal">chef</code> command to do that:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ chef generate cookbook cookbooks/mysite</strong></span>
+</pre></div><p>To include a recipe from another cookbook with our default recipe, we'll use the <code class="literal">include_recipe</code> method in <code class="literal">mysite/recipes/default.rb</code>:</p><div class="informalexample"><pre class="programlisting">include_recipe "apache"
+include_recipe "apache::virtualhost"
+include_recipe "mariadb"
+include_recipe "php"</pre></div><p>This is telling Chef to load and execute the content of each recipe.</p><p>For Chef to know where this is to be found, we need to create a dependency to those cookbooks. This is done in the <code class="literal">mysite/metadata.rb</code> file:</p><div class="informalexample"><pre class="programlisting">depends "apache"
+depends "mariadb"
+depends "php"</pre></div><p>Now, our MySite cookbook has a nice dependency graph: to fully work, it needs Apache, MariaDB, and PHP. The recipe details what exactly to run.</p><p>Since we have a dedicated cookbook for our app, let's try to add some customization to it. Remember the default <code class="literal">sitename</code> attribute in the <code class="literal">apache</code> cookbook? Let's override it to match our own value by adding the following at the top of the file, just before the apache recipes inclusion:</p><div class="informalexample"><pre class="programlisting">node.override["sitename"] = "mysite"</pre></div><p>Upload <a id="id703" class="indexterm"/>the cookbook to the Chef server:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife cookbook upload mysite</strong></span>
+</pre></div><p>Remove previous recipes from our node's run list using <code class="literal">knife node run_list remove &lt;node name&gt; &lt;recipe name&gt;</code>:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife node run_list remove vagrant "recipe[mariadb]" "recipe[php]" "recipe[apache]" "recipe[apache::virtualhost]"</strong></span>
+</pre></div><p>The <a id="id704" class="indexterm"/>node's run list is now empty. Simply add the new <code class="literal">mysite</code> cookbook that includes everything it needs to run:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife node run_list add vagrant mysite</strong></span>
+</pre></div><p>The next Chef client run won't change anything, but it will be much easier to manage in the future!</p></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec181"/>There's more…</h2></div></div></div><p>Using puppet, a module can be used in other modules. Based on previous examples, we could think about a <code class="literal">mysite</code> module, with the following manifest:</p><div class="informalexample"><pre class="programlisting">class mysite (
+   $website,
+   $docroot
+){
+    class {
+      'apache':;
+      'php':;
+      'mariadb':;
+    }
+    apache::vhost {$website:
+       website =&gt; $website,
+       docroot =&gt; $docroot,
+    }
+    file { $docroot:
+      ensure =&gt; directory,
+      owner   =&gt; 'www-data',
+      group   =&gt; 'www-data',
+      mode    =&gt; '0755',
+    }
+    file {"$docroot/index.php":
+      ensure =&gt; present,
+      owner   =&gt; 'www-data',
+      group   =&gt; 'www-data',
+      mode    =&gt; '0644',
+      content =&gt; "&lt;?php phpinfo() ?&gt;",
+    }
+}</pre></div><p>The main <a id="id705" class="indexterm"/>manifest <a id="id706" class="indexterm"/>of our node would be as follows:</p><div class="informalexample"><pre class="programlisting">node 'web.pomes.pro' {
+    class {
+      'mysite':
+         website     =&gt; $fqdn,
+         docroot  =&gt; "/var/www/$fqdn",
+    }
+}</pre></div></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec182"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The Chef documentation on attributes: <a class="ulink" href="https://docs.chef.io/attributes.html">https://docs.chef.io/attributes.html</a></li><li class="listitem" style="list-style-type: disc">The Chef <a id="id707" class="indexterm"/>cookbook <code class="literal">metadata.rb</code> documentation: <a class="ulink" href="https://docs.chef.io/config_rb_metadata.html">https://docs.chef.io/config_rb_metadata.html</a></li></ul></div></div></div>
+<div class="section" title="More dynamic code using notifications"><div class="titlepage"><div><div><h1 class="title"><a id="ch06lvl1sec77"/>More dynamic code using notifications</h1></div></div></div><p>Wouldn't it <a id="id708" class="indexterm"/>be great if Chef knew how and what <a id="id709" class="indexterm"/>to restart automatically when a change arises? In a previous example, we added a new virtual host to our node, and we had to manually restart Apache to take the change into account. Luckily, there's a mechanism named <span class="emphasis"><em>notifications</em></span> in Chef, that helps trigger an action, when a resource changes. This way, changing a virtual host can trigger a restart of the Apache HTTP server automatically.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec183"/>Getting ready</h2></div></div></div><p>To work through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Chef client configuration on the remote host</li><li class="listitem" style="list-style-type: disc">The Chef code from the previous recipes</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec184"/>How to do it…</h2></div></div></div><p>We'll start <a id="id710" class="indexterm"/>from the <code class="literal">apache</code> cookbook we've left in its 0.3.0 version. Bump it right now to <code class="literal">0.4.0</code> so we're starting fresh in <code class="literal">apache/metadata.rb</code>:</p><div class="informalexample"><pre class="programlisting">version '0.4.0'</pre></div><p>Every <a id="id711" class="indexterm"/>resource can notify another resource to do something when its state changes, and any resource can also subscribe to a change of state from another resource. In our case, we'd like our <code class="literal">template</code> resource to notify the <code class="literal">httpd</code> system service to restart when the Virtual Host template changes, so we're sure the change is automatically taken into account. The httpd service is coming from the default Apache recipe, so it’s better to include it right now in the <code class="literal">apache/recipes/virtualhost.rb</code> file, so we’re sure this particular recipe works alone and not by side-effect of a previous inclusion:</p><p>include_recipe 'apache::default'</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">In the <code class="literal">apache/recipes/virtualhost.rb</code> file, add the following highlighted notification section:<div class="informalexample"><pre class="programlisting">template "/etc/httpd/conf.d/#{node["sitename"]}.conf" do
+  source "virtualhost.erb"
+  owner 'root'
+  group 'root'
+  mode '0644'
+  variables(
+    :website =&gt; "#{node["sitename"]}"
+  )
+  notifies :restart, resources(:service =&gt; "httpd")
+end</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note47"/>Note</h3><p>By default, actions are <span class="emphasis"><em>delayed</em></span> at the end of the Chef run. If we need an action to take place immediately, at the risk of breaking the state of the system, we can add the <code class="literal">:immediately</code> timer at the end of the line.</p></div></div></li><li class="listitem">To validate it's working, we need to change something in our Virtual Host template in <code class="literal">apache/templates/virtualhost.erb</code>. For this example, I simply set the local IP the node is listening to, but feel free to adapt to your own case:<div class="informalexample"><pre class="programlisting">&lt;VirtualHost 192.168.146.129:80&gt;
+        ServerName &lt;%= @website %&gt;
+        DocumentRoot /var/www/&lt;%= @website %&gt;
+        ErrorLog /var/log/httpd/error-&lt;%= @website %&gt;.log
+        CustomLog /var/log/httpd/access-&lt;%= @website %&gt;.log combined
+&lt;/VirtualHost&gt;</pre></div></li><li class="listitem">Now <a id="id712" class="indexterm"/>upload the updated cookbook (we've already bumped it):<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife cookbook upload apache</strong></span>
+</pre></div></li><li class="listitem">Run <a id="id713" class="indexterm"/>the Chef client on the node and see the magic happen:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo chef-client</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>  * template[/etc/httpd/conf.d/defaultsite.conf] action create</strong></span>
+<span class="strong"><strong>    - update content in file /etc/httpd/conf.d/defaultsite.conf from 6f4d47 to 05ea5b</strong></span>
+<span class="strong"><strong>    --- /etc/httpd/conf.d/defaultsite.conf   2016-10-17 01:05:49.243799676 +0000</strong></span>
+<span class="strong"><strong>    +++ /etc/httpd/conf.d/.chef-defaultsite20161017-14052-1xt951m.conf       2016-10-17 01:10:27.452670052 +0000</strong></span>
+<span class="strong"><strong>    @@ -1,4 +1,4 @@</strong></span>
+<span class="strong"><strong>    -&lt;VirtualHost *:80&gt;</strong></span>
+<span class="strong"><strong>    +&lt;VirtualHost 192.168.146.129:80&gt;</strong></span>
+<span class="strong"><strong>             ServerName defaultsite</strong></span>
+<span class="strong"><strong>             DocumentRoot /var/www/defaultsite</strong></span>
+<span class="strong"><strong>             ErrorLog /var/log/httpd/error-defaultsite.log</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>Recipe: apache::default</strong></span>
+<span class="strong"><strong>  * service[httpd] action reload</strong></span>
+<span class="strong"><strong>    - reload service service[httpd]</strong></span>
+</pre></div></li></ol></div><p>The cool thing is we can even see a diff of the change in the logs so we always know what's changed, as well as see the <code class="literal">httpd</code> service being reloaded after the change happened.</p><p>Our system is now perfectly dynamic and can reload its configuration at will at every change.</p></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec185"/>There's more…</h2></div></div></div><p>Puppet <a id="id714" class="indexterm"/>has exactly the same feature, using the <code class="literal">notify</code> attribute. When the content of <code class="literal">/etc/apache2/sites-enabled</code> is modified, Apache configuration needs to be reloaded.</p><p>Let's <a id="id715" class="indexterm"/>change our Apache manifest to do this.</p><p>Apache configuration needs to be reloaded when the default vhost is removed, so we need to modify <code class="literal">modules/apache/manifests/init.pp</code> with the corresponding <code class="literal">notify</code> attribute:</p><div class="informalexample"><pre class="programlisting">class apache {
+    package {'apache2':
+       ensure =&gt; present,
+    }
+
+    service {'apache2':
+       ensure =&gt; running,
+       enable =&gt; true
+    }
+
+    file {'/etc/apache2/sites-enabled/000-default.conf':
+       ensure =&gt; absent,
+<span class="strong"><strong>       notify =&gt; Service['apache2'],</strong></span>
+    }
+}</pre></div><p>The same logic applies for the virtual host creation (<code class="literal">modules/apache/manifests/vhost.pp</code>):</p><div class="informalexample"><pre class="programlisting">define apache::vhost (
+     $website,
+     $docroot
+) {
+
+  file { "/etc/apache2/sites-available/$website.conf":
+     ensure  =&gt; present,
+     owner   =&gt; 'root',
+     group   =&gt; 'root',
+     mode    =&gt; '0640',
+     content =&gt; epp('apache/vhost.epp', 
+                      {'website' =&gt; $website, 
+                       'docroot'=&gt;$docroot}),
+  }
+
+  file { "/etc/apache2/sites-enabled/$website.conf":
+     ensure  =&gt; link,
+     target  =&gt; "/etc/apache2/sites-available/$website.conf",
+     require =&gt; File["/etc/apache2/sites-available/$website.conf"],
+<span class="strong"><strong>     notify  =&gt; Service['apache2'],</strong></span>
+  }
+}</pre></div><p>Let's try <a id="id716" class="indexterm"/>to run the Puppet agent on fresh Vagrant <a id="id717" class="indexterm"/>boxes, we will see that the two modifications will schedule a configuration reload, that will be done at the end of the Puppet Agent run. (refer to the lines with <code class="literal">Scheduling refresh of Service[apache2]</code> and <code class="literal">Triggered 'refresh' from 2 events</code>):</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>Notice: /Stage[main]/Apache/File[/etc/apache2/sites-enabled/000-default.conf]/ensure: removed</strong></span>
+<span class="strong"><strong>Info: /Stage[main]/Apache/File[/etc/apache2/sites-enabled/000-default.conf]: Scheduling refresh of Service[apache2]</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Main/Node[web.pomes.pro]/Apache::Vhost[web.pomes.pro]/File[/etc/apache2/sites-enabled/web.pomes.pro.conf]/ensure: created</strong></span>
+<span class="strong"><strong>Info: /Stage[main]/Main/Node[web.pomes.pro]/Apache::Vhost[web.pomes.pro]/File[/etc/apache2/sites-enabled/web.pomes.pro.conf]: Scheduling refresh of Service[apache2]</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Apache/Service[apache2]: Triggered 'refresh' from 2 events</strong></span>
+<span class="strong"><strong>Notice: Applied catalog in 45.46 seconds</strong></span>
+</pre></div><p>Now <a id="id718" class="indexterm"/>we can access the phpinfo page at <code class="literal">http://web.pomes.pro</code> without <a id="id719" class="indexterm"/>manually restarting Apache.</p></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec186"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The Chef <a id="id720" class="indexterm"/>documentation for notifications: <a class="ulink" href="https://docs.chef.io/resource_common.html#notifications">https://docs.chef.io/resource_common.html#notifications</a></li><li class="listitem" style="list-style-type: disc">The Chef <a id="id721" class="indexterm"/>documentation for subscribes: <a class="ulink" href="https://docs.chef.io/resource_common.html#subscribes">https://docs.chef.io/resource_common.html#subscribes</a></li><li class="listitem" style="list-style-type: disc">The Puppet notify<a id="id722" class="indexterm"/> resource documentation: <a class="ulink" href="https://docs.puppet.com/puppet/4.8/types/notify.html">https://docs.puppet.com/puppet/4.8/types/notify.html</a></li></ul></div></div></div>
+<div class="section" title="Centrally sharing data using a Chef data bag and Hiera with Puppet"><div class="titlepage"><div><div><h1 class="title"><a id="ch06lvl1sec78"/>Centrally sharing data using a Chef data bag and Hiera with Puppet</h1></div></div></div><p>Now we <a id="id723" class="indexterm"/>have the basics of our LAMP infrastructure <a id="id724" class="indexterm"/>up and running, let's secure it a little by creating an <code class="literal">htaccess</code> file with a few authorized users in it. To achieve this, we could use different techniques, but the <span class="emphasis"><em>data bag</em></span> feature in Chef is pretty convenient for our objective. A data bag is simply data in a JSON file stored on the Chef server, that can be searched from the cookbooks. It's especially useful for storing data that need to be accessed globally from a central point (such as users, service credentials, version numbers, URLs, even feature flags, and other similar features depending on your usage).</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec187"/>Getting ready</h2></div></div></div><p>To work through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Chef client configuration on the remote host</li><li class="listitem" style="list-style-type: disc">The Chef code from the previous recipes</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec188"/>How to do it…</h2></div></div></div><p>Our objective is to create two users—John and Mary. Here's a table of the required information:</p><div class="informaltable"><table border="1"><colgroup><col style="text-align: left"/><col style="text-align: left"/><col style="text-align: left"/></colgroup><thead><tr><th style="text-align: left" valign="bottom">
+<p>User</p>
+</th><th style="text-align: left" valign="bottom">
+<p>Password</p>
+</th><th style="text-align: left" valign="bottom">
+<p>Hash</p>
+</th></tr></thead><tbody><tr><td style="text-align: left" valign="top">
+<p>John</p>
+</td><td style="text-align: left" valign="top">
+<p>
+<code class="literal">p4ssw0rd</code>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>
+<code class="literal">$apr1$AUI2Y5pj$0v0PaSlLfc6QxZx1Vx5Se</code>
+</p>
+</td></tr><tr><td style="text-align: left" valign="top">
+<p>Mary</p>
+</td><td style="text-align: left" valign="top">
+<p>
+<code class="literal">s3cur3</code>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>
+<code class="literal">$apr1$eR7H0C5r$OrhOQUTXfUEIdvWyeGGGy/</code>
+</p>
+</td></tr></tbody></table></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note48"/>Note</h3><p>To generate the encrypted passwords, you can use the simple <code class="literal">htpasswd</code> utility:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ htpasswd -n -b mary s3cur3</strong></span>
+<span class="strong"><strong>mary:$apr1$eR7H0C5r$OrhOQUTXfUEIdvWyeGGGy/</strong></span>
+</pre></div></div></div><p>We want to store that piece of information (username and password), inside a single entity: this <a id="id725" class="indexterm"/>is the data bag. Let's name it <code class="literal">webusers</code>, and we'll store our users under this directory.</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Let's create <a id="id726" class="indexterm"/>this directory inside our Chef repository for our revision control system (RCS, like git):<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ mkdir -p data_bags/webusers</strong></span>
+</pre></div></li><li class="listitem">To create the data bag entry on the Chef server, use the following <code class="literal">knife</code> command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife data bag create webusers</strong></span>
+</pre></div></li><li class="listitem">As we know, an entry is simple JSON structured data. Let's write the content of our data bag for our user John, in <code class="literal">data_bags/webusers/john.json</code>:<div class="informalexample"><pre class="programlisting">{
+  "id": "john",
+  "htpasswd": "$apr1$AUI2Y5pj$0v0PaSlLfc6QxZx1Vx5Se."
+}</pre></div></li><li class="listitem">Let's do the same for Mary in <code class="literal">data_bags/webusers/mary.json</code><div class="informalexample"><pre class="programlisting">{
+  "id": "mary",
+  "htpasswd": "$apr1$eR7H0C5r$OrhOQUTXfUEIdvWyeGGGy/"
+}</pre></div></li><li class="listitem">Now let's send this data on the Chef server using the <code class="literal">knife</code> command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife data bag from file webusers mary.json</strong></span>
+<span class="strong"><strong>Updated data_bag_item[webusers::mary]</strong></span>
+<span class="strong"><strong>$ knife data bag from file webusers john.json</strong></span>
+<span class="strong"><strong>Updated data_bag_item[webusers::john]</strong></span>
+</pre></div></li></ol></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note49"/>Note</h3><p>You can see the current entries in the data bag using the knife command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife data bag show webusers</strong></span>
+<span class="strong"><strong>john</strong></span>
+<span class="strong"><strong>mary</strong></span>
+</pre></div></div></div><p>Now the data is globally available from the Chef server, how do we access it dynamically from inside our code? This is where the <code class="literal">search</code> feature in Chef is useful to create dynamically generated content.</p><p>Before starting any work in the <code class="literal">mysite</code> cookbook, let's bump the version in <code class="literal">mysite/metadata.rb</code> so we're sure not to break anything:</p><div class="informalexample"><pre class="programlisting">version '0.2.0'</pre></div><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Let's create <a id="id727" class="indexterm"/>a new recipe named <code class="literal">htaccess.rb</code> under the <code class="literal">mysite</code> cookbook so we can create both the <code class="literal">htaccess</code> file under <code class="literal">/etc/httpd/htaccess</code> (this is an arbitrary location, adaptable to your needs) and the Apache configuration file under the web root:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ chef generate recipe cookbooks/mysite htaccess</strong></span>
+</pre></div></li><li class="listitem">To have <a id="id728" class="indexterm"/>our entries automatically populated in the <code class="literal">htaccess</code> file, we'll have to iterate through all existing entries. This is done using the <code class="literal">search</code> in Chef, specifying the data bag, and the scope to search (in our case, everything). This is simply added in the <code class="literal">mysite/recipes/htaccess.rb</code> file:<div class="informalexample"><pre class="programlisting">users = search(:webusers, "*:*")</pre></div></li><li class="listitem">This variable, <code class="literal">users</code>, will then be passed to the template file to generate the content, like we did previously—except this time we have multiple entries, not just one. We're using the <code class="literal">htpasswd.erb</code> file as a source, that we'll create in a moment:<div class="informalexample"><pre class="programlisting">template "/etc/httpd/htpasswd" do
+  source "htpasswd.erb"
+  owner 'root'
+  group 'root'
+  mode '0660'
+  variables(
+    :users =&gt; users
+  )
+end</pre></div></li><li class="listitem">Generate a new template for the <code class="literal">htpasswd</code> file, using the <code class="literal">chef</code> command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ chef generate template cookbooks/mysite htpasswd</strong></span>
+</pre></div></li><li class="listitem">Inside this ERB file in <code class="literal">mysite/templates/htpasswd.erb</code>, enter the following:<div class="informalexample"><pre class="programlisting">&lt;% @users.each do |user| -%&gt;
+&lt;%= user["id"] %&gt;:&lt;%= user["htpasswd"] %&gt;
+&lt;% end -%&gt;</pre></div><p>The <code class="literal">.each</code> method loops around the <code class="literal">users</code> variable that we passed through the template, iterates on <code class="literal">user</code>, and extracts our two values of interest: <code class="literal">id</code> and <code class="literal">htpasswd</code>.</p><p>While we're at it, let's create the template for the <code class="literal">.htaccess</code> file under our web root folder:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ chef generate template cookbooks/mysite htaccess</strong></span>
+</pre></div><p>Its content <a id="id729" class="indexterm"/>is the most basic we can find:</p><div class="informalexample"><pre class="programlisting">AuthType Basic
+AuthName "Restricted Area"
+AuthUserFile /etc/httpd/htpasswd
+Require valid-user</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note50"/>Note</h3><p>There's currently no variable in this template. As I know, files most often end up being dynamic, I always prefer to start them as templates, even if content is currently static. It's very likely that in the near future we'll want to use a variable for <code class="literal">AuthUserFile</code>.</p></div></div></li><li class="listitem">Back to our <code class="literal">mysite/recipes/htaccess.rb </code>recipe, let's add the template we just created:<div class="informalexample"><pre class="programlisting">template "/var/www/mysite/.htaccess" do
+  source "htaccess.erb"
+  owner 'root'
+  group 'root'
+  mode '0644'
+end</pre></div></li></ol></div><p>Don't forget <a id="id730" class="indexterm"/>the last step: we have to call this new recipe from our main, <code class="literal">default.rb</code> recipe! In <code class="literal">mysite/recipes/default.rb</code>, include our new recipe, so it gets picked up by the client:</p><div class="informalexample"><pre class="programlisting">include_recipe "mysite::htaccess"</pre></div><p>Just upload the new version of the cookbook:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife cookbook upload mysite</strong></span>
+</pre></div><p>After you've run <code class="literal">chef-client</code> on your node, the site will be protected and users <code class="literal">mary</code> and <code class="literal">john</code> will be able to use basic HTTP authentication.</p></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec189"/>There's more…</h2></div></div></div><p>With Puppet, we can do it using Hiera. Hiera can be seen as datastore keeping site information out of manifests. Hiera can be customized in the way data is stored, but this will be out of the scope of this chapter; we will use default configuration.</p><p>First of all, we need to define the data in Hiera. This will be done by creating <code class="literal">web.pomes.pro.yaml</code> in the Hiera tree:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ cd puppetcode/hieradata</strong></span>
+<span class="strong"><strong>$ mkdir nodes</strong></span>
+<span class="strong"><strong>$ cat &gt; nodes/web.pomes.pro.yaml</strong></span>
+<span class="strong"><strong>webusers:</strong></span>
+<span class="strong"><strong> - id: john</strong></span>
+<span class="strong"><strong>   htpasswd: $apr1$AUI2Y5pj$0v0PaSlLfc6QxZx1Vx5Se</strong></span>
+<span class="strong"><strong> - id: mary</strong></span>
+<span class="strong"><strong>   htpasswd: $apr1$eR7H0C5r$OrhOQUTXfUEIdvWyeGGGy/</strong></span>
+<span class="strong"><strong>^D</strong></span>
+</pre></div><p>This file <a id="id731" class="indexterm"/>now contains an array of hashes for authorized users, for the node <code class="literal">web.pomes.pro</code>.</p><p>From <a id="id732" class="indexterm"/>the main manifest, we need to look up our Hiera data using the following code:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$users=hiera('webusers');</strong></span>
+</pre></div><p>Now it's easy to generate the password file using a new <code class="literal">apache::htpasswd</code> <code class="literal">define</code> statement, that we need to create in <code class="literal">modules/apache/manifests/htpasswd.pp</code>:</p><div class="informalexample"><pre class="programlisting">define apache::htpasswd (
+     $filepath,
+     $users
+) {
+
+  file { "$filepath":
+     ensure  =&gt; present,
+     owner   =&gt; 'root',
+     group   =&gt; 'root',
+     mode    =&gt; '0644',
+     content =&gt; template('apache/htpasswd.erb'),
+  }
+}</pre></div><p>For the corresponding template, this time, let's try an ERB template in <code class="literal">modules/apache/templates/htpasswd.erb</code>:</p><div class="informalexample"><pre class="programlisting">&lt;% @users.each do |user| -%&gt;
+&lt;%= user['id'] %&gt;:&lt;%= user['htpasswd'] %&gt;
+&lt;% end -%&gt;</pre></div><p>From the main manifest, we can now create the password file:</p><div class="informalexample"><pre class="programlisting">apache::htpasswd{'htpasswd':
+       filepath =&gt; '/etc/apache2/htpasswd',
+       users    =&gt; hiera('webusers'),
+}</pre></div><p>We also need to create a <code class="literal">.htaccess</code> file. Let's create a new <code class="literal">apache::htaccess</code> statement in <code class="literal">modules/apache/manifests/htaccess.pp</code>:</p><div class="informalexample"><pre class="programlisting">define apache::htaccess (
+     $filepath,
+     $docroot
+) {
+
+  file { "$docroot/.htaccess":
+     ensure  =&gt; present,
+     owner   =&gt; 'root',
+     group   =&gt; 'root',
+     mode    =&gt; '0644',
+     content =&gt; template('apache/htaccess.erb'),
+  }
+}</pre></div><p>The <a id="id733" class="indexterm"/>associated template in <code class="literal">modules/apache/templates/htaccess.erb</code> is:</p><div class="informalexample"><pre class="programlisting">AuthType Basic
+AuthName "Restricted Area"
+AuthUserFile &lt;%= @filepath %&gt;
+Require valid-user</pre></div><p>From the <a id="id734" class="indexterm"/>main manifest, we can now create the <code class="literal">.htaccess</code> file:</p><div class="informalexample"><pre class="programlisting">apache::htaccess{"$docroot-htaccess":
+   filepath =&gt; '/etc/apache2/htpasswd',
+     docroot  =&gt; $docroot,
+  }</pre></div><p>As a result, here is the main manifest of the <code class="literal">web.pomes.pro</code> node:</p><div class="informalexample"><pre class="programlisting">node 'web.pomes.pro' {
+    $website=$fqdn;
+    $docroot="/var/www/$fqdn";
+<span class="strong"><strong>    $users=hiera('webusers');</strong></span>
+
+    class {
+      'apache':;
+      'php':;
+      'mariadb':;
+    }
+    apache::vhost{$website:
+       website =&gt; $website,
+       docroot =&gt; $docroot,
+    }
+<span class="strong"><strong>    apache::htpasswd{'htpasswd':</strong></span>
+<span class="strong"><strong>       filepath =&gt; '/etc/apache2/htpasswd',</strong></span>
+<span class="strong"><strong>       users    =&gt; hiera('webusers'),</strong></span>
+<span class="strong"><strong>    }</strong></span>
+<span class="strong"><strong>    apache::htaccess{"$docroot-htaccess":</strong></span>
+<span class="strong"><strong>       filepath =&gt; '/etc/apache2/htpasswd',</strong></span>
+<span class="strong"><strong>       docroot  =&gt; $docroot,</strong></span>
+<span class="strong"><strong>    }</strong></span>
+    file { $docroot:
+      ensure =&gt; directory,
+      owner   =&gt; 'www-data',
+      group   =&gt; 'www-data',
+      mode    =&gt; '0755',
+    }
+    file {"$docroot/index.php":
+      ensure =&gt; present,
+      owner   =&gt; 'www-data',
+      group   =&gt; 'www-data',
+      mode    =&gt; '0644',
+      content =&gt; "&lt;?php phpinfo() ?&gt;",
+    }
+}</pre></div><p>After <a id="id735" class="indexterm"/>running <a id="id736" class="indexterm"/>the Puppet agent, <code class="literal">http://web.pomes.pro</code> will now ask you for a login/password.</p></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec190"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The <a id="id737" class="indexterm"/>Chef documentation on data bags: <a class="ulink" href="https://docs.chef.io/data_bags.html">https://docs.chef.io/data_bags.html</a></li><li class="listitem" style="list-style-type: disc">Puppet <a id="id738" class="indexterm"/>Hiera: <a class="ulink" href="https://docs.puppet.com/hiera/3.2/">https://docs.puppet.com/hiera/3.2/</a></li></ul></div></div></div>
+<div class="section" title="Creating functional roles"><div class="titlepage"><div><div><h1 class="title"><a id="ch06lvl1sec79"/>Creating functional roles</h1></div></div></div><p>Until now, we <a id="id739" class="indexterm"/>have created cookbooks based on a particular technology. We created a cookbook for MariaDB, one for Apache HTTPd, and one for our app (including all the dependencies). What about the role of each of those infrastructure elements? A <span class="emphasis"><em>database</em></span> role can include what is now running our database (MariaDB), but maybe tomorrow it can run something else (migrate back to MySQL, or switch to PostgreSQL). As roles in Chef have a dedicated run list, it's common to see a role include the product recipes, and everything related to it, think monitoring for example. Roles can do a lot more, like overriding attributes or have different run lists for each <a id="id740" class="indexterm"/>environment. Here, we'll create two generic <span class="emphasis"><em>database</em></span> and <span class="emphasis"><em>webserver</em></span> roles that might be simply reused later for another project that just need those services and a <span class="emphasis"><em>mysite</em></span> role, that will include the two other roles. A role can include other roles as well as recipes. This way, the role for mysite will be enough to run our infrastructure, from a functional point of view.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec191"/>Getting ready</h2></div></div></div><p>To work through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Chef client configuration on the remote host</li><li class="listitem" style="list-style-type: disc">The Chef code from the previous recipes</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec192"/>How to do it…</h2></div></div></div><p>Follow these steps for creating functional roles:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">We can write roles in plain JSON or in Ruby. Let's try Ruby for our <code class="literal">webserver</code> role in <code class="literal">roles/webserver.rb</code>. It requires a name, a description, and a run list. That's the bare minimum:<div class="informalexample"><pre class="programlisting">name "webserver"
+description "An HTTP server for our application"
+run_list "recipe[apache]"</pre></div></li><li class="listitem">Let's do the same for our <code class="literal">database</code> role; we currently want to use our <code class="literal">mariadb</code> cookbook. So let's write it in <code class="literal">roles/database.rb</code>:<div class="informalexample"><pre class="programlisting">name "database"
+description "A database server for our application"
+run_list "recipe[mariadb]"</pre></div></li><li class="listitem">Finally, let's write the <code class="literal">mysite</code> role, that will include a webserver, a database, as well as its own cookbook, in <code class="literal">roles/mysite.rb</code>:<div class="informalexample"><pre class="programlisting">name "mysite"
+description "MySite role"
+run_list(
+  "role[webserver]",
+  "role[database]",
+  "recipe[mysite]"
+)</pre></div></li><li class="listitem">Send the roles to the Chef server using the <code class="literal">knife</code> command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife role from file database.rb</strong></span>
+<span class="strong"><strong>Updated Role database</strong></span>
+<span class="strong"><strong>$ knife role from file webserver.rb</strong></span>
+<span class="strong"><strong>Updated Role webserver</strong></span>
+<span class="strong"><strong>$ knife role from file mysite.rb</strong></span>
+<span class="strong"><strong>Updated Role mysite</strong></span>
+</pre></div></li><li class="listitem">Now, either edit your current node's run list (if you have one) to use only this role (<code class="literal">role[mysite]</code>), or if you're about to bootstrap the server; adding the <code class="literal">-r "role[mysite]"</code> option will bootstrap Chef on the node as well as execute Chef with this run list:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife bootstrap 192.168.146.129 -N vagrant -x vagrant --sudo -r "role[mysite]"</strong></span>
+</pre></div></li></ol></div><p>We'll now <a id="id741" class="indexterm"/>be free to add more complex features to our role in the future!</p></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec193"/>There's more…</h2></div></div></div><p>Puppet does not provide a role feature. However, this can be done by adding a level of abstraction using the <span class="emphasis"><em>role and profile</em></span> design pattern. In this pattern:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A <span class="emphasis"><em>role</em></span> is a class defining a behavior (For example, a web server). This class needs to include all needed <span class="emphasis"><em>profiles</em></span> to create the role.</li><li class="listitem" style="list-style-type: disc">A <span class="emphasis"><em>profile</em></span> is a class used to manage the underlying technology (For example, by installing Apache)</li><li class="listitem" style="list-style-type: disc">In the main manifest, nodes are only using <span class="emphasis"><em>roles</em></span>.</li></ul></div><p>Using this pattern, it is easier to refactor only <span class="emphasis"><em>profiles</em></span> classes when the technology needs to be changed.</p></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec194"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The Chef <a id="id742" class="indexterm"/>documentation on roles: <a class="ulink" href="https://docs.chef.io/roles.html">https://docs.chef.io/roles.html</a></li></ul></div></div></div>
+<div class="section" title="Managing external Chef cookbooks and Puppet modules"><div class="titlepage"><div><div><h1 class="title"><a id="ch06lvl1sec80"/>Managing external Chef cookbooks and Puppet modules</h1></div></div></div><p>Up till now, we've written our own cookbooks, which are fairly simple in their current state. Chances are, we'll expect a lot more complicated setups in our real life infrastructure. To help us, there're two kinds of external cookbooks we can use: community-backed cookbooks <a id="id743" class="indexterm"/>and <span class="emphasis"><em>official</em></span> cookbooks, written and maintained by the Chef team directly. To browse available cookbooks, navigate to the Chef <a id="id744" class="indexterm"/>Supermarket (think of it as a store for cookbooks): <a class="ulink" href="https://supermarket.chef.io/">https://supermarket.chef.io/</a>.</p><p>The thing is, our life will become increasingly complicated with all those cookbooks downloaded here and there, each of them having dependencies of their own. Fortunately, the Chef DK ships with a superb utility for this use case—Berkshelf.</p><p>Berkshelf allows us to declare cookbook dependencies, versions and locations in a single file, and in a single command, upload everything needed to run our cookbook.</p><p>In this section, we'll migrate away from our distribution's MariaDB default and unconfigured package, to a fully configured MySQL 5.7—and that workflow is pretty close to everyday life using Chef in production.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec195"/>Getting ready</h2></div></div></div><p>To work through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Chef client configuration on the remote host</li><li class="listitem" style="list-style-type: disc">The Chef code from the previous recipes</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec196"/>How to do it…</h2></div></div></div><p>Let's start <a id="id745" class="indexterm"/>by discovering how Berkshelf works. Under the <code class="literal">cookbooks/mysite/</code> directory, we find a file named <code class="literal">Berksfile</code> (if you didn't create the cookbook with the <code class="literal">chef</code> utility, create the file manually). As Berkshelf works per cookbook, we'll declare all our cookbook dependencies to run this particular cookbook here, which in our case, happens to be currently all local. In this <code class="literal">Berksfile</code>, enter the following:</p><div class="informalexample"><pre class="programlisting">source 'https://supermarket.chef.io'
+
+metadata
+
+cookbook 'apache', path: '../apache'
+cookbook 'php', path: '../php'
+cookbook 'mariadb', path: '../mariadb'</pre></div><p>This tells us three important things:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Where to find unknown cookbooks (on the official supermarket, we can replace with our own internal supermarket if we run one)</li><li class="listitem" style="list-style-type: disc">Where to find dependencies: in our cookbook's metadata file</li><li class="listitem" style="list-style-type: disc">Where each of those cookbooks reside: in our case, the local relative path</li></ul></div><p>Bump the <code class="literal">mysite</code> cookbook version in <code class="literal">metadata.rb</code> so we don't mess with our previous work, and, from the <code class="literal">mysite</code> cookbook directory, upload all our cookbook's dependencies at once:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ berks upload</strong></span>
+<span class="strong"><strong>Uploaded apache (0.5.0) to: 'https://api.chef.io:443/organizations/iacbook'</strong></span>
+<span class="strong"><strong>Uploaded mariadb (0.2.0) to: 'https://api.chef.io:443/organizations/iacbook'</strong></span>
+<span class="strong"><strong>Uploaded mysite (0.3.0) to: 'https://api.chef.io:443/organizations/iacbook'</strong></span>
+<span class="strong"><strong>Uploaded php (0.2.0) to: 'https://api.chef.io:443/organizations/iacbook'</strong></span>
+</pre></div><p>Now <a id="id746" class="indexterm"/>we start to realize how faster it is than manual uploading all the cookbooks one by one!</p><div class="section" title="Using the official MySQL cookbook and its dependencies with Berkshelf"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec130"/>Using the official MySQL cookbook and its dependencies with Berkshelf</h3></div></div></div><p>As we <a id="id747" class="indexterm"/>already know, we didn't make any <a id="id748" class="indexterm"/>special configuration with MariaDB; we just installed it from our distribution's repositories. This needs to change! We <a id="id749" class="indexterm"/>want a full-fledged MySQL deployment. Looking at the Chef Supermarket, we notice an official MySQL cookbook maintained <a id="id750" class="indexterm"/>by the Chef team, currently at version 8.0.4: <a class="ulink" href="https://supermarket.chef.io/cookbooks/mysql">https://supermarket.chef.io/cookbooks/mysql</a>. It seems to do wonders; there are many <a id="id751" class="indexterm"/>configuration options, and many other things. Pages and pages of tested, reliable code ready to use! Good.</p><p>By reading the README file, it is stated that it needs two other cookbooks as dependencies—<code class="literal">selinux</code> and <code class="literal">yum-mysql-community</code>. The first one to work around SELinux temporarily, and the second one to manage the official MySQL community repository for RHEL. We could solve those dependencies by hand, but we have a better idea: use the <code class="literal">Berksfile</code>!</p><p>Let's start by replacing our dependency on our own <code class="literal">mariadb</code> cookbook with this cookbook, in <code class="literal">mysite/Berksfile</code>:</p><p>Find the following code:</p><div class="informalexample"><pre class="programlisting">cookbook 'mariadb', path: '../mariadb'</pre></div><p>Replace the previous code with the following:</p><div class="informalexample"><pre class="programlisting">cookbook 'mysql', '8.0.4'</pre></div><p>This way, we ensure we'll ever only run this particular cookbook version (8.0.4) and not a new one that might break things in production.</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Then add the following two dependencies from the <code class="literal">mysql</code> cookbook:<div class="informalexample"><pre class="programlisting">cookbook 'selinux'
+cookbook 'yum-mysql-community', '~&gt; 1.0'</pre></div><p>In this case, we declared a dependency on any version of the <code class="literal">selinux</code> cookbook, the latest being the default, and a loose constraint on any minor revision of the <code class="literal">yum-mysql-community</code> 1.0 cookbook.</p></li><li class="listitem">In the cookbooks <code class="literal">mysite/metadata.rb</code> file, do the same and replace the <code class="literal">mariadb</code> dependency with the three new ones:<div class="informalexample"><pre class="programlisting">depends "mysql" , '~&gt; 8.0'
+depends "selinux"
+depends "yum-mysql-community", '~&gt; 1.0'</pre></div></li><li class="listitem">Run the <code class="literal">berks</code> command from inside the cookbook directory to grab the new cookbook dependencies:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ berks install</strong></span>
+<span class="strong"><strong>Resolving cookbook dependencies...</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>Fetching cookbook index from https://supermarket.chef.io...</strong></span>
+<span class="strong"><strong>Using mysql (8.0.4)</strong></span>
+<span class="strong"><strong>Using selinux (0.9.0)</strong></span>
+<span class="strong"><strong>Using yum-mysql-community (1.0.0)</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+</pre></div></li><li class="listitem">Great! It automatically downloaded our dependencies. Upload them all now:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ berks upload</strong></span>
+</pre></div></li><li class="listitem">Let's now create a new recipe named <code class="literal">mysql</code> under our <code class="literal">mysite</code> cookbook, so we can deploy the MySQL we need for our application. In our case, we want the latest and greatest MySQL 5.7 with the admin password: <code class="literal">super_secure_password</code>.</li><li class="listitem">Start <a id="id752" class="indexterm"/>by bumping the cookbook's version in <code class="literal">metadata.rb</code> to a minor version:<div class="informalexample"><pre class="programlisting">version '0.3.1'</pre></div></li><li class="listitem">Now <a id="id753" class="indexterm"/>generate the new <code class="literal">mysql</code> recipe so we can use it:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ chef generate recipe cookbooks/mysite mysql</strong></span>
+</pre></div></li><li class="listitem">In the <a id="id754" class="indexterm"/>newly-created <code class="literal">mysite/recipes/mysql.rb</code> file, start by including the new recipes described as needed by the documentation:<div class="informalexample"><pre class="programlisting">include_recipe "selinux::disabled"
+include_recipe "yum-mysql-community::mysql57"</pre></div></li><li class="listitem">Then, still <a id="id755" class="indexterm"/>following the documentation, just add the following block to fully deploy MySQL 5.7 on the default port (TCP/<code class="literal">3306</code>):<div class="informalexample"><pre class="programlisting">mysql_service 'default' do
+  port '3306'
+  version '5.7'
+  initial_root_password 'super_secure_password'
+  action [:create, :start]
+end</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note51"/>Note</h3><p>What happened here is that the official <code class="literal">mysql</code> cookbook didn't make anything inside the cookbooks. It, in fact, extended Chef functionalities by offering a <code class="literal">mysql_service</code> resource. In Chefspeak, it is called <span class="strong"><strong>LWRP</strong></span> (<span class="strong"><strong>Lightweight Resources and Providers</strong></span>).</p></div></div></li><li class="listitem">Finally, remove <a id="id756" class="indexterm"/>the <a id="id757" class="indexterm"/>reference <a id="id758" class="indexterm"/>to the <code class="literal">mariadb</code> recipe <a id="id759" class="indexterm"/>from the default <code class="literal">mysite</code> recipe in <code class="literal">mysite/recipe/default.rb</code>, and replace it with a call <a id="id760" class="indexterm"/>to the new <code class="literal">mysql</code> recipe:<div class="informalexample"><pre class="programlisting">include_recipe "mysite::mysql"</pre></div></li></ol></div></div><div class="section" title="Including dependencies in a role"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec131"/>Including dependencies in a role</h3></div></div></div><p>To fully <a id="id761" class="indexterm"/>match our environment with what we just did in the cookbook, let's remove the call to the old <code class="literal">mariadb</code> cookbook from the <code class="literal">database</code> role, and as there's no recipe to call (as we said, this cookbook is just extending Chef functionality), let's instead add the two cookbook dependencies as stated in the documentation in <code class="literal">roles/database.rb</code>:</p><div class="informalexample"><pre class="programlisting">name "database"
+description "A database server for our application"
+run_list(
+  "recipe[selinux::disabled]",
+  "recipe[yum-mysql-community::mysql57]"
+)</pre></div><p>Upload the updated role using the <code class="literal">knife</code> command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife role from file database.rb</strong></span>
+<span class="strong"><strong>Updated Role database</strong></span>
+</pre></div><p>Our node running the <code class="literal">mysite</code> role, calling the database role will be alright. If we did choose to run only nodes with a call to the <code class="literal">mysite::default</code> recipe, it will also work.</p></div><div class="section" title="Uploading cookbook dependencies using Berkshelf"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec132"/>Uploading cookbook dependencies using Berkshelf</h3></div></div></div><p>Now <a id="id762" class="indexterm"/>navigate to the <code class="literal">mysite</code> cookbook <a id="id763" class="indexterm"/>directory and use the <code class="literal">upload</code> feature from Berkshelf, so it will upload all necessary cookbooks at once:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ berks upload</strong></span>
+</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note52"/>Note</h3><p>With Berkshelf, dependencies of the dependencies are uploaded as well!</p></div></div></div><div class="section" title="Testing MySQL deployment"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec133"/>Testing MySQL deployment</h3></div></div></div><p>Run the <a id="id764" class="indexterm"/>chef-client on the node, and when the process is done, ensure we can connect to the local MySQL server using the supplied password:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ mysql -h 127.0.0.1 -uroot -psuper_secure_password -e "show databases;"</strong></span>
+<span class="strong"><strong>+--------------------+</strong></span>
+<span class="strong"><strong>| Database           |</strong></span>
+<span class="strong"><strong>+--------------------+</strong></span>
+<span class="strong"><strong>| information_schema |</strong></span>
+<span class="strong"><strong>| mysql              |</strong></span>
+<span class="strong"><strong>| performance_schema |</strong></span>
+<span class="strong"><strong>| sys                |</strong></span>
+<span class="strong"><strong>+--------------------+</strong></span>
+</pre></div></div></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec197"/>There's more…</h2></div></div></div><p>With Puppet, there is also a lot of code ready to use. We can use modules from Puppet Forge or GitHub for example. Modules hosted on Puppet Forge can be searched using the <code class="literal">puppet module search</code> command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ puppet module search mysql | head -10</strong></span>
+<span class="strong"><strong>Notice: Searching https://forgeapi.puppetlabs.com ...</strong></span>
+<span class="strong"><strong>NAME                  DESCRIPTION          AUTHOR            KEYWORDS</strong></span>
+<span class="strong"><strong>puppetlabs-mysql      Installs, con...     @puppetlabs       mysql</strong></span>
+<span class="strong"><strong>example42-mysql       Puppet module...     @example42        mysql</strong></span>
+<span class="strong"><strong>gousto-mysql          Installs, con...     @gousto           </strong></span>
+<span class="strong"><strong>ULHPC-mysql           Configure and...     @ULHPC            mysql</strong></span>
+<span class="strong"><strong>aco-mysql_yumrepo     Puppet module...     @aco              mysql</strong></span>
+<span class="strong"><strong>BoxUpp-mysql          A puppet modu...     @BoxUpp           mysql</strong></span>
+<span class="strong"><strong>rgevaert-mysql        Manage your p...     @rgevaert         mysql</strong></span>
+<span class="strong"><strong>rocha-mysql           Resources to ...     @rocha            mysql</strong></span>
+</pre></div><p>We can install one of them:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ puppet module install puppetlabs-mysql</strong></span>
+<span class="strong"><strong>Notice: Downloading from https://forgeapi.puppetlabs.com ...</strong></span>
+<span class="strong"><strong>Notice: Installing -- do not interrupt ...</strong></span>
+<span class="strong"><strong>/Users/me/.puppetlabs/etc/code/modules</strong></span>
+<span class="strong"><strong>└─┬ puppetlabs-mysql (v3.9.0)</strong></span>
+<span class="strong"><strong>  ├── puppet-staging (v2.0.1)</strong></span>
+<span class="strong"><strong>  └── puppetlabs-stdlib (v4.13.1)</strong></span>
+</pre></div><p>By default, installation is done in a hidden folder under the home directory. We can see that the MySQL module from Puppet Labs depends on two other modules.</p><p>Several <a id="id765" class="indexterm"/>tools can be used to manage packages; r10k is one of them. It can also manage environments (such as staging, development, production), but we will focus on package management in this chapter.</p><p>The first thing we need is to install r10k. In previous examples, we edited code directly on our workstation in a shared folder used by Vagrant, so we need to install r10k directly on our workstation:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo puppet resource package r10k  provider=puppet_gem </strong></span>
+<span class="strong"><strong>Notice: /Package[r10k]/ensure: created</strong></span>
+<span class="strong"><strong>package { 'r10k':</strong></span>
+<span class="strong"><strong>  ensure =&gt; ['2.5.1'],</strong></span>
+<span class="strong"><strong>}</strong></span>
+<span class="strong"><strong>$ r10k version</strong></span>
+<span class="strong"><strong>r10k 2.5.1</strong></span>
+</pre></div><p>r10k is using a file named <code class="literal">Puppetfile</code> in which we declare all necessary modules. Here is an example of <code class="literal">Puppetfile</code>:</p><div class="informalexample"><pre class="programlisting">forge 'http://forge.puppetlabs.com'
+
+mod 'puppetlabs/mysql'</pre></div><p>Unfortunately at the time of writing, r10k does not support dependencies, so we need to discover and add them in the <code class="literal">Puppetfile</code>. We can discover dependencies manually by installing modules using <code class="literal">puppet module install</code> as we did earlier. However, this is not very handy, and fortunately we can use external tools such <a id="id766" class="indexterm"/>as <a class="ulink" href="https://github.com/rnelson0/puppet-generate-puppetfile">https://github.com/rnelson0/puppet-generate-puppetfile</a>.</p><p>Let's install it:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo puppet resource package generate-puppetfile provider=puppet_gem</strong></span>
+<span class="strong"><strong>Notice: /Package[generate-puppetfile]/ensure: created</strong></span>
+<span class="strong"><strong>package { 'generate-puppetfile':</strong></span>
+<span class="strong"><strong>  ensure =&gt; ['0.10.0'],</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div><p>So now, let's discover <a id="id767" class="indexterm"/>dependencies for the Puppet Labs MySQL module:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ generate-puppetfile puppetlabs/mysql</strong></span>
+
+<span class="strong"><strong>Installing modules. This may take a few minutes.</strong></span>
+
+
+<span class="strong"><strong>Your Puppetfile has been generated. Copy and paste between the markers:</strong></span>
+
+<span class="strong"><strong>=======================================================================</strong></span>
+<span class="strong"><strong>forge 'http://forge.puppetlabs.com'</strong></span>
+
+<span class="strong"><strong># Modules discovered by generate-puppetfile</strong></span>
+<span class="strong"><strong>mod 'puppet/staging', '2.1.0'</strong></span>
+<span class="strong"><strong>mod 'puppetlabs/mysql', '3.10.0'</strong></span>
+<span class="strong"><strong>mod 'puppetlabs/stdlib', '4.15.0'</strong></span>
+<span class="strong"><strong>=======================================================================</strong></span>
+</pre></div><p>We now have all dependencies.</p><p>Now suppose we want to use our previous example, using the code we made for Apache, and the official Puppet Labs MySQL package.</p><p>To do so, let's adjust the <code class="literal">Puppetfile</code> in order to download the official Mysql module from Puppet Labs and keep our existing modules. We need to inform r10k which modules are <span class="emphasis"><em>local</em></span>. If we don't, r10k will perform a complete installation after removing all the content in the modules directory. Here is the <code class="literal">Puppetfile</code>:</p><div class="informalexample"><pre class="programlisting">forge 'http://forge.puppetlabs.com'
+
+# Local modules
+mod 'apache', :local =&gt;true
+mod 'php', :local =&gt;true
+mod 'mariadb', :local =&gt;true
+
+# Modules discovered by generate-puppetfile
+mod 'puppet/staging', '2.0.1'
+mod 'puppetlabs/mysql', '3.9.0'
+mod 'puppetlabs/stdlib', '4.13.1'</pre></div><p>Now we need to run r10k to install packages:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ ls modules/</strong></span>
+<span class="strong"><strong>apache/  mariadb/ php/</strong></span>
+<span class="strong"><strong>$ r10k puppetfile install</strong></span>
+<span class="strong"><strong>$ ls modules/</strong></span>
+<span class="strong"><strong>apache/  concat/  mariadb/ mysql/   php/     stdlib/</strong></span>
+</pre></div><p>Let's modify <a id="id768" class="indexterm"/>the main manifest to use the official MySQL package; we need to remove the reference to our MariaDB module, and use the class provided by the official MySQL package:</p><div class="informalexample"><pre class="programlisting">node 'web.pomes.pro' {
+    $website=$fqdn;
+    $docroot="/var/www/$fqdn";
+    $users=hiera('webusers');
+
+    class {
+      'apache':;
+      'php':;
+    }
+<span class="strong"><strong>    class { 'mysql::server':</strong></span>
+<span class="strong"><strong>      root_password =&gt; 'super_secure_password',</strong></span>
+<span class="strong"><strong>    }</strong></span>
+    apache::vhost{$website:
+       website =&gt; $website,
+       docroot =&gt; $docroot,
+    }
+    apache::htpasswd{'htpasswd':
+       filepath =&gt; '/etc/apache2/htpasswd',
+       users    =&gt; hiera('webusers'),
+    }
+    apache::htaccess{"$docroot-htaccess":
+       filepath =&gt; '/etc/apache2/htpasswd',
+       docroot  =&gt; $docroot,
+    }
+    file { $docroot:
+      ensure =&gt; directory,
+      owner  =&gt; 'www-data',
+      group  =&gt; 'www-data',
+      mode   =&gt; '0755',
+    }
+    file {"$docroot/index.php":
+      ensure =&gt; present,
+      owner  =&gt; 'www-data',
+      group   =&gt; 'www-data',
+      mode    =&gt; '0644',
+      content =&gt; "&lt;?php phpinfo() ?&gt;",
+    }
+}</pre></div><p>Let's start <a id="id769" class="indexterm"/>a fresh Vagrant setup. After applying Puppet, we can now use the MySQL server with the root credentials we specified in the main manifest:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>vagrant@web:~$ mysql -h 127.0.0.1 -uroot -psuper_secure_password -e "show databases;"</strong></span>
+<span class="strong"><strong>+--------------------+</strong></span>
+<span class="strong"><strong>| Database           |</strong></span>
+<span class="strong"><strong>+--------------------+</strong></span>
+<span class="strong"><strong>| information_schema |</strong></span>
+<span class="strong"><strong>| mysql              |</strong></span>
+<span class="strong"><strong>| performance_schema |</strong></span>
+<span class="strong"><strong>+--------------------+</strong></span>
+</pre></div><p>If needed, you can browse the online documentation of this module to create custom databases and grants.</p></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec198"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The Chef documentation on roles: <a class="ulink" href="https://docs.chef.io/roles.html">https://docs.chef.io/roles.html</a></li><li class="listitem" style="list-style-type: disc">The Chef Supermarket: <a class="ulink" href="https://supermarket.chef.io/">https://supermarket.chef.io/</a></li><li class="listitem" style="list-style-type: disc">The Berkshelf <a id="id770" class="indexterm"/>documentation: <a class="ulink" href="http://berkshelf.com/">http://berkshelf.com/</a></li><li class="listitem" style="list-style-type: disc">MySQL cookbook <a id="id771" class="indexterm"/>source on GitHub: <a class="ulink" href="https://github.com/chef-cookbooks/mysql">https://github.com/chef-cookbooks/mysql</a></li><li class="listitem" style="list-style-type: disc">Puppet <a id="id772" class="indexterm"/>r10k: <a class="ulink" href="https://github.com/puppetlabs/r10k">https://github.com/puppetlabs/r10k</a></li><li class="listitem" style="list-style-type: disc">The Puppet Labs <a id="id773" class="indexterm"/>MySQL module on Puppet Forge: <a class="ulink" href="https://forge.puppet.com/puppetlabs/mysql">https://forge.puppet.com/puppetlabs/mysql</a></li></ul></div></div></div></body></html>

@@ -1,0 +1,601 @@
+<html><head></head><body>
+<div id="sbo-rt-content"><div id="_idContainer167">
+<h1 class="chapter-number" id="_idParaDest-249"><a id="_idTextAnchor267"/>12</h1>
+<h1 id="_idParaDest-250"><a id="_idTextAnchor268"/>Gaining Application Insights</h1>
+<p>So far in this book, we have seen how to implement our applications using software containers and how Kubernetes helps us run them in production with security and high availability. We can run and manage our own Kubernetes environments to prepare our applications for any Kubernetes environment; few changes will be necessary to customize our deployments for specific platforms. In this chapter, we will learn how to gain access to our application’s Kubernetes resources and the different tools that can be used to identify problems in our applications. We will<a id="_idIndexMarker1311"/> review <strong class="bold">Prometheus</strong> as a popular tool in the Kubernetes world for monitoring an application’s component health, interactions, and resources. We will also <a id="_idIndexMarker1312"/>explore <strong class="bold">Loki</strong>, which is an open source logging platform that’s highly extensible, configurable, and easy to integrate with Kubernetes. By the end of this chapter, we will have taken a look at some <strong class="bold">instrumentation</strong> options for <span class="No-Break">our applications.</span></p>
+<p>Here is a summary of the content in <span class="No-Break">this chapter:</span></p>
+<ul>
+<li>Understanding your <span class="No-Break">application’s behavior</span></li>
+<li>Obtaining access to your <span class="No-Break">Kubernetes resources</span></li>
+<li>Monitoring your <span class="No-Break">application’s metrics</span></li>
+<li>Logging your application’s <span class="No-Break">important information</span></li>
+<li>Load testing <span class="No-Break">your application</span></li>
+<li>Adding instrumentation to your <span class="No-Break">application’s code</span></li>
+</ul>
+<h1 id="_idParaDest-251"><a id="_idTextAnchor269"/>Technical requirements</h1>
+<p>You can find the labs for this chapter at <a href="https://github.com/PacktPublishing/Containers-for-Developers-Handbook/tree/main/Chapter12">https://github.com/PacktPublishing/Containers-for-Developers-Handbook/tree/main/Chapter12</a>, where you will find some extended explanations that have been omitted from this chapter’s content to make it easier to follow. The <em class="italic">Code In Action</em> video for this chapter can be found <span class="No-Break">at </span><a href="https://packt.link/JdOIY"><span class="No-Break">https://packt.link/JdOIY</span></a><span class="No-Break">.</span></p>
+<h1 id="_idParaDest-252"><a id="_idTextAnchor270"/>Understanding your application’s behavior</h1>
+<p>Understanding how your<a id="_idIndexMarker1313"/> application works can be very hard if you don’t know how your application works. This may sound obvious, but the better you know your application, the better you can implement different mechanisms to verify its status at <span class="No-Break">every moment.</span></p>
+<p>You, as a developer, have to ask yourself which is the best place in your code to add monitoring endpoints or flags. But your application should also be monitored using external third-party tools, which leads us to the following list of <span class="No-Break">monitoring mechanisms:</span></p>
+<ul>
+<li><strong class="bold">Internal application metrics</strong>: Implementing <a id="_idIndexMarker1314"/>monitoring points in our code may be difficult at the end of the project, but if you introduce them from the beginning and measure the time between transactions, you will have a great overall performance view of <span class="No-Break">your application.</span></li>
+<li><strong class="bold">Internal health checks</strong>: Health checks are crucial for identifying when your application fails, but we can go further. We can have some simple error/OK quick tests that can be executed very often and help Kubernetes keep the application up <span class="No-Break">and running.</span></li>
+<li><strong class="bold">External application metrics</strong>: Some components such as databases may allow you to query certain metrics that can be exported and used by an <span class="No-Break">external component.</span></li>
+<li><strong class="bold">External health checks</strong>: These health checks are used to provide a good overview of the application’s behavior. They can be complex and include multiple components, and they may trigger some alarms or create events that will help us manage the <span class="No-Break">application’s status.</span></li>
+</ul>
+<p>We haven’t talked about how any of these mechanisms can be implemented yet. While including some metrics in our application may require us to make some changes in the code, add some entries with metric values, or create the sources to be retrieved for such metrics, other points can be achieved by using external tools, outside of the <span class="No-Break">application’s code.</span></p>
+<p>Running your applications in containers can help you implement any of the models described here. But <em class="italic">never</em> include a parallel check process inside your application container. This is not how containers should be used. Remember that we introduced the concept of a container as the main process that runs isolated in a host, sharing its kernel among all other containers, in <a href="B19845_01.xhtml#_idTextAnchor015"><span class="No-Break"><em class="italic">Chapter 1</em></span></a>, <em class="italic">Modern Infrastructure and Applications with Docker</em>. Running more than one process is not a good practice because you will need to ensure that all processes receive SIGTERM or SIGKILL signals whenever the container needs to stop, and this may be tricky if you fork the processes and they run separately in the container’s namespace (the same as a PID namespace but <span class="No-Break">without dependencies).</span></p>
+<p>In this chapter, we will learn how to implement different models for monitoring, logging, and even tracing our application’s processes. But let’s get started by reviewing how to retrieve and <a id="_idIndexMarker1315"/>manage our application’s Kubernetes resources from our own application’s workloads, which is key for some of the different tools we are going to <span class="No-Break">use later.</span></p>
+<h1 id="_idParaDest-253"><a id="_idTextAnchor271"/>Obtaining access to your Kubernetes resources</h1>
+<p>Sometimes, your applications<a id="_idIndexMarker1316"/> need to manage certain Kubernetes resources. Let’s think about the <span class="No-Break">following situations:</span></p>
+<ul>
+<li>The default Kubernetes autoscaling doesn’t cover <span class="No-Break">our requirements</span></li>
+<li>We need to create some resources triggered by an event – for example, when our <span class="No-Break">application starts</span></li>
+</ul>
+<p>In these scenarios, our application’s processes will need to retrieve information from the Kubernetes API and create some resources. If we think of this workflow, at least our Pods will require network access to the Kubernetes API server’s IP address and appropriate permissions for the required actions and resources. In this section, we will learn how to create and manage Kubernetes objects from our <span class="No-Break">application’s processes.</span></p>
+<p>First, we need to remember a few concepts from <a href="B19845_08.xhtml#_idTextAnchor170"><span class="No-Break"><em class="italic">Chapter 8</em></span></a>, <em class="italic">Deploying Applications with </em><em class="italic">the </em><em class="italic">Kubernetes Orchestrator</em>. In that chapter, we talked about how Kubernetes improves our application’s security by using different authentication and authorization strategies. You may need to ask your Kubernetes administrators about some Kubernetes platform insights, but you will probably <a id="_idIndexMarker1317"/>be using <strong class="bold">role-based access control</strong> (<strong class="bold">RBAC</strong>) in your environment because, currently, all Kubernetes platforms work with such a mechanism. This means that all Kubernetes API requests must be authorized <a id="_idIndexMarker1318"/>by a <strong class="bold">role authorization system</strong>. Kubernetes will use either client certificates, bearer tokens, or an authenticating proxy to authenticate API requests through authentication plugins, and when client requests are authenticated, the authorization system will allow or <span class="No-Break">deny them.</span></p>
+<p>By default, all Pods running in a namespace will inherit a service account and its token to authenticate the application processes within the Kubernetes cluster. This behavior is not secure and that’s why it can be avoided by your Kubernetes administrators. But in any case, we will use a service account included in the Pod definition and its associated token to identify the processes and validate access to the specified resources <span class="No-Break">and actions.</span></p>
+<p>Within the<a id="_idIndexMarker1319"/> Kubernetes cluster, the RBAC API declares roles and their bindings for pairing Kubernetes resources with the actions allowed for them. This role system will include namespaced authorizations (Role and RoleBinding resources) and cluster-wide authorizations (ClusterRole and ClusterRoleBinding resources), which help us provide <span class="No-Break">fine-grained access.</span></p>
+<p>Role and ClusterRole resources define rules that represent additive permissions; so, if no rule exists for a permission, it is denied. We will match resources and the verbs allowed for them in their manifest definitions. We will use ClusterRole resources to define cluster-wide permissions or define namespace-scoped permissions from a higher level, which allows us to reuse them in <span class="No-Break">several namespaces.</span></p>
+<p>Let’s see an example of a Role and how we associate it with a ServiceAccount resource using <span class="No-Break">a RoleBinding:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer133">
+<img alt="Figure 12.1 – Role and RoleBinding resources allowing us to list and read Pods in a namespace" height="491" src="image/B19845_12_01.jpg" width="1028"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.1 – Role and RoleBinding resources allowing us to list and read Pods in a namespace</p>
+<p>Notice that in both<a id="_idIndexMarker1320"/> resources, we defined <strong class="source-inline">namespace</strong> because we are using namespace-scoped resources (they can be omitted if we deploy them on the current namespace). In the Role resource, we defined the list of <strong class="source-inline">verbs</strong> or actions allowed and <strong class="source-inline">resources</strong> in which the actions will be applied (you can use <strong class="source-inline">kubectl api-resources -o wide</strong> to retrieve the verbs available for each Kubernetes resource). The <strong class="source-inline">apiGroups</strong> key is used when we have different resources with the same name but belonging to different APIs. Let’s see this configuration in action with a quick example. We will create both Role and RoleBinding resources in the <span class="No-Break"><strong class="source-inline">default</strong></span><span class="No-Break"> namespace:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer134">
+<img alt="Figure 12.2 – Creating resources so that Pods can be listed and read in a namespace" height="654" src="image/B19845_12_02.jpg" width="509"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.2 – Creating resources so that Pods can be listed and read in a namespace</p>
+<p class="callout-heading">Important note</p>
+<p class="callout">We can use <a id="_idIndexMarker1321"/>either <strong class="bold">declarative</strong> (YAML manifests) or <strong class="bold">imperative</strong> modes to <a id="_idIndexMarker1322"/>create RBAC resources. Therefore, we could have used <strong class="source-inline">kubectl create role pod-reader --verb=get,list,watch --resource=Pods</strong> to create the <strong class="source-inline">pod-reader</strong> Role resource from the preceding <span class="No-Break">code snippet.</span></p>
+<p>We have applied <a id="_idIndexMarker1323"/>the RoleBinding resource to a specific service account, but it doesn’t exist yet. Let’s create it before <span class="No-Break">moving on:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer135">
+<img alt="Figure 12.3 – Creating the myserviceaccount ServiceAccount resource" height="445" src="image/B19845_12_03.jpg" width="1043"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.3 – Creating the myserviceaccount ServiceAccount resource</p>
+<p>We have a Role that allows us to list, watch, and get Pods within any namespace (but applied to the current <strong class="source-inline">default</strong> namespace), and a RoleBinding associating this Role resource with a defined service account, <strong class="source-inline">myserviceaccount</strong>, in the <strong class="source-inline">default</strong><em class="italic"> </em>namespace. We will now run a Pod with this service account and get the list of current Pods. We will run a Pod with the <strong class="source-inline">kubectl</strong> command line included in the container image. We included the <strong class="source-inline">myserviceaccount</strong> service account resource and used <strong class="source-inline">get pod</strong> as arguments for <span class="No-Break">the image:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer136">
+<img alt="Figure 12.4 – Creating a Pod that lists all the Pods in the current namespace" height="591" src="image/B19845_12_04.jpg" width="444"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.4 – Creating a Pod that lists all the Pods in the current namespace</p>
+<p>In the preceding code <a id="_idIndexMarker1324"/>snippet, we created a Pod whose container will use the <strong class="source-inline">myserviceaccount</strong> service account to interact with the Kubernetes API. Notice that we just retrieved the logs from the Pod and we get the output from the <strong class="source-inline">kubectl get pods</strong> command line that’s executed. All the Pods running at the time of execution were listed. Let’s try the same with a new Pod that doesn’t use this <span class="No-Break">service account:</span></p>
+<pre class="console">
+frjaraur@sirius:~$ kubectl run kubectl2 \
+--image=bitnami/kubectl:latest -- get pods
+pod/kubectl2 created</pre> <p>Now, we can retrieve the logs from this <span class="No-Break">new Pod:</span></p>
+<pre class="console">
+$ kubectl logs kubectl2
+Error from server (Forbidden): pods is forbidden: User "system:serviceaccount:default:default" cannot list resource "pods" in API group "" in the namespace "default"</pre> <p>As you can see, this time, the new Pod does not have access to the Kubernetes API (the <strong class="source-inline">default</strong> service account was used by default, which doesn’t have permission to list the Pods in <span class="No-Break">the namespace).</span></p>
+<p>Accessing the Kubernetes API may become complex when you create custom resources and need fine-grained access, but be sure that the principles for managing RBAC access are <span class="No-Break">the same.</span></p>
+<p class="callout-heading">Important note</p>
+<p class="callout">You can implement your own <strong class="source-inline">Kubeconfig</strong> file to use with your application. Kubernetes offers out-of-the-box integration with a service account’s tokens, but you can use a Secret resource to include your authentication file and use it in your application. This is especially useful when you’re managing different Kubernetes clusters from a unified control <span class="No-Break">plane cluster.</span></p>
+<p>In these examples, we<a id="_idIndexMarker1325"/> are not using a NetworkPolicy resource, but you will need to ensure your Pods have access to Kubernetes API server Pods. These Pods will use control plane hosts’ IP addresses and port <strong class="source-inline">6443</strong>, although this may vary between Kubernetes platforms (confirm these requirements with your Kubernetes administrators). If your platform administrators configured GlobalNetworkPolicy resources, you may need to <a id="_idIndexMarker1326"/>add some <strong class="bold">egress</strong> rules for <span class="No-Break">your deployments.</span></p>
+<p>In this example, we used the kubectl Kubernetes client, but you will find client libraries and modules for different code languages, which makes integration more secure. Attackers will not be able to exploit erroneous RBAC configurations if your code only manages required resources. On the other hand, adding new functionalities may require you to recompile your code, but it is worth it. Here is a link to the current documentation, where you will find more information about the client libraries: <a href="https://kubernetes.io/docs/reference/using-api/client-libraries/">https://kubernetes.io/docs/reference/using-api/client-libraries/</a>. At the time of writing this book, C, .NET, Go, Perl, Python, Java, JavaScript, and Ruby, among other languages, are officially supported. If you require a different language, such as Rust, there are community projects developing libraries for <span class="No-Break">accessing Kubernetes.</span></p>
+<p>Now, let’s introduce the concept of Kubernetes operators, which will help us deploy and operate <a id="_idIndexMarker1327"/>applications in Kubernetes. We will use some of them in this chapter and it is interesting to learn the basics before we <span class="No-Break">do so.</span></p>
+<h2 id="_idParaDest-254"><a id="_idTextAnchor272"/>Understanding Kubernetes operators</h2>
+<p>A <strong class="bold">Kubernetes operator</strong> is a<a id="_idIndexMarker1328"/> piece of software that runs and integrates with Kubernetes to manage applications and their components. They use the concepts we’ve learned about so far in this chapter to monitor and create resources as needed by <span class="No-Break">your applications.</span></p>
+<p>Kubernetes operators are designed to automate most of the repetitive tasks a human operator must do to manage an application. There are many well-documented examples of Kubernetes operators that will help you perform tasks such as deploying databases with high availability, managing complex applications with multiple components with just one YAML manifest, and so on. These are some of the tasks you may expect from a Kubernetes operator designed for a <span class="No-Break">certain application:</span></p>
+<ul>
+<li>Automated deployment of the application and all <span class="No-Break">its components</span></li>
+<li>Management and creation of<a id="_idIndexMarker1329"/> Kubernetes <strong class="bold">CustomResourceDefinitions </strong>(<strong class="bold">CRDs</strong>) required for <span class="No-Break">the application</span></li>
+<li>Backup and restore features that will help recover the application with <span class="No-Break">easy steps</span></li>
+<li>Fully managed application upgrades, with all the internal application components such as database <span class="No-Break">schema migrations</span></li>
+<li>Choosing a leader when your application requires a distributed control plane or must manage the master-worker (or master-slave) relations between <span class="No-Break">application components</span></li>
+</ul>
+<p>As you can see, operators are key for managing complex application deployments, and their integration into Kubernetes makes things more simple. There are good examples of managing databases, created by the most important software database vendors, and for many other software categories. You may find what you need at <a href="https://operatorhub.io">https://operatorhub.io</a>. In the following section, we<a id="_idIndexMarker1330"/> will use the <strong class="bold">Prometheus Operator</strong> to deploy and manage the Prometheus <span class="No-Break">monitoring tool.</span></p>
+<p>In case you don’t find a Kubernetes operator that meets your application requirements, you can code your own operator using<a id="_idIndexMarker1331"/> any of the <strong class="bold">software development kits</strong> (<strong class="bold">SDKs</strong>) available for different <span class="No-Break">languages (</span><a href="https://kubernetes.io/docs/concepts/extend-kubernetes/operator/#writing-operator"><span class="No-Break">https://kubernetes.io/docs/concepts/extend-kubernetes/operator/#writing-operator</span></a><span class="No-Break">).</span></p>
+<p>So far, we have learned how Kubernetes can be queried for some resources’ statuses and how to manage them within our <a id="_idIndexMarker1332"/>applications. In the following section, we will learn how <strong class="bold">third-party applications</strong> can be used to monitor <span class="No-Break">our applications.</span></p>
+<h1 id="_idParaDest-255"><a id="_idTextAnchor273"/>Monitoring your application’s metrics</h1>
+<p>Analyzing your application’s <a id="_idIndexMarker1333"/>metrics is key to understanding how you are serving your users or other applications. In this section, we will learn how to monitor our applications using <strong class="bold">Prometheus</strong>, a <a id="_idIndexMarker1334"/>monitoring solution that fits very well in the <span class="No-Break">Kubernetes ecosystem.</span></p>
+<p>Prometheus is an open source monitoring solution that’s been hosted by the <strong class="bold">Cloud Native Computing Foundation</strong> (<strong class="bold">CNCF</strong>) since 2016. It is <a id="_idIndexMarker1335"/>used to collect, store, and represent metrics and alert users using thresholds. It can be integrated into any infrastructure, although it is known to work great with Kubernetes. It comes included within some Kubernetes platform deployments and that’s why it is considered standard within the <span class="No-Break">Kubernetes community.</span></p>
+<p>Prometheus includes a data model that is easy to query, using its own <strong class="bold">Prometheus query language</strong> (<strong class="bold">PromQL</strong>), which <a id="_idIndexMarker1336"/>stores metrics recorded over time from different sources identified by key-value pairs. By default, Prometheus will pull different endpoints via HTTP requests, although pushing data is also available, but less common. These endpoints, usually identified as <strong class="bold">targets</strong>, can be auto-discovered or manually configured, which makes Prometheus fit perfectly in Kubernetes clusters where dynamism is <span class="No-Break">a must.</span></p>
+<p>Although Prometheus provides a graphing tool, it is very common to integrate it as a data source in more advanced dashboard tools<a id="_idIndexMarker1337"/> such as <strong class="bold">Grafana</strong> or to directly consume its data via an API (using <span class="No-Break">PromQL queries).</span></p>
+<p>We are not going to cover this tool in depth in this book as it would be out of its scope, but we will review some of its components, quick installation, and how to implement some monitoring<a id="_idIndexMarker1338"/> endpoints for <span class="No-Break">your applications.</span></p>
+<h2 id="_idParaDest-256"><a id="_idTextAnchor274"/>Exploring Prometheus architecture</h2>
+<p>Prometheus is based on at least five <span class="No-Break">different components:</span></p>
+<ul>
+<li><strong class="bold">Prometheus server</strong>: This is the<a id="_idIndexMarker1339"/> core<a id="_idIndexMarker1340"/> component. It retrieves metrics data from Prometheus exporters and adds data from the <strong class="bold">Pushgateway</strong>. All this<a id="_idIndexMarker1341"/> data is stored in its own <strong class="bold">time series database</strong> (<strong class="bold">TSDB</strong>) and is<a id="_idIndexMarker1342"/> available via the HTTP API, also managed by the Prometheus server component. It also checks the different <span class="No-Break">configured thresholds.</span></li>
+<li><strong class="bold">Pushgateway</strong>: There are some devices or components that can’t be scraped. The Pushgateway component allows you to directly push the data into Prometheus, instead of waiting for it to be pulled. Different libraries exist for common languages such as Java, Go, Python, and Ruby, among others supported by <span class="No-Break">the community.</span></li>
+<li><strong class="bold">Alertmanager</strong>: Alertmanager handles all the alerts generated from the Prometheus server. Different notification backends can be used, such as email <span class="No-Break">or webhooks.</span></li>
+<li><strong class="bold">Prometheus web UI</strong>: The provided web UI allows us to query stored metrics, quickly graph data, and review the status of the different <span class="No-Break">targets configured.</span></li>
+<li><strong class="bold">Prometheus exporters</strong>: These components are the key to the extensibility of the platform. Many client libraries are officially supported for different code languages (and others are unofficially supported) that allow us to create metrics for our applications. When Prometheus scrapes your endpoints, the client library presents the data, and it will be stored in the server for later access or threshold validation. You can find officially supported Prometheus exporters inside GitHub’s Prometheus <span class="No-Break">organization (</span><a href="https://github.com/orgs/prometheus/repositories?q=exporter&amp;type=all"><span class="No-Break">https://github.com/orgs/prometheus/repositories?q=exporter&amp;type=all</span></a><span class="No-Break">).</span></li>
+</ul>
+<p>Prometheus can monitor your applications running in Kubernetes by either running inside your Kubernetes cluster (in its own namespace or even within your application’s namespace, which is not recommended) or externally, in a different infrastructure, such as virtual machines. It is recommended to run Prometheus inside your Kubernetes cluster because you will be able to use internal communications, instead of having to publish your exporters externally to be pulled from outside of the cluster. This will improve security, even if you expose your exporters internally using HTTP instead of HTTPS protocol. Running in Kubernetes will allow us to deploy Prometheus as a Kubernetes operator, which will help us implement the auto-discovery of targets as well as an easy-to-manage complete<a id="_idIndexMarker1343"/> monitoring platform. All the <a id="_idIndexMarker1344"/>components will be installed for us, and we will just have to configure how they should <span class="No-Break">be deployed.</span></p>
+<h2 id="_idParaDest-257"><a id="_idTextAnchor275"/>Installing Prometheus</h2>
+<p>To install the <a id="_idIndexMarker1345"/>Prometheus<a id="_idIndexMarker1346"/> monitoring platform, we will <a id="_idIndexMarker1347"/>use <strong class="bold">Helm</strong>, which is a tool that allows us to easily customize and deploy a set of manifests. We will deep dive into using Helm to package applications in <a href="B19845_13.xhtml#_idTextAnchor287"><span class="No-Break"><em class="italic">Chapter 13</em></span></a>, <em class="italic">Managing the </em><em class="italic">Application Life Cycle</em>. In this case, these manifests include <a id="_idIndexMarker1348"/>the <strong class="bold">kube-prometheus</strong> platform components (<a href="https://github.com/prometheus-operator/kube-prometheus">https://github.com/prometheus-operator/kube-prometheus</a>). The kube-prometheus community project installs a cluster-ready monitoring platform with the <span class="No-Break">following components:</span></p>
+<ul>
+<li>The <strong class="bold">Prometheus Operator</strong>, which will create its own CRDs and manage the Service <span class="No-Break">discovery integration.</span></li>
+<li><strong class="bold">Prometheus</strong> and <strong class="bold">Alertmanager</strong> with high availability, both deployed as StatefulSets. A set of default alerts is included, which will help you start monitoring your <span class="No-Break">Kubernetes environment.</span></li>
+<li><strong class="bold">Prometheus node-exporter</strong>, deployed as a DaemonSet to all the Kubernetes cluster nodes. This exporter will have host-related metrics such as CPU, memory, and disk <span class="No-Break">space available.</span></li>
+<li><strong class="bold">Prometheus Adapter for Kubernetes Metrics APIs</strong>, which integrates all the Kubernetes Metrics Server metrics into <span class="No-Break">Prometheus automatically.</span></li>
+<li><strong class="bold">kube-state-metrics</strong>, which connects with the Kubernetes API server and retrieves the status of different resources such as Pods, Deployments, and so on, and delivers them as metrics for Prometheus. By default, important metrics are created and configured <span class="No-Break">for you.</span></li>
+<li><strong class="bold">Grafana</strong>, deployed as part of the platform to enhance Prometheus graphs in Grafana dashboards. A set of default dashboards is included to show you how your <span class="No-Break">platform works.</span></li>
+</ul>
+<p class="callout-heading">Important note</p>
+<p class="callout">The default alerts and dashboards included in the kube-prometheus project are taken from <a id="_idIndexMarker1349"/>the <strong class="bold">kubernetes-mixin</strong> project (<a href="https://github.com/kubernetes-monitoring/kubernetes-mixin">https://github.com/kubernetes-monitoring/kubernetes-mixin</a>), which provides a set of well-documented rules and simple dashboards for <span class="No-Break">monitoring Kubernetes.</span></p>
+<p>You, as a developer, will probably not use many of the dashboards and metrics provided by this platform, but it will help you understand how to implement your metrics and rules and create dashboards with <span class="No-Break">your data.</span></p>
+<p>Installing the <strong class="source-inline">kube-prometheus-stack</strong> is easy. A Helm Chart (Helm-specific package) is ready for us. We <a id="_idIndexMarker1350"/>will just add the Prometheus <a id="_idIndexMarker1351"/>community Helm Charts repository, update the repositories cache, and install a Helm Chart release in <span class="No-Break">our cluster.</span></p>
+<p class="callout-heading">Important note</p>
+<p class="callout">If you are using Rancher Desktop, Helm comes preinstalled with your command-line tools, but on other platforms, it may be necessary to install it before using it. Helm is available for Windows, macOS, and Linux and there are different methods for installing it. We recommend that you use the binary directly. That way, you can update it whenever you need it and use a different release if required. If you are using Windows, you can use <strong class="source-inline">Get-Content</strong> to download it and then add it to <span class="No-Break">your </span><span class="No-Break"><strong class="source-inline">PATH</strong></span><span class="No-Break">:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer137">
+<img alt="Figure 12.5 – Installing the Helm binary using gc to download the required package" height="349" src="image/B19845_12_05.jpg" width="1169"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.5 – Installing the Helm binary using gc to download the required package</p>
+<p>Once Helm has been installed, we will just use <strong class="source-inline">helm install</strong> with <strong class="source-inline">--create-namespace</strong> to tell Helm to <a id="_idIndexMarker1352"/>create a new namespace for us. In<a id="_idIndexMarker1353"/> this example, we are using Minikube as the <span class="No-Break">Kubernetes environment:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer138">
+<img alt="Figure 12.6 – Installing the Prometheus stack using Helm" height="889" src="image/B19845_12_06.jpg" width="1629"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.6 – Installing the Prometheus stack using Helm</p>
+<p>After a few seconds, the Prometheus stack will be up and running. At this point, we can check the platform’s Pod and <span class="No-Break">Service resources:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer139">
+<img alt="Figure 12.7 – Prometheus stack Pod and Service resources" height="547" src="image/B19845_12_07.jpg" width="1657"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.7 – Prometheus stack Pod and Service resources</p>
+<p>This small installation is intended only for local usage – so that you can develop your own monitors for your application on your desktop computer. Notice that we didn’t even include a PersistentVolume, so data will be lost every time you restart your environment. A lot of customizations can be done at the installation level to cover all your specific needs, but you <a id="_idIndexMarker1354"/>should read the documentation before <a id="_idIndexMarker1355"/>configuring your own Helm values YAML <span class="No-Break">file (</span><a href="https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/values.yaml"><span class="No-Break">https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/values.yaml</span></a><span class="No-Break">).</span></p>
+<h2 id="_idParaDest-258"><a id="_idTextAnchor276"/>Reviewing the Prometheus environment</h2>
+<p>In this section, we <a id="_idIndexMarker1356"/>will learn about the GUI and <a id="_idIndexMarker1357"/>features of Prometheus. We can get into Prometheus by using the <span class="No-Break"><strong class="source-inline">prometheus-stack-grafana</strong></span><span class="No-Break"> Service:</span></p>
+<ol>
+<li>For a quick review, we will use <strong class="source-inline">port-foward</strong> to access the Grafana <span class="No-Break">web UI:</span><pre class="source-code">
+<strong class="bold">PS C:\Users\frjaraur&gt; kubectl -n monitoring `</strong>
+<strong class="bold">port-forward service/prometheus-operated 9090:9090</strong>
+<strong class="bold">Forwarding from 127.0.0.1:9090 -&gt; 9090</strong>
+<strong class="bold">Forwarding from [::1]:9090 -&gt; 9090</strong>
+<strong class="bold">Handling connection for 9090</strong></pre></li> <li>You can now open <strong class="source-inline">http://localhost:8080</strong> in your browser to access Prometheus. If you click on <strong class="bold">Status</strong>, you will see the available pages related to the <span class="No-Break">monitored endpoints:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer140">
+<img alt="Figure 12.8 – Prometheus GUI showing the Status section" height="307" src="image/B19845_12_08.jpg" width="808"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.8 – Prometheus GUI showing the Status section</p>
+<ol>
+<li value="3">Now, we can go to the <strong class="bold">Targets</strong> section and review which targets are currently monitored by the<a id="_idIndexMarker1358"/> <span class="No-Break">Prometheus</span><span class="No-Break"><a id="_idIndexMarker1359"/></span><span class="No-Break"> platform:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer141">
+<img alt="Figure 12.9 – Prometheus GUI showing the Targets section" height="843" src="image/B19845_12_09.jpg" width="1650"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.9 – Prometheus GUI showing the Targets section</p>
+<ol>
+<li value="4">We can use the filter on the right-hand side to uncheck the <strong class="bold">Healthy</strong> targets and view which targets are <span class="No-Break">currently down:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer142">
+<img alt="Figure 12.10 – Prometheus GUI showing the Unhealthy targets in the Targets section" height="878" src="image/B19845_12_10.jpg" width="1648"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.10 – Prometheus GUI showing the Unhealthy targets in the Targets section</p>
+<p class="list-inset">Don’t worry – this is normal. Minikube does not expose all the Kubernetes metrics; therefore, some <a id="_idIndexMarker1360"/>monitoring <a id="_idIndexMarker1361"/>endpoints will not <span class="No-Break">be available.</span></p>
+<ol>
+<li value="5">Let’s review some of the metrics that are currently retrieved by clicking on <strong class="bold">Graph</strong>, on top of the Prometheus GUI, and then write a simple PromQL query to retrieve the seconds of CPU in use per Pod (the <span class="No-Break"><strong class="source-inline">container_cpu_usage_seconds_total</strong></span><span class="No-Break"> metric):</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer143">
+<img alt="Figure 12.11 – Prometheus GUI showing the Graph section with a metric as a query" height="603" src="image/B19845_12_11.jpg" width="1650"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.11 – Prometheus GUI showing the Graph section with a metric as a query</p>
+<p class="list-inset">Notice that we only have metrics from objects running on the <strong class="bold">kube-system</strong> and <strong class="bold">monitoring</strong> (created for the stack <span class="No-Break">itself) namespaces.</span></p>
+<ol>
+<li value="6">Let’s create a quick web server deployment on the default namespace and verify that it appears in the <span class="No-Break">monitoring platform:</span><pre class="source-code">
+<strong class="bold">PS C:\Users\frjaraur&gt; kubectl create deployment `</strong>
+<strong class="bold">webserver --image=nginx:alpine --port=80</strong>
+<strong class="bold">deployment.apps/webserver created</strong></pre><p class="list-inset">In a few seconds, the <a id="_idIndexMarker1362"/>new Pod <a id="_idIndexMarker1363"/>for the web server deployment will appear in the Prometheus <span class="No-Break"><strong class="bold">Graph</strong></span><span class="No-Break"> section:</span></p></li> </ol>
+<div>
+<div class="IMG---Figure" id="_idContainer144">
+<img alt="Figure 12.12 – Filtered list of Kubernetes containers using CPU" height="408" src="image/B19845_12_12.jpg" width="1650"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.12 – Filtered list of Kubernetes containers using CPU</p>
+<p class="list-inset">Notice that in this case, we used a new PromQL query, <strong class="source-inline">container_cpu_usage_seconds_total{namespace!~"monitoring",namespace!~"kube-system"}</strong>, in which we removed any metrics from the <strong class="source-inline">monitoring</strong> and <strong class="source-inline">kube-system</strong> namespaces. The metrics were automatically included thanks to the Prometheus Adapter for the Kubernetes Metrics <span class="No-Break">APIs component.</span></p>
+<p class="callout-heading">Important note</p>
+<p class="callout">Knowledge of Kubernetes metrics or Pod metrics is outside the scope of this chapter. We are using Prometheus to show you how you can deliver your application metrics. Each exporter or integration mentioned in this section has its documentation, where you will find information about the metrics available. The use of PromQL and Prometheus itself is also outside the scope of this book. You can find very useful documentation at <a href="https://prometheus.io/docs">https://prometheus.io/docs</a>. To monitor our applications and retrieve their active hardware resource consumption, we don’t need to deploy the Alertmanager component, which will reduce the requirements of your <span class="No-Break">desktop environment.</span></p>
+<p>Prometheus uses labels to filter resources. Choosing good metrics and label conventions will help you design your application monitoring. Take a close look at <a href="https://prometheus.io/docs/practices/naming">https://prometheus.io/docs/practices/naming</a>, where the documentation explains a good naming and <span class="No-Break">labeling strategy.</span></p>
+<p>Now that we know about<a id="_idIndexMarker1364"/> the basics of the<a id="_idIndexMarker1365"/> Prometheus interface, we can move on and review how the Prometheus server gets infrastructure and <span class="No-Break">application data.</span></p>
+<h2 id="_idParaDest-259"><a id="_idTextAnchor277"/>Understanding how Prometheus manages metrics data</h2>
+<p>Let’s review<a id="_idIndexMarker1366"/> how<a id="_idIndexMarker1367"/> targets are configured by the <span class="No-Break">Prometheus Operator:</span></p>
+<ol>
+<li>We will retrieve the new CRDs created by the Prometheus <span class="No-Break">stack deployment:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer145">
+<img alt="Figure 12.13 – Filtered list of available Kubernetes API resources" height="402" src="image/B19845_12_13.jpg" width="1600"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.13 – Filtered list of available Kubernetes API resources</p>
+<p class="list-inset">The Prometheus Operator <a id="_idIndexMarker1368"/>will use <strong class="bold">PodMonitor</strong> and <strong class="bold">ServiceMonitor</strong> resources <a id="_idIndexMarker1369"/>to query the associated endpoints in time intervals. Therefore, to monitor our application, we will need to create a custom metric exporter, to provide the application metrics, and a PodMonitor or ServiceMonitor to expose them <span class="No-Break">for Prometheus.</span></p>
+<ol>
+<li value="2">Let’s take a quick look at some of the metrics that have been exposed. We will review the Node Exporter component here. The Service resource associated with this monitoring component can be easily retrieved using the <span class="No-Break">following command:</span><pre class="source-code">
+<strong class="bold">PS C:\Users\frjaraur&gt; kubectl get svc `</strong>
+<strong class="bold">-n monitoring prometheus-prometheus-node-exporter `</strong>
+<strong class="bold">-o jsonpath='{.spec}'</strong>
+<strong class="bold">{"clusterIP":"10.108.206.5","clusterIPs":["10.108.206.5"],"internalTrafficPolicy":"Cluster","ipFamilies":["IPv4"],"ipFamilyPolicy":"SingleStack","ports":[{"name":"http-metrics","port":9100,"protocol":"TCP","targetPort":9100}],"selector":{"app.kubernetes.io/instance":"prometheus-stack","app.kubernetes.io/name":"prometheus-node-exporter"},"sessionAffinity":"None","type":"ClusterIP"}</strong></pre><p class="list-inset">As you can see, this component is exposing data from Pods with the <span class="No-Break"><strong class="source-inline">app.kubernetes.io/name=prometheus-node-exporter</strong></span><span class="No-Break"> label.</span></p></li> <li>Let’s <a id="_idIndexMarker1370"/>expose<a id="_idIndexMarker1371"/> that Pod and review the <span class="No-Break">presented data:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer146">
+<img alt="Figure 12.14 – Exposing Prometheus Node Exporter via the port forwarding feature" height="234" src="image/B19845_12_14.jpg" width="1650"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.14 – Exposing Prometheus Node Exporter via the port forwarding feature</p>
+<ol>
+<li value="4">We can now open a new PowerShell terminal and use <strong class="source-inline">Invoke-WebRequest</strong> to retrieve the data or any web browser (you will obtain an intermediate web page indicating that the metrics will be found in the <strong class="source-inline">/</strong><span class="No-Break"><strong class="source-inline">metrics</strong></span><span class="No-Break"> path):</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer147">
+<img alt="Figure 12.15 – Metrics available from Node Exporter, exposed via port forwarding in local port 9100" height="659" src="image/B19845_12_15.jpg" width="697"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.15 – Metrics available from Node Exporter, exposed via port forwarding in local port 9100</p>
+<p class="list-inset">The metrics for the <a id="_idIndexMarker1372"/>Node Exporter component are published internally by an associated Service resource. This is how we should create our monitoring endpoint. We can use two different <span class="No-Break">architectures here:</span></p>
+<ul>
+<li>Integrate our<a id="_idIndexMarker1373"/> monitoring component inside our application Pod using a new container and <span class="No-Break">sidecar pattern</span></li>
+<li>Run a separate Pod with the monitor component and retrieve the data internally using the Kubernetes <span class="No-Break">overlay network</span></li>
+</ul>
+<p class="list-inset">You must remember that the containers running inside a Pod share a common IP address and will always be scheduled together. This may be the main difference and why you will probably choose the first option from the preceding list. Running a different Pod will also require some dependency tracking between both Pods and node affinity patterns (if we want them to run together on the same host). In either of these situations, we will need a PodMonitor or <span class="No-Break">ServiceMonitor resource.</span></p>
+<p>Next, we’ll take a quick look at how Prometheus will automatically scrape metrics from a new <a id="_idIndexMarker1374"/>exporter <a id="_idIndexMarker1375"/>when we create exporters for <span class="No-Break">our applications.</span></p>
+<h2 id="_idParaDest-260"><a id="_idTextAnchor278"/>Scraping metrics with Prometheus</h2>
+<p>Prometheus <a id="_idIndexMarker1376"/>installation creates a new <a id="_idIndexMarker1377"/>resource, <strong class="source-inline">Prometheus</strong>, which represents a Prometheus instance. We can list Prometheus instances in our cluster (we used <strong class="source-inline">-A</strong> to include all the namespaces in <span class="No-Break">the search):</span></p>
+<pre class="console">
+PS C:\Users\frjaraur&gt; kubectl get Prometheus -A
+NAMESPACE    NAME           VERSION   DESIRED   READY   RECONCILED   AVAILABLE   AGE
+monitoring   prometheus-kube-prom-prometheus   v2.45.0   1         1       True         True        17h</pre> <p>If we take a look at this resource, we will realize that two interesting keys will decide which resources to monitor. Let’s get the <strong class="source-inline">Prometheus</strong> resource YAML manifest and review some <span class="No-Break">interesting keys:</span></p>
+<pre class="console">
+PS C:\Users\frjaraur&gt; kubectl get Prometheus -n monitoring prometheus-kube-prom-prometheus  -o yaml
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+...
+spec:
+  podMonitorNamespaceSelector: {}
+  podMonitorSelector:
+    matchLabels:
+      release: prometheus-stack
+…
+  serviceMonitorNamespaceSelector: {}
+  serviceMonitorSelector:
+    matchLabels:
+      release: prometheus-stack</pre> <p>This <strong class="source-inline">Prometheus</strong> resource includes important keys to modify the behavior of Prometheus itself (such as <strong class="source-inline">scrapeInterval</strong>, data <strong class="source-inline">retention</strong>, and <strong class="source-inline">evaluationInterval</strong>). From the preceding code snippet, we can see that all the ServiceMonitor resources from all namespaces will be monitored if they include the <strong class="source-inline">release=prometheus-stack</strong> label. The same is required for PodMonitors, so we will just create a ServiceMonitor<a id="_idIndexMarker1378"/> resource <a id="_idIndexMarker1379"/>for our new application monitor. Here is <span class="No-Break">an example:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer148">
+<img alt="Figure 12.16 – ServiceMonitor example manifest" height="482" src="image/B19845_12_16.jpg" width="714"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.16 – ServiceMonitor example manifest</p>
+<p>In the <em class="italic">Labs</em> section, we will add some<a id="_idIndexMarker1380"/> open source monitoring <a id="_idIndexMarker1381"/>endpoints for our <a id="_idIndexMarker1382"/>application (the <strong class="bold">Postgres exporter</strong> <span class="No-Break">from </span><a href="https://grafana.com/oss/prometheus/exporters/"><span class="No-Break">https://grafana.com/oss/prometheus/exporters/</span></a><span class="No-Break">).</span></p>
+<p>Now, let’s review some quick concepts for configuring a good logging strategy for <span class="No-Break">our applications.</span></p>
+<h1 id="_idParaDest-261"><a id="_idTextAnchor279"/>Logging your application’s important information</h1>
+<p>In this section, we will get a<a id="_idIndexMarker1383"/> general overview of different logging strategies and how to implement an open source Kubernetes-ready solution<a id="_idIndexMarker1384"/> such as <span class="No-Break"><strong class="bold">Grafana Loki</strong></span><span class="No-Break">.</span></p>
+<p>In <a href="B19845_04.xhtml#_idTextAnchor096"><span class="No-Break"><em class="italic">Chapter 4</em></span></a>, <em class="italic">Running Docker Containers</em>, we talked about which strategies were available for our applications. As a rule of thumb, processes running in containers should always log standard and error outputs. This makes it easier or at least prepares a good solution for all the processes at the same time. However, your application may need a different <strong class="bold">logging strategy</strong> for <a id="_idIndexMarker1385"/>different use cases. For example, you shouldn’t log any sensitive information to the standard output. While local logging can be helpful when you are developing your application, it may be very tricky (or even only available for Kubernetes administrators) in a development or production environment. Therefore, we should use either volumes or an external logging ingestion platform. Using volumes may require additional access so that you can recover your logs from a storage backend, so an external platform would be a better approach for covering your logging needs. The fact is that using an external platform can make your life easier if your application runs in Kubernetes. There are plenty of Kubernetes-ready logging platforms that will allow you to push all your container logs to a backend in which you will be able to manage and add appropriate views for different users. This will solve the problem of logging sensitive data because it may be necessary for debugging purposes but only visible to certain trusty users. You may need to ask your Kubernetes administrators because you will probably have a logging solution already working on your <span class="No-Break">Kubernetes platform.</span></p>
+<p>In this chapter, we’ll discuss how you can use Grafana Loki in your Kubernetes environment to read and forward your application’s containers and send them to a unified backend, in which we will be able to use additional tools such as Grafana to review the <span class="No-Break">application’s data.</span></p>
+<p>Grafana Loki can be <a id="_idIndexMarker1386"/>deployed using different modes, depending on the size of your platform and the number of logs expected. To develop and prepare the logs of your applications, we will use a minimal installation, as we already did with Prometheus. We will <a id="_idIndexMarker1387"/>use the <strong class="bold">monolithic</strong> mode (<a href="https://grafana.com/docs/loki/latest/fundamentals/architecture/deployment-modes/">https://grafana.com/docs/loki/latest/fundamentals/architecture/deployment-modes/</a>), in which all of Loki’s microservices will run together in a single container image. Loki is capable of managing a large number of logs and it uses object storage backends. For our needs as developers, it won’t be necessary, and we will just use local storage (filesystem mode) provided by our own <span class="No-Break">Kubernetes platform.</span></p>
+<p>While Grafana Loki provides the server-side<a id="_idIndexMarker1388"/> part, <strong class="bold">Grafana Promtail</strong> will work as an agent, reading, preparing, and sending logs to <span class="No-Break">Loki’s backend.</span></p>
+<p>We are not interested in<a id="_idIndexMarker1389"/> how Grafana Loki or Prometheus work or can be customized. The purpose of this chapter is to learn how we can use them to monitor and log our application’s processes, so we will install Loki and configure Promtail to retrieve the logs from Kubernetes <span class="No-Break">deployed applications.</span></p>
+<h2 id="_idParaDest-262"><a id="_idTextAnchor280"/>Installing and configuring Loki and Promtail</h2>
+<p>Let’s move <a id="_idIndexMarker1390"/>forward by<a id="_idIndexMarker1391"/> installing<a id="_idIndexMarker1392"/> Grafana Loki in our <a id="_idIndexMarker1393"/>Kubernetes cluster so that we can manage all the platform logs. After that, we will be ready to install Promtail to retrieve and push the logs to the <span class="No-Break">Loki server:</span></p>
+<ol>
+<li>We will use <strong class="source-inline">helm</strong> again to install Grafana Loki in a different namespace. The simplest installation is the single binary chart method with filesystem <span class="No-Break">storage (</span><a href="https://grafana.com/docs/loki/latest/installation/helm/install-monolithic"><span class="No-Break">https://grafana.com/docs/loki/latest/installation/helm/install-monolithic</span></a><span class="No-Break">):</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer149">
+<img alt="Figure 12.17 – Grafana Loki installation using Helm" height="781" src="image/B19845_12_17.jpg" width="1647"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.17 – Grafana Loki installation using Helm</p>
+<ol>
+<li value="2">We used the following settings to apply the monolithic mode and remove <span class="No-Break">API authentication:</span><pre class="source-code">
+<strong class="bold">--set loki.commonConfig.replication_factor=1 --set loki.commonConfig.storage.type=filesystem --set singleBinary.replicas=1 --set loki.auth_enabled=false --set monitoring.lokiCanary.enabled=false --set test.enabled=false --set monitoring.selfMonitoring.enabled=false</strong></pre><p class="list-inset">All these flags will help you reduce the hardware resources required for a <span class="No-Break">testing environment.</span></p></li> <li>It is now up and running. Let’s take a quick look at the Service resources before installing the <span class="No-Break">Promtail component:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer150">
+<img alt="Figure 12.18 – Grafana Loki Service resources" height="299" src="image/B19845_12_18.jpg" width="1226"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.18 – Grafana Loki Service resources</p>
+<p class="list-inset">We’ve reviewed the Loki Services because we are going to configure Promtail to send all the logging information retrieved to the <strong class="source-inline">loki-gateway</strong> Service, available in the <strong class="source-inline">logging</strong> namespace on <span class="No-Break">port </span><span class="No-Break"><strong class="source-inline">80</strong></span><span class="No-Break">.</span></p>
+<ol>
+<li value="4">Helm can show us the default values that will be used to install a Helm Chart if we execute <strong class="source-inline">helm show values &lt;CHART&gt;</strong>. So, we can retrieve the default values for the <strong class="source-inline">grafana/promtail</strong> chart by issuing <strong class="source-inline">helm show values grafana/promtail</strong>. The output is huge, with all the default values shown, but we only need to<a id="_idIndexMarker1394"/> review <a id="_idIndexMarker1395"/>the<a id="_idIndexMarker1396"/> client <a id="_idIndexMarker1397"/>configuration. This configuration applies to Promtail and defines where to send the logs that are read from the <span class="No-Break">different sources:</span><pre class="source-code">
+<strong class="bold">PS C:\Users\frjaraur&gt; helm show values `</strong>
+<strong class="bold">grafana/promtail</strong>
+<strong class="bold">…</strong>
+<strong class="bold">config:</strong>
+<strong class="bold">…</strong>
+<strong class="bold">  clients:</strong>
+<strong class="bold">    - url: http://loki-gateway/loki/api/v1/push</strong>
+<strong class="bold">...</strong></pre></li> <li>Promtail will read several log files from our cluster hosts (deployed as a DaemonSet), mounted as volumes (the <strong class="source-inline">defaultVolumeMounts</strong> key in the chart values YAML file). All the files included will be read and managed by the Promtail agent and the data extracted will be sent to the URL defined in <strong class="source-inline">config.clients[].url</strong>. This is the basic configuration we need to review because, by default, Kubernetes logs will be included in the <strong class="source-inline">config.snippets</strong> section. Prometheus, Grafana Loki, and Promtail are quite configurable applications, and their customization can be very tricky. In this chapter, we are reviewing the basics for monitoring and logging your applications with them. It may be very useful for you to review the documentation of each mentioned tool to extend <span class="No-Break">these configurations.</span></li>
+<li>By default, Promtail will send all the data to <strong class="source-inline">http://loki-gateway</strong>, which we have seen exists inside the<a id="_idIndexMarker1398"/> Kubernetes cluster if we run this tool in<a id="_idIndexMarker1399"/> the<a id="_idIndexMarker1400"/> logging namespace, alongside <a id="_idIndexMarker1401"/>Grafana Loki. We’ll proceed to install Promtail using the logging namespace, using the <span class="No-Break">default values:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer151">
+<img alt="Figure 12.19 – Promtail installation using a Helm Chart" height="750" src="image/B19845_12_19.jpg" width="1119"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.19 – Promtail installation using a Helm Chart</p>
+<ol>
+<li value="7">Once installed, we can review the logs of all Kubernetes clusters in Grafana. But first, we will need to configure Prometheus (monitoring) and Loki (logging) data sources in Grafana. We will use port forwarding to expose the <span class="No-Break">Grafana Service:</span><pre class="source-code">
+<strong class="bold">PS C:\Users\frjaraur&gt; kubectl port-forward `</strong>
+<strong class="bold">-n monitoring service/prometheus-grafana 8080:80</strong>
+<strong class="bold">Forwarding from 127.0.0.1:8080 -&gt; 3000</strong>
+<strong class="bold">Forwarding from [::1]:8080 -&gt; 3000</strong></pre></li> <li>And now, in the Grafana web UI (the <strong class="source-inline">admin</strong> username with the <strong class="source-inline">prom-operator</strong> password), accessible<a id="_idIndexMarker1402"/> at <strong class="source-inline">http://localhost:8080</strong>, we can <a id="_idIndexMarker1403"/>configure the data sources<a id="_idIndexMarker1404"/> by<a id="_idIndexMarker1405"/> navigating to <strong class="bold">Home</strong> | <strong class="bold">Adminsitration </strong>| <span class="No-Break"><strong class="bold">Datasources</strong></span><span class="No-Break">:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer152">
+<img alt="Figure 12.20 – Grafana – Data sources configuration" height="571" src="image/B19845_12_20.jpg" width="1643"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.20 – Grafana – Data sources configuration</p>
+<ol>
+<li value="9">Notice that the deployment of Grafana using the <strong class="source-inline">kube-prometheus-stack</strong> Chart already configured the Prometheus and Alertmanager data sources for us. We will configure a new data source <span class="No-Break">for Loki:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer153">
+<img alt="Figure 12.21 – Grafana Loki data source configuration" height="670" src="image/B19845_12_21.jpg" width="1362"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.21 – Grafana Loki data source configuration</p>
+<ol>
+<li value="10">Click on <strong class="bold">Save &amp; Test</strong> – and that’s it! You may receive an error stating “<strong class="bold">Data source connected, but no labels were received. Verify that Loki and Promtail are correctly configured</strong>”. This indicates that we don’t have labels available yet<a id="_idIndexMarker1406"/> for <a id="_idIndexMarker1407"/>indexing<a id="_idIndexMarker1408"/> data; it<a id="_idIndexMarker1409"/> occurs when you have just installed the Promtail component. If you wait a few minutes, labels will be available, and everything will work correctly. Anyway, we can verify the Loki data by clicking the <strong class="bold">Explore</strong> button, at the beginning of the <strong class="bold">Data sources</strong> | <strong class="bold">Settings</strong> page. The <strong class="bold">Explore</strong> section allows us to retrieve data directly from any Loki-type source. In our example, we used Loki as the name of the source, and we can select the available labels generated by Promtail with the information from <span class="No-Break">our containers:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer154">
+<img alt="Figure 12.22 – Exploring Loki data sources" height="494" src="image/B19845_12_22_new.jpg" width="1192"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.22 – Exploring Loki data sources</p>
+<ol>
+<li value="11">We can retrieve all the logs from the <strong class="source-inline">kube-system</strong> namespace by simply selecting the<a id="_idIndexMarker1410"/> namespace <a id="_idIndexMarker1411"/>label <a id="_idIndexMarker1412"/>and the <a id="_idIndexMarker1413"/>appropriate value from <span class="No-Break">the list:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer155">
+<img alt="Figure 12.23 – Exploring the logs from all the Pod resources from the kube-system namespace" height="788" src="image/B19845_12_23.jpg" width="1644"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.23 – Exploring the logs from all the Pod resources from the kube-system namespace</p>
+<p class="list-inset">You will be able to filter by any of the current labels and add very useful operations such as grouping, counting the number of appearances of certain strings, searching for specific regex patterns, and so on. Lots of options are available and they will be very useful for you as a developer. You can have all the logs from different applications’ components in one unified dashboard, or even prepare your own application dashboard with metrics and logs, mixing <span class="No-Break">different sources.</span></p>
+<p>Prometheus, Loki, and Grafana are very powerful tools and we can only cover the basics here. It is up to you to create dashboards using the Grafana documentation (<a href="https://grafana.com/docs/grafana/latest/dashboards/use-dashboards/">https://grafana.com/docs/grafana/latest/dashboards/use-dashboards/</a>). The Grafana community provides  many dashboard examples (<a href="https://grafana.com/grafana/dashboards/">https://grafana.com/grafana/dashboards/</a>). We will create a fully functional dashboard <a id="_idIndexMarker1414"/>for <a id="_idIndexMarker1415"/>the <strong class="source-inline">simplestlab</strong> application<a id="_idIndexMarker1416"/> in <a id="_idIndexMarker1417"/>the <span class="No-Break"><em class="italic">Labs</em></span><span class="No-Break"> section.</span></p>
+<p>The next section will introduce some load-testing mechanisms and review how to use the <strong class="bold">Grafana k6</strong> open<a id="_idIndexMarker1418"/> <span class="No-Break">source tool.</span></p>
+<h1 id="_idParaDest-263"><a id="_idTextAnchor281"/>Load testing your applications</h1>
+<p><strong class="bold">Load testing</strong> is the task in <a id="_idIndexMarker1419"/>which <a id="_idIndexMarker1420"/>we review how our application works by measuring its behavior under different stressful circumstances. You, as a developer, always have to think about how your application will manage these stressful situations and try to answer some of the <span class="No-Break">following questions:</span></p>
+<ul>
+<li>Will my application work under high <span class="No-Break">user loads?</span></li>
+<li>How will my application’s components be impacted in such <span class="No-Break">a case?</span></li>
+<li>Will scaling up some components maintain the overall performance or might this cause problems with <span class="No-Break">other components?</span></li>
+</ul>
+<p>Testing the application before it goes to production will help us predict how the application is going to work. <strong class="bold">Automation</strong> is key to simulating thousands of requests at <span class="No-Break">a time.</span></p>
+<p>With load testing or <strong class="bold">performance testing</strong>, we try to put pressure on our applications and increase their workloads. We can test our applications for <span class="No-Break">different reasons:</span></p>
+<ul>
+<li>To understand how our application behaves with an <span class="No-Break">expected load</span></li>
+<li>To ascertain the maximum load under which our application <span class="No-Break">will work</span></li>
+<li>To try to find possible memory or performance issues that could appear over time (memory leaks, fulfillment of certain storage resources, cache, and <span class="No-Break">so on)</span></li>
+<li>To test how our application auto-scales in certain circumstances and how the different components will <span class="No-Break">be affected</span></li>
+<li>To confirm some configuration changes in development before they are done <span class="No-Break">in production</span></li>
+<li>To test the application performance from different locations that have different <span class="No-Break">network speeds</span></li>
+</ul>
+<p>All these test points can <a id="_idIndexMarker1421"/>be <a id="_idIndexMarker1422"/>delivered with some scripting techniques and automation. Depending on the application we are testing, we can use some well-known, simple but effective tools such as <strong class="bold">Apache JMeter</strong> (<a href="https://jmeter.apache.org">https://jmeter.apache.org</a>) or – even simpler – <strong class="bold">Apache Bench</strong> (<a href="https://httpd.apache.org/docs/2.4/programs/ab.xhtml">https://httpd.apache.org/docs/2.4/programs/ab.xhtml</a>). These tools can emulate application requests but they never behave like a real web browser, but <strong class="bold">Selenium</strong> (<a href="https://www.selenium.dev">https://www.selenium.dev</a>) does. This tool includes a <strong class="bold">WebDriver</strong> component that emulates a <strong class="bold">World Wide Web Consortium</strong> (<strong class="bold">W3C</strong>) browsing experience, but it may be complex to integrate into automated processes (different releases and integration with different languages can be time-consuming). Grafana provides k6, which is an open source tool that was created by Load Impact some years ago and is now part of the Grafana tools ecosystem. It is a very small tool, written in Go, and can be configured via JavaScript, which makes it <span class="No-Break">very customized.</span></p>
+<p class="callout-heading">Important note</p>
+<p class="callout">Grafana k6 functionality can be extended by using extensions, although you will need to recompile your k6 binary to include <span class="No-Break">them (</span><a href="https://k6.io/docs/extensions"><span class="No-Break">https://k6.io/docs/extensions</span></a><span class="No-Break">).</span></p>
+<p>Grafana k6 tests can be integrated into the <strong class="bold">Grafana SaaS platform</strong> (<strong class="bold">Grafana Cloud</strong>) or your own Grafana environment, although some features are only available in the cloud platform at the time of writing <span class="No-Break">this book.</span></p>
+<p>Installing this tool is very simple; it can be run on Linux, macOS, and Windows and is suitable for running within containers, which makes it perfect to run in Kubernetes as a <span class="No-Break">Job resource.</span></p>
+<p>To install this tool on Windows, open <a id="_idIndexMarker1423"/>a <a id="_idIndexMarker1424"/>PowerShell console with administrator privileges and execute <strong class="source-inline">winget </strong><span class="No-Break"><strong class="source-inline">install k6</strong></span><span class="No-Break">:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer156">
+<img alt="Figure 12.24 – Grafana k6 installation on Windows" height="332" src="image/B19845_12_24.jpg" width="872"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.24 – Grafana k6 installation on Windows</p>
+<p>Let’s see a quick example of its usage by writing a simple JavaScript <span class="No-Break"><strong class="source-inline">check</strong></span><span class="No-Break"> script:</span></p>
+<pre class="source-code">
+import { check } from "k6";
+import http from "k6/http";
+export default function() {
+  let res = http.get("https://www.example.com/");
+  check(res, {
+    "is status 200": (r) =&gt; r.status === 200
+  });
+};</pre> <p>We can now test this example script for 10 seconds, simulating five virtual users with the k6 <span class="No-Break">command line:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer157">
+<img alt="Figure 12.25 – Executing a k6 test script" height="859" src="image/B19845_12_25.jpg" width="950"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.25 – Executing a k6 test script</p>
+<p>In the preceding example, we are verifying a <strong class="source-inline">200</strong> code that was returned from the page. We can now use 5,000 virtual users for the same amount of time, which may create performance<a id="_idIndexMarker1425"/> problems in<a id="_idIndexMarker1426"/> the backend. The results can be integrated into different analysis tools such as Prometheus, Datadog, and so on. If you are already familiar with Prometheus and Grafana, you will probably <span class="No-Break">like k6.</span></p>
+<p>There is a bunch of good usage examples (<a href="https://k6.io/docs/examples">https://k6.io/docs/examples</a>) in which Grafana documents different <span class="No-Break">use cases:</span></p>
+<ul>
+<li>Single and complex <span class="No-Break">API requests</span></li>
+<li>HTTP and OAuth authentication <span class="No-Break">with authorization</span></li>
+<li>The correlation of tokens, dynamic data, and <span class="No-Break">cookie management</span></li>
+<li>POST data parameterization and HTML forms and the parsing <span class="No-Break">of results</span></li>
+<li>Data uploads or <span class="No-Break">scraping websites</span></li>
+<li>Load testing of HTTP2, WebSockets, <span class="No-Break">and SOAP</span></li>
+</ul>
+<p>We can create a more complex example by adding some content parsing and increasing and decreasing the number of virtual users during the execution of <span class="No-Break">the test:</span></p>
+<pre class="source-code">
+import http from 'k6/http';
+import { sleep, check } from 'k6';
+import {parseHTML} from "k6/html";
+export default function() {
+    const res = http.get("https://k6.io/docs/");
+    const doc = parseHTML(res.body);
+    sleep(1);
+    doc.find("link").toArray().forEach(function (item) {
+        console.log(item.attr("href"));
+     });
+}</pre> <p>In the preceding <a id="_idIndexMarker1427"/>code <a id="_idIndexMarker1428"/>snippet, we are looking for all the <strong class="source-inline">link</strong> strings and retrieving their <span class="No-Break"><strong class="source-inline">href</strong></span><span class="No-Break"> values:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer158">
+<img alt="Figure 12.26 – Executing a k6 test script parsing the “links” string" height="975" src="image/B19845_12_26.jpg" width="1070"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.26 – Executing a k6 test script parsing the “links” string</p>
+<p>Grafana k6 is very configurable. We can define stages in which we can change the behavior of the probe during the check as well as many complex features that are completely outside the scope of this book. We suggest that you read the tool’s documentation for a better<a id="_idIndexMarker1429"/> understanding of its functionality and to customize it to <span class="No-Break">your</span><span class="No-Break"><a id="_idIndexMarker1430"/></span><span class="No-Break"> needs.</span></p>
+<p>We will now jump into the instrumentation part. In the next section, we will learn how to integrate some tracing technologies into our application <span class="No-Break">observability strategy.</span></p>
+<h1 id="_idParaDest-264"><a id="_idTextAnchor282"/>Adding instrumentation to your application’s code</h1>
+<p>When you code your <a id="_idIndexMarker1431"/>applications, it should be easy to prepare appropriate monitoring endpoints and adequate monitoring tools to retrieve your application’s metrics. Observability helps us understand applications without really having good knowledge of their internal code. In this section, we will explore some tools that provide traces, metrics, and logs for our applications, without actively knowing our applications’ functionality. <strong class="bold">Monitoring</strong> and <strong class="bold">logging</strong> are part of the observation tasks but in a different context. We actively know where to retrieve the monitoring and logging information from, but sometimes, we need to go further – for example, when we run a third-party application or we don’t have enough time to add monitoring endpoints to our application. It is important to prepare for monitoring your applications from the very beginning, even when you start to plan your application. The same applies to the logging part – you have to prepare your application to provide good logging information and not merely through the output of your processes as <span class="No-Break">they are.</span></p>
+<p>Distributing the same type of tracing, logging, and monitoring among your application’s components will help you understand what is going on in your application and follow every request through the different steps taken in your application’s processes. The traces, metrics, and logging data obtained are considered your <span class="No-Break">application’s telemetry.</span></p>
+<p><strong class="bold">OpenTelemetry</strong> has become <a id="_idIndexMarker1432"/>a standard observability framework. It is open source and provides different tools and SDKs that help implement a telemetry solution to easily retrieve traces, logs, and metrics from your applications. This data can be integrated into Prometheus and other observability tools, such <span class="No-Break">as Jaeger.</span></p>
+<p>The main goal of the OpenTelemetry platform is to add observability to your applications without any code modification. Currently, the Java, Python, Go, and Ruby programming languages are supported. The simplest way of working with OpenTelemetry in Kubernetes is using<a id="_idIndexMarker1433"/> the <strong class="bold">OpenTelemetry Operator</strong>. This Kubernetes operator will deploy the required OpenTelemetry components for us and create the associated CRDs that will allow us to configure the environment. This implementation will deploy the Collector’s components, which will receive, process, filter, and export telemetry data to designed backends, and create the <strong class="bold">OpenTelemetryCollector</strong> and instrumentation <span class="No-Break">resource definitions.</span></p>
+<p>There are four different ways or modes of deploying an <span class="No-Break">OpenTelemetry Collector:</span></p>
+<ul>
+<li><strong class="bold">Deployment Mode</strong> allows us<a id="_idIndexMarker1434"/> to control the Collector as if it were a simple application running in Kubernetes, and it is suitable for monitoring a <span class="No-Break">simple application.</span></li>
+<li><strong class="bold">DaemonSet Mode</strong> will run a collector replica as an agent, on each <span class="No-Break">cluster node.</span></li>
+<li><strong class="bold">StatefulSet Mode</strong>, as expected, will be suitable when you don’t want to lose any tracing data. Multiple replicas can be executed and each one will have <span class="No-Break">a dataset.</span></li>
+<li><strong class="bold">Sidecar Mode</strong> will attach a collector container to the application’s workloads, which is better if you create and remove applications often (perfect for a development environment). It also offers a more fine-grained configuration if you use different languages and want to choose specific collectors for each application component. We can manage <a id="_idIndexMarker1435"/>which collector to use for a specific Pod with <span class="No-Break">special annotations.</span></li>
+</ul>
+<p>Let’s run a quick demo environment from the OpenTelemetry community (<a href="https://github.com/open-telemetry/opentelemetry-demo/">https://github.com/open-telemetry/opentelemetry-demo/</a>). This demo deploys a web store example application, Grafana, Jaeger, and the required OpenTelemetry components to obtain an <a id="_idIndexMarker1436"/>application’s metrics <span class="No-Break">and traces.</span></p>
+<p class="callout-heading">Important note</p>
+<p class="callout"><strong class="bold">Jaeger</strong> is a distributed<a id="_idIndexMarker1437"/> tracing platform that maps and groups application flows and requests to help us understand workflow and performance issues, analyze our Services and their dependencies, and track down root causes when something goes wrong in our applications. You can find its documentation at the project’s <span class="No-Break">URL: </span><a href="https://www.jaegertracing.io/"><span class="No-Break">https://www.jaegertracing.io/</span></a><span class="No-Break">.</span></p>
+<p>The full demo is installed via a Helm Chart (<strong class="source-inline">open-telemetry/opentelemetry-demo</strong>). We can deploy it on any namespace, but all the components will run together. The presented demo provides a very good overview of what we can include in our desktop environment in either Docker Desktop, Rancher Desktop, or Minikube (it may work on any other Kubernetes environment), although it doesn’t follow some of the modern OpenTelemetry best practices for adding traces and managing collectors. This demo doesn’t deploy the Kubernetes OpenTelemetry Operator, and the OpenTelemetry Collector is deployed as a<a id="_idIndexMarker1438"/> <span class="No-Break">simple deployment.</span></p>
+<p>In the next section, we’ll install the demo and review the application and tools that have <span class="No-Break">been deployed.</span></p>
+<h2 id="_idParaDest-265"><a id="_idTextAnchor283"/>Reviewing the OpenTelemetry demo</h2>
+<p>In this section, we will<a id="_idIndexMarker1439"/> install <a id="_idIndexMarker1440"/>and review some of the most important features of a ready-to-use demo prepared by the OpenTelemetry project. This demo will deploy a simple web store application and the tools required for managing and retrieving the tracing data from different components (you can find additional useful information <span class="No-Break">at </span><a href="https://opentelemetry.io/docs/demo"><span class="No-Break">https://opentelemetry.io/docs/demo</span></a><span class="No-Break">):</span></p>
+<ol>
+<li>First, we will install the demo by following the simple steps described at <a href="https://opentelemetry.io/docs/demo/kubernetes-deployment/">https://opentelemetry.io/docs/demo/kubernetes-deployment/</a>. We will add the OpenTelemetry project’s Helm Chart repository and then issue <strong class="source-inline">helm install</strong> with the default values included in the <span class="No-Break">demo package:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer159">
+<img alt="Figure 12.27 – OpenTelemetry demo application deployment" height="703" src="image/B19845_12_27.jpg" width="963"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.27 – OpenTelemetry demo application deployment</p>
+<p class="list-inset">As you can see, different<a id="_idIndexMarker1441"/> web UIs <a id="_idIndexMarker1442"/>were deployed. We can quickly review the different Pods that <span class="No-Break">were created:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer160">
+<img alt="Figure 12.28 – OpenTelemetry demo application running Pods" height="707" src="image/B19845_12_28.jpg" width="1052"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.28 – OpenTelemetry demo application running Pods</p>
+<p class="list-inset">In the preceding<a id="_idIndexMarker1443"/> code snippet, we can see <a id="_idIndexMarker1444"/>that OpenTelemetry Collector has been deployed using a deployment that will monitor all the applications instead of selected ones. Please read the OpenTelemetry documentation (<a href="https://opentelemetry.io/docs">https://opentelemetry.io/docs</a>) and specific guides available for the associated Helm Charts (<a href="https://github.com/open-telemetry/opentelemetry-operator">https://github.com/open-telemetry/opentelemetry-operator</a> <span class="No-Break">and </span><a href="https://github.com/open-telemetry/opentelemetry-helm-charts/tree/main/charts/opentelemetry-operator"><span class="No-Break">https://github.com/open-telemetry/opentelemetry-helm-charts/tree/main/charts/opentelemetry-operator</span></a><span class="No-Break">).</span></p>
+<ol>
+<li value="2">We will use port forwarding so that we can get quick and easy access to all the available demo web UIs. All will be reachable at once at localhost using different paths, thanks to a reverse proxy deployed with the demo Helm Chart. The web store application will be available <span class="No-Break">at </span><span class="No-Break"><strong class="source-inline">http://localhost:8080</strong></span><span class="No-Break">:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer161">
+<img alt="Figure 12.29 – Web store demo application accessible using the port-forward kubectl feature" height="793" src="image/B19845_12_29.jpg" width="1373"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.29 – Web store demo application accessible using the port-forward kubectl feature</p>
+<p class="list-inset">The demo<a id="_idIndexMarker1445"/> web <a id="_idIndexMarker1446"/>store shows a catalog of telescopes, and it will simulate a <span class="No-Break">shopping experience.</span></p>
+<ol>
+<li value="3">We can now access Jaeger <span class="No-Break">at </span><span class="No-Break"><strong class="source-inline">http://localhost:8080/jaeguer/ui</strong></span><span class="No-Break">:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer162">
+<img alt="Figure 12.30 – The Jaeger UI using the port-forward kubectl feature" height="616" src="image/B19845_12_30.jpg" width="1061"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.30 – The Jaeger UI using the port-forward kubectl feature</p>
+<ol>
+<li value="4">In the<a id="_idIndexMarker1447"/> Jaeger UI, we <a id="_idIndexMarker1448"/>can select which Service to review, and the different traces will appear in the <span class="No-Break">right panel:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer163">
+<img alt="Figure 12.31 – The Jaeger UI showing traces for different application Services" height="746" src="image/B19845_12_31.jpg" width="1347"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.31 – The Jaeger UI showing traces for different application Services</p>
+<ol>
+<li value="5">An architecture overview is also available in the <strong class="bold">System Architecture</strong> tab so that you can verify the relations between the different <span class="No-Break">application components:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer164">
+<img alt="Figure 12.32 – The Jaeger UI showing the application components" height="794" src="image/B19845_12_32.jpg" width="1414"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.32 – The Jaeger UI showing the application components</p>
+<p class="list-inset">Notice that there’s a load <a id="_idIndexMarker1449"/>generator <a id="_idIndexMarker1450"/>workload, which is creating synthetic requests for us to be able to retrieve some statistics and traces from the <span class="No-Break">demo environment.</span></p>
+<ol>
+<li value="6">The demo deployment also installs Grafana and Prometheus. The Grafana UI is available at <strong class="source-inline">http://localhost:8080/grafana</strong> and Prometheus and Jaeger data sources are configured <span class="No-Break">for us:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer165">
+<img alt="Figure 12.33 – The Grafana UI showing the configured data sources" height="600" src="image/B19845_12_33.jpg" width="1462"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.33 – The Grafana UI showing the configured data sources</p>
+<p class="list-inset">Therefore, we can use Grafana to graph the data from both data sources and create an application dashboard. The people from OpenTelemetry have prepared some <a id="_idIndexMarker1451"/>dashboards for us, showing <a id="_idIndexMarker1452"/>the application’s metrics <span class="No-Break">and traces:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer166">
+<img alt="Figure 12.34 – Grafana’s Dashboards page and the Spammetrics Demo Dashboard showing current requests per Service" height="905" src="image/B19845_12_34.jpg" width="1595"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 12.34 – Grafana’s Dashboards page and the Spammetrics Demo Dashboard showing current requests per Service</p>
+<p>We could have included Grafana Loki in this scenario, added some of the logging entries, and, finally, created a custom dashboard with all the relevant metrics, traces, and log entries. The Grafana platform can even include certain databases as data sources, which will improve the <a id="_idIndexMarker1453"/>overall overview of our <a id="_idIndexMarker1454"/><span class="No-Break">application’s health.</span></p>
+<h1 id="_idParaDest-266"><a id="_idTextAnchor284"/>Labs</h1>
+<p>This section will show you how to implement some of the techniques that were covered in this chapter <a id="_idIndexMarker1455"/>using the <strong class="source-inline">simplestlab</strong> three-tier application in Kubernetes. We will deploy a complete observability platform, including Grafana, Prometheus, and Loki, and prepare some exporters for our <span class="No-Break">application’s components.</span></p>
+<p>The code for these labs is available in this book’s GitHub repository at <a href="https://github.com/PacktPublishing/Containers-for-Developers-Handbook.git">https://github.com/PacktPublishing/Containers-for-Developers-Handbook.git</a>. Ensure you have the latest revision available by simply executing <strong class="source-inline">git clone https://github.com/PacktPublishing/Containers-for-Developers-Handbook.git</strong> to download all its content or <strong class="source-inline">git pull</strong> if you’ve already downloaded the repository before. All the manifests and steps required for running the labs are included in the <strong class="source-inline">Containers-for-Developers-Handbook/Chapter12</strong> directory. All the manifests required for the labs are included in the code repository. Detailed instructions for running the labs are included in the <strong class="source-inline">Chapter12</strong> directory, after you download the associated GitHub. Let’s take a brief look at the steps that are to <span class="No-Break">be performed:</span></p>
+<ol>
+<li>First, we will create a Minikube Kubernetes environment on our desktop computer. We will deploy a simple cluster with one node and ingress and <span class="No-Break">metrics-server plugins:</span><pre class="source-code">
+<strong class="bold">Chapter12$ minikube start --driver=hyperv /</strong>
+<strong class="bold">--memory=6gb --cpus=2 --cni=calico /</strong>
+<strong class="bold">--addons=ingress,metrics-server</strong></pre></li> <li>Next, we will deploy the <strong class="source-inline">simplestlab</strong> application, which we used in previous chapters, on Kubernetes. The following steps will be executed inside the <span class="No-Break"><strong class="source-inline">Chapter12</strong></span><span class="No-Break"> folder:</span><pre class="source-code">
+<strong class="bold">Chapter12$ kubectl create ns simplestlab</strong>
+<strong class="bold">Chapter12$ kubectl create -f .\simplestlab\ /</strong>
+<strong class="bold">-n simplestlab</strong></pre><p class="list-inset">This will deploy our <strong class="source-inline">simplestlab</strong> application in <span class="No-Break">the cluster.</span></p></li> <li>Then, we will deploy a functional monitoring and logging environment on top of our Kubernetes desktop platform. To do this, we will first deploy the Kubernetes Prometheus stack. We prepared a custom <strong class="source-inline">kube-prometheus-stack.values.yaml</strong> values file with appropriate content for deploying a small environment with Grafana and Prometheus. We’ve provided the required Helm Charts inside the <strong class="source-inline">Chapter12/charts</strong> directory. In this case, we will use the <strong class="source-inline">kube-prometheus-stack</strong> subdirectory. To deploy the solution, we will use the <span class="No-Break">following command:</span><pre class="source-code">
+<strong class="bold">Chapter12$ helm install kube-prometheus-stack /</strong>
+<strong class="bold">--namespace monitoring --create-namespace /</strong>
+<strong class="bold">--values .\kube-prometheus-stack.values.yaml .\charts\kube-prometheus-stack\</strong></pre><p class="list-inset">This command <a id="_idIndexMarker1456"/>deploys Grafana and Prometheus at the same time, with two data sources configured to integrate Prometheus and Loki (deployed in the next step) in Grafana. These data sources will be enabled inside the Grafana platform, and we will be able to use them later to create some <span class="No-Break">easy dashboards.</span></p></li> <li>When Grafana and Prometheus are available, we will change our <strong class="source-inline">hosts</strong> file (<strong class="source-inline">/etc/hosts</strong> or <strong class="source-inline">c:\windows\system32\drivers\etc\hosts</strong>) to include the Minikube IP address for <strong class="source-inline">grafana.local.lab</strong> and <strong class="source-inline">simplestlab.local.lab</strong>. We will now be able to access Grafana, published in our ingress controller, <span class="No-Break">at </span><a href="https://grafana.local.lab"><span class="No-Break">https://grafana.local.lab</span></a><span class="No-Break">.</span><p class="list-inset">Then, we will deploy Grafana Loki to retrieve the logs from all the applications and the Kubernetes platform. We will use a custom values file (<strong class="source-inline">loki.values.yaml</strong>) to deploy Loki that’s included inside <strong class="source-inline">Chapter12</strong> directory. The file has already been prepared for you with the minimum requirements for deploying a functional Loki environment. We will use the <span class="No-Break">following command:</span></p><pre class="source-code">
+<strong class="bold">helm install loki --namespace logging /</strong>
+<strong class="bold">--create-namespace --values .\loki.values.yaml .\charts\loki\</strong></pre></li> <li>Loki is available as a Grafana data source, but there isn’t any data from that source yet. We will deploy Promtail to retrieve the logging data and push it to Loki. This application will be deployed using a chart located in the <strong class="source-inline">Chapter12/charts/promtail</strong> directory. We will leave the default values as they are because the communication with Loki will only <span class="No-Break">be internal:</span><pre class="source-code">
+<strong class="bold">helm install promtail --namespace logging --create-namespace .\charts\promtail\</strong></pre></li> <li>Now, let’s integrate monitoring and logging data from different sources to create a custom application dashboard in which you can review the logs from all your application’s components and the resource usage of the application’s processes. This will help you calculate the requirements for your application and the limits required to work properly. A detailed step-by-step example has been included to show you how to create a simple Grafana dashboard that integrates the <strong class="source-inline">container_cpu_usage_seconds_total</strong> and <strong class="source-inline">container_memory_max_usage_bytes</strong> metrics, which were retrieved using  Prometheus, and the <strong class="source-inline">simplestlab</strong> application logs in Loki thanks to the <span class="No-Break">Promtail</span><span class="No-Break"><a id="_idIndexMarker1457"/></span><span class="No-Break"> component.</span></li>
+<li>By the end of these labs, we will have modified our <strong class="source-inline">simplestlab</strong> application, adding some Prometheus exporters for monitoring different application components that will help us customize these components for the best performance. We will integrate a Postgres database exporter and the NGINX exporter for the <strong class="source-inline">loadbalancer</strong> component of <strong class="source-inline">simplestlab</strong>. Manifests for both integrations have been prepared for you in the <span class="No-Break"><strong class="source-inline">Chapter12/exporters</strong></span><span class="No-Break"> directory.</span></li>
+<li>Prometheus must be configured to poll these new targets – the Postgres database and NGINX exporters. We will prepare a ServiceMonitor resource for each one to inform Prometheus to retrieve metrics from these new sources. The ServiceMonitor resources manifests are included in the <strong class="source-inline">Chapter12/exporters</strong> directory. Here is the one that’s been prepared for you for the <span class="No-Break">NGINX component:</span><pre class="source-code">
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    component: lb
+    app: simplestlab
+    release: kube-prometheus-stack
+  name: lb
+  namespace: simplestlab
+spec:
+  endpoints:
+  - path: /metrics
+    port: exporter
+    interval: 30s
+  jobLabel: jobLabel
+  selector:
+    matchLabels:
+      component: lb
+      app: simplestlab</pre></li> <li>Detailed information<a id="_idIndexMarker1458"/> about creating simple queries in Grafana to graph data using these new metrics is available in the <strong class="source-inline">Readme.md</strong> file for this chapter, in this book’s <span class="No-Break">GitHub repository.</span></li>
+</ol>
+<p>The labs we’ve prepared for you in this chapter will give you an overview of how to implement a simple monitoring and logging solution for your applications and prepare some metrics to<a id="_idIndexMarker1459"/> review the performance of some of your <span class="No-Break">application’s components.</span></p>
+<h1 id="_idParaDest-267"><a id="_idTextAnchor285"/>Summary</h1>
+<p>In this chapter, we learned how to implement some tools and techniques for monitoring, logging, and tracing our application workloads in Kubernetes. We also took a quick look at the load testing task, with an overview of what you should expect from your probes. We talked about Grafana, Prometheus, and Loki, among other tools, but the principles we discussed in this chapter can be applied to any monitoring, logging, or tracing tool <span class="No-Break">you use.</span></p>
+<p>Monitoring how much of the hardware resources your application consumes and reading the logs of your application’s components in a unified environment can help you understand your application’s limits and requirements. If you test how it behaves under heavy load, it can help to improve your application’s logic and predict the performance under unexpected circumstances. Adding traces to your code manually or using some of the automation mechanisms seen in this chapter will help you go further with your application’s development by understanding their insights <span class="No-Break">and integrations.</span></p>
+<p>In the next chapter, we will make all the concepts seen so far fit in the application’s life <span class="No-Break">cycle management.</span></p>
+</div>
+</div>
+
+<div id="sbo-rt-content"><div class="Content" id="_idContainer168">
+<h1 id="_idParaDest-268" lang="en-US" xml:lang="en-US"><a id="_idTextAnchor286"/>Part 4:Improving Applications’ Development Workflow</h1>
+<p>In this part, we will review some well-known application life cycle management phases and best practices. We will cover how working with containers improves them, reviewing some continuous integration and continuous deployment <span class="No-Break">logical patterns.</span></p>
+<p>This part has the <span class="No-Break">following chapter:</span></p>
+<ul>
+<li><a href="B19845_13.xhtml#_idTextAnchor287"><em class="italic">Chapter 13</em></a>, <em class="italic">Managing the Application Life Cycle</em></li>
+</ul>
+</div>
+<div>
+<div id="_idContainer169">
+</div>
+</div>
+<div>
+<div class="Basic-Graphics-Frame" id="_idContainer170">
+</div>
+</div>
+</div></body></html>

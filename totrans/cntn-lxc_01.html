@@ -1,0 +1,1079 @@
+<html><head></head><body><div class="chapter" title="Chapter&#xA0;1.&#xA0;Introduction to Linux Containers"><div class="titlepage"><div><div><h1 class="title"><a id="ch01"/>Chapter 1. Introduction to Linux Containers</h1></div></div></div><p>Nowadays, deploying applications inside some sort of a Linux container is a widely adopted practice, primarily due to the evolution of the tooling and the ease of use it presents. Even though Linux containers, or operating-system-level virtualization, in one form or another, have been around for more than a decade, it took some time for the technology to mature and enter mainstream operation. One of the reasons for this is the fact that hypervisor-based technologies such as KVM and Xen were able to solve most of the limitations of the Linux kernel during that period and the overhead it presented was not considered an issue. However, with the advent of kernel namespaces and <span class="strong"><strong>control groups</strong></span> (<span class="strong"><strong>cgroups</strong></span>) the notion of a <span class="emphasis"><em>light-weight virtualization</em></span> became possible through the use of containers.</p><p>In this chapter, I'll cover the following topics:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Evolution of the OS kernel and its early limitations</li><li class="listitem" style="list-style-type: disc">Differences between containers and platform virtualization</li><li class="listitem" style="list-style-type: disc">Concepts and terminology related to namespaces and cgroups</li><li class="listitem" style="list-style-type: disc">An example use of process resource isolation and management with network namespaces and cgroups</li></ul></div><div class="section" title="The OS kernel and its early limitations"><div class="titlepage"><div><div><h1 class="title"><a id="ch01lvl1sec7"/>The OS kernel and its early limitations</h1></div></div></div><p>The current state of Linux containers is a direct result of the problems that early OS designers were trying to solve – managing memory, I/O, and process scheduling in the most efficient way.</p><p>In the past, only a single process could be scheduled for work, wasting precious CPU cycles if blocked on an I/O operation. The solution to this problem was to develop better CPU schedulers, so more work can be allocated in a <span class="emphasis"><em>fair</em></span> way for maximum CPU utilization. Even though the modern schedulers, such as the <span class="strong"><strong>Completely Fair Scheduler</strong></span> (<span class="strong"><strong>CFS</strong></span>) in Linux do a great job of allocating fair amounts of time to each process, there's still a strong case for being able to give higher or lower priority to a process and its subprocesses. Traditionally, this can be accomplished by the <code class="literal">nice()</code> system call, or real-time scheduling policies, however, there are limitations to the level of granularity or control that can be achieved.</p><p>Similarly, before the advent of virtual memory, multiple processes would allocate memory from a shared pool of physical memory. The virtual memory provided some form of memory isolation per process, in the sense that processes would have their own address space, and extend the available memory by means of a swap, but still there wasn't a good way of limiting how much memory each process and its children can use.</p><p>To further complicate the matter, running different workloads on the same physical server usually resulted in a negative impact on all running services. A memory leak or a kernel panic could cause one application to bring the entire operating system down. For example, a web server that is mostly memory bound and a database service that is I/O heavy running together became problematic. In an effort to avoid such scenarios, system administrators would separate the various applications between a pool of servers, leaving some machines underutilized, especially at certain times during the day, when there was not much work to be done. This is a similar problem as a single running process blocked on I/O operation is a waste of CPU and memory resources.</p><p>The solution to these problems is the use of hypervisor based virtualization, containers, or the combination of both.</p></div></div>
+<div class="section" title="The case for Linux containers"><div class="titlepage"><div><div><h1 class="title"><a id="ch01lvl1sec8"/>The case for Linux containers</h1></div></div></div><p>The hypervisor as part of the operating system is responsible for managing the life cycle of virtual machines, and has been around since the early days of mainframe machines in the late 1960s. Most modern virtualization implementations, such as Xen and KVM, can trace their origins back to that era. The main reason for the wide adoption of these virtualization technologies around 2005 was the need to better control and utilize the ever-growing clusters of compute resources. The inherited security of having an extra layer between the virtual machine and the host OS was a good selling point for the security minded, though as with any other newly adopted technology there were security incidents.</p><p>Nevertheless, the adoption of full virtualization and paravirtulization significantly improved the way servers are utilized and applications provisioned. In fact, virtualization such as KVM and Xen is still widely used today, especially in multitenant clouds and cloud technologies such as OpenStack.</p><p>Hypervisors provide the following benefits, in the context of the problems outlined earlier:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Ability to run different operating systems on the same physical server</li><li class="listitem" style="list-style-type: disc">More granular control over resource allocation</li><li class="listitem" style="list-style-type: disc">Process isolation – a kernel panic on the virtual machine will not effect the host OS</li><li class="listitem" style="list-style-type: disc">Separate network stack and the ability to control traffic per virtual machine</li><li class="listitem" style="list-style-type: disc">Reduce capital and operating cost, by simplification of data center management and better utilization of available server resources</li></ul></div><p>Arguably the main reason against using any sort of virtualization technology today is the inherited overhead of using multiple kernels in the same OS. It would be much better, in terms of complexity, if the host OS can provide this level of isolation, without the need for hardware extensions in the CPU, or the use of emulation software such as QEMU, or even kernel modules such as KVM. Running an entire operating system on a virtual machine, just to achieve a level of confinement for a single web server, is not the most efficient allocation of resources.</p><p>Over the last decade, various improvements to the Linux kernel were made to allow for similar functionality, but with less overhead – most notably the kernel namespaces and cgroups. One of the first notable technologies to leverage those changes was LXC, since kernel 2.6.24 and around the 2008 time frame. Even though LXC is not the oldest container technology, it helped fuel the container revolution we see today.</p><p>The main benefits of using LXC include:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Lesser overheads and complexity than running a hypervisor</li><li class="listitem" style="list-style-type: disc">Smaller footprint per container</li><li class="listitem" style="list-style-type: disc">Start times in the millisecond range</li><li class="listitem" style="list-style-type: disc">Native kernel support</li></ul></div><p>It is worth mentioning that containers are not inherently as secure as having a hypervisor between the virtual machine and the host OS. However, in recent years, great progress has been made to narrow that gap using <span class="strong"><strong>Mandatory Access Control</strong></span> (<span class="strong"><strong>MAC</strong></span>) technologies such as SELinux and AppArmor, kernel capabilities, and cgroups, as demonstrated in later chapters.</p></div>
+<div class="section" title="Linux namespaces &#x2013; the foundation of LXC"><div class="titlepage"><div><div><h1 class="title"><a id="ch01lvl1sec9"/>Linux namespaces – the foundation of LXC</h1></div></div></div><p>Namespaces are the foundation of lightweight process virtualization. They enable a process and its children to have different views of the underlying system. This is achieved by the addition of the <code class="literal">unshare()</code> and <code class="literal">setns()</code> system calls, and the inclusion of six new constant flags passed to the <code class="literal">clone()</code>, <code class="literal">unshare()</code>, and <code class="literal">setns()</code> system calls:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc"><code class="literal">clone()</code>: This creates a new process and attaches it to a new specified namespace</li><li class="listitem" style="list-style-type: disc"><code class="literal">unshare()</code>: This attaches the current process to a new specified namespace</li><li class="listitem" style="list-style-type: disc"><code class="literal">setns()</code>: This attaches a process to an already existing namespace</li></ul></div><p>There are six namespaces currently in use by LXC, with more being developed:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Mount namespaces, specified by the <code class="literal">CLONE_NEWNS</code> flag</li><li class="listitem" style="list-style-type: disc">UTS namespaces, specified by the <code class="literal">CLONE_NEWUTS</code> flag</li><li class="listitem" style="list-style-type: disc">IPC namespaces, specified by the <code class="literal">CLONE_NEWIPC</code> flag</li><li class="listitem" style="list-style-type: disc">PID namespaces, specified by the <code class="literal">CLONE_NEWPID</code> flag</li><li class="listitem" style="list-style-type: disc">User namespaces, specified by the <code class="literal">CLONE_NEWUSER</code> flag</li><li class="listitem" style="list-style-type: disc">Network namespaces, specified by the <code class="literal">CLONE_NEWNET</code> flag</li></ul></div><p>Let's have a look at each in more detail and see some userspace examples, to help us better understand what happens under the hood.</p><div class="section" title="Mount namespaces"><div class="titlepage"><div><div><h2 class="title"><a id="ch01lvl2sec6"/>Mount namespaces</h2></div></div></div><p>Mount namespaces first appeared in kernel 2.4.19 in 2002 and provided a separate view of the filesystem mount points for the process and its children. When mounting or unmounting a filesystem, the change will be noticed by all processes because they all share the same default namespace. When the <code class="literal">CLONE_NEWNS</code> flag is passed to the <code class="literal">clone()</code> system call, the new process gets a copy of the calling process mount tree that it can then change without affecting the parent process. From that point on, all mounts and unmounts in the default namespace will be visible in the new namespace, but changes in the per-process mount namespaces will not be noticed outside of it.</p><p>The <code class="literal">clone()</code> prototype is as follows:</p><pre class="programlisting">#define _GNU_SOURCE &#13;
+#include &lt;sched.h&gt; &#13;
+<span class="strong"><strong>int clone(int (*fn)(void *), void *child_stack, int flags, void *arg); &#13;</strong></span>
+</pre><p>An example call that creates a child process in a new mount namespace looks like this:</p><pre class="programlisting">child_pid = clone(childFunc, child_stack + STACK_SIZE, CLONE_NEWNS | SIGCHLD, argv[1]); &#13;
+</pre><p>When the child process is created, it executes the <code class="literal">childFunc</code> function, which will perform its work in the new mount namespace.</p><p>The <code class="literal">util-linux</code> package provides userspace tools that implement the <code class="literal">unshare()</code> call, which effectively unshares the indicated namespaces from the parent process.</p><p>To illustrate this:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">First open a terminal and create a directory in <code class="literal">/tmp</code> as follows:<pre class="programlisting">
+<span class="strong"><strong>root@server:~# mkdir /tmp/mount_ns</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre></li><li class="listitem">Next, move the current <code class="literal">bash</code> process to its own mount namespace by passing the mount flag to <code class="literal">unshare</code>:<pre class="programlisting">
+<span class="strong"><strong>root@server:~# unshare -m /bin/bash</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre></li><li class="listitem">The <code class="literal">bash</code> process is now in a separate namespace. Let's check the associated inode number of the namespace:<pre class="programlisting">
+<span class="strong"><strong>root@server:~# readlink /proc/$$/ns/mnt</strong></span>
+<span class="strong"><strong>mnt:[4026532211]</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre></li><li class="listitem">Next, create a temporary mount point:<pre class="programlisting">
+<span class="strong"><strong>root@server:~# mount -n -t tmpfs tmpfs /tmp/mount_ns</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre></li><li class="listitem">Also, make sure you can see the mount point from the newly created namespace:<pre class="programlisting">
+<span class="strong"><strong>root@server:~# df -h | grep mount_ns</strong></span>
+<span class="strong"><strong>tmpfs           3.9G     0  3.9G   0% /tmp/mount_ns&#13;</strong></span>
+<span class="strong"><strong>root@server:~# cat /proc/mounts | grep mount_ns</strong></span>
+<span class="strong"><strong>tmpfs /tmp/mount_ns tmpfs rw,relatime 0 0</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>As expected, the mount point is visible because it is part of the namespace we created and the current <code class="literal">bash</code> process is running from.</p></li><li class="listitem">Next, start a new terminal session and display the namespace inode ID from it:<pre class="programlisting">
+<span class="strong"><strong>root@server:~# readlink /proc/$$/ns/mnt</strong></span>
+<span class="strong"><strong>mnt:[4026531840]</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>Notice how it's different from the mount namespace on the other terminal.</p></li><li class="listitem">Finally, check if the mount point is visible in the new terminal:<pre class="programlisting">
+<span class="strong"><strong>root@server:~# cat /proc/mounts | grep mount_ns</strong></span>
+<span class="strong"><strong>root@server:~# df -h | grep mount_ns</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre></li></ol></div><p>Not surprisingly, the mount point is not visible from the default namespace.</p><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="note3"/>Note</h3><p>In the context of LXC, mount namespaces are useful because they provide a way for a different filesystem layout to exist inside the container. It's worth mentioning that before the mount namespaces, a similar process confinement could be achieved with the <code class="literal">chroot()</code> system call, however <code class="literal">chroot</code> does not provide the same per-process isolation as mount namespaces do.</p></div></div></div><div class="section" title="UTS namespaces"><div class="titlepage"><div><div><h2 class="title"><a id="ch01lvl2sec7"/>UTS namespaces</h2></div></div></div><p><span class="strong"><strong>Unix Timesharing </strong></span>(<span class="strong"><strong>UTS</strong></span>) namespaces provide isolation for the hostname and domain name, so that each LXC container can maintain its own identifier as returned by the <code class="literal">hostname -f</code> command. This is needed for most applications that rely on a properly set hostname.</p><p>To create a <code class="literal">bash</code> session in a new UTS namespace, we can use the <code class="literal">unshare</code> utility again, which uses the <code class="literal">unshare()</code> system call to create the namespace and the <code class="literal">execve()</code> system call to execute <code class="literal">bash</code> in it:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# hostname</strong></span>
+<span class="strong"><strong>server</strong></span>
+<span class="strong"><strong>root@server:~# unshare -u /bin/bash</strong></span>
+<span class="strong"><strong>root@server:~# hostname uts-namespace</strong></span>
+<span class="strong"><strong>root@server:~# hostname</strong></span>
+<span class="strong"><strong>uts-namespace</strong></span>
+<span class="strong"><strong>root@server:~# cat /proc/sys/kernel/hostname</strong></span>
+<span class="strong"><strong>uts-namespace</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>As the preceding output shows, the hostname inside the namespace is now <code class="literal">uts-namespace</code>.</p><p>Next, from a different terminal, check the hostname again to make sure it has not changed:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# hostname</strong></span>
+<span class="strong"><strong>server</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>As expected, the hostname only changed in the new UTS namespace.</p><p>To see the actual system calls that the <code class="literal">unshare</code> command uses, we can run the <code class="literal">strace</code> utility:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# strace -s 2000 -f unshare -u /bin/bash</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>unshare(CLONE_NEWUTS)                   = 0</strong></span>
+<span class="strong"><strong>getgid()                                = 0</strong></span>
+<span class="strong"><strong>setgid(0)                               = 0</strong></span>
+<span class="strong"><strong>getuid()                                = 0</strong></span>
+<span class="strong"><strong>setuid(0)                               = 0</strong></span>
+<span class="strong"><strong>execve("/bin/bash", ["/bin/bash"], [/* 15 vars */]) = 0</strong></span>
+<span class="strong"><strong>...</strong></span>
+</pre><p>From the output we can see that the <code class="literal">unshare</code> command is indeed using the <code class="literal">unshare()</code> and <code class="literal">execve()</code> system calls and the <code class="literal">CLONE_NEWUTS</code> flag to specify new UTS namespace.</p></div><div class="section" title="IPC namespaces"><div class="titlepage"><div><div><h2 class="title"><a id="ch01lvl2sec8"/>IPC namespaces</h2></div></div></div><p>The <span class="strong"><strong>Interprocess Communication</strong></span> (<span class="strong"><strong>IPC</strong></span>) namespaces provide isolation for a set of IPC and synchronization facilities. These facilities provide a way of exchanging data and synchronizing the actions between threads and processes. They provide primitives such as semaphores, file locks, and mutexes among others, that are needed to have true process separation in a container.</p></div><div class="section" title="PID namespaces"><div class="titlepage"><div><div><h2 class="title"><a id="ch01lvl2sec9"/>PID namespaces</h2></div></div></div><p>The <span class="strong"><strong>Process ID</strong></span> (<span class="strong"><strong>PID</strong></span>) namespaces provide the ability for a process to have an ID that already exists in the default namespace, for example an ID of <code class="literal">1</code>. This allows for an init system to run in a container with various other processes, without causing a collision with the rest of the PIDs on the same OS.</p><p>To demonstrate this concept, open up <code class="literal">pid_namespace.c</code>:</p><pre class="programlisting">#define _GNU_SOURCE &#13;
+#include &lt;stdlib.h&gt; &#13;
+#include &lt;stdio.h&gt; &#13;
+#include &lt;signal.h&gt; &#13;
+#include &lt;sched.h&gt; &#13;
+ &#13;
+static int childFunc(void *arg) &#13;
+{ &#13;
+    printf("Process ID in child  = %ld\n", (long) getpid()); &#13;
+} &#13;
+</pre><p>First, we include the headers and define the <code class="literal">childFunc</code> function that the <code class="literal">clone()</code> system call will use. The function prints out the child PID using the <code class="literal">getpid()</code> system call:</p><pre class="programlisting">static char child_stack[1024*1024]; &#13;
+ &#13;
+int main(int argc, char *argv[]) &#13;
+{ &#13;
+    pid_t child_pid; &#13;
+ &#13;
+    child_pid = clone(childFunc, child_stack + &#13;
+    (1024*1024),      &#13;
+    CLONE_NEWPID | SIGCHLD, NULL); &#13;
+ &#13;
+    printf("PID of cloned process: %ld\n", (long) child_pid); &#13;
+    waitpid(child_pid, NULL, 0); &#13;
+    exit(EXIT_SUCCESS); &#13;
+} &#13;
+</pre><p>In the <code class="literal">main()</code> function, we specify the stack size and call <code class="literal">clone()</code>, passing the child function <code class="literal">childFunc</code>, the stack pointer, the <code class="literal">CLONE_NEWPID</code> flag, and the <code class="literal">SIGCHLD</code> signal. The <code class="literal">CLONE_NEWPID</code> flag instructs <code class="literal">clone()</code> to create a new PID namespace and the <code class="literal">SIGCHLD</code> flag notifies the parent process when one of its children terminates. The parent process will block on <code class="literal">waitpid()</code> if the child process has not terminated.</p><p>Compile and then run the program with the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# gcc pid_namespace.c -o pid_namespace</strong></span>
+<span class="strong"><strong>root@server:~# ./pid_namespace</strong></span>
+<span class="strong"><strong>PID of cloned process: 17705</strong></span>
+<span class="strong"><strong>Process ID in child  = 1</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>From the output, we can see that the child process has a PID of <code class="literal">1</code> inside its namespace and <code class="literal">17705</code> otherwise.</p><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="note4"/>Note</h3><p>Note that error handling has been omitted from the code examples for brevity.</p></div></div></div><div class="section" title="User namespaces"><div class="titlepage"><div><div><h2 class="title"><a id="ch01lvl2sec10"/>User namespaces</h2></div></div></div><p>The user namespaces allow a process inside a namespace to have a different user and group ID than that in the default namespace. In the context of LXC, this allows for a process to run as <code class="literal">root</code> inside the container, while having a non-privileged ID outside. This adds a thin layer of security, because braking out for the container will result in a non-privileged user. This is possible because of kernel 3.8, which introduced the ability for non-privileged processes to create user namespaces.</p><p>To create a new user namespace as a non-privileged user and have <code class="literal">root</code> inside, we can use the <code class="literal">unshare</code> utility. Let's install the latest version from source:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cd /usr/src/</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src# wget https://www.kernel.org/pub/linux/utils/util-linux/v2.28/util-linux-2.28.tar.gz</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src# tar zxfv util-linux-2.28.tar.gz</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src# cd util-linux-2.28/</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/util-linux-2.28# ./configure</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/util-linux-2.28# make &amp;&amp; make install</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/util-linux-2.28# unshare --map-root-user --user sh -c whoami</strong></span>
+<span class="strong"><strong>root</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/util-linux-2.28#</strong></span>
+</pre><p>We can also use the <code class="literal">clone()</code> system call with the <code class="literal">CLONE_NEWUSER</code> flag to create a process in a user namespace, as demonstrated by the following program:</p><pre class="programlisting">#define _GNU_SOURCE &#13;
+#include &lt;stdlib.h&gt; &#13;
+#include &lt;stdio.h&gt; &#13;
+#include &lt;signal.h&gt; &#13;
+#include &lt;sched.h&gt; &#13;
+ &#13;
+static int childFunc(void *arg) &#13;
+{ &#13;
+    printf("UID inside the namespace is %ld\n", (long) &#13;
+    geteuid()); &#13;
+    printf("GID inside the namespace is %ld\n", (long) &#13;
+    getegid()); &#13;
+} &#13;
+ &#13;
+static char child_stack[1024*1024]; &#13;
+ &#13;
+int main(int argc, char *argv[]) &#13;
+{ &#13;
+    pid_t child_pid; &#13;
+ &#13;
+    child_pid = clone(childFunc, child_stack +  &#13;
+    (1024*1024),        &#13;
+    CLONE_NEWUSER | SIGCHLD, NULL); &#13;
+ &#13;
+    printf("UID outside the namespace is %ld\n", (long)       &#13;
+    geteuid()); &#13;
+    printf("GID outside the namespace is %ld\n", (long)      &#13;
+    getegid()); &#13;
+    waitpid(child_pid, NULL, 0); &#13;
+    exit(EXIT_SUCCESS); &#13;
+} &#13;
+</pre><p>After compilation and execution, the output looks similar to this when run as <code class="literal">root</code> - UID of <code class="literal">0</code>:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# gcc user_namespace.c -o user_namespace</strong></span>
+<span class="strong"><strong>root@server:~# ./user_namespace</strong></span>
+<span class="strong"><strong>UID outside the namespace is 0</strong></span>
+<span class="strong"><strong>GID outside the namespace is 0</strong></span>
+<span class="strong"><strong>UID inside the namespace is 65534</strong></span>
+<span class="strong"><strong>GID inside the namespace is 65534</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre></div><div class="section" title="Network namespaces"><div class="titlepage"><div><div><h2 class="title"><a id="ch01lvl2sec11"/>Network namespaces</h2></div></div></div><p>Network namespaces provide isolation of the networking resources, such as network devices, addresses, routes, and firewall rules. This effectively creates a logical copy of the network stack, allowing multiple processes to listen on the same port from multiple namespaces. This is the foundation of networking in LXC and there are quite a lot of other use cases where this can come in handy.</p><p>The <code class="literal">iproute2</code> package provides very useful userspace tools that we can use to experiment with the network namespaces, and is installed by default on almost all Linux systems.</p><p>There's always the default network namespace, referred to as the root namespace, where all network interfaces are initially assigned. To list the network interfaces that belong to the default namespace run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ip link</strong></span>
+<span class="strong"><strong>1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default</strong></span>
+<span class="strong"><strong>    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</strong></span>
+<span class="strong"><strong>2: eth0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 9001 qdisc pfifo_fast state UP mode DEFAULT group default qlen 1000</strong></span>
+<span class="strong"><strong>    link/ether 0e:d5:0e:b0:a3:47 brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>In this case, there are two interfaces – <code class="literal">lo</code> and <code class="literal">eth0</code>.</p><p>To list their configuration, we can run the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ip a s</strong></span>
+<span class="strong"><strong>1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN group default</strong></span>
+<span class="strong"><strong>    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</strong></span>
+<span class="strong"><strong>inet 127.0.0.1/8 scope host lo</strong></span>
+<span class="strong"><strong>valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>inet6 ::1/128 scope host</strong></span>
+<span class="strong"><strong>    valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>2: eth0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 9001 qdisc pfifo_fast state UP group default qlen 1000</strong></span>
+<span class="strong"><strong>    link/ether 0e:d5:0e:b0:a3:47 brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>inet 10.1.32.40/24 brd 10.1.32.255 scope global eth0</strong></span>
+<span class="strong"><strong>valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>inet6 fe80::cd5:eff:feb0:a347/64 scope link</strong></span>
+<span class="strong"><strong>    valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>Also, to list the routes from the root network namespace, execute the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ip r s</strong></span>
+<span class="strong"><strong>default via 10.1.32.1 dev eth0</strong></span>
+<span class="strong"><strong>10.1.32.0/24 dev eth0  proto kernel  scope link  src 10.1.32.40</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>Let's create two new network namespaces called <code class="literal">ns1</code> and <code class="literal">ns2</code> and list them:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ip netns add ns1</strong></span>
+<span class="strong"><strong>root@server:~# ip netns add ns2</strong></span>
+<span class="strong"><strong>root@server:~# ip netns</strong></span>
+<span class="strong"><strong>ns2</strong></span>
+<span class="strong"><strong>ns1</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>Now that we have the new network namespaces, we can execute commands inside them:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ip netns exec ns1 ip link&#13;
+1: lo: &lt;LOOPBACK&gt; mtu 65536 qdisc noop state DOWN mode DEFAULT group default&#13;
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00&#13;
+root@server:~#</strong></span>
+</pre><p>The preceding output shows that in the <code class="literal">ns1</code> namespace, there's only one network interface, the loopback - <code class="literal">lo</code> interface, and it's in a <code class="literal">DOWN</code> state.</p><p>We can also start a new <code class="literal">bash</code> session inside the namespace and list the interfaces in a similar way:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ip netns exec ns1 bash</strong></span>
+<span class="strong"><strong>root@server:~# ip link</strong></span>
+<span class="strong"><strong>1: lo: &lt;LOOPBACK&gt; mtu 65536 qdisc noop state DOWN mode DEFAULT group default</strong></span>
+<span class="strong"><strong> link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</strong></span>
+<span class="strong"><strong>root@server:~# exit</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>This is more convenient for running multiple commands than specifying each, one at a time. The two network namespaces are not of much use if not connected to anything, so let's connect them to each other. To do this we'll use a software bridge called Open vSwitch.</p><p>Open vSwitch works just as a regular network bridge and then it forwards frames between virtual ports that we define. Virtual machines such as KVM, Xen, and LXC or Docker containers can then be connected to it.</p><p>Most Debian-based distributions such as Ubuntu provide a package, so let's install that:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# apt-get install -y openvswitch-switch</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>This installs and starts the Open vSwitch daemon. Time to create the bridge; we'll name it <code class="literal">OVS-1</code>:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ovs-vsctl add-br OVS-1</strong></span>
+<span class="strong"><strong>root@server:~# ovs-vsctl show</strong></span>
+<span class="strong"><strong>0ea38b4f-8943-4d5b-8d80-62ccb73ec9ec</strong></span>
+<span class="strong"><strong>Bridge "OVS-1"</strong></span>
+<span class="strong"><strong>    Port "OVS-1"</strong></span>
+<span class="strong"><strong>        Interface "OVS-1"</strong></span>
+<span class="strong"><strong>            type: internal</strong></span>
+<span class="strong"><strong>ovs_version: "2.0.2"</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="note5"/>Note</h3><p>If you would like to experiment with the latest version of Open vSwitch, you can download the source code from <a class="ulink" href="http://openvswitch.org/download/"><span>http://openvswitch.org/download/</span></a> and compile it.</p></div></div><p>The newly created bridge can now be seen in the root namespace:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ip a s OVS-1</strong></span>
+<span class="strong"><strong>4: OVS-1: &lt;BROADCAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UNKNOWN group default</strong></span>
+<span class="strong"><strong>link/ether 9a:4b:56:97:3b:46 brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>inet6 fe80::f0d9:78ff:fe72:3d77/64 scope link</strong></span>
+<span class="strong"><strong>   valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>In order to connect both network namespaces, let's first create a virtual pair of interfaces for each namespace:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ip link add eth1-ns1 type veth peer name veth-ns1</strong></span>
+<span class="strong"><strong>root@server:~# ip link add eth1-ns2 type veth peer name veth-ns2</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>The preceding two commands create four virtual interfaces <code class="literal">eth1-ns1</code>, <code class="literal">eth1-ns2</code> and <code class="literal">veth-ns1</code>, <code class="literal">veth-ns2</code>. The names are arbitrary.</p><p>To list all interfaces that are part of the root network namespace, run:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ip link</strong></span>
+<span class="strong"><strong>1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default</strong></span>
+<span class="strong"><strong>link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</strong></span>
+<span class="strong"><strong>2: eth0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 9001 qdisc pfifo_fast state UP mode DEFAULT group default qlen 1000</strong></span>
+<span class="strong"><strong>link/ether 0e:d5:0e:b0:a3:47 brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>3: ovs-system: &lt;BROADCAST,MULTICAST&gt; mtu 1500 qdisc noop state DOWN mode DEFAULT group default</strong></span>
+<span class="strong"><strong>link/ether 82:bf:52:d3:de:7e brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>4: OVS-1: &lt;BROADCAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UNKNOWN mode DEFAULT group default</strong></span>
+<span class="strong"><strong>link/ether 9a:4b:56:97:3b:46 brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>5: veth-ns1: &lt;BROADCAST,MULTICAST&gt; mtu 1500 qdisc noop state DOWN mode DEFAULT group default qlen 1000</strong></span>
+<span class="strong"><strong>link/ether 1a:7c:74:48:73:a9 brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>6: eth1-ns1: &lt;BROADCAST,MULTICAST&gt; mtu 1500 qdisc noop state DOWN mode DEFAULT group default qlen 1000</strong></span>
+<span class="strong"><strong>link/ether 8e:99:3f:b8:43:31 brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>7: veth-ns2: &lt;BROADCAST,MULTICAST&gt; mtu 1500 qdisc noop state DOWN mode DEFAULT group default qlen 1000</strong></span>
+<span class="strong"><strong>link/ether 5a:0d:34:87:ea:96 brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>8: eth1-ns2: &lt;BROADCAST,MULTICAST&gt; mtu 1500 qdisc noop state DOWN mode DEFAULT group default qlen 1000</strong></span>
+<span class="strong"><strong>link/ether fa:71:b8:a1:7f:85 brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>Let's assign the <code class="literal">eth1-ns1</code> and <code class="literal">eth1-ns2</code> interfaces to the <code class="literal">ns1</code> and <code class="literal">ns2</code> namespaces:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ip link set eth1-ns1 netns ns1</strong></span>
+<span class="strong"><strong>root@server:~# ip link set eth1-ns2 netns ns2</strong></span>
+</pre><p>Also, confirm they are visible from inside each network namespace:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ip netns exec ns1 ip link</strong></span>
+<span class="strong"><strong>1: lo: &lt;LOOPBACK&gt; mtu 65536 qdisc noop state DOWN mode DEFAULT group default</strong></span>
+<span class="strong"><strong>link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</strong></span>
+<span class="strong"><strong>6: eth1-ns1: &lt;BROADCAST,MULTICAST&gt; mtu 1500 qdisc noop state DOWN mode DEFAULT group default qlen 1000</strong></span>
+<span class="strong"><strong>link/ether 8e:99:3f:b8:43:31 brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+<span class="strong"><strong>root@server:~# ip netns exec ns2 ip link</strong></span>
+<span class="strong"><strong>1: lo: &lt;LOOPBACK&gt; mtu 65536 qdisc noop state DOWN mode DEFAULT group default</strong></span>
+<span class="strong"><strong>link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</strong></span>
+<span class="strong"><strong>8: eth1-ns2: &lt;BROADCAST,MULTICAST&gt; mtu 1500 qdisc noop state DOWN mode DEFAULT group default qlen 1000</strong></span>
+<span class="strong"><strong>link/ether fa:71:b8:a1:7f:85 brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>Notice, how each network namespace now has two interfaces assigned – <code class="literal">loopback</code> and <code class="literal">eth1-ns*</code>.</p><p>If we list the devices from the root namespace, we should see that the interfaces we just moved to <code class="literal">ns1</code> and <code class="literal">ns2</code> namespaces are no longer visible:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ip link</strong></span>
+<span class="strong"><strong>1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default</strong></span>
+<span class="strong"><strong>link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</strong></span>
+<span class="strong"><strong>2: eth0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 9001 qdisc pfifo_fast state UP mode DEFAULT group default qlen 1000</strong></span>
+<span class="strong"><strong>link/ether 0e:d5:0e:b0:a3:47 brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>3: ovs-system: &lt;BROADCAST,MULTICAST&gt; mtu 1500 qdisc noop state DOWN mode DEFAULT group default</strong></span>
+<span class="strong"><strong>link/ether 82:bf:52:d3:de:7e brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>4: OVS-1: &lt;BROADCAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UNKNOWN mode DEFAULT group default</strong></span>
+<span class="strong"><strong>link/ether 9a:4b:56:97:3b:46 brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>5: veth-ns1: &lt;BROADCAST,MULTICAST&gt; mtu 1500 qdisc noop state DOWN mode DEFAULT group default qlen 1000</strong></span>
+<span class="strong"><strong>link/ether 1a:7c:74:48:73:a9 brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>7: veth-ns2: &lt;BROADCAST,MULTICAST&gt; mtu 1500 qdisc noop state DOWN mode DEFAULT group default qlen 1000</strong></span>
+<span class="strong"><strong>link/ether 5a:0d:34:87:ea:96 brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>It's time to connect the other end of the two virtual pipes, the <code class="literal">veth-ns1</code> and <code class="literal">veth-ns2</code> interfaces to the bridge:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ovs-vsctl add-port OVS-1 veth-ns1</strong></span>
+<span class="strong"><strong>root@server:~# ovs-vsctl add-port OVS-1 veth-ns2</strong></span>
+<span class="strong"><strong>root@server:~# ovs-vsctl show</strong></span>
+<span class="strong"><strong>0ea38b4f-8943-4d5b-8d80-62ccb73ec9ec</strong></span>
+<span class="strong"><strong>Bridge "OVS-1"</strong></span>
+<span class="strong"><strong>    Port "OVS-1"</strong></span>
+<span class="strong"><strong>        Interface "OVS-1"</strong></span>
+<span class="strong"><strong>            type: internal</strong></span>
+<span class="strong"><strong>    Port "veth-ns1"</strong></span>
+<span class="strong"><strong>        Interface "veth-ns1"</strong></span>
+<span class="strong"><strong>    Port "veth-ns2"</strong></span>
+<span class="strong"><strong>        Interface "veth-ns2"</strong></span>
+<span class="strong"><strong>ovs_version: "2.0.2"</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>From the preceding output, it's apparent that the bridge now has two ports, <code class="literal">veth-ns1</code> and <code class="literal">veth-ns2</code>.</p><p>The last thing left to do is bring the network interfaces up and assign IP addresses:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ip link set veth-ns1 up</strong></span>
+<span class="strong"><strong>root@server:~# ip link set veth-ns2 up</strong></span>
+<span class="strong"><strong>root@server:~# ip netns exec ns1 ip link set dev lo up</strong></span>
+<span class="strong"><strong>root@server:~# ip netns exec ns1 ip link set dev eth1-ns1 up</strong></span>
+<span class="strong"><strong>root@server:~# ip netns exec ns1 ip address add 192.168.0.1/24 dev eth1-ns1</strong></span>
+<span class="strong"><strong>root@server:~# ip netns exec ns1 ip a s</strong></span>
+<span class="strong"><strong>1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN group default</strong></span>
+<span class="strong"><strong>link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</strong></span>
+<span class="strong"><strong>inet 127.0.0.1/8 scope host lo</strong></span>
+<span class="strong"><strong>   valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>inet6 ::1/128 scope host</strong></span>
+<span class="strong"><strong>   valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>6: eth1-ns1: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc pfifo_fast state UP group default qlen 1000</strong></span>
+<span class="strong"><strong>link/ether 8e:99:3f:b8:43:31 brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>inet 192.168.0.1/24 scope global eth1-ns1</strong></span>
+<span class="strong"><strong>   valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>inet6 fe80::8c99:3fff:feb8:4331/64 scope link</strong></span>
+<span class="strong"><strong>   valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>Similarly for the <code class="literal">ns2</code> namespace:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ip netns exec ns2 ip link set dev lo up</strong></span>
+<span class="strong"><strong>root@server:~# ip netns exec ns2 ip link set dev eth1-ns2 up</strong></span>
+<span class="strong"><strong>root@server:~# ip netns exec ns2 ip address add 192.168.0.2/24 dev eth1-ns2</strong></span>
+<span class="strong"><strong>root@server:~# ip netns exec ns2 ip a s</strong></span>
+<span class="strong"><strong>1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN group default</strong></span>
+<span class="strong"><strong>link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</strong></span>
+<span class="strong"><strong>inet 127.0.0.1/8 scope host lo</strong></span>
+<span class="strong"><strong>   valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>inet6 ::1/128 scope host</strong></span>
+<span class="strong"><strong>   valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>8: eth1-ns2: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc pfifo_fast state UP group default qlen 1000</strong></span>
+<span class="strong"><strong>link/ether fa:71:b8:a1:7f:85 brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>inet 192.168.0.2/24 scope global eth1-ns2</strong></span>
+<span class="strong"><strong>   valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>inet6 fe80::f871:b8ff:fea1:7f85/64 scope link</strong></span>
+<span class="strong"><strong>   valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><div class="mediaobject"><img alt="Network namespaces" src="graphics/image_01_001.jpg"/></div><p>With this, we established a connection between both <code class="literal">ns1</code> and <code class="literal">ns2</code> network namespaces through the Open vSwitch bridge. To confirm, let's use <code class="literal">ping</code>:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ip netns exec ns1 ping -c 3 192.168.0.2</strong></span>
+<span class="strong"><strong>PING 192.168.0.2 (192.168.0.2) 56(84) bytes of data.</strong></span>
+<span class="strong"><strong>64 bytes from 192.168.0.2: icmp_seq=1 ttl=64 time=0.414 ms</strong></span>
+<span class="strong"><strong>64 bytes from 192.168.0.2: icmp_seq=2 ttl=64 time=0.027 ms</strong></span>
+<span class="strong"><strong>64 bytes from 192.168.0.2: icmp_seq=3 ttl=64 time=0.030 ms</strong></span>
+<span class="strong"><strong>--- 192.168.0.2 ping statistics ---</strong></span>
+<span class="strong"><strong>3 packets transmitted, 3 received, 0% packet loss, time 1998ms</strong></span>
+<span class="strong"><strong>rtt min/avg/max/mdev = 0.027/0.157/0.414/0.181 ms</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+<span class="strong"><strong>root@server:~# ip netns exec ns2 ping -c 3 192.168.0.1</strong></span>
+<span class="strong"><strong>PING 192.168.0.1 (192.168.0.1) 56(84) bytes of data.</strong></span>
+<span class="strong"><strong>64 bytes from 192.168.0.1: icmp_seq=1 ttl=64 time=0.150 ms</strong></span>
+<span class="strong"><strong>64 bytes from 192.168.0.1: icmp_seq=2 ttl=64 time=0.025 ms</strong></span>
+<span class="strong"><strong>64 bytes from 192.168.0.1: icmp_seq=3 ttl=64 time=0.027 ms</strong></span>
+<span class="strong"><strong>--- 192.168.0.1 ping statistics ---</strong></span>
+<span class="strong"><strong>3 packets transmitted, 3 received, 0% packet loss, time 1999ms</strong></span>
+<span class="strong"><strong>rtt min/avg/max/mdev = 0.025/0.067/0.150/0.058 ms</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>Open vSwitch allows for assigning VLAN tags to network interfaces, resulting in traffic isolation between namespaces. This can be helpful in a scenario where you have multiple namespaces and you want to have connectivity between some of them.</p><p>The following example demonstrates how to tag the virtual interfaces on the <code class="literal">ns1</code> and <code class="literal">ns2</code> namespaces, so that the traffic will not be visible from each of the two network namespaces:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ovs-vsctl set port veth-ns1 tag=100</strong></span>
+<span class="strong"><strong>root@server:~# ovs-vsctl set port veth-ns2 tag=200</strong></span>
+<span class="strong"><strong>root@server:~# ovs-vsctl show</strong></span>
+<span class="strong"><strong>0ea38b4f-8943-4d5b-8d80-62ccb73ec9ec</strong></span>
+<span class="strong"><strong>Bridge "OVS-1"</strong></span>
+<span class="strong"><strong>    Port "OVS-1"</strong></span>
+<span class="strong"><strong>        Interface "OVS-1"</strong></span>
+<span class="strong"><strong>            type: internal</strong></span>
+<span class="strong"><strong>    Port "veth-ns1"</strong></span>
+<span class="strong"><strong>        tag: 100</strong></span>
+<span class="strong"><strong>        Interface "veth-ns1"</strong></span>
+<span class="strong"><strong>    Port "veth-ns2"</strong></span>
+<span class="strong"><strong>        tag: 200</strong></span>
+<span class="strong"><strong>        Interface "veth-ns2"</strong></span>
+<span class="strong"><strong>ovs_version: "2.0.2"</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>Both the namespaces should now be isolated in their own VLANs and <code class="literal">ping</code> should fail:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ip netns exec ns1 ping -c 3 192.168.0.2</strong></span>
+<span class="strong"><strong>PING 192.168.0.2 (192.168.0.2) 56(84) bytes of data.</strong></span>
+<span class="strong"><strong>--- 192.168.0.2 ping statistics ---</strong></span>
+<span class="strong"><strong>3 packets transmitted, 0 received, 100% packet loss, time 1999ms</strong></span>
+<span class="strong"><strong>root@server:~# ip netns exec ns2 ping -c 3 192.168.0.1</strong></span>
+<span class="strong"><strong>PING 192.168.0.1 (192.168.0.1) 56(84) bytes of data.</strong></span>
+<span class="strong"><strong>--- 192.168.0.1 ping statistics ---</strong></span>
+<span class="strong"><strong>3 packets transmitted, 0 received, 100% packet loss, time 1999ms</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>We can also use the <code class="literal">unshare</code> utility that we saw in the mount and UTC namespaces examples to create a new network namespace:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# unshare --net /bin/bash</strong></span>
+<span class="strong"><strong>root@server:~# ip a s</strong></span>
+<span class="strong"><strong>1: lo: &lt;LOOPBACK&gt; mtu 65536 qdisc noop state DOWN group default</strong></span>
+<span class="strong"><strong>link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</strong></span>
+<span class="strong"><strong>root@server:~# exit</strong></span>
+<span class="strong"><strong>root@server</strong></span>
+</pre></div><div class="section" title="Resource management with cgroups"><div class="titlepage"><div><div><h2 class="title"><a id="ch01lvl2sec12"/>Resource management with  cgroups</h2></div></div></div><p>Cgroups are kernel features that allows fine-grained control over resource allocation for a single process, or a group of processes, called <span class="strong"><strong>tasks</strong></span>. In the context of LXC this is quite important, because it makes it possible to assign limits to how much memory, CPU time, or I/O, any given container can use.</p><p>The cgroups we are most interested in are described in the following table:</p><div class="informaltable"><table border="1"><colgroup><col/><col/><col/></colgroup><tbody><tr><td>
+<p><span class="strong"><strong>Subsystem</strong></span></p>
+</td><td>
+<p><span class="strong"><strong>Description</strong></span></p>
+</td><td>
+<p><span class="strong"><strong>Defined in</strong></span></p>
+</td></tr><tr><td>
+<p><code class="literal">cpu</code></p>
+</td><td>
+<p>Allocates CPU time for tasks</p>
+</td><td>
+<p><code class="literal">kernel/sched/core.c</code></p>
+</td></tr><tr><td>
+<p><code class="literal">cpuacct</code></p>
+</td><td>
+<p>Accounts for CPU usage</p>
+</td><td>
+<p><code class="literal">kernel/sched/core.c</code></p>
+</td></tr><tr><td>
+<p><code class="literal">cpuset</code></p>
+</td><td>
+<p>Assigns CPU cores to tasks</p>
+</td><td>
+<p><code class="literal">kernel/cpuset.c</code></p>
+</td></tr><tr><td>
+<p><code class="literal">memory</code></p>
+</td><td>
+<p>Allocates memory for tasks</p>
+</td><td>
+<p><code class="literal">mm/memcontrol.c</code></p>
+</td></tr><tr><td>
+<p><code class="literal">blkio</code></p>
+</td><td>
+<p>Limits the I/O access to devices</p>
+</td><td>
+<p><code class="literal">block/blk-cgroup.c</code></p>
+</td></tr><tr><td>
+<p><code class="literal">devices</code></p>
+</td><td>
+<p>Allows/denies access to devices</p>
+</td><td>
+<p><code class="literal">security/device_cgroup.c</code></p>
+</td></tr><tr><td>
+<p><code class="literal">freezer</code></p>
+</td><td>
+<p>Suspends/resumes tasks</p>
+</td><td>
+<p><code class="literal">kernel/cgroup_freezer.c</code></p>
+</td></tr><tr><td>
+<p><code class="literal">net_cls</code></p>
+</td><td>
+<p>Tags network packets</p>
+</td><td>
+<p><code class="literal">net/sched/cls_cgroup.c</code></p>
+</td></tr><tr><td>
+<p><code class="literal">net_prio</code></p>
+</td><td>
+<p>Prioritizes network traffic</p>
+</td><td>
+<p><code class="literal">net/core/netprio_cgroup.c</code></p>
+</td></tr><tr><td>
+<p><code class="literal">hugetlb</code></p>
+</td><td>
+<p>Limits the HugeTLB</p>
+</td><td>
+<p><code class="literal">mm/hugetlb_cgroup.c</code></p>
+</td></tr></tbody></table></div><p>Cgroups are organized in hierarchies, represented as directories in a <span class="strong"><strong>Virtual File System</strong></span> (<span class="strong"><strong>VFS</strong></span>). Similar to process hierarchies, where every process is a descendent of the <code class="literal">init</code> or <code class="literal">systemd</code> process, cgroups inherit some of the properties of their parents. Multiple cgroups hierarchies can exist on the system, each one representing a single or group of resources. It is possible to have hierarchies that combine two or more subsystems, for example, memory and I/O, and tasks assigned to a group will have limits applied on those resources.</p><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="note6"/>Note</h3><p>If you are interested in how the different subsystems are implemented in the kernel, install the kernel source and have a look at the C files, shown in the third column of the table.</p></div></div><p>The following diagram helps visualize a single hierarchy that has two subsystems—CPU and I/O—attached to it:</p><div class="mediaobject"><img alt="Resource management with cgroups" src="graphics/image_01_002.jpg"/></div><p>Cgroups can be used in two ways:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">By manually manipulating files and directories on a mounted VFS</li><li class="listitem" style="list-style-type: disc">Using userspace tools provided by various packages such as <code class="literal">cgroup-bin</code> on Debian/Ubuntu and <code class="literal">libcgroup</code> on RHEL/CentOS</li></ul></div><p>Let's have a look at few practical examples on how to use cgroups to limit resources. This will help us get a better understanding of how containers work.</p><div class="section" title="Limiting I/O throughput"><div class="titlepage"><div><div><h3 class="title"><a id="ch01lvl3sec0"/>Limiting I/O throughput</h3></div></div></div><p>Let's assume we have two applications running on a server that are heavily I/O bound: <code class="literal">app1</code> and <code class="literal">app2</code>. We would like to give more bandwidth to <code class="literal">app1</code> during the day and to <code class="literal">app2</code> during the night. This type of I/O throughput prioritization can be accomplished using the <code class="literal">blkio</code> subsystem.</p><p>First, let's attach the <code class="literal">blkio</code> subsystem by mounting the <code class="literal">cgroup</code> VFS:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# mkdir -p /cgroup/blkio</strong></span>
+<span class="strong"><strong>root@server:~# mount -t cgroup -o blkio blkio /cgroup/blkio</strong></span>
+<span class="strong"><strong>root@server:~# cat /proc/mounts | grep cgroup</strong></span>
+<span class="strong"><strong>blkio /cgroup/blkio cgroup rw, relatime, blkio, crelease_agent=/run/cgmanager/agents/cgm-release-agent.blkio 0 0</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>Next, create two priority groups, which will be part of the same <code class="literal">blkio</code> hierarchy:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# mkdir /cgroup/blkio/high_io</strong></span>
+<span class="strong"><strong>root@server:~# mkdir /cgroup/blkio/low_io</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>We need to acquire the PIDs of the <code class="literal">app1</code> and <code class="literal">app2</code> processes and assign them to the <code class="literal">high_io</code> and <code class="literal">low_io</code> groups:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# pidof app1 | while read PID; do echo $PID &gt;&gt; /cgroup/blkio/high_io/tasks; done </strong></span>
+<span class="strong"><strong>root@server:~# pidof app2 | while read PID; do echo $PID &gt;&gt; /cgroup/blkio/low_io/tasks; done</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><div class="mediaobject"><img alt="Limiting I/O throughput" src="graphics/image_01_003.jpg"/><div class="caption"><p>The blkio hierarchy we've created</p></div></div><p>The <code class="literal">tasks</code> file is where we define what processes/tasks the limit should be applied on.</p><p>Finally, let's set a ratio of 10:1 for the <code class="literal">high_io</code> and <code class="literal">low_io</code> cgroups. Tasks in those cgroups will immediately use only the resources made available to them:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# echo 1000 &gt; /cgroup/blkio/high_io/blkio.weight</strong></span>
+<span class="strong"><strong>root@server:~# echo 100 &gt; /cgroup/blkio/low_io/blkio.weight</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>The <code class="literal">blkio.weight</code> file defines the weight of I/O access available to a process or group of processes, with values ranging from 100 to 1,000. In this example, the values of <code class="literal">1000</code> and <code class="literal">100</code> create a ratio of 10:1.</p><p>With this, the low priority application, <code class="literal">app2</code> will use only about 10 percent of the I/O operations available, whereas the high priority application, <code class="literal">app1</code>, will use about 90 percent.</p><p>If you list the contents of the <code class="literal">high_io</code> directory on Ubuntu you will see the following files:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ls -la /cgroup/blkio/high_io/</strong></span>
+<span class="strong"><strong>drwxr-xr-x 2 root root 0 Aug 24 16:14 .</strong></span>
+<span class="strong"><strong>drwxr-xr-x 4 root root 0 Aug 19 21:14 ..</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 16:14 blkio.io_merged</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 16:14 blkio.io_merged_recursive</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 16:14 blkio.io_queued</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 16:14 blkio.io_queued_recursive</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 16:14 blkio.io_service_bytes</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 16:14 blkio.io_service_bytes_recursive</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 16:14 blkio.io_serviced</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 16:14 blkio.io_serviced_recursive</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 16:14 blkio.io_service_time</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 16:14 blkio.io_service_time_recursive</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 16:14 blkio.io_wait_time</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 16:14 blkio.io_wait_time_recursive</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 16:14 blkio.leaf_weight</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 16:14 blkio.leaf_weight_device</strong></span>
+<span class="strong"><strong>--w------- 1 root root 0 Aug 24 16:14 blkio.reset_stats</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 16:14 blkio.sectors</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 16:14 blkio.sectors_recursive</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 16:14 blkio.throttle.io_service_bytes</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 16:14 blkio.throttle.io_serviced</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 16:14 blkio.throttle.read_bps_device</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 16:14 blkio.throttle.read_iops_device</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 16:14 blkio.throttle.write_bps_device</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 16:14 blkio.throttle.write_iops_device</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 16:14 blkio.time</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 16:14 blkio.time_recursive</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 16:49 blkio.weight</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 17:01 blkio.weight_device</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 16:14 cgroup.clone_children</strong></span>
+<span class="strong"><strong>--w--w--w- 1 root root 0 Aug 24 16:14 cgroup.event_control</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 16:14 cgroup.procs</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 16:14 notify_on_release</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 16:14 tasks</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>From the preceding output you can see that only some files are writeable. This depends on various OS settings, such as what I/O scheduler is being used.</p><p>We've already seen what the <code class="literal">tasks</code> and <code class="literal">blkio.weight</code> files are used for. The following is a short description of the most commonly used files in the <code class="literal">blkio</code> subsystem:</p><div class="informaltable"><table border="1"><colgroup><col/><col/></colgroup><tbody><tr><td>
+<p><span class="strong"><strong>File</strong></span></p>
+</td><td>
+<p><span class="strong"><strong>Description</strong></span></p>
+</td></tr><tr><td>
+<p><code class="literal">blkio.io_merged</code></p>
+</td><td>
+<p>Total number of reads/writes, sync, or async merged into requests</p>
+</td></tr><tr><td>
+<p><code class="literal">blkio.io_queued</code></p>
+</td><td>
+<p>Total number of read/write, sync, or async requests queued up at any given time</p>
+</td></tr><tr><td>
+<p><code class="literal">blkio.io_service_bytes</code></p>
+</td><td>
+<p>The number of bytes transferred to or from the specified device</p>
+</td></tr><tr><td>
+<p><code class="literal">blkio.io_serviced</code></p>
+</td><td>
+<p>The number of I/O operations issued to the specified device</p>
+</td></tr><tr><td>
+<p><code class="literal">blkio.io_service_time</code></p>
+</td><td>
+<p>Total amount of time between request dispatch and request completion in nanoseconds for the specified device</p>
+</td></tr><tr><td>
+<p><code class="literal">blkio.io_wait_time</code></p>
+</td><td>
+<p>Total amount of time the I/O operations spent waiting in the scheduler queues for the specified device</p>
+</td></tr><tr><td>
+<p><code class="literal">blkio.leaf_weight</code></p>
+</td><td>
+<p>Similar to <code class="literal">blkio.weight</code> and can be applied to the <span class="strong"><strong>Completely Fair Queuing</strong></span> (<span class="strong"><strong>CFQ</strong></span>) I/O scheduler</p>
+</td></tr><tr><td>
+<p><code class="literal">blkio.reset_stats</code></p>
+</td><td>
+<p>Writing an integer to this file will reset all statistics</p>
+</td></tr><tr><td>
+<p><code class="literal">blkio.sectors</code></p>
+</td><td>
+<p>The number of sectors transferred to or from the specified device</p>
+</td></tr><tr><td>
+<p><code class="literal">blkio.throttle.io_service_bytes</code></p>
+</td><td>
+<p>The number of bytes transferred to or from the disk</p>
+</td></tr><tr><td>
+<p><code class="literal">blkio.throttle.io_serviced</code></p>
+</td><td>
+<p>The number of I/O operations issued to the specified disk</p>
+</td></tr><tr><td>
+<p><code class="literal">blkio.time</code></p>
+</td><td>
+<p>The disk time allocated to a device in milliseconds</p>
+</td></tr><tr><td>
+<p><code class="literal">blkio.weight</code></p>
+</td><td>
+<p>Specifies weight for a cgroup hierarchy</p>
+</td></tr><tr><td>
+<p><code class="literal">blkio.weight_device</code></p>
+</td><td>
+<p>Same as <code class="literal">blkio.weight</code>, but specifies a block device to apply the limit on</p>
+</td></tr><tr><td>
+<p><code class="literal">tasks</code></p>
+</td><td>
+<p>Attach tasks to the cgroup</p>
+</td></tr></tbody></table></div><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="tip7"/>Tip</h3><p>One thing to keep in mind is that writing to the files directly to make changes will not persist after the server restarts. Later in this chapter, you will learn how to use the userspace tools to generate persistent configuration files.</p></div></div></div><div class="section" title="Limiting memory usage"><div class="titlepage"><div><div><h3 class="title"><a id="ch01lvl3sec1"/>Limiting memory usage</h3></div></div></div><p>The <code class="literal">memory</code> subsystem controls how much memory is presented to and available for use by processes. This can be particularly useful in multitenant environments where better control over how much memory a user process can utilize is needed, or to limit memory hungry applications. Containerized solutions like LXC can use the <code class="literal">memory</code> subsystem to manage the size of the instances, without needing to restart the entire container.</p><p>The <code class="literal">memory</code> subsystem performs resource accounting, such as tracking the utilization of anonymous pages, file caches, swap caches, and general hierarchical accounting, all of which presents an overhead. Because of this, the <code class="literal">memory</code> cgroup is disabled by default on some Linux distributions. If the following commands below fail you'll need to enable it, by specifying the following GRUB parameter and restarting:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# vim /etc/default/grub</strong></span>
+<span class="strong"><strong>RUB_CMDLINE_LINUX_DEFAULT="cgroup_enable=memory"</strong></span>
+<span class="strong"><strong>root@server:~# grub-update &amp;&amp; reboot</strong></span>
+</pre><p>First, let's mount the <code class="literal">memory</code> cgroup:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# mkdir -p /cgroup/memory</strong></span>
+<span class="strong"><strong>root@server:~# mount -t cgroup -o memory memory /cgroup/memory</strong></span>
+<span class="strong"><strong>root@server:~# cat /proc/mounts | grep memory</strong></span>
+<span class="strong"><strong>memory /cgroup/memory cgroup rw, relatime, memory, release_agent=/run/cgmanager/agents/cgm-release-agent.memory 0 0</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>Then set the <code class="literal">app1</code> memory to 1 GB:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# mkdir /cgroup/memory/app1</strong></span>
+<span class="strong"><strong>root@server:~# echo 1G &gt; /cgroup/memory/app1/memory.limit_in_bytes</strong></span>
+<span class="strong"><strong>root@server:~# cat /cgroup/memory/app1/memory.limit_in_bytes</strong></span>
+<span class="strong"><strong>1073741824</strong></span>
+<span class="strong"><strong>root@server:~# pidof app1 | while read PID; do echo $PID &gt;&gt; /cgroup/memory/app1/tasks; done</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><div class="mediaobject"><img alt="Limiting memory usage" src="graphics/image_01_004.jpg"/><div class="caption"><p>The memory hierarchy for the app1 process</p></div></div><p>Similar to the <code class="literal">blkio</code> subsystem, the <code class="literal">tasks</code> file is used to specify the PID of the processes we are adding to the cgroup hierarchy, and the <code class="literal">memory.limit_in_bytes</code> specifies how much memory is to be made available in bytes.</p><p>The <code class="literal">app1</code> memory hierarchy contains the following files:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ls -la /cgroup/memory/app1/</strong></span>
+<span class="strong"><strong>drwxr-xr-x 2 root root 0 Aug 24 22:05 .</strong></span>
+<span class="strong"><strong>drwxr-xr-x 3 root root 0 Aug 19 21:02 ..</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 22:05 cgroup.clone_children</strong></span>
+<span class="strong"><strong>--w--w--w- 1 root root 0 Aug 24 22:05 cgroup.event_control</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 22:05 cgroup.procs</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 22:05 memory.failcnt</strong></span>
+<span class="strong"><strong>--w------- 1 root root 0 Aug 24 22:05 memory.force_empty</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 22:05 memory.kmem.failcnt</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 22:05 memory.kmem.limit_in_bytes</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 22:05 memory.kmem.max_usage_in_bytes</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 22:05 memory.kmem.slabinfo</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 22:05 memory.kmem.tcp.failcnt</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 22:05 memory.kmem.tcp.limit_in_bytes</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 22:05 memory.kmem.tcp.max_usage_in_bytes</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 22:05 memory.kmem.tcp.usage_in_bytes</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 22:05 memory.kmem.usage_in_bytes</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 22:05 memory.limit_in_bytes</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 22:05 memory.max_usage_in_bytes</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 22:05 memory.move_charge_at_immigrate</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 22:05 memory.numa_stat</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 22:05 memory.oom_control</strong></span>
+<span class="strong"><strong>---------- 1 root root 0 Aug 24 22:05 memory.pressure_level</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 22:05 memory.soft_limit_in_bytes</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 22:05 memory.stat</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 22:05 memory.swappiness</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 24 22:05 memory.usage_in_bytes</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 22:05 memory.use_hierarchy</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 24 22:05 tasks</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>The files and their function in the memory subsystem are described in the following table:</p><div class="informaltable"><table border="1"><colgroup><col/><col/></colgroup><tbody><tr><td>
+<p><span class="strong"><strong>File</strong></span></p>
+</td><td>
+<p><span class="strong"><strong>Description</strong></span></p>
+</td></tr><tr><td>
+<p><code class="literal">memory.failcnt</code></p>
+</td><td>
+<p>Shows the total number of memory limit hits</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.force_empty</code></p>
+</td><td>
+<p>If set to <code class="literal">0</code>, frees memory used by tasks</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.kmem.failcnt</code></p>
+</td><td>
+<p>Shows the total number of kernel memory limit hits</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.kmem.limit_in_bytes</code></p>
+</td><td>
+<p>Sets or shows kernel memory hard limit</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.kmem.max_usage_in_bytes</code></p>
+</td><td>
+<p>Shows maximum kernel memory usage</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.kmem.tcp.failcnt</code></p>
+</td><td>
+<p>Shows the number of TCP buffer memory limit hits</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.kmem.tcp.limit_in_bytes</code></p>
+</td><td>
+<p>Sets or shows hard limit for TCP buffer memory</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.kmem.tcp.max_usage_in_bytes</code></p>
+</td><td>
+<p>Shows maximum TCP buffer memory usage</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.kmem.tcp.usage_in_bytes</code></p>
+</td><td>
+<p>Shows current TCP buffer memory</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.kmem.usage_in_bytes</code></p>
+</td><td>
+<p>Shows current kernel memory</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.limit_in_bytes</code></p>
+</td><td>
+<p>Sets or shows memory usage limit</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.max_usage_in_bytes</code></p>
+</td><td>
+<p>Shows maximum memory usage</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.move_charge_at_immigrate</code></p>
+</td><td>
+<p>Sets or shows controls of moving charges</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.numa_stat</code></p>
+</td><td>
+<p>Shows the number of memory usage per NUMA node</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.oom_control</code></p>
+</td><td>
+<p>Sets or shows the OOM controls</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.pressure_level</code></p>
+</td><td>
+<p>Sets memory pressure notifications</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.soft_limit_in_bytes</code></p>
+</td><td>
+<p>Sets or shows soft limit of memory usage</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.stat</code></p>
+</td><td>
+<p>Shows various statistics</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.swappiness</code></p>
+</td><td>
+<p>Sets or shows swappiness level</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.usage_in_bytes</code></p>
+</td><td>
+<p>Shows current memory usage</p>
+</td></tr><tr><td>
+<p><code class="literal">memory.use_hierarchy</code></p>
+</td><td>
+<p>Sets memory reclamation from child processes</p>
+</td></tr><tr><td>
+<p><code class="literal">tasks</code></p>
+</td><td>
+<p>Attaches tasks to the cgroup</p>
+</td></tr></tbody></table></div><p>Limiting the memory available to a process might trigger the <span class="strong"><strong>Out of Memory</strong></span> (<span class="strong"><strong>OOM</strong></span>) killer, which might kill the running task. If this is not the desired behavior and you prefer the process to be suspended waiting for memory to be freed, the OOM killer can be disabled:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# cat /cgroup/memory/app1/memory.oom_control</strong></span>
+<span class="strong"><strong>oom_kill_disable 0</strong></span>
+<span class="strong"><strong>under_oom 0</strong></span>
+<span class="strong"><strong>root@server:~# echo 1 &gt; /cgroup/memory/app1/memory.oom_control</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>The <code class="literal">memory</code> cgroup presents a wide slew of accounting statistics in the <code class="literal">memory.stat</code> file, which can be of interest:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# head /cgroup/memory/app1/memory.stat</strong></span>
+<span class="strong"><strong>cache 43325     # Number of bytes of page cache memory</strong></span>
+<span class="strong"><strong>rss 55d43       # Number of bytes of anonymous and swap cache memory</strong></span>
+<span class="strong"><strong>rss_huge 0      # Number of anonymous transparent hugepages</strong></span>
+<span class="strong"><strong>mapped_file 2   # Number of bytes of mapped file</strong></span>
+<span class="strong"><strong>writeback 0     # Number of bytes of cache queued for syncing</strong></span>
+<span class="strong"><strong>pgpgin 0        # Number of charging events to the memory cgroup</strong></span>
+<span class="strong"><strong>pgpgout 0       # Number of uncharging events to the memory cgroup</strong></span>
+<span class="strong"><strong>pgfault 0       # Total number of page faults</strong></span>
+<span class="strong"><strong>pgmajfault 0    # Number of major page faults</strong></span>
+<span class="strong"><strong>inactive_anon 0 # Anonymous and swap cache memory on inactive LRU list</strong></span>
+</pre><p>If you need to start a new task in the <code class="literal">app1</code> memory hierarchy you can move the current shell process into the <code class="literal">tasks</code> file, and all other processes started in this shell will be direct descendants and inherit the same cgroup properties:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# echo $$ &gt; /cgroup/memory/app1/tasks</strong></span>
+<span class="strong"><strong>root@server:~# echo "The memory limit is now applied to all processes started from this shell"</strong></span>
+</pre></div><div class="section" title="The cpu and cpuset subsystems"><div class="titlepage"><div><div><h3 class="title"><a id="ch01lvl3sec2"/>The cpu and cpuset subsystems</h3></div></div></div><p>The <code class="literal">cpu</code> subsystem schedules CPU time to cgroup hierarchies and their tasks. It provides finer control over CPU execution time than the default behavior of the CFS.</p><p>The <code class="literal">cpuset</code> subsystem allows for assigning CPU cores to a set of tasks, similar to the <code class="literal">taskset</code> command in Linux.</p><p>The main benefits that the <code class="literal">cpu</code> and <code class="literal">cpuset</code> subsystems provide are better utilization per processor core for highly CPU bound applications. They also allow for distributing load between cores that are otherwise idle at certain times of the day. In the context of multitenant environments, running many LXC containers, <code class="literal">cpu</code> and <code class="literal">cpuset</code> cgroups allow for creating different instance sizes and container flavors, for example exposing only a single core per container, with 40 percent scheduled work time.</p><p>As an example, let's assume we have two processes <code class="literal">app1</code> and <code class="literal">app2</code>, and we would like <code class="literal">app1</code> to use 60 percent of the CPU time and <code class="literal">app2</code> only 40 percent. We start by mounting the <code class="literal">cgroup</code> VFS:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# mkdir -p /cgroup/cpu</strong></span>
+<span class="strong"><strong>root@server:~# mount -t cgroup -o cpu cpu /cgroup/cpu</strong></span>
+<span class="strong"><strong>root@server:~# cat /proc/mounts | grep cpu</strong></span>
+<span class="strong"><strong>cpu /cgroup/cpu cgroup rw, relatime, cpu, release_agent=/run/cgmanager/agents/cgm-release-agent.cpu 0 0</strong></span>
+</pre><p>Then we create two child hierarchies:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# mkdir /cgroup/cpu/limit_60_percent</strong></span>
+<span class="strong"><strong>root@server:~# mkdir /cgroup/cpu/limit_40_percent</strong></span>
+</pre><p>Also assign CPU shares for each, where <code class="literal">app1</code> will get 60 percent and <code class="literal">app2</code> will get 40 percent of the scheduled time:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# echo 600 &gt; /cgroup/cpu/limit_60_percent/cpu.shares</strong></span>
+<span class="strong"><strong>root@server:~# echo 400 &gt; /cgroup/cpu/limit_40_percent/cpu.shares</strong></span>
+</pre><p>Finally, we move the PIDs in the <code class="literal">tasks</code> files:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# pidof app1 | while read PID; do echo $PID &gt;&gt; /cgroup/cpu/limit_60_percent/tasks; done</strong></span>
+<span class="strong"><strong>root@server:~# pidof app2 | while read PID; do echo $PID &gt;&gt; /cgroup/cpu/limit_40_percent/tasks; done</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>The <code class="literal">cpu</code> subsystem contains the following control files:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ls -la /cgroup/cpu/limit_60_percent/</strong></span>
+<span class="strong"><strong>drwxr-xr-x 2 root root 0 Aug 25 15:13 .</strong></span>
+<span class="strong"><strong>drwxr-xr-x 4 root root 0 Aug 19 21:02 ..</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 15:13 cgroup.clone_children</strong></span>
+<span class="strong"><strong>--w--w--w- 1 root root 0 Aug 25 15:13 cgroup.event_control</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 15:13 cgroup.procs</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 15:13 cpu.cfs_period_us</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 15:13 cpu.cfs_quota_us</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 15:14 cpu.shares</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 25 15:13 cpu.stat</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 15:13 notify_on_release</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 15:13 tasks</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>Here's a brief explanation of each:</p><div class="informaltable"><table border="1"><colgroup><col/><col/></colgroup><tbody><tr><td>
+<p><span class="strong"><strong>File</strong></span></p>
+</td><td>
+<p><span class="strong"><strong>Description</strong></span></p>
+</td></tr><tr><td>
+<p><code class="literal">cpu.cfs_period_us</code></p>
+</td><td>
+<p>CPU resource reallocation in microseconds</p>
+</td></tr><tr><td>
+<p><code class="literal">cpu.cfs_quota_us</code></p>
+</td><td>
+<p>Run duration of tasks in microseconds during one <code class="literal">cpu.cfs_perious_us period</code></p>
+</td></tr><tr><td>
+<p><code class="literal">cpu.shares</code></p>
+</td><td>
+<p>Relative share of CPU time available to the tasks</p>
+</td></tr><tr><td>
+<p><code class="literal">cpu.stat</code></p>
+</td><td>
+<p>Shows CPU time statistics</p>
+</td></tr><tr><td>
+<p><code class="literal">tasks</code></p>
+</td><td>
+<p>Attaches tasks to the cgroup</p>
+</td></tr></tbody></table></div><p>The <code class="literal">cpu.stat</code> file is of particular interest:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# cat /cgroup/cpu/limit_60_percent/cpu.stat</strong></span>
+<span class="strong"><strong>nr_periods 0        # number of elapsed period intervals, as specified in</strong></span>
+<span class="strong"><strong>                # cpu.cfs_period_us</strong></span>
+<span class="strong"><strong>nr_throttled 0      # number of times a task was not scheduled to run</strong></span>
+<span class="strong"><strong>                # because of quota limit</strong></span>
+<span class="strong"><strong>throttled_time 0    # total time in nanoseconds for which tasks have been</strong></span>
+<span class="strong"><strong>                # throttled</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>To demonstrate how the <code class="literal">cpuset</code> subsystem works, let's create <code class="literal">cpuset</code> hierarchies named <code class="literal">app1</code>, containing CPUs 0 and 1. The <code class="literal">app2</code> cgroup will contain only CPU 1:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# mkdir /cgroup/cpuset</strong></span>
+<span class="strong"><strong>root@server:~# mount -t cgroup -o cpuset cpuset /cgroup/cpuset</strong></span>
+<span class="strong"><strong>root@server:~# mkdir /cgroup/cpuset/app{1..2}</strong></span>
+<span class="strong"><strong>root@server:~# echo 0-1 &gt; /cgroup/cpuset/app1/cpuset.cpus</strong></span>
+<span class="strong"><strong>root@server:~# echo 1 &gt; /cgroup/cpuset/app2/cpuset.cpus</strong></span>
+<span class="strong"><strong>root@server:~# pidof app1 | while read PID; do echo $PID &gt;&gt; /cgroup/cpuset/app1/tasks limit_60_percent/tasks; done</strong></span>
+<span class="strong"><strong>root@server:~# pidof app2 | while read PID; do echo $PID &gt;&gt; /cgroup/cpuset/app2/tasks limit_40_percent/tasks; done</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>To check if the <code class="literal">app1</code> process is pinned to CPU 0 and 1, we can use:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# taskset -c -p $(pidof app1)</strong></span>
+<span class="strong"><strong>pid 8052's current affinity list: 0,1</strong></span>
+<span class="strong"><strong>root@server:~# taskset -c -p $(pidof app2)</strong></span>
+<span class="strong"><strong>pid 8052's current affinity list: 1</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>The <code class="literal">cpuset app1</code> hierarchy contains the following files:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ls -la /cgroup/cpuset/app1/</strong></span>
+<span class="strong"><strong>drwxr-xr-x 2 root root 0 Aug 25 16:47 .</strong></span>
+<span class="strong"><strong>drwxr-xr-x 5 root root 0 Aug 19 21:02 ..</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 16:47 cgroup.clone_children</strong></span>
+<span class="strong"><strong>--w--w--w- 1 root root 0 Aug 25 16:47 cgroup.event_control</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 16:47 cgroup.procs</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 16:47 cpuset.cpu_exclusive</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 17:57 cpuset.cpus</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 16:47 cpuset.mem_exclusive</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 16:47 cpuset.mem_hardwall</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 16:47 cpuset.memory_migrate</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 25 16:47 cpuset.memory_pressure</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 16:47 cpuset.memory_spread_page</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 16:47 cpuset.memory_spread_slab</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 16:47 cpuset.mems</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 16:47 cpuset.sched_load_balance</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 16:47 cpuset.sched_relax_domain_level</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 16:47 notify_on_release</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 17:13 tasks</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>A brief description of the control files is as follows:</p><div class="informaltable"><table border="1"><colgroup><col/><col/></colgroup><tbody><tr><td>
+<p><span class="strong"><strong>File</strong></span></p>
+</td><td>
+<p><span class="strong"><strong>Description</strong></span></p>
+</td></tr><tr><td>
+<p><code class="literal">cpuset.cpu_exclusive</code></p>
+</td><td>
+<p>Checks if other <code class="literal">cpuset</code> hierarchies share the settings defined in the current group</p>
+</td></tr><tr><td>
+<p><code class="literal">cpuset.cpus</code></p>
+</td><td>
+<p>List of the physical numbers of the CPUs on which processes in that <code class="literal">cpuset</code> are allowed to execute</p>
+</td></tr><tr><td>
+<p><code class="literal">cpuset.mem_exclusive</code></p>
+</td><td>
+<p>Should the <code class="literal">cpuset</code> have exclusive use of its memory nodes</p>
+</td></tr><tr><td>
+<p><code class="literal">cpuset.mem_hardwall</code></p>
+</td><td>
+<p>Checks if each tasks' user allocation be kept separate</p>
+</td></tr><tr><td>
+<p><code class="literal">cpuset.memory_migrate</code></p>
+</td><td>
+<p>Checks if a page in memory should migrate to a new node if the values in <code class="literal">cpuset.mems</code> change</p>
+</td></tr><tr><td>
+<p><code class="literal">cpuset.memory_pressure</code></p>
+</td><td>
+<p>Contains running average of the memory pressure created by the processes</p>
+</td></tr><tr><td>
+<p><code class="literal">cpuset.memory_spread_page</code></p>
+</td><td>
+<p>Checks if filesystem buffers should spread evenly across the memory nodes</p>
+</td></tr><tr><td>
+<p><code class="literal">cpuset.memory_spread_slab</code></p>
+</td><td>
+<p>Checks if kernel slab caches for file I/O operations should spread evenly across the <code class="literal">cpuset</code></p>
+</td></tr><tr><td>
+<p><code class="literal">cpuset.mems</code></p>
+</td><td>
+<p>Specifies the memory nodes that tasks in this cgroup are permitted to access</p>
+</td></tr><tr><td>
+<p><code class="literal">cpuset.sched_load_balance</code></p>
+</td><td>
+<p>Checks if the kernel balance should load across the CPUs in the <code class="literal">cpuset</code> by moving processes from overloaded CPUs to less utilized CPUs</p>
+</td></tr><tr><td>
+<p><code class="literal">cpuset.sched_relax_domain_level</code></p>
+</td><td>
+<p>Contains the width of the range of CPUs across which the kernel should attempt to balance loads</p>
+</td></tr><tr><td>
+<p><code class="literal">notify_on_release</code></p>
+</td><td>
+<p>Checks if the hierarchy should receive special handling after it is released and no process are using it</p>
+</td></tr><tr><td>
+<p><code class="literal">tasks</code></p>
+</td><td>
+<p>Attaches tasks to the cgroup</p>
+</td></tr></tbody></table></div></div><div class="section" title="The cgroup freezer subsystem"><div class="titlepage"><div><div><h3 class="title"><a id="ch01lvl3sec3"/>The cgroup freezer subsystem</h3></div></div></div><p>The <code class="literal">freezer</code> subsystem can be used to suspend the current state of running tasks for the purposes of analyzing them, or to create a checkpoint that can be used to migrate the process to a different server. Another use case is when a process is negatively impacting the system and needs to be temporarily paused, without losing its current state data.</p><p>The next example shows how to suspend the execution of the top process, check its state, and then resume it.</p><p>First, mount the <code class="literal">freezer</code> subsystem and create the new hierarchy:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# mkdir /cgroup/freezer</strong></span>
+<span class="strong"><strong>root@server:~# mount -t cgroup -o freezer freezer /cgroup/freezer</strong></span>
+<span class="strong"><strong>root@server:~# mkdir /cgroup/freezer/frozen_group</strong></span>
+<span class="strong"><strong>root@server:~# cat /proc/mounts | grep freezer</strong></span>
+<span class="strong"><strong>freezer /cgroup/freezer cgroup rw,relatime,freezer,release_agent=/run/cgmanager/agents/cgm-release-agent.freezer 0 0</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>In a new terminal, start the <code class="literal">top</code> process and observe how it periodically refreshes. Back in the original terminal, add the PID of <code class="literal">top</code> to the <code class="literal">frozen_group</code> task file and observe its state:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# echo 25731 &gt; /cgroup/freezer/frozen_group/tasks</strong></span>
+<span class="strong"><strong>root@server:~# cat /cgroup/freezer/frozen_group/freezer.state</strong></span>
+<span class="strong"><strong>THAWED</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>To freeze the process, echo the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# echo FROZEN &gt; /cgroup/freezer/frozen_group/freezer.state</strong></span>
+<span class="strong"><strong>root@server:~# cat /cgroup/freezer/frozen_group/freezer.state</strong></span>
+<span class="strong"><strong>FROZEN</strong></span>
+<span class="strong"><strong>root@server:~# cat /proc/25s731/status | grep -i state</strong></span>
+<span class="strong"><strong>State:      D (disk sleep)</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>Notice how the top process output is not refreshing anymore, and upon inspection of its status file, you can see that it is now in the blocked state.</p><p>To resume it, execute the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# echo THAWED &gt; /cgroup/freezer/frozen_group/freezer.state</strong></span>
+<span class="strong"><strong>root@server:~# cat /proc/29328/status  | grep -i state</strong></span>
+<span class="strong"><strong>State:  S (sleeping)</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>Inspecting the <code class="literal">frozen_group</code> hierarchy yields the following files:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# ls -la /cgroup/freezer/frozen_group/</strong></span>
+<span class="strong"><strong>drwxr-xr-x 2 root root 0 Aug 25 20:50 .</strong></span>
+<span class="strong"><strong>drwxr-xr-x 4 root root 0 Aug 19 21:02 ..</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 20:50 cgroup.clone_children</strong></span>
+<span class="strong"><strong>--w--w--w- 1 root root 0 Aug 25 20:50 cgroup.event_control</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 20:50 cgroup.procs</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 25 20:50 freezer.parent_freezing</strong></span>
+<span class="strong"><strong>-r--r--r-- 1 root root 0 Aug 25 20:50 freezer.self_freezing</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 21:00 freezer.state</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 20:50 notify_on_release</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 0 Aug 25 20:59 tasks</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>The few files of interest are described in the following table:</p><div class="informaltable"><table border="1"><colgroup><col/><col/></colgroup><tbody><tr><td>
+<p><span class="strong"><strong>File</strong></span></p>
+</td><td>
+<p><span class="strong"><strong>Description</strong></span></p>
+</td></tr><tr><td>
+<p><code class="literal">freezer.parent_freezing</code></p>
+</td><td>
+<p>Shows the parent-state. Shows <code class="literal">0</code> if none of the cgroup's ancestors is <code class="literal">FROZEN</code>; otherwise, <code class="literal">1</code>.</p>
+</td></tr><tr><td>
+<p><code class="literal">freezer.self_freezing</code></p>
+</td><td>
+<p>Shows the self-state. Shows <code class="literal">0</code> if the self-state is <code class="literal">THAWED</code>; otherwise, <code class="literal">1</code>.</p>
+</td></tr><tr><td>
+<p><code class="literal">freezer.state</code></p>
+</td><td>
+<p>Sets the self-state of the cgroup to either <code class="literal">THAWED</code> or <code class="literal">FROZEN</code>.</p>
+</td></tr><tr><td>
+<p><code class="literal">tasks</code></p>
+</td><td>
+<p>Attaches tasks to the cgroup.</p>
+</td></tr></tbody></table></div></div><div class="section" title="Using userspace tools to manage cgroups and persist changes"><div class="titlepage"><div><div><h3 class="title"><a id="ch01lvl3sec4"/>Using userspace tools to manage cgroups and persist changes</h3></div></div></div><p>Working with the cgroups subsystems by manipulating directories and files directly is a fast and convenient way to prototype and test changes, however, this comes with few drawbacks, namely the changes made will not persist a server restart and there's not much error reporting or handling.</p><p>To address this, there are packages that provide userspace  tools and daemons that are quite easy to use. Let's see a few examples.</p><p>To install the tools on Debian/Ubuntu, run the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# apt-get install -y cgroup-bin cgroup-lite libcgroup1</strong></span>
+<span class="strong"><strong>root@server:~# service cgroup-lite start</strong></span>
+</pre><p>On RHEL/CentOS, execute the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# yum install libcgroup</strong></span>
+<span class="strong"><strong>root@server:~# service cgconfig start</strong></span>
+</pre><p>To mount all subsystems, run the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# cgroups-mount</strong></span>
+<span class="strong"><strong>root@server:~# cat /proc/mounts | grep cgroup</strong></span>
+<span class="strong"><strong>cgroup /sys/fs/cgroup/memory cgroup rw,relatime,memory,release_agent=/run/cgmanager/agents/cgm-release-agent.memory 0 0</strong></span>
+<span class="strong"><strong>cgroup /sys/fs/cgroup/devices cgroup rw,relatime,devices,release_agent=/run/cgmanager/agents/cgm-release-agent.devices 0 0</strong></span>
+<span class="strong"><strong>cgroup /sys/fs/cgroup/freezer cgroup rw,relatime,freezer,release_agent=/run/cgmanager/agents/cgm-release-agent.freezer 0 0</strong></span>
+<span class="strong"><strong>cgroup /sys/fs/cgroup/blkio cgroup rw,relatime,blkio,release_agent=/run/cgmanager/agents/cgm-release-agent.blkio 0 0</strong></span>
+<span class="strong"><strong>cgroup /sys/fs/cgroup/perf_event cgroup rw,relatime,perf_event,release_agent=/run/cgmanager/agents/cgm-release-agent.perf_event 0 0</strong></span>
+<span class="strong"><strong>cgroup /sys/fs/cgroup/hugetlb cgroup rw,relatime,hugetlb,release_agent=/run/cgmanager/agents/cgm-release-agent.hugetlb 0 0</strong></span>
+<span class="strong"><strong>cgroup /sys/fs/cgroup/cpuset cgroup rw,relatime,cpuset,release_agent=/run/cgmanager/agents/cgm-release-agent.cpuset,clone_children 0 0</strong></span>
+<span class="strong"><strong>cgroup /sys/fs/cgroup/cpu cgroup rw,relatime,cpu,release_agent=/run/cgmanager/agents/cgm-release-agent.cpu 0 0</strong></span>
+<span class="strong"><strong>cgroup /sys/fs/cgroup/cpuacct cgroup rw,relatime,cpuacct,release_agent=/run/cgmanager/agents/cgm-release-agent.cpuacct 0 0</strong></span>
+</pre><p>Notice from the preceding output the location of the cgroups - <code class="literal">/sys/fs/cgroup</code>. This is the default location on many Linux distributions and in most cases the various subsystems have already been mounted.</p><p>To verify what cgroup subsystems are in use, we can check with the following commands:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# cat /proc/cgroups</strong></span>
+<span class="strong"><strong>#subsys_name  hierarchy  num_cgroups  enabled</strong></span>
+<span class="strong"><strong>cpuset  7  1  1</strong></span>
+<span class="strong"><strong>cpu  8  2  1</strong></span>
+<span class="strong"><strong>cpuacct  9  1  1</strong></span>
+<span class="strong"><strong>memory  10  2  1</strong></span>
+<span class="strong"><strong>devices  11  1  1</strong></span>
+<span class="strong"><strong>freezer  12  1  1</strong></span>
+<span class="strong"><strong>blkio  6  3  1</strong></span>
+<span class="strong"><strong>perf_event  13  1  1</strong></span>
+<span class="strong"><strong>hugetlb  14  1  1</strong></span>
+</pre><p>Next, let's create a <code class="literal">blkio</code> hierarchy and add an already running process to it with <code class="literal">cgclassify</code>. This is similar to what we did earlier, by creating the directories and the files by hand:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# cgcreate -g blkio:high_io</strong></span>
+<span class="strong"><strong>root@server:~# cgcreate -g blkio:low_io</strong></span>
+<span class="strong"><strong>root@server:~# cgclassify -g blkio:low_io $(pidof app1)</strong></span>
+<span class="strong"><strong>root@server:~# cat /sys/fs/cgroup/blkio/low_io/tasks</strong></span>
+<span class="strong"><strong>8052</strong></span>
+<span class="strong"><strong>root@server:~# cgset -r blkio.weight=1000 high_io</strong></span>
+<span class="strong"><strong>root@server:~# cgset -r blkio.weight=100 low_io</strong></span>
+<span class="strong"><strong>root@server:~# cat /sys/fs/cgroup/blkio/high_io/blkio.weight</strong></span>
+<span class="strong"><strong>1000</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>Now that we have defined the <code class="literal">high_io</code> and <code class="literal">low_io</code> cgroups and added a process to them, let's generate a configuration file that can be used later to reapply the setup:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# cgsnapshot -s -f /tmp/cgconfig_io.conf</strong></span>
+<span class="strong"><strong>cpuset = /sys/fs/cgroup/cpuset;</strong></span>
+<span class="strong"><strong>cpu = /sys/fs/cgroup/cpu;</strong></span>
+<span class="strong"><strong>cpuacct = /sys/fs/cgroup/cpuacct;</strong></span>
+<span class="strong"><strong>memory = /sys/fs/cgroup/memory;</strong></span>
+<span class="strong"><strong>devices = /sys/fs/cgroup/devices;</strong></span>
+<span class="strong"><strong>freezer = /sys/fs/cgroup/freezer;</strong></span>
+<span class="strong"><strong>blkio = /sys/fs/cgroup/blkio;</strong></span>
+<span class="strong"><strong>perf_event = /sys/fs/cgroup/perf_event;</strong></span>
+<span class="strong"><strong>hugetlb = /sys/fs/cgroup/hugetlb;</strong></span>
+<span class="strong"><strong>root@server:~# cat /tmp/cgconfig_io.conf</strong></span>
+<span class="strong"><strong># Configuration file generated by cgsnapshot</strong></span>
+<span class="strong"><strong>mount {</strong></span>
+<span class="strong"><strong>    blkio = /sys/fs/cgroup/blkio;</strong></span>
+<span class="strong"><strong>}</strong></span>
+<span class="strong"><strong>group low_io {</strong></span>
+<span class="strong"><strong>    blkio {</strong></span>
+<span class="strong"><strong>        blkio.leaf_weight="500";</strong></span>
+<span class="strong"><strong>    blkio.leaf_weight_device="";</strong></span>
+<span class="strong"><strong>    blkio.weight="100";</strong></span>
+<span class="strong"><strong>    blkio.weight_device="";</strong></span>
+<span class="strong"><strong>    blkio.throttle.write_iops_device="";</strong></span>
+<span class="strong"><strong>    blkio.throttle.read_iops_device="";</strong></span>
+<span class="strong"><strong>    blkio.throttle.write_bps_device="";</strong></span>
+<span class="strong"><strong>    blkio.throttle.read_bps_device="";</strong></span>
+<span class="strong"><strong>    blkio.reset_stats="";</strong></span>
+<span class="strong"><strong>  }</strong></span>
+<span class="strong"><strong>}</strong></span>
+<span class="strong"><strong>group high_io {</strong></span>
+<span class="strong"><strong>blkio {</strong></span>
+<span class="strong"><strong>    blkio.leaf_weight="500";</strong></span>
+<span class="strong"><strong>    blkio.leaf_weight_device="";</strong></span>
+<span class="strong"><strong>    blkio.weight="1000";</strong></span>
+<span class="strong"><strong>    blkio.weight_device="";</strong></span>
+<span class="strong"><strong>    blkio.throttle.write_iops_device="";</strong></span>
+<span class="strong"><strong>    blkio.throttle.read_iops_device="";</strong></span>
+<span class="strong"><strong>    blkio.throttle.write_bps_device="";</strong></span>
+<span class="strong"><strong>    blkio.throttle.read_bps_device="";</strong></span>
+<span class="strong"><strong>    blkio.reset_stats="";</strong></span>
+<span class="strong"><strong>  }</strong></span>
+<span class="strong"><strong>}</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>To start a new process in the <code class="literal">high_io</code> group, we can use the <code class="literal">cgexec</code> command:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# cgexec -g blkio:high_io bash</strong></span>
+<span class="strong"><strong>root@server:~# echo $$</strong></span>
+<span class="strong"><strong>19654</strong></span>
+<span class="strong"><strong>root@server:~# cat /sys/fs/cgroup/blkio/high_io/tasks</strong></span>
+<span class="strong"><strong>19654</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>In the preceding example, we started a new <code class="literal">bash</code> process in the <code class="literal">high_io cgroup</code>, as confirmed by looking at the <code class="literal">tasks</code> file.</p><p>To move an already running process to the <code class="literal">memory</code> subsystem, first we create the <code class="literal">high_prio</code> and <code class="literal">low_prio</code> groups and move the task with <code class="literal">cgclassify</code>:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# cgcreate -g cpu,memory:high_prio</strong></span>
+<span class="strong"><strong>root@server:~# cgcreate -g cpu,memory:low_prio</strong></span>
+<span class="strong"><strong>root@server:~# cgclassify -g cpu,memory:high_prio 8052</strong></span>
+<span class="strong"><strong>root@server:~# cat /sys/fs/cgroup/memory/high_prio/tasks</strong></span>
+<span class="strong"><strong>8052</strong></span>
+<span class="strong"><strong>root@server:~# cat /sys/fs/cgroup/cpu/high_prio/tasks</strong></span>
+<span class="strong"><strong>8052</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>To set the memory and CPU limits, we can use the <code class="literal">cgset</code> command. In contrast, remember that we used the <code class="literal">echo</code> command to manually move the PIDs and memory limits to the <code class="literal">tasks</code> and the <code class="literal">memory.limit_in_bytes</code> files:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# cgset -r memory.limit_in_bytes=1G low_prio</strong></span>
+<span class="strong"><strong>root@server:~# cat /sys/fs/cgroup/memory/low_prio/memory.limit_in_bytes</strong></span>
+<span class="strong"><strong>1073741824</strong></span>
+<span class="strong"><strong>root@server:~# cgset -r cpu.shares=1000 high_prio</strong></span>
+<span class="strong"><strong>root@server:~# cat /sys/fs/cgroup/cpu/high_prio/cpu.shares</strong></span>
+<span class="strong"><strong>1000</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>To see how the cgroup hierarchies look, we can use the <code class="literal">lscgroup</code> utility:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# lscgroup</strong></span>
+<span class="strong"><strong>cpuset:/</strong></span>
+<span class="strong"><strong>cpu:/</strong></span>
+<span class="strong"><strong>cpu:/low_prio</strong></span>
+<span class="strong"><strong>cpu:/high_prio</strong></span>
+<span class="strong"><strong>cpuacct:/</strong></span>
+<span class="strong"><strong>memory:/</strong></span>
+<span class="strong"><strong>memory:/low_prio</strong></span>
+<span class="strong"><strong>memory:/high_prio</strong></span>
+<span class="strong"><strong>devices:/</strong></span>
+<span class="strong"><strong>freezer:/</strong></span>
+<span class="strong"><strong>blkio:/</strong></span>
+<span class="strong"><strong>blkio:/low_io</strong></span>
+<span class="strong"><strong>blkio:/high_io</strong></span>
+<span class="strong"><strong>perf_event:/</strong></span>
+<span class="strong"><strong>hugetlb:/</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>The preceding output confirms the existence of the <code class="literal">blkio</code>, <code class="literal">memory</code>, and <code class="literal">cpu</code> hierarchies and their children.</p><p>Once finished, you can delete the hierarchies with <code class="literal">cgdelete</code>, which deletes the respective directories on the VFS:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# cgdelete -g cpu,memory:high_prio</strong></span>
+<span class="strong"><strong>root@server:~# cgdelete -g cpu,memory:low_prio</strong></span>
+<span class="strong"><strong>root@server:~# lscgroup</strong></span>
+<span class="strong"><strong>cpuset:/</strong></span>
+<span class="strong"><strong>cpu:/</strong></span>
+<span class="strong"><strong>cpuacct:/</strong></span>
+<span class="strong"><strong>memory:/</strong></span>
+<span class="strong"><strong>devices:/</strong></span>
+<span class="strong"><strong>freezer:/</strong></span>
+<span class="strong"><strong>blkio:/</strong></span>
+<span class="strong"><strong>blkio:/low_io</strong></span>
+<span class="strong"><strong>blkio:/high_io</strong></span>
+<span class="strong"><strong>perf_event:/</strong></span>
+<span class="strong"><strong>hugetlb:/</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre><p>To completely clear the cgroups, we can use the <code class="literal">cgclear</code> utility, which will unmount the cgroup directories:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# cgclear</strong></span>
+<span class="strong"><strong>root@server:~# lscgroup</strong></span>
+<span class="strong"><strong>cgroups can't be listed: Cgroup is not mounted</strong></span>
+<span class="strong"><strong>root@server:~#</strong></span>
+</pre></div><div class="section" title="Managing resources with systemd"><div class="titlepage"><div><div><h3 class="title"><a id="ch01lvl3sec5"/>Managing resources with systemd</h3></div></div></div><p>With the increased adoption of <code class="literal">systemd</code> as an init system, new ways of manipulating cgroups were introduced. For example, if the cpu controller is enabled in the kernel, <code class="literal">systemd</code> will create a cgroup for each service by default. This behavior can be changed by adding or removing cgroup subsystems in the configuration file of <code class="literal">systemd</code>, usually found at <code class="literal">/etc/systemd/system.conf</code>.</p><p>If multiple services are running on the server, the CPU resources will be shared equally among them by default, because <code class="literal">systemd</code> assigns equal weights to each. To change this behavior for an application, we can edit its service file and define the CPU shares, allocated memory, and I/O.</p><p>The following example demonstrates how to change the CPU shares, memory, and I/O limits for the nginx process:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~# vim /etc/systemd/system/nginx.service</strong></span>
+<span class="strong"><strong>.include /usr/lib/systemd/system/httpd.service</strong></span>
+<span class="strong"><strong>[Service]</strong></span>
+<span class="strong"><strong>CPUShares=2000</strong></span>
+<span class="strong"><strong>MemoryLimit=1G</strong></span>
+<span class="strong"><strong>BlockIOWeight=100</strong></span>
+</pre><p>To apply the changes first reload <code class="literal">systemd</code>, then nginx:</p><pre class="programlisting">
+<span class="strong"><strong>root@server:~#  systemctl daemon-reload</strong></span>
+<span class="strong"><strong>root@server:~#  systemctl restart httpd.service</strong></span>
+<span class="strong"><strong>root@server:~#  </strong></span>
+</pre><p>This will create and update the necessary control files in <code class="literal">/sys/fs/cgroup/systemd</code> and apply the limits.</p></div></div></div>
+<div class="section" title="Summary"><div class="titlepage"><div><div><h1 class="title"><a id="ch01lvl1sec10"/>Summary</h1></div></div></div><p>The advent of kernel namespaces and cgroups made it possible to isolate groups of processes in a self-confined lightweight virtualization package; we call them containers. In this chapter, we saw how containers provide the same features as other full-fledged hypervisor-based virtualization technologies such as KVM and Xen, without the overhead of running multiple kernels in the same operating system. LXC takes full advantage of Linux cgroups and namespaces to achieve this level of isolation and resource control.</p><p>With the foundation gained from this chapter, you'll be able to understand better what's going on under the hood, which will make it much easier to troubleshoot and support the full life cycle of Linux containers, as we'll do in the next chapters.</p></div></body></html>

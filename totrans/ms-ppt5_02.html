@@ -1,0 +1,351 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Roles and Profiles</h1>
+                </header>
+            
+            <article>
+                
+<p>The <em>roles and profiles pattern</em> became common knowledge in the Puppet community following Craig Dunn's seminal blog post (<a href="https://www.craigdunn.org/2012/05/239/">https://www.craigdunn.org/2012/05/239/</a>), and has been rapidly taken up by the rest of the community. It's now a widely adopted pattern or best practice. It's a reliable way to build reusable, configurable, and refactorable site-wide configuration code, and it's an approach to dealing with the interfaces of your infrastructure—using the software development paradigms of <em>encapsulation</em> and <em>abstraction</em>.</p>
+<p>Before the pattern developed, the Puppet language itself provided just two levels of abstraction, as follows:</p>
+<ul>
+<li>The component module (<a href="https://puppet.com/docs/puppet/5.3/modules_fundamentals.html">https://puppet.com/docs/puppet/5.3/modules_fundamentals.html</a>)</li>
+<li>The node definition (<a href="https://puppet.com/docs/puppet/5.3/lang_node_definitions.html">https://puppet.com/docs/puppet/5.3/lang_node_definitions.html</a>)</li>
+</ul>
+<p>But it soon became clear that further intermediate abstraction was needed to break up, restructure, and clarify these two.</p>
+<p>Let's consider the overarching task: we want to assign classes (and their corresponding business data) to nodes, and we want to do this in a way that encapsulates and hides complexity away at each stage of this abstraction process: moving from looking at the node in its context within the whole infrastructure, as a software stack, and drilling down into the technology components and their configuration, which comprise elements of that software stack.</p>
+<p>I've seen nodes being defined in the very long-hand way, using only these two levels of abstraction. I've also seen other approaches, such as using a Hiera-based micro <strong>external node classifier</strong> (<strong>ENC</strong>). I've helped to transition companies to using the roles and profiles pattern, and I've used both the Puppet Enterprise console and Foreman as ENC. I've defined nodes in Puppet code, using Hiera in many ways to assist node classification, and I've even used the PE console API for node classification, so I hope I've picked up a few best practices along the way that I can now pass along to you.</p>
+<p>In this chapter, let's look together at the roles and profiles pattern, and how this can help you to manage your infrastructure professionally and achieve our next milestone in <em>Mastering Puppet 5</em>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary of the pattern</h1>
+                </header>
+            
+            <article>
+                
+<p>The roles and profiles pattern adds two additional layers of abstraction between your <em>node classification</em> at the highest level and <em>component modules</em> at the lowest, thus providing three levels of abstraction in your Puppet modules. The following descriptions go from the most complex to the least:</p>
+<ul>
+<li><strong>Component modules</strong>: These are modules for the management of software for your business. There will no doubt be a bunch of these that you've downloaded from the Forge (for example, puppetlabs/apache, puppetlabs/mysql, hunner/wordpress, and so on), and no doubt also some that you have developed for your own business-specific purposes.</li>
+</ul>
+<p>We've discussed these already at length in <a href="e7bbbeb3-e406-46ea-aad3-20f4af34d014.xhtml">Chapter 1</a>, <em>Authoring Modules</em>, so here's the rub:</p>
+<ul>
+<li><strong>Profiles</strong>: A set of encapsulated <em>technology-specific</em> classes that use one or more component modules and corresponding business data to configure part of a solution stack</li>
+<li><strong>Roles</strong>: A set of encapsulated <em>business-specific</em> classes that comprise profiles to build a complete system configuration</li>
+</ul>
+<p>These two additional layers of abstraction and improved interfaces make hierarchical business data easier to integrate, system configurations easier to read for both business people and technologists, and they make refactoring easier.</p>
+<p>The following UML diagram shows the relationship between the elements in the pattern more clearly:</p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/059198e1-6146-474c-ad76-035d3c44cca2.png" style="width:25.17em;height:40.58em;"/></div>
+<p>From the preceding diagram, we can see the following:</p>
+<ul>
+<li>A <span class="packt_screen">Node</span> has <em>exactly</em> one <span class="packt_screen">Role</span></li>
+<li>A <span class="packt_screen">R</span><span class="packt_screen">ole</span> comprises <em>one or more</em> <span class="packt_screen">P<span class="packt_screen">r</span></span><span class="packt_screen">ofiles</span></li>
+<li><span class="packt_screen">P</span><span class="packt_screen">rofile</span> comprise <em>one or more</em> <span class="packt_screen">C</span><span class="packt_screen">omponent Modules</span> and corresponding <span class="packt_screen">H</span><span class="packt_screen">ierarchical Business Data</span></li>
+<li><span class="packt_screen">C<span class="packt_screen">o</span></span><span class="packt_screen">mponent Modules</span> comprise <em>many</em> R<span class="packt_screen">esources</span></li>
+</ul>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Puppet resources should already be very familiar to you, and we've already covered component modules in <a href="e7bbbeb3-e406-46ea-aad3-20f4af34d014.xhtml"/><a href="e7bbbeb3-e406-46ea-aad3-20f4af34d014.xhtml">Chapter 1</a>, <em>Authoring Modules</em>, so in the following two sections, let's take a deep dive into the <em>profile</em> and <em>role</em> part of the pattern.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Profiles</h1>
+                </header>
+            
+            <article>
+                
+<p>First, let's take a step back and consider what we want to achieve with profiles.</p>
+<p>The overarching exercise is to produce usable chunks of technology that can be fitted together, in a building-brick fashion, to compose what we call in the industry these days <em>technology stacks</em> or <em>solution stacks</em>. The most well-known example of a stack would be the LAMP stack (Linux, Apache, MySQL, PHP), and more recently, Ruby or Python have sometimes superseded PHP as the primary scripting language. Node.js is being rapidly adopted across the industry, too.</p>
+<p>Considering the LAMP stack, what we want to do is create chunks of technology for the Apache, MySQL, and PHP components. Profiles are, therefore, these smaller chunks of technology that will eventually comprise these full solution stacks. Profiles are the three <em>building bricks</em> that we piece together, as follows:</p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/8ad5d347-e50d-4b04-9573-0061a2121aa1.png" style="width:11.17em;height:22.58em;"/></div>
+<p>Let's look at this LAMP stack with some fully functional Puppet <strong>domain specific language</strong> (<strong>DSL</strong>) code:</p>
+<pre># LAMP stack profiles<br/><br/><br/># apache profile<br/>class profile::web::apache (<br/>  String $directory = '/var/www',<br/>  String $vhost,<br/>) {<br/>  include apache<br/>  apache::vhost { $vhost:<br/>    port    =&gt; '80',<br/>    docroot =&gt; "/var/www/${vhost}",<br/>  }<br/>}<br/><br/><br/># mysql profile<br/>class profile::db::mysql (<br/>  String $username = '/var/www',<br/>  String $password,<br/>) {<br/><br/><br/>  include mysql::server<br/>  mysql::db{ 'mysqldb':<br/>     user     =&gt; $username,<br/>     password =&gt; $password,<br/>     grant    =&gt; 'ALL',<br/>  }<br/>}<br/><br/><br/># php profile<br/>class profile::programming::php<br/>{<br/>  class { '::php':<br/>    ensure       =&gt; latest,<br/>    manage_repos =&gt; true,<br/>    fpm          =&gt; true,<br/>    dev          =&gt; true,<br/>    composer     =&gt; true,<br/>    pear         =&gt; true,<br/>    phpunit      =&gt; false,<br/>    settings   =&gt; {<br/>      'PHP/max_execution_time'  =&gt; '90',<br/>      'PHP/max_input_time'      =&gt; '300',<br/>      'PHP/memory_limit'        =&gt; '64M',<br/>      'PHP/post_max_size'       =&gt; '32M',<br/>      'PHP/upload_max_filesize' =&gt; '32M',<br/>      'Date/date.timezone'      =&gt; 'Europe/Berlin',<br/>    },<br/>  }<br/>}</pre>
+<p>As you can see, in these classes, we are producing an <em>abstraction</em> for the remaining, AMP section of the LAMP stack and <em>encapsulating</em> the functionality of the underlying component modules. Linux is already installed, of course!</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Profiles best practices summary</h1>
+                </header>
+            
+            <article>
+                
+<p>Here are the best practices you should note in the development of your own profiles, referring to the preceding LAMP stack as an example:</p>
+<ul>
+<li>Design for use of the <kbd>include</kbd> keyword</li>
+<li>Use subdirectories for sensible, readable profile class groups</li>
+<li>Hide complexity with parameters, defaults, and abstraction</li>
+<li>Decide how to set the parameters for component classes</li>
+<li>Decide to use either automatic class parameter lookup or the <kbd>lookup</kbd> function</li>
+</ul>
+<p>Let's examine each of these best practices now in turn.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Designing for use of the include keyword</h1>
+                </header>
+            
+            <article>
+                
+<p>The single interface of your profiles should be their adoption in the corresponding roles part of the pattern using the Puppet <kbd>include</kbd> keyword. Bear this in mind when writing your profiles. We would simply write the following in any role that requires PHP to be installed on that node:</p>
+<pre>...<br/> include profile::programming::php<br/> ...</pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<div class="packt_infobox">
+<p>With regard to the Puppet <kbd>include</kbd> keyword:</p>
+<ul>
+<li>Multiple declarations are OK</li>
+<li>It relies on external data for parameters</li>
+</ul>
+<span class="packt_screen">Syntax</span>: Accepts a single class name (for example, <kbd>include apache</kbd>), or class reference (for example, <kbd>include Class['apache']</kbd>)</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using subdirectories for sensible, readable profile class groups</h1>
+                </header>
+            
+            <article>
+                
+<p>We are using the component modules puppetlabs/apache, puppetlabs/mysql, and mayflower/php, and encapsulating these into the profile <kbd>classes web::apache database::mysql</kbd> and <kbd>programming::php</kbd>, respectively. You can see that I have used some sensible subdirectories and class names to reflect their contribution to the stack, namely <kbd>web</kbd>, <kbd>db</kbd>, and <kbd>programming</kbd> subdirectory locations for the Apache, MySQL, and programming profiles, respectively.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Hiding complexity with parameters, defaults, and abstraction</h1>
+                </header>
+            
+            <article>
+                
+<p>You can see that, in the Apache profile, we have hidden the complexity of the vhost-defined type quite considerably, so that you just need to provide the name of the vhost as a string. Additionally, you can overwrite the value of the root <kbd>internet</kbd> directory. I believe it's the same location on all Linux operating systems. This reduction in the size of the interface really reduces complexity, and provides a simple, neat abstraction, which is fine if you don't need multiple Apache vhosts.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Deciding how to set the parameters for component classes</h1>
+                </header>
+            
+            <article>
+                
+<p>As the Puppet documentation on roles and profiles states (<a href="https://puppet.com/docs/pe/2017.3/managing_nodes/roles_and_profiles_example.html">https://puppet.com/docs/pe/2017.3/managing_nodes/roles_and_profiles_example.html#the-rules-for-profile-classes</a>), there is a trade-off regarding how to set the parameters provided to component modules, and we should base our decision on <em>how readable the code is</em> versus <em>how flexible the business data needs to be</em>.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>That is, if we always use the same value for a certain parameter, we can <em>hardcode it</em> (highly readable), we can compute the value for a parameter based on, for example, facts (quite readable and somewhat flexible), or we can look up the value of a parameter in our business data hierarchy (highly flexible).</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Deciding to use either automatic class parameter lookup or the lookup function</h1>
+                </header>
+            
+            <article>
+                
+<p>For the third consideration in the previous best practice, there's another decision to make around how data arrives into the profile class from your business data hierarchy:</p>
+<ul>
+<li>In these profiles, we have used the automatic class parameter lookup (<a href="https://puppet.com/docs/puppet/5.3/hiera_automatic.html">https://puppet.com/docs/puppet/5.3/hiera_automatic.html</a>) to request data from our business data hierarchy. Using the interface of the profile's parameters is a reliable and well-known way to look for the profile's configuration settings, and allows better integration with external tools, such as Puppet Strings (<a href="https://github.com/puppetlabs/puppet-strings">https://github.com/puppetlabs/puppet-strings</a>), the YARD-based (<a href="https://yardoc.org">https://yardoc.org</a>) documentation extraction and presentation tool.</li>
+<li>When we wrote the code for the <kbd>profile</kbd> class, we also could have omitted all the parameters and instead used the <kbd>lookup</kbd> function:</li>
+</ul>
+<pre style="padding-left: 60px">$jenkins_port = lookup('profile::jenkins::jenkins_port', {value_type =&gt; String, default_value =&gt; '9091'})<br/>$java_dist    = lookup('profile::jenkins::java_dist',    {value_type =&gt; String, default_value =&gt; 'jdk'})<br/>$java_version = lookup('profile::jenkins::java_version', {value_type =&gt; String, default_value =&gt; 'latest'})<br/># ...</pre>
+<p>This approach is an alternative if you aren't comfortable with the automagic nature of an automatic class parameter lookup. I have certainly found it more comfortable to make an explicit data lookup, and then deal with the returned value there and then in the more robust Puppet DSL. I found earlier versions of Hiera notoriously cryptic when trying to track down bugs (<a href="https://puppet.com/blog/debugging-hiera">https://puppet.com/blog/debugging-hiera</a>), and this approach really helps. You can check data types and make further validations directly. By having the full lookup key written out in the profile, we can globally <kbd>grep</kbd> for it across our entire Puppet DSL codebase, and thus make a definitive link between Puppet manifests and the business data servicing them:</p>
+<pre><strong>grep -nr 'profile::web::apache::vhost*' .</strong></pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>You can then use the new <kbd>Puppet lookup</kbd> (<a href="https://puppet.com/docs/puppet/5.3/man/lookup.html">https://puppet.com/docs/puppet/5.3/man/lookup.html</a>) command (previously, the <kbd>hiera</kbd> command line invocation). Since it's the CLI equivalent of the <kbd>lookup</kbd> function, you can be sure during debugging that you are getting <em>exactly</em> the business data value you require:</p>
+<pre><strong>Puppet lookup ' profile::web::apache::vhost *' .</strong></pre>
+<p>Actually, I also have certain issues with YAML as a language itself (see, for example, <a href="https://arp242.net/weblog/yaml_probably_not_so_great_after_all.html">https://arp242.net/weblog/yaml_probably_not_so_great_after_all.html</a>), and being able to rely on the robustness of the more explicit Puppet DSL compensates for what I feel are YAML's native weaknesses during debugging.</p>
+<p>Take a close look at this blog post: <a href="https://puppet.com/blog/debugging-hiera-redux">https://puppet.com/blog/debugging-hiera-redux</a>, which is an update to debugging Hiera with the latest commands, and of course ensure you are at the very least using a YAML parser.</p>
+<p>Also, bear in mind that Hiera really does have its limitations, especially for larger and more diverse infrastructures (<a href="https://www.craigdunn.org/2015/09/solving-real-world-problems-with-jerakia">https://www.craigdunn.org/2015/09/solving-real-world-problems-with-jerakia</a>).</p>
+<p>So, moving on, let's now look at the higher level of abstraction in the pattern: <em>roles</em>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Roles</h1>
+                </header>
+            
+            <article>
+                
+<p>Let's take another step back and consider what we want to achieve with the roles part of the pattern. The overarching task is to piece together these <em>building-brick-like</em> profile classes into full tech stacks, which we call <em>roles</em>, and are now the second part of our full pattern:</p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/4d3448fc-c27c-4e1f-b40c-d1d927a6a65d.png" style="width:12.17em;height:16.83em;"/></div>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Here you can see that we have taken the composite profiles from our previous example, and stacked them one on top of the other, to produce a full tech stack. We are also utilizing two additional shared profiles:</p>
+<ul>
+<li><kbd>profile::base</kbd> is included in all machines, including workstations. It manages security baselines and so on, using conditional logic for OS-specific profiles; for example, <kbd>profile:: base::ubuntu</kbd>, <kbd>profile::base::redhat</kbd>, and so on, as needed.</li>
+<li><kbd>profile::server</kbd> is included in all machines that provide a service over the network, and configures services such as NTP, firewalls, monitoring, logging, and so on.</li>
+</ul>
+<p>Let's look again at the fully functional LAMP stack as an example in Puppet DSL:</p>
+<pre># LAMP stack<br/><br/><br/>class role::lamp {<br/>  include profile::web::apache<br/>  include profile::db::mysql<br/>  include profile::programming::php<br/>  include profile::server<br/>  include profile::base<br/>}</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Roles best practices summary</h1>
+                </header>
+            
+            <article>
+                
+<p>Here are the best practices you should note in the development of your own roles, referring to the preceding LAMP stack as an example:</p>
+<ul>
+<li>Construct roles only with the <kbd>include</kbd> keyword</li>
+<li>Name roles in your business's conversational name</li>
+<li>Decide on the granularity of roles for your nodes</li>
+</ul>
+<p>Let's examine each of these best practices now in turn.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Constructing roles only with the include keyword</h1>
+                </header>
+            
+            <article>
+                
+<p>As the Puppet documentation states regarding roles, in rules  (<a href="https://puppet.com/docs/pe/2017.2/r_n_p_full_example.html#the-rules-for-role-classes">https://puppet.com/docs/pe/2017.2/r_n_p_full_example.html#the-rules-for-role-classes</a>), the only thing roles should do is declare profile classes with the puppet <kbd>include</kbd> keyword. That is, they don't themselves have any class parameters. Roles also shouldn't declare any component classes or resources—that's the purpose of profiles.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Naming roles in your business's conversational name</h1>
+                </header>
+            
+            <article>
+                
+<p>The name of a role should be based on your business's conversational name for the type of node it manages. So, if you generally call the machine a <em>web server</em>, you should prefer a name such as <kbd>role::web</kbd>, as opposed to naming it according to any underlying profile technology such as <kbd>web::apache</kbd> or <kbd>web::nginx</kbd>. This adds a layer of abstraction and hides the complexity of the profile code, again utilizing good programming practices.</p>
+<p>Another advantage to this best practice is the benefit of communication within your organization: testers, project managers, and even business people can understand the simple language of roles, yet Puppet developers communicate more readily at the deeper <em>profile</em> level of abstraction.</p>
+<p>Profiles expose an appropriate interface to roles. Roles, correspondingly, also expose a neat interface to your ENC, and this allows even fewer technical company personnel to be responsible for node classification.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Deciding on the granularity of roles for your nodes</h1>
+                </header>
+            
+            <article>
+                
+<p>You should start with roles that are entirely fine-grained, with every role being just a simple list of the profiles it contains.</p>
+<p class="mce-root">If you have a lot of only slightly different nodes, you could begin to introduce more complex roles that just contain one profile per line, for example, conditional logic or even nested roles.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, we have broadened our skills in writing Puppet modules to encompass the roles and profiles pattern, with reference to two special cases which provide a reliable way to build reusable, configurable, and refactorable site-wide configuration code.</p>
+<p class="mce-root">Next, we stay in the development frame of mind, but look at how we can cover some of those possible edge cases where we may need to extend Puppet beyond its regular usage scenarios.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

@@ -1,0 +1,696 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Continuous Integration</h1>
+                </header>
+            
+            <article>
+                
+<p>Continuous Integration as a practice is ensuring that each time code is committed, it is built and tested the same way consistently. We use Continuous Integration systems to automate this practice, making it practical for use on every commit. Some Continuous Integration pipelines eventually evolve into Continuous Delivery or Continuous Deployment pipelines. The key difference between Continuous Integration and delivery is that delivery ensures that every time code is committed, it is also wrapped up (or packaged) and delivered to the doorstep of the server it needs to run on. Continuous Delivery requires the ability to deploy your entire infrastructure and application consistently with a single orchestration command. Continuous Deployment requires an end-to-end suite of tests for every component in your infrastructure, but is the simple task of automating that single orchestration command when every test passes.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>How these systems become useful to the individual application and infrastructure is unique to every company and organization, much like any other business rule. There are some common use cases and business rules that are nearly universal in everyone's Continuous Integration pipelines, and some that teams strive for. </p>
+<p>In this chapter, we will do the following:</p>
+<ul>
+<li>Set up a Continuous Integration system (Jenkins) using Puppet</li>
+<li>Create a job for a profile module</li>
+<li>Set up our first test</li>
+<li>Integrate the <strong>Puppet Development Kit</strong> (<strong>PDK</strong>) test suite</li>
+<li>Write RSPec unit tests</li>
+<li>Set up Puppet integration tests with Test Kitchen</li>
+</ul>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Continuous Integration systems</h1>
+                </header>
+            
+            <article>
+                
+<p>Our Continuous Integration system is a panel that keeps track of our code repositories. For each of these repositories, you'll find what is commonly referred to as a job. A job is a series of steps, usually written in code, that informs the system of what it should do when a build is triggered through a button or CLI. A build is simply a single instance of that job that is running or has already run. Finally, that build contains log files, key information about the build, and any artifacts (objects) you want the system to store or ship off closer to the endpoint.</p>
+<p>We'll build our CI system using Puppet, which will eventually manage our Puppet code. This is a common scenario when you start with CI in an existing environment in an organization.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Puppet Pipelines</h1>
+                </header>
+            
+            <article>
+                
+<p>Puppet Pipelines is a new product by Puppet. In September of 2017, Puppet acquired Distelli so that they could build the new Puppet Pipelines program. This CI system is still heavily geared toward containers and applications, but work is being done to improve its feature set for Puppet as well. Puppet Pipelines can still be used for a Continuous Integration system for puppet code, but may undergo quite a few changes in the next year around Puppet code. For this chapter, we'll be using a very popular open source Continuous Integration system: Jenkins.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Jenkins</h1>
+                </header>
+            
+            <article>
+                
+<p>Jenkins is one of the oldest and most common Continuous Integration systems fielded today. It began as Hudson initially, in 2005, and grew into the fork of Jenkins that we see today. Jenkins is both a powerful and complicated system in comparison to most other CI systems due to its highly pluggable nature. There are a plethora of Jenkins plugins designed to add features to the CI system, from source code management, to graphs and viewing, to orchestration and automated testing and linting for nearly every language. With this wide feature set, Jenkins can also often be complicated. Out of the box, Jenkins doesn't do a whole lot outside of running shell commands on the system. In this section, we'll be exploring how to build a bare basic Jenkins setup for our needs, using Puppet, to manage our Puppet code.</p>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Managing Jenkins with Puppet</h1>
+                </header>
+            
+            <article>
+                
+<p>We're using Puppet to manage the Continuous Integration system, because it's a system. We're using Jenkins to manage our configuration management code, because it's code. This is why we'll build Jenkins with Puppet, and then check our Puppet code into Jenkins.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">rtyler/jenkins</h1>
+                </header>
+            
+            <article>
+                
+<p>We should always seek a forge module when building new software, so I'm going to reach for <kbd>rtyler/jenkins</kbd> on the forge. This module will cover our basic needs for installing our Jenkins LTS server, installing our Jenkins plugins, and each package we'll need to run our builds. </p>
+<div class="packt_tip">In larger infrastructures, we wouldn't run builds on our Jenkins server, we'd run it on the Jenkins agents attached to it. Because this setup has no agents, Jenkins will act as our build agent and run the jobs for us. Therefore, we'll need to install Git and the PDK so that it can run commands for us. We use the Git plugin to provide us with a direct connection to our code, and the pipelines plugin gives us a DSL to write our steps in.</div>
+<p>We're going to build a new module with the PDK by creating a profile directory, a manifests directory inside of that, and create a <kbd>jenkins.pp</kbd> in that folder:</p>
+<pre>#profile/manifests/jenkins.pp<br/>class profile::jenkins {<br/><br/>  class { 'jenkins': lts =&gt; true }<br/><br/>  package {'git': ensure =&gt; latest }<br/><br/>  file {'/tmp/pdk.rpm':<br/>    ensure =&gt; file,<br/>    source =&gt; 'https://puppet-pdk.s3.amazonaws.com/pdk/1.7.0.0/repos/el/7/puppet5/x86_64/pdk-1.7.0.0-1.el7.x86_64.rpm',<br/>  }<br/><br/></pre>
+<pre># Install latest PDK directly from Puppet Source<br/>  package {'pdk':<br/>    ensure =&gt; installed,<br/>    source =&gt; '/tmp/pdk.rpm',<br/>    require =&gt; File['/tmp/pdk.rpm'],<br/>  }<br/><br/>}</pre>
+<p>We're going to install our plugins manually. <kbd>rtyler/jenkins</kbd> does support plugins for Jenkins, but does not support dependencies. There are quite a few dependencies in these build pipelines, so we're going to manually install the plugins to highlight the two main plugins.</p>
+<p>After our profile has been applied to the node, we've got a fresh Jenkins installation with our desired plugins. We can reach our new Jenkins node via the web URL on port <kbd>8080</kbd>:</p>
+<p class="mce-root CDPAlignCenter CDPAlign"><img src="assets/a5deb6e9-2b6b-4cf0-9016-f13510da225a.png" style="width:39.08em;height:32.00em;"/></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Managing our plugins</h1>
+                </header>
+            
+            <article>
+                
+<p>If you want to Puppetize each plugin, you can use the <kbd>jenkins::plugin</kbd> resource provided by this Jenkins module. You can find each plugin installed on your Jenkins master in the <kbd>/var/lib/jenkins/plugins</kbd> file, or in the <span class="packt_screen">Installed plugins</span> tab of your Jenkins instance.</p>
+<p>The resource syntax is as follows:</p>
+<pre>jenkins::plugin {'&lt;plugin': version =&gt; 'version' } </pre>
+<p>We're going to grab two key plugins for our CI/CD workflow in this section: Git and Pipeline. We can reach the plugin page by clicking on <span class="packt_screen">Manage Jenkins</span> on the left-hand side of the screen, and then <span class="packt_screen">Manage Plugins</span> near the bottom of the menu. There is an ever-growing amount of plugins for Jenkins, and we need to select the appropriate ones:</p>
+<div class="packt_tip">It can be difficult to locate a plugin by name only, so try using some of the descriptions to locate these within the list.</div>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/7a9de370-44f1-435e-8643-81e69e14a585.png" style="width:22.58em;height:3.42em;"/></div>
+<p><span>Once we select these plugins, and click <span class="packt_screen">Download and Install after Restart</span>, we'll be taken to a page listing all plugins that have an installation pending, in progress, or successful. At the bottom of this page is a checkmark that allows us to restart the server when the full download is complete. Make sure that you check that box:</span></p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/c72b99c8-ced7-41b6-a75f-506786105c12.png"/></div>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating our first build</h1>
+                </header>
+            
+            <article>
+                
+<p><span>After our required plugins are installed in Jenkins, we can start putting together our first build. We'll start at the bare minimum for a code repository, and then demonstrate how to have Jenkins read that repository and automatically run a build when new code is checked in.</span></p>
+<div class="packt_infobox">This project will need a Git repository available for Jenkins. If you don't have an already accessible Git repository, open up an account on GitHub and use a public repository. We're not writing anything sensitive, so it's okay that the world can see your repository.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Building our profile module</h1>
+                </header>
+            
+            <article>
+                
+<p>We wrote some code that defined our Jenkins server in the form of a profile at the beginning of this chapter. First, let's inspect the directory structure that we're working with for our already existing code:</p>
+<pre>profile/<br/>└── manifests<br/>    └── jenkins.pp</pre>
+<p>This is a pretty bare minimum profiles module, with a single manifest. We'll turn this simple module into a Git repository first:</p>
+<pre><strong>[rary@workstation ~]# cd profile/</strong><br/><strong>[rary@workstation profile]# git init</strong><br/><strong>Initialized empty Git repository in ~/profile/.git/</strong></pre>
+<p>If we run <kbd>git status</kbd>, we'll see that the <kbd>manifests</kbd> directory is checked in. Every file in this repository right now is new, so we'll need to add each file and check them into our first commit, often called the <kbd>'initial commit'</kbd>:</p>
+<pre><strong>[rary@workstation profile]# git add -A</strong><br/><strong>[rary@workstation profile]# git commit -m 'initial commit'</strong><br/><strong>[master (root-commit) 64f24a1] initial commit</strong><br/><strong> 1 file changed, 19 insertions(+)</strong><br/><strong> create mode 100644 manifests/jenkins.pp</strong><br/><strong>[root@pe-puppet-master profile]# git status</strong><br/><strong># On branch master</strong><br/><strong>nothing to commit, working directory clean</strong></pre>
+<p>We're then ready to send off our initial commit to the remote repository:</p>
+<pre><strong>[rary@workstation profile]# git remote add origin git@github.com:RARYates/cicd-walkthrough-profile.git</strong><br/><strong>[rary@workstation profile]# git push origin master</strong><br/><strong>Counting objects: 4, done.</strong><br/><strong>Delta compression using up to 2 threads.</strong><br/><strong>Compressing objects: 100% (2/2), done.</strong><br/><strong>Writing objects: 100% (4/4), 519 bytes | 0 bytes/s, done.</strong><br/><strong>Total 4 (delta 0), reused 0 (delta 0)</strong><br/><strong>To git@github.com:RARYates/cicd-walkthrough-profile.git</strong><br/><strong> * [new branch] master -&gt; master</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Building our Jenkinsfile</h1>
+                </header>
+            
+            <article>
+                
+<p>The Pipeline plugin we installed on our Jenkins node allows us to declare our pipeline directly in the same repository as our code, as a script called a Jenkinsfile. This Jenkinsfile describes the details of our build steps, which can be automatically read by Jenkins to execute our build. We'll begin with a very simple Jenkinsfile that checks to make sure that all of our manifests pass a <kbd>puppet parser validate</kbd>:</p>
+<pre>pipeline {<br/>    agent any<br/><br/>    stages {<br/>        stage('Test') {<br/>            steps {<br/>                sh 'find manifests -name *.pp -exec /usr/local/bin/puppet parser validate {} +;'<br/>            }<br/>        }<br/>    }<br/>}</pre>
+<p>This Jenkinsfile describes a pipeline that can be run on any agent (we only have one: our Jenkins node). It has stages, but only a single stage named <kbd>Test</kbd>, with a single step that runs <kbd>puppet parser validate</kbd> on every file ending in <kbd>.pp</kbd> (every manifest).</p>
+<p>Then, we send this file up to our remote repository so that it can be found by Jenkins through the normal Git workflow we've been using.</p>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Connecting Jenkins to our repository</h1>
+                </header>
+            
+            <article>
+                
+<p>Now that we have a build declared in our Jenkinsfile, we can build our first job. We'll start by clicking <span class="packt_screen">New Item</span> in the top left corner, and create a new <span class="packt_screen">Multibranch Pipeline</span> job called profile:</p>
+<p class="mce-root CDPAlignCenter CDPAlign"><img src="assets/abf72a1d-4f04-47f3-8986-9ad471522e7b.png"/></p>
+<p>For our build, we'll need to edit the <span class="packt_screen">Branch Sources</span> by adding the <span class="packt_screen">Project Repository</span> and set our scan interval to run every minute. This is a public repository for me, so I don't need to attach any credentials. I'll use the default behaviors and property strategy:</p>
+<p class="mce-root CDPAlignCenter CDPAlign"><img src="assets/f4913669-a762-4116-9b68-40c370629c14.png" style="width:47.75em;height:28.58em;"/></p>
+<div class="packt_tip"><span>Some hosted Git repositories, such as GitHub Enterprise, allow for the scanning of all repositories in an organization. It can save a lot of time managing Jenkins if all repositories are automatically discovered.</span></div>
+<p class="mce-root CDPAlignCenter CDPAlign"><img src="assets/03867273-3a61-4d54-b81b-1cd5af16c22c.png" style="width:30.00em;height:8.50em;"/></p>
+<p>After I click <span class="packt_screen">Scan</span>, an immediate job will be run to discover branches on that repository. Although this screen looks just like a Jenkins build, its pass or fail status is entirely based on the ability to connect to your Git repository and find a Jenkinsfile on a branch. Let's check on our first build by returning to the home page:</p>
+<p class="mce-root CDPAlignCenter CDPAlign"><img src="assets/8dbdd6f1-81eb-4068-8aa7-e6e1c7ebd1e7.png"/></p>
+<p>Our splash page has our first build in it! The sun represents a passing build, indicating that each step in our build returned a positive exit status. On the far right of the build is a run build button, which is for if we'd like to run the build again. For now, click on the name profile and enter the details of the build. Because this is a multibranch pipeline, we'll also want to click the master branch to bring us into our status. You'll see that our build has run, and you can inspect each step of the way from this menu.</p>
+<div class="packt_infobox">To ensure that this exercise does not require us to put our Jenkins somewhere publicly accessible, we'll be using repository polling. <span>While this will work for most, the most effective strategy is really using a Git hook to trigger Jenkins to run after every build.</span></div>
+<p class="mce-root"/>
+<p>At this part of the phase, we have a set of commands that can be run on demand. To really make Continuous Integration work, we'll need to have our code test itself. Within our job, we can select <span class="packt_screen">View Configuration</span> to come to the configuration page. We'll be setting our <span class="packt_screen">Build Triggers</span> to poll the SCM every minute:</p>
+<p class="mce-root CDPAlignCenter CDPAlign"><img src="assets/0a897ff3-9201-40ea-ba25-caea875f6903.png"/></p>
+<p>Once we've saved this configuration, Jenkins will automatically check our remote repository for changes every minute. We now have the simplest form of Continuous Integration: code that tests itself on every commit. With such a small amount of code coverage, our Continuous Integration pipeline doesn't provide us with much value, other than alerting us when we've created a malformed manifest.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Integrating the PDK</h1>
+                </header>
+            
+            <article>
+                
+<p>The Puppet PDK provides us with a framework for repeatable Continuous Integration. We'll be taking our bare bones module and converting it with PDK, and then we will begin by using PDK validate to replace our basic <kbd>puppet parser validate</kbd> command. Because the PDK is available on our Jenkins master, all PDK commands will also be available for use.</p>
+<p>Our first step will be to change branches so that we don't impact the master as we're adding new code:</p>
+<pre><strong>[root@pe-puppet-master profile]# git checkout -b pdk</strong><br/><strong>Switched to a new branch 'pdk'</strong></pre>
+<p>Next, let's convert our existing module with the PDK convert command. We'll be prompted with a series of questions, mostly aimed at publishing modules to the forge. The final question asks which operating system this is relevant to and actually does help form our test bindings, so we'll minimize this to just the targeted operating system: Red Hat-based Linux. Simply run <kbd>pdk convert</kbd> and follow the prompts.</p>
+<p>The default PDK template contains three files not relevant to us: <kbd>.gitlab-ci.yml</kbd>, <kbd>.travis.yml</kbd>, and <kbd>appveyor.yml</kbd>, which are used for other CI systems. We'll then add our new files and commit them into a new code commit:</p>
+<pre><strong>[rary@workstation profile]# rm .gitlab-ci.yml .travis.yml appveyor.yml</strong><br/><strong>rm: remove regular file ‘.gitlab-ci.yml’? y</strong><br/><strong>rm: remove regular file ‘.travis.yml’? y</strong><br/><strong>rm: remove regular file ‘appveyor.yml’? y</strong><br/><strong>[rary@workstation profile]# git add -A</strong><br/><strong>[rary@workstation profile]# git commit -m 'Initial PDK integration'</strong><br/><strong>[pdk 7eb5009] Initial PDK integration</strong><br/><strong> 10 files changed, 350 insertions(+)</strong><br/><strong> create mode 100644 .gitignore</strong><br/><strong> create mode 100644 .pdkignore</strong><br/><strong> create mode 100644 .rspec</strong><br/><strong> create mode 100644 .rubocop.yml</strong><br/><strong> create mode 100644 .yardopts</strong><br/><strong> create mode 100644 Gemfile</strong><br/><strong> create mode 100644 Rakefile</strong><br/><strong> create mode 100644 metadata.json</strong><br/><strong> create mode 100644 spec/default_facts.yml</strong><br/><strong> create mode 100644 spec/spec_helper.rb</strong></pre>
+<p>Then, we'll change our Jenkinsfile <kbd>Test</kbd> stage to use the <kbd>pdk validate</kbd> utility:</p>
+<pre>pipeline {<br/>  agent any<br/>    stages {<br/>        stage('Test') {<br/>            steps {<br/>                sh '/usr/local/bin/pdk validate'<br/>            }<br/>        }<br/>    }<br/>}</pre>
+<p>We'll push that back up to our remote repository with our Git workflow, and our Jenkins instance will automatically pick up our job on our new PDK branch after sending it remotely with <kbd>git push origin pdk</kbd>. Back on our <span class="packt_screen">profile</span> page, we will now see a new branch:</p>
+<p class="mce-root CDPAlignCenter CDPAlign"><img src="assets/df3b12e7-d078-4a10-80d0-9c31074e90ef.png"/></p>
+<p>The inside of this PDK branch should appear similar to our previous branch, but we want to inspect the logs of our test. Inside, we'll see that a few <kbd>puppet-lint</kbd> warnings were triggered, but did not fail the build. Puppet lint warnings by default provide an exit status of <kbd>0</kbd>, allowing your build to still pass:</p>
+<pre class="console-output"><strong>warning: puppet-lint: manifests/jenkins.pp:1:1: class not documented
+warning: puppet-lint: manifests/jenkins.pp:14:12: indentation of =&gt; is not properly aligned (expected in column 13, but found it in column 12)
+warning: puppet-lint: manifests/jenkins.pp:15:12: indentation of =&gt; is not properly aligned (expected in column 13, but found it in column 12)</strong></pre>
+<div class="packt_tip">I like the Warnings plugin for viewing lint syntax. It shows trends over time, but is by no means necessary for proper Continuous Integration.</div>
+<p>Before we do a pull request of this code into master, let's clean up our lint warnings by adding a comment to the top of our manifest, and aligning the arrows within the PDK package:</p>
+<pre># Jenkins Profile<br/>class profile::jenkins {<br/><br/>  class { 'jenkins': lts =&gt; true }<br/><br/>  package {'git': ensure =&gt; latest }<br/><br/>  file {'/tmp/pdk.rpm':<br/>    ensure =&gt; file,<br/>    source =&gt; 'https://puppet-pdk.s3.amazonaws.com/pdk/1.7.0.0/repos/el/7/puppet5/x86_64/pdk-1.7.0.0-1.el7.x86_64.rpm',<br/>  }<br/><br/># Install latest PDK directly from Puppet Source<br/>  package {'pdk':<br/>    ensure  =&gt; installed,<br/>    source  =&gt; '/tmp/pdk.rpm',<br/>    require =&gt; File['/tmp/pdk.rpm'],<br/>  }<br/><br/>}</pre>
+<p>We can then add these changes and push them back up to our remote repository. Our Jenkins scan will then pick up these changes within a minute and give us the all clear. Once we're happy with these results, you can merge your code with a pull request back at the remote repository, and watch this test run again on our master branch.</p>
+<p>Now that we have some basic validation in place, we can start building some basic test coverage to rely on our profiles not losing features over time, or regressing.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Unit testing with Puppet RSpec</h1>
+                </header>
+            
+            <article>
+                
+<p>Unit testing is testing focused around the smallest unit of code. In the case of Puppet, the smallest functional unit of code is the manifest. RSpec provides us with a unit testing framework for Puppet code, which is fast and effective at checking that our Puppet code is producing the Puppet catalogs we expect. Whatever tests we write in RSpec, we're essentially asking: <em>would what I want be in the Puppet catalog when I execute this code?</em></p>
+<p class="mce-root"/>
+<p>RSpec as a system is run on the command line, and does not involve a new virtual machine or container. It is now included in the Puppet PDK under the command <kbd>pdk test unit</kbd>. We're going to look at the files involved in running unit tests, and writing simple unit tests from the templates provided by the PDK.</p>
+<p>We're beginning a new feature set, so we'll want to start from master, pull down the remote commits, and start on a new branch:</p>
+<pre><strong>[rary@workstation profile]# git checkout master</strong><br/><strong>Switched to branch 'master'</strong><br/><br/><strong>[rary@workstation profile]# git pull origin master</strong><br/><strong>remote: Counting objects: 1, done.</strong><br/><strong>remote: Total 1 (delta 0), reused 0 (delta 0), pack-reused 0</strong><br/><strong>Unpacking objects: 100% (1/1), done.</strong><br/><strong>From github.com:RARYates/cicd-walkthrough-profile</strong><br/><strong> * branch master -&gt; FETCH_HEAD</strong><br/><strong>Updating 1b91eec..639f8f6</strong><br/><strong>Fast-forward</strong><br/><strong> ...</strong><br/><br/><strong>[rary@workstation profile]# git checkout -b rspec</strong><br/><strong>Switched to a new branch 'rspec'</strong></pre>
+<p>Before we begin with RSpec, we'll want a sample set of files we can work with. At the time of writing this book, there is no command in the PDK to create a unit test without creating a new manifest. To overcome this limitation, we'll simply rename our <kbd>jenkins.pp</kbd> file, create a new class with the PDK, and place our existing file back in place over it:</p>
+<pre><strong>[rary@workstation profile]# mv manifests/jenkins.pp manifests/jenkins.pp.bak;pdk new class jenkins;mv manifests/jenkins.pp.bak manifests/jenkins.pp</strong><br/><strong>pdk (INFO): Creating '/root/profile/manifests/jenkins.pp' from template.</strong><br/><strong>pdk (INFO): Creating '/root/profile/spec/classes/jenkins_spec.rb' from template.</strong><br/><strong>mv: overwrite ‘manifests/jenkins.pp’? y</strong></pre>
+<p>We'll now have our <kbd>jenkins_spec.rb</kbd> built from template, and will be ready to begin writing unit tests in RSpec.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Relevant RSpec files</h1>
+                </header>
+            
+            <article>
+                
+<p>With our files in place, let's inspect the most relevant files we'll work with during the testing of classes:</p>
+<ul>
+<li><kbd>.fixtures.yml</kbd></li>
+<li><kbd>spec/classes/jenkins_spec.rb</kbd></li>
+</ul>
+<div class="packt_tip"><kbd>spec/spec_helper.rb</kbd> provides configuration and variables to every test in your suite. We won't be editing it in this example, but know that this is essentially your global configuration file for all of the modules tests.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">.fixtures.yml</h1>
+                </header>
+            
+            <article>
+                
+<p>Our <kbd>fixtures</kbd> file lets our tests know what dependencies are required for our manifests. It is placed at the base of the repository, as <kbd>profile/.fixtures.yml</kbd>. For our particular profile, we'll build a fixtures file that contains <kbd>rtyler/jenkins</kbd> and all of its dependencies in order to support our test:</p>
+<pre><span class="pl-ent">#profile/.fixtures.yml<br/></span><span class="pl-s"><span class="pl-pds">fixtures:<br/>  repositories:<br/>    jenkins:<br/>      repo: "git://github.com/voxpupuli/puppet-jenkins.git"<br/>      ref: "1.7.0"<br/>    apt: "https://github.com/puppetlabs/puppetlabs-apt"<br/>    stdlib: "https://github.com/puppetlabs/puppetlabs-stdlib"<br/>    java: "https://github.com/puppetlabs/puppetlabs-java"<br/>    zypprepo: "https://github.com/voxpupuli/puppet-zypprepo.git"<br/>    archive: "https://github.com/voxpupuli/puppet-archive.git"<br/>    systemd: "https://github.com/camptocamp/puppet-systemd.git"<br/>    transition: "https://github.com/puppetlabs/puppetlabs-transition.git"<br/></span></span></pre>
+<p>We use this file to declare a module in our test, and use a pointer to a repository to find it. In the preceding case, we're grabbing the latest version of each module except Jenkins, which we've pinned at 1.7.0 as we're using in our Puppetfile. Depending on your strategy for code, you may or may not want to tag a specific reference to a version, like I did previously.</p>
+<div class="packt_infobox">Documentation on fixtures can be found in the <kbd>spec_helper.rb</kbd> GitHub repository at <a href="https://github.com/puppetlabs/puppetlabs_spec_helper#fixtures-examples">https://github.com/puppetlabs/puppetlabs_spec_helper#fixtures-examples</a>.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">jenkins_spec.rb</h1>
+                </header>
+            
+            <article>
+                
+<p>After our fixtures are in place, let's inspect our <kbd>jenkins_spec.rb</kbd>, as provided by the PDK:</p>
+<pre># Brings in our Global Configuration from spec/spec_helper.rb<br/>require 'spec_helper'<br/><br/># Tells RSpec with manifest to check, in this case: profile/manifests.jenkins.pp<br/>describe 'profile::jenkins' do<br/><br/># Runs the test once for each operating system listed in metadata.json, with a suite of default facts<br/>  on_supported_os.each do |os, os_facts|<br/>    context "on #{os}" do<br/>      let(:facts) { os_facts }<br/><br/># The manifest should compile into a catalog<br/>      it { is_expected.to compile }<br/>    end<br/>  end<br/>end</pre>
+<p>The preceding simple test just ensures that the catalog compiles for each and every operating system listed in <kbd>metadata.json</kbd>. Normally, we'd run this test and we'd receive a passing status. In this particular case, <kbd>rtyler/jenkins</kbd> requires us to supply an additional fact of <kbd>systemd</kbd> that is not available in the base <kbd>on_supported_os</kbd> function.</p>
+<div class="packt_tip">Check popular modules on the forge for samples of code, especially in cases where you're testing profiles against existing modules. Often, the upstream module has a fix, like the one we're about to implement.</div>
+<p>We'll edit our existing <kbd>spec</kbd> class to introduce a new fact to our system to support <kbd>systemd</kbd>:</p>
+<pre>require 'spec_helper'<br/><br/>describe 'profile::jenkins' do<br/>  on_supported_os.each do |os, os_facts|<br/>     context "on #{os}" do<br/><br/># Add a new ruby variable that returns true when the OS major release version is 6<br/>      systemd_fact = case os_facts[:operatingsystemmajrelease]<br/>                     when '6'<br/>                       { systemd: false }<br/>                     else<br/>                       { systemd: true }<br/>                     end<br/># Change our facts to merge in our systemd_fact<br/>      let :facts { os_facts.merge(systemd_fact) }<br/><br/>      it { is_expected.to compile }<br/>    end<br/>  end<br/>end</pre>
+<p>Now, our test will be able to compile, as the upstream Jenkins module will have the <kbd>systemd</kbd> fact it needs to compile. Let's go ahead and compile our tests:</p>
+<pre><strong>[root@pe-puppet-master profile]# pdk test unit</strong><br/><strong>pdk (INFO): Using Ruby 2.4.4</strong><br/><strong>pdk (INFO): Using Puppet 5.5.2</strong><br/><strong>[<img src="assets/68c8edde-5976-4632-9701-3c3dc7112db7.png"/>] Preparing to run the unit tests.</strong><br/><strong>[<img src="assets/68c8edde-5976-4632-9701-3c3dc7112db7.png"/>] Running unit tests.</strong><br/><strong>  Evaluated 4 tests in 3.562477833 seconds: 0 failures, 0 pending.</strong></pre>
+<p>You may have noticed that we have four passing tests. Although we wrote just one test, our <kbd>on_supported_os</kbd> function looked in our <kbd>metadata.json</kbd> file and provided a test for each listed operating system, all within the Red Hat family.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Extending our Jenkinsfile</h1>
+                </header>
+            
+            <article>
+                
+<p>We're going to change up our Jenkinsfile to support our new RSpec test. We're going to remove our original <kbd>Test</kbd> stage and be more clear by creating the <kbd>Validate</kbd> and <kbd>Unit Test</kbd> stages. We'll simply incorporate the two as <kbd>pdk validate</kbd> and <kbd>pdk test unit</kbd>:</p>
+<pre>pipeline {<br/>    agent any<br/><br/>    stages {<br/>        stage('Validate') {<br/>            steps {<br/>                sh '/usr/local/bin/pdk validate'<br/>            }<br/>        }<br/>        stage ('Unit Test') {<br/>            steps {<br/>                sh '/usr/local/bin/pdk test unit'<br/>             }<br/>        }<br/>    }<br/>}</pre>
+<p>This will change our pipeline to three distinct phases: checkout <kbd>SCM</kbd>, <kbd>Validate</kbd>, and <kbd>Unit Test</kbd>. We'll be able to see where our build passes or fails along each step in Jenkins.</p>
+<p>Now that we have a basic framework for our test laid out, let's get our code back to the remote repository:</p>
+<pre><strong>[root@pe-puppet-master profile]# git commit -m 'Initial RSpec Framework'</strong><br/><strong>[rspec 2bc4765] Initial RSpec Framework</strong><br/><strong> 3 files changed, 37 insertions(+), 1 deletion (-)</strong><br/><strong> create mode 100644 .fixtures.yml</strong><br/><strong> create mode 100644 spec/classes/jenkins_spec.rb</strong><br/><strong>[root@pe-puppet-master profile]# git push origin rspec</strong><br/><strong>Counting objects: 8, done.</strong><br/><strong>Delta compression using up to 2 threads.</strong><br/><strong>Compressing objects: 100% (5/5), done.</strong><br/><strong>Writing objects: 100% (6/6), 892 bytes | 0 bytes/s, done.</strong><br/><strong>Total 6 (delta 1), reused 0 (delta 0)</strong><br/><strong>remote: Resolving deltas: 100% (1/1), completed with 1 local object.</strong><br/><strong>To git@github.com:RARYates/cicd-walkthrough-profile.git</strong><br/><strong> * [new branch] rspec -&gt; rspec</strong></pre>
+<p>Back in our Jenkins instance, we can see the new RSpec branch and the new logs for our test. Notice each section, and that we're also seeing our Jenkins instance pass our four RSpec tests.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Extending our test</h1>
+                </header>
+            
+            <article>
+                
+<p>Now that we can write a test, we'll write one simple test that simply mirrors our manifest. This test will help us prevent regression, as changing an existing value or removing an existing resource will cause the test to fail. If this change is intended, the test must also be changed. Although this intuitively feels like it would slow down development, it saves even more time in integration when you can ensure that no new errors have been introduced.</p>
+<p>Here is our RSpec test containing the mirror of our original profile:</p>
+<pre>require 'spec_helper'
+
+describe 'profile::jenkins' do
+  on_supported_os.each do |os, os_facts|
+    context "on #{os}" do
+      systemd_fact = case os_facts[:operatingsystemmajrelease]
+                     when '6'
+                       { systemd: false }
+                     else
+                       { systemd: true }
+                     end
+      let :facts do
+        os_facts.merge(systemd_fact)
+      end
+
+      ####  NEW CODE  ####
+
+      context 'With Defaults' do
+        it do
+          # Jenkins must be the LTS
+          is_expected.to contain_class('jenkins').with('lts' =&gt; 'true')
+
+          # We're unsure if we want latest git, but we want to make sure it's installed
+          is_expected.to contain_package('git')
+
+          # Download this particular version of the PDK
+          is_expected.to contain_file('/tmp/pdk.rpm').with('ensure' =&gt; 'file',
+                                                           'source' =&gt; 'https://puppet-pdk.s3.amazonaws.com/pdk/1.7.0.0/repos/el/7/puppet5/x86_64/pdk-1.7.0.0-1.el7.x86_64.rpm')
+
+          # Install PDK from Disk. We'll change this test if we place this in a proper yumrepo one day
+          # Also not that that_requires, and  the lack of quotes within the File array
+          is_expected.to contain_package('pdk').with('ensure'  =&gt; 'installed',
+                                                     'source'  =&gt; '/tmp/pdk.rpm').that_requires('File[/tmp/pdk.rpm]')
+        end
+      end
+
+      ### END NEW CODE ###
+
+      it { is_expected.to compile }
+    end
+  end
+end</pre>
+<p>When we create a commit with this new test, and send it back up to Jenkins, we'll see our build actually perform this test. Up to this point, we've never intentionally broken a test. Let's go ahead and prove our test now. Comment out one resource in your original manifest, or change some configuration before sending this repository back to the remote server. After pushing this, you should be able to see a failed test in Jenkins! Simply uncomment out your resources and push a new commit up to your remote, and you'll see Jenkins pass this build. Once your build is passing, go ahead and merge into master so that we can continue onto our next section of integration testing.</p>
+<div class="packt_infobox">There is great documentation on writing RSpec tests out there at <a href="http://rspec-puppet.com/">http://rspec-puppet.com/</a>.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Acceptance testing with Test Kitchen</h1>
+                </header>
+            
+            <article>
+                
+<p>An acceptance test is a test that is performed to validate that requirements are met. While RSpec is a fast way to check that a catalog is compiled the way you expect it to be, it does not actually run the catalog on the system and verify that the expected results can be seen. An acceptance test, in the context of Puppet, is applying your selected manifest to a system and verifying that the system meets the requirements after the catalog is applied, preferably with a method that isn't the Puppet Agent itself.</p>
+<p>In this chapter, we're going to build an acceptance test for our Jenkins Profile that ensures that Jenkins is running and that we can reach it on port <kbd>8080</kbd> so that we can view the web page. This extends beyond the ability of RSpec, as Rspec doesn't actually build a node we can verify on. When we use an acceptance testing harness in Puppet, we also tie it to a hypervisor so that it can manage a node, or <strong>System Under Test</strong> (<strong>SUT</strong>). </p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Beaker</h1>
+                </header>
+            
+            <article>
+                
+<p>Puppet provides a perfectly adequate acceptance testing harness in Beaker. Beaker is designed to connect to a hypervisor and spin up nodes as defined in configuration files and apply the Puppet tests. It uses a simple language called Serverspec to define tests. It also has the benefit of checking for idempotence by running a second time. Puppet themselves have also connected it to another application called VMPooler, which preemptively spins up a pool of virtual machines to act as SUTs and replaces themselves when the test is done, providing rapid response time to acceptance tests. If you, as an organization, are far along in your CI/CD process, and require virtual machines, I highly recommend Beaker. For this section, we'll do our acceptance testing in Test Kitchen, simply because I believe it's easier to work with and provides more options for workstation development.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Test Kitchen and kitchen-puppet</h1>
+                </header>
+            
+            <article>
+                
+<p>Test Kitchen is actually the testing framework built by Chef. It is very simple to use and get started with, and uses a language even easier to work with than Serverspec called Inspec. We'll be extending Test Kitchen to support Puppet using <kbd>rubygem kitchen-puppet</kbd>, found at <a href="https://github.com/neillturner/kitchen-puppet">https://github.com/neillturner/kitchen-puppet</a>. We'll need to prepare our Jenkins node to start taking advantage of Test Kitchen and running another set of validation tests.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Preparing Test Kitchen on our Jenkins node</h1>
+                </header>
+            
+            <article>
+                
+<p>Test Kitchen directly supports the development activities of our Puppet code. We'll be using a single composite command from Test Kitchen in our CI/CD run: <kbd>kitchen test</kbd>. Kitchen test is an orchestration of the destroy, create, converge, setup, verify, and commands, taking us through cleaning up, building, applying code, and testing each run. You can run Test Kitchen locally, as well as on our CI/CD system, which is one of the greatest strengths of using kitchen-puppet. We'll be adding a lot of code in this section, from updating our Jenkins Profile to supporting Test Kitchen, to building the test and Test Kitchen configuration.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Jenkins Profile</h1>
+                </header>
+            
+            <article>
+                
+<p>We'll change up our profile first. In the following example, we'll add the following resources and features:</p>
+<ul>
+<li>Install Docker, if the node is not already a Docker Container</li>
+<li>Install RVM, Ruby 2.4.1 and all RubyGems needed for Kitchen</li>
+</ul>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>We have added the preceding resources and features in the following code:</p>
+<pre style="padding-left: 60px"># Jenkins Profile<br/>class profile::jenkins {<br/><br/>  class {'jenkins':<br/>    lts =&gt; true,<br/>  }<br/><br/>  package {'git': ensure =&gt; latest }<br/><br/>  file {'/tmp/pdk.rpm':<br/>    ensure =&gt; file,<br/>    source =&gt; 'https://puppet-pdk.s3.amazonaws.com/pdk/1.7.0.0/repos/el/7/puppet5/x86_64/pdk-1.7.0.0-1.el7.x86_64.rpm',<br/>  }<br/><br/># Install latest PDK directly from Puppet Source<br/>  package {'pdk':<br/>    ensure =&gt; installed,<br/>    source =&gt; '/tmp/pdk.rpm',<br/>    require =&gt; File['/tmp/pdk.rpm'],<br/>  }<br/><br/>  if $::virtual != 'docker' {<br/>    class {'docker':<br/>      docker_users =&gt; ['jenkins']<br/>    }<br/>  }<br/><br/>  include rvm<br/><br/>  rvm::system_user { 'jenkins':}<br/><br/>  rvm_system_ruby {'ruby-2.4.1':<br/>    ensure =&gt; 'present',<br/>    default_use =&gt; true,<br/>  }<br/><br/>  rvm_gem {['ruby-2.4.1/librarian-puppet',<br/>            'ruby-2.4.1/test-kitchen',<br/>            'ruby-2.4.1/executable-hooks',<br/>            'ruby-2.4.1/kitchen-inspec',<br/>            'ruby-2.4.1/kitchen-puppet',<br/>            'ruby-2.4.1/kitchen-docker']:<br/>    ensure =&gt; installed,<br/>    require =&gt; Rvm_system_ruby['ruby-2.4.1'],<br/>    notify =&gt; Service['jenkins'],<br/>  }<br/><br/>}</pre>
+<div class="packt_infobox">We'll need to deploy this new profile to our Jenkins node before we continue through the rest of the section. Make sure you deploy this to your Puppet Master before continuing on editing the build. Working with your CI/CD system can sometimes feel like a series of chicken before the egg scenarios. This is normal, but the concepts extend beyond our CI/CD system.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">.kitchen.yml</h1>
+                </header>
+            
+            <article>
+                
+<p>The first file we'll work with is our <kbd>.kitchen.yml</kbd>. This file determines how Test Kitchen performs the build. This YAML file provides us with the following:</p>
+<ul>
+<li><strong>Driver</strong>: This is used for running the build in Docker as a privileged user starting with the init process. If you're unfamiliar with working with containers, we're setting it up this way to act more like a traditional VM, and less like a wrapper around an application.</li>
+<li><strong>Provisioner</strong>: We're setting up Test Kitchen to use the Puppet provisioner with a local manifests and modules path in our build.</li>
+<li><strong>Verifier</strong>: Use Inspec for testing.</li>
+<li><strong>Platforms</strong>: We are going to configure our container to use the CentOS SystemD container. We're passing additional commands to ensure that SSH works properly, and that init scripts are available for our Jenkins run.</li>
+<li><strong>Suites</strong>: This is used for describing each test suite we run. This first one is defined with <kbd>jenkins.pp</kbd> in our test directory, which is a simple <kbd>include profile::jenkins</kbd>, like we may see in an <kbd>example.pp</kbd>. Notice our pre-verify stage in this one, giving our Jenkins instance 30 seconds to finish coming up before we test:</li>
+</ul>
+<pre style="padding-left: 60px">---<br/>driver:<br/>  name: docker<br/>  privileged: true<br/>  use_sudo: false<br/>  run_command: /usr/sbin/init<br/><br/>provisioner:<br/>  name: puppet_apply<br/>  # Not installing chef since inspec is used for testing<br/>  require_chef_for_busser: false<br/>  manifests_path: test<br/>  modules_path: test/modules<br/><br/>verifier:<br/>  name: inspec<br/><br/>platforms:<br/>- name: centos<br/>  driver_config:<br/>    image: centos/systemd<br/>    platform: centos<br/>    run_command: /usr/sbin/init<br/>    privileged: true<br/>    provision_command:<br/>      - yum install -y initscripts<br/>      - sed -i 's/UsePAM yes/UsePAM no/g' /etc/ssh/sshd_config<br/>      - systemctl enable sshd.service<br/><br/>suites:<br/>  - name: default<br/>    provisioner:<br/>      manifest: jenkins.pp<br/>    lifecycle:<br/>      pre_verify:<br/>      - sleep 30</pre>
+<p><kbd>.kitchen.yml</kbd> will work for us locally as well, allowing us to run tests and verify them before sending our code up to our remote repository. We can also use <kbd>kitchen converge</kbd> to build the machine and apply the code if we want to inspect the end-state on our local system.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Puppetfile</h1>
+                </header>
+            
+            <article>
+                
+<p>The kitchen-puppet gem runs via Puppetfile. Underneath the covers, it's using a tool called librarian-puppet to pull down all modules and dependencies found in the Puppetfile. Librarian and r10k came around the same time, with r10k providing no automatic dependency resolution, preferring explicit naming. Due to our use of Puppet <span>Librarian</span>, we're explicitly adding an exclusion for Java and Apt, which our 2-year old Puppet module locks to old versions. Our Jenkins module works just fine with modern versions of Java and Apt, but this automatic dependency resolution has to be muted so that we do not fail:</p>
+<pre>forge 'https://forge.puppetlabs.com'<br/>mod 'rtyler/jenkins',<br/>  :git =&gt; 'https://github.com/voxpupuli/puppet-jenkins.git',<br/>  :ref =&gt; 'v1.7.0'<br/><br/>#mod 'puppetlabs-stdlib'<br/>mod 'darin-zypprepo'<br/>mod 'puppet-archive'<br/>mod 'camptocamp-systemd'<br/>mod 'puppetlabs-transition'<br/>mod 'maestrodev-rvm'<br/>mod 'puppetlabs-docker'<br/><br/>mod 'puppetlabs-java'<br/>mod 'puppetlabs-apt'<br/><br/>exclusion 'puppetlabs-apt'<br/>exclusion 'puppetlabs-java'</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Jenkinsfile</h1>
+                </header>
+            
+            <article>
+                
+<p>I'm adding two new objects to our Jenkinsfile: an integration test provided by a shell script, and a post action that tells Jenkins to clean up our workspace. We're using an external script instead of running inline for ease of management, as each <kbd>sh</kbd> step is an independent shell in Jenkins. Our post cleanup action just makes sure that we don't retain any artifacts from a previous build:</p>
+<pre>pipeline {<br/>    agent any<br/><br/>    stages {<br/>        stage('Validate') {<br/>            steps {<br/>                sh '/usr/local/bin/pdk validate'<br/>            }<br/>        }<br/>        stage ('Unit Test') {<br/>            steps {<br/>                sh '/usr/local/bin/pdk test unit'<br/>             }<br/>        }<br/>        stage ('Integration Test') {<br/>            steps {<br/>                sh './acceptance.sh'<br/>             }<br/>        }<br/>    }</pre>
+<p class="mce-root"/>
+<pre>post {<br/>        always {<br/>            deleteDir()<br/>        }<br/>    }<br/>}</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">acceptance.sh</h1>
+                </header>
+            
+            <article>
+                
+<p>Our acceptance shell script is relatively small, but allows Jenkins to have a path for this build and sources in RVM prior to running Kitchen Test. We want to make sure that the build stays consistent, so we want to control the environment around the build as well:</p>
+<pre>#profile/acceptance.sh<br/>#!/bin/bash<br/>PATH=$PATH:/usr/local/rvm/gems/ruby-2.4.1/bin/:/usr/local/bin<br/>source /usr/local/rvm/bin/rvm<br/>/usr/local/rvm/gems/ruby-2.4.1/wrappers/kitchen test</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Test</h1>
+                </header>
+            
+            <article>
+                
+<p>Our actual test itself is one of the simplest files in our new iteration. We're placing it in the default folder, so it's found by the default suite we mentioned previously. We're building a single control or set of tests, with three tests:</p>
+<ul>
+<li>Ensure that the Jenkins package is installed</li>
+<li>Ensure that the Jenkins service is running</li>
+<li>Ensure that Jenkins can be reached on the localhost at <kbd>8080</kbd>, and returns a 200 exit status:</li>
+</ul>
+<pre># profile/integration/default/jenkins_spec.rb<br/>control 'Jenkins Status' do<br/>  describe package('jenkins') do<br/>    it { is_expected.to be_installed }<br/>  end<br/><br/>  describe http('http://localhost:8080', open_timeout: 60, read_timeout: 60) do<br/>    its('status') { is_expected.to cmp 200 }<br/>  end<br/><br/></pre>
+<pre>describe service('jenkins') do<br/>    it { is_expected.to be_running }<br/>  end<br/>end</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Performing the test</h1>
+                </header>
+            
+            <article>
+                
+<p>Now that we have all of the pieces in place, let's go ahead and deploy our code to our repository, and let Jenkins run the job. If you haven't already run our new Jenkins Profile, you'll need to make sure it's deployed to your master and that your Jenkins node has already converged on it. Once we push our test to the CI/CD system, it will read our code and begin the test. Of particular note, this test will take significantly longer than the tests we've written previously, as the container will need to be downloaded, built, spun up, converged, and tested, compared to our PDK commands that simply checked syntax or compiled a quick catalog.</p>
+<p>We've built a lot of files during this chapter, so let's take a quick look at just the files we've managed, ignoring anything automatically built by software:</p>
+<pre><strong>rary at Ryans-MacBook-Pro-3 in ~/workspace/packt</strong><br/><strong>$ tree cicd-walkthrough-profile</strong><br/><strong>cicd-walkthrough-profile</strong><br/><strong>├── Jenkinsfile # Test to be Performed</strong><br/><strong>├── Puppetfile # Dependencies for Kitchen Tests</strong><br/><strong>├── acceptance.sh # Command to run Test Kitchen for Jenkins</strong><br/><strong>├── manifests</strong><br/><strong>│   └── jenkins.pp # Jenkins Profile</strong><br/><strong>├── spec</strong><br/><strong>│   ├── classes</strong><br/><strong>│   │   └── jenkins_spec.rb # Our Inspec test for the Kitchen Phase</strong><br/><strong>└── test</strong><br/><strong>    ├── integration</strong><br/><strong>    │   └── default</strong><br/><strong>    │       └── jenkins_spec.rb # Our RSpec Test, checking the Catalog</strong><br/><strong>    └── jenkins.pp # Our example manifest that applies the Profile for Kitchen</strong><br/><br/><strong>13 directories, 18 files</strong></pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, we focused on building out a CI System (Jenkins) and performing a validation check, a unit test, and an acceptance test. CI/CD is a continual journey, and there is always room for improvement in our workflows. <span>Continuous Integration provides us with a valuable safety net for development, allowing us to develop without worrying about feature loss or regression. </span></p>
+<p>Where are some places to go to from here? Integrate your Git system closer to Jenkins by using Git hooks to deploy code, and providing a status back before a pull request is added. You can also add notifications to developers, alerting them when their tests have gone from passing to failing. If you find some of these warnings to be too much, tune the system providing the warning to avoid some of these errors. Everyone has a different CI/CD journey, so explore for yourself and figure out what works for you!</p>
+<p>The next chapter covers Puppet Tasks and Puppet Discovery. Puppet Tasks allows us to run ad-hoc commands and use them as building blocks for imperative scripts. We'll be building a task to inspect log files and planning to build an aggregated log file for our Puppet Master. Puppet Discovery allows us to inspect our existing infrastructure and determine ground truth on packages, services, users, and various other components of a virtual machine or container.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

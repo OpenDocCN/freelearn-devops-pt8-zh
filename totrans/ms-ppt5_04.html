@@ -1,0 +1,960 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Hiera 5</h1>
+                </header>
+            
+            <article>
+                
+<p>Hiera 5 is now a fully fledged member of the Puppet ecosystem. We've all been using Hiera for several years already, to provide a so-called <em>separation of concerns</em> between Puppet code and configuration data. Essentially, Hiera lets us separate the <em>how</em> (Puppet modules and manifests) from the <em>what</em> (configuration data). This allows us to keep all site-specific and business-specific data out of our manifests, making our Puppet modules vastly more portable. I can recall some time ago in the Puppet community, when Kelsey Hightower first gave us a presentation about separating manifests from data. Well, Hiera 5 finally comes of age in this version, and now allows us complete mastery over this aspect of our infrastructure design.</p>
+<p>Hiera provides a key/value lookup facility for configuration data, allowing external lookups of values, and then exposing that data to Puppet DSL and hence, the Puppet compiler. Hiera data is kept in a pluggable database comprised of usually nothing more than simple text-based files. What we should aim to achieve is the design of a data hierarchy that essentially cascades through our server categories. Hiera then searches through all the tiers in this hierarchy, merging all the results into either a single value, array, or hash.</p>
+<p>Although Hiera typically has a pluggable design, the sources for Hiera data are written in easy-to-read YAML. This means that it's often not necessary for Puppet developers to always be involved with site configuration, so some server configuration can now be done by other, less technical professionals in your organization.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Separation of concerns between code and data</h1>
+                </header>
+            
+            <article>
+                
+<p>Hiera separates Puppet DSL from business data, allowing us to use some of the same generic Puppet DSL repeatedly. In fact, as much as 80% of the Puppet DSL most organizations use is entirely generic; only the business data varies. Hiera allows us to make this full separation of concerns between functionality and business data, instead handily passing in the business data to our modules as parameters.</p>
+<p>Hiera works by first setting business values at the widest catchment (that is, site-wide, or <em>common</em> in Puppet parlance), and then moving up the hierarchy, overriding this global value at the appropriate level.</p>
+<p>Data specific to infrastructure lends itself incredibly well to a hierarchical model. Infrastructure always tends to consist of sets of configurable attributes: IP addresses, ports, hostnames, and API endpoints. There is a ton of settings that we configure within our infrastructures, and most of them are best represented hierarchically.</p>
+<p>A lot of infrastructure data starts out with a default, let's say, the DNS resolver your data center uses. You first set this as a key-value pair in the <kbd>common.yaml</kbd> data file. After Puppet is first installed, the hierarchy hash inside <kbd>hiera.conf</kbd> provides initially just this common (default) level:</p>
+<pre>---<br/>version: 5<br/>hierarchy:<br/>  - name: Common<br/>    path: common.yaml<br/>defaults:<br/>  data_hash: yaml_data<br/>  datadir: data</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Introducing a frame for the environment</h1>
+                </header>
+            
+            <article>
+                
+<p>Here's a typical scenario for Hiera: you find yourself having to override the DNS setting for your development environment because that environment can't connect to the production resolver on your network. You then deploy your production in a second data center, and you need that location to be different. Hiera allows us to model settings such as <em>the production DNS resolver is</em> <kbd>10.20.1.3</kbd><em>, and the development DNS server is</em> <kbd>10.199.30.2</kbd>.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>To accommodate this type of scenario, we can introduce what's best described as an environment <em>frame</em> within the Hiera hierarchy, as follows:</p>
+<pre>---<br/>version: 5<br/> hierarchy:<br/>   - name: "Per-node data"<br/>     path: "nodes/%{trusted.certname}.yaml"<br/> <br/>   - name: "Per-environment data"<br/>     path: "%{server_facts.environment}.yaml"<br/> <br/> - name: Common<br/>     path: common.yaml</pre>
+<p>The percent-braces <kbd>%{variable}</kbd> syntax denotes a Hiera interpolation token. Wherever you use these interpolation tokens, Hiera will evaluate the variable's value and inserts it appropriately into the hierarchy.</p>
+<div class="packt_infobox">
+<p>See the Puppet documentation for specifics on the Hiera 5 configuration syntax: <a href="https://puppet.com/docs/puppet/5.3/hiera_config_yaml_5.html#config-file-syntax-hierayaml-v5">https://puppet.com/docs/puppet/5.3/hiera_config_yaml_5.html#config-file-syntax-hierayaml-v5</a>.</p>
+</div>
+<p class="NormalPACKT">If we are using the data <kbd>datadir</kbd> and using the YAML backend by default, we can completely omit the defaults hash, as these are the default settings.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">A more complete hierarchy</h1>
+                </header>
+            
+            <article>
+                
+<p>We are just handling simple hierarchies, so instead of programming a complex conditional statement in Puppet DSL to determine how a DNS resolver gets resolved, we can build a hierarchy that best represents our infrastructure, such as the following:</p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/a5706e98-0264-484d-8955-ceb7b39382dd.png"/></div>
+<p class="mce-root"/>
+<div>
+<p>This example hierarchy would be represented with the following <kbd>hiera.yaml</kbd>:</p>
+<pre>---<br/>version: 5<br/>  hierarchy:<br/>    - name: "Per-node data"<br/>      path: "nodes/%{trusted.certname}.yaml"<br/> <br/>    - name: "Per application data"<br/>      path: "%{facts.application}.yaml"<br/> <br/>    - name: "Per environment data"<br/>      path: "%{server_facts.environment}.yaml"<br/> <br/>    - name: "Per datacenter data"<br/>      path: "%{facts.datacenter}.yaml"<br/> <br/>    - name: "Common data"<br/>      path: common.yaml</pre>
+<p>The <kbd>facts</kbd>, <kbd>trusted</kbd>, and <kbd>server_facts</kbd> hashes are the most useful hashes to interpolate in <kbd>hiera.yaml</kbd>.</p>
+<p>Note, if you need to reference the node's <kbd>fqdn</kbd>, use <kbd>trusted.certname</kbd>. In order to reference the environment of a node, the <kbd>server_facts.environment</kbd> fact is available.</p>
+<div class="packt_infobox">
+<p>See the Puppet documentation for more specifics on interpolation in Hiera: <a href="https://puppet.com/docs/puppet/5.3/hiera_merging.html#interpolation">https://puppet.com/docs/puppet/5.3/hiera_merging.html#interpolation</a>.</p>
+</div>
+</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Hiera 5 summary</h1>
+                </header>
+            
+            <article>
+                
+<p><span>Let's step through some of the key differences between Hiera 3 and Hiera 5 now, as follows:</span></p>
+<ul>
+<li class="mce-root">Global, environment, and module layers</li>
+<li class="mce-root">Encrypted YAML backend</li>
+<li class="mce-root">Lookup function</li>
+<li class="mce-root">Debugging Hiera</li>
+</ul>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Global, environment, and module layers</h1>
+                </header>
+            
+            <article>
+                
+<p>The earlier incarnations of Hiera (version 3 or earlier) used a single, entirely global <kbd>hiera.yaml</kbd>. Since its hierarchy is entirely global, it's not actually possible to change it without changing all environments simultaneously. Environments are usually used to control code changes, so this really makes a single <kbd>hiera.yaml</kbd> file quite inappropriate. Hiera 5 uses three layers of configuration and data: </p>
+<ul>
+<li>Global layer:
+<ul>
+<li class="mce-root">In Hiera 3, this was the only layer</li>
+<li>Useful for very temporary overrides, for example, when your operations team must bypass regular change processes</li>
+<li>The legacy Hiera 3 backends are still supported—so it can be used while migrating to Hiera 5</li>
+<li>This layer should generally now be avoided. All regular data should now be specified in the environment layer</li>
+</ul>
+</li>
+<li>Environment layer:
+<ul>
+<li class="mce-root">The environment layer is now where most of the Hiera data definition happens</li>
+<li>Available across all modules in the environment</li>
+<li>Overrides the module layer</li>
+</ul>
+</li>
+<li>Module layer:
+<ul>
+<li class="mce-root"><span>As we discussed in</span> <a href="e7bbbeb3-e406-46ea-aad3-20f4af34d014.xhtml">Chapter 1</a><span>,</span> <em>Authoring Modules</em><span>, the module layer can now configure default values and merge</span> behavior<span> for a module's class parameters. It is a handy alternative to using the</span> <kbd>params.pp</kbd> <span>pattern.</span></li>
+<li>To get the identical behavior, as we are used to with the <kbd>params.pp</kbd> pattern, the <kbd>default_hierarchy</kbd> setting is advisable, as those bindings aren't in merges.</li>
+<li>Data set in the environment layer overrides the default data configured by the author of the module.</li>
+</ul>
+</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Encrypted YAML backend</h1>
+                </header>
+            
+            <article>
+                
+<p>In Puppet 4.9.3, a <kbd>hiera-eyaml</kbd> backend was added to the Hiera functionality, allowing you to store encrypted data values. So, you can now hide away all your secret values, such as passwords, certificates, and so on, rather than using plain text in your Hiera data files. Let's go through the steps you can take to get this facility up and running.</p>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing hiera-eyaml</h1>
+                </header>
+            
+            <article>
+                
+<p>To set up <kbd>eyaml</kbd> with Puppet Server, install the <kbd>hiera-eyaml</kbd> gem with the following command:</p>
+<pre><strong>$ sudo /opt/puppetlabs/bin/puppetserver gem install hiera-eyaml</strong></pre>
+<p>You'll also need to install the Ruby gem a second time with the following command:</p>
+<pre><strong>$ sudo /opt/puppetlabs/puppet/bin/gem install hiera-eyaml</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating the encryption keys</h1>
+                </header>
+            
+            <article>
+                
+<p>Use the <kbd>eyaml createkeys</kbd> command to create the public and private encryption keys, as follows:</p>
+<pre><strong>$ eyaml createkeys</strong></pre>
+<p>This command will create the public and private keys with their default names in the default  <kbd>./keys</kbd><em> </em><span>directory.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Securely storing away the encryption keys</h1>
+                </header>
+            
+            <article>
+                
+<p>Let's now copy the two keys into the <kbd>/etc/puppetlabs/puppet/eyaml</kbd> directory and set up the appropriate permissions, giving the Puppet user ownership, and excluding all other users from being able to access the two keys:</p>
+<pre><strong>$ mv -t /etc/puppetlabs/puppet/eyaml ./keys/*.pem</strong><br/><strong>$ chown -R puppet:puppet /etc/puppetlabs/puppet/eyaml</strong><br/><strong>$ chmod -R 0500 /etc/puppetlabs/puppet/eyaml</strong><br/><strong>$ chmod 0400 /etc/puppetlabs/puppet/eyaml/*.pem</strong><br/><strong>$ ls -lha /etc/puppetlabs/puppet/eyaml</strong><br/><strong>-r-------- 1 puppet puppet 1.7K Apr 25 08:08 private_key.pkcs7.pem</strong><br/><strong>-r-------- 1 puppet puppet 1.1K Apr 25 08:08 public_key.pkcs7.pem</strong></pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mceNonEditable"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Changing hiera.yaml</h1>
+                </header>
+            
+            <article>
+                
+<p>Make the following settings in <kbd>hiera.yaml</kbd> to enable the <kbd>hiera-eyaml</kbd> backend, and provide access to the keys and data files:</p>
+<ul>
+<li class="mce-root"><span>Set the</span> <kbd>lookup_key</kbd> <span>property to the value</span> <kbd>eyaml_lookup_key</kbd> <span>in order to use the new <kbd>eyaml</kbd> backend</span></li>
+<li class="mce-root"><span>Add the locations of the encryption keys to the</span> <kbd>options</kbd> <span>hash</span></li>
+<li>Change all the file paths to <kbd>eyaml</kbd> rather than YAML file extensions:</li>
+</ul>
+<pre>---<br/> version: 5<br/> hierarchy:<br/>   - name: "Encrypted and regular data"<br/>     lookup_key: eyaml_lookup_key    paths:<br/>       - “nodes/%{trusted.certname}.eyaml”<br/>       - “%{facts.application}.eyaml”<br/>       - “%{server_facts.environment}.eyaml”<br/>       - “%{facts.datacenter}.eyaml”<br/>       - "common.eyaml"<br/>     options:<br/>       pkcs7_private_key: /etc/puppetlabs/puppet/eyaml/private_key.pkcs7.pem<br/>       pkcs7_public_key:  /etc/puppetlabs/puppet/eyaml/public_key.pkcs7.pem<br/> defaults:<br/>   datadir: data</pre>
+<p>With this configuration, you can store both encrypted and plaintext keys and values into your <kbd>eyaml</kbd> data files.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Lookup function</h1>
+                </header>
+            
+            <article>
+                
+<p>It's worth mentioning the fact that we should now be using the new <kbd>lookup()</kbd> function in our Puppet DSL to retrieve Hiera values. The <kbd>lookup()</kbd> function replaces the now deprecated set of Hiera functions:</p>
+<ul>
+<li class="mce-root"><kbd>hiera( )</kbd></li>
+<li><kbd>hiera_hash( )</kbd></li>
+<li><kbd>hiera_array( )</kbd></li>
+<li><kbd>hiera_include( )</kbd></li>
+</ul>
+<p class="mce-root"/>
+<p>These each have an equivalent way of achieving the same result, so some fairly simple find-and-replace work on your Puppet DSL code base will soon have you moving away from the deprecated roadmap.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The lookup function syntax</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>lookup</kbd> function syntax has three specific styles of usage, as follows:</p>
+<ul>
+<li class="mce-root"><span>With mandatory</span> <kbd>&lt;name&gt;</kbd> <span>and set of three optional arguments: </span><kbd>&lt;value type&gt;</kbd><span>,</span> <kbd>&lt;merge behavior&gt;</kbd> <span>and</span> <kbd>&lt;default value&gt;</kbd> <span>in that given order and separated by commas. For example, <kbd>lookup( &lt;name&gt;, [&lt;value type&gt;], [&lt;merge behavior&gt;], [&lt;default value&gt;] )</kbd></span>.</li>
+<li>With optional <kbd>&lt;name&gt;</kbd>, and mandatory <kbd>&lt;options hash&gt;</kbd> arguments. For example, <kbd>lookup( [&lt;name&gt;], &lt;options hash&gt; )</kbd>.</li>
+<li>With mandatory <kbd>&lt;name&gt;</kbd> and <kbd>&lt;lambda expression&gt;</kbd> arguments. For example, <kbd>lookup( &lt;name&gt;, &lt;lambda expression&gt; )</kbd>.</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Lookup function arguments</h1>
+                </header>
+            
+            <article>
+                
+<p>Arguments to the <kbd>lookup</kbd> function shown in <kbd>[ ]</kbd> are not mandatory which is covered in the preceding section.</p>
+<ul>
+<li><kbd>&lt;name&gt;</kbd>:
+<ul>
+<li class="mce-root"><span>Must be of the data type</span> <kbd>string</kbd> <span>or</span> <kbd>array</kbd><span>.</span></li>
+<li>The key name in the Hiera hierarchy to retrieve.</li>
+<li>An array of keys may also be provided. If the resulting Hiera lookup doesn't provide a result for the first key, it will iteratively try retrievals for the subsequently given keys, finally resorting to the default if none of the array keys succeed in returning a value.</li>
+</ul>
+</li>
+<li><kbd>&lt;value type&gt;:</kbd>
+<ul>
+<li class="mce-root"><span>Must be a valid</span> data type</li>
+<li>The Hiera lookup (and hence the compilation of the catalog) will fail if the datatype of the returned value does not match the data type given here</li>
+<li>Defaults to <kbd>Data</kbd> (that is, any normal value will not fail the Hiera lookup)</li>
+</ul>
+</li>
+<li><kbd>&lt;merge behavior&gt;</kbd>:
+<ul>
+<li class="mce-root"><span>Must be either a</span> <kbd>string</kbd> <span>or a</span> <kbd>hash</kbd> <span>(please see the following</span> <em>Deep merge lookup settings explained</em><span> section).</span></li>
+<li>Explains whether and how to merge multiple values encountered at different hierarchy levels. This overrides the merge behavior that's been specified in the Hiera data sources.</li>
+<li>Defaults to no value, meaning that, if present, Hiera will first use the merge behavior defined in the data sources; otherwise it will simply use the first lookup strategy (please see the following <em>Lookup strategies</em> section).</li>
+</ul>
+</li>
+<li><kbd>&lt;default value&gt;</kbd>:
+<ul>
+<li class="mce-root"><span>If provided, the Hiera lookup will return the value provided here when it cannot find a value in the Hiera hierarchy</span></li>
+<li>The values found by the Hiera lookup are never merged with the given default(s)</li>
+<li>The <kbd>default type</kbd> and <kbd>value type</kbd> must match</li>
+<li><kbd>no value</kbd> is the default; meaning that whenever the Hiera lookup cannot retrieve a normal value, the Hiera lookup (and hence the compilation) will fail</li>
+</ul>
+</li>
+</ul>
+<p>As explained in the <em>The lookup function syntax</em> section, there's also an alternative way of providing the lookup function arguments, using an <kbd>&lt;options hash&gt;</kbd>:</p>
+<ul>
+<li><kbd>&lt;options hash&gt;</kbd>:
+<ul>
+<li class="mce-root">Must be of type <kbd>hash</kbd></li>
+<li>If using this alternative <kbd>&lt;options hash&gt;</kbd> <span>style of syntax, you can't combine it with any of the preceding regular arguments except</span> <kbd>&lt;name&gt;</kbd></li>
+<li>Permissible keys for the options hash are as follows:
+<ul>
+<li class="mce-root"><kbd>name</kbd>: Identical to the first <kbd>&lt;name&gt;</kbd> argument described previously. You can pass this either as an argument or in the options <kbd>hash</kbd>, but not both.</li>
+<li class="mce-root"><kbd>value_type</kbd>: Identical to the second <kbd>&lt;value type&gt;</kbd> argument described previously.</li>
+<li class="mce-root"><kbd>merge</kbd>: This is the same as the third <kbd>&lt;merge behavior&gt;</kbd> argument described previously.</li>
+<li class="mce-root"><kbd>default_value</kbd>: This is the same as the fourth <kbd>&lt;default_value&gt;</kbd> argument described previously.</li>
+<li class="mce-root"><kbd>default_values_hash</kbd>: This is a hash of lookup keys and their respective default values. If a normal value cannot be retrieved from a Hiera lookup, this hash will be checked for the key before Hiera gives up. This can be combined with either <kbd>default_value</kbd> or a lambda expression, which will be substituted if the value is unable to be retrieved from the Hiera hierarchy. An empty hash is the default.</li>
+<li class="mce-root"><kbd>override</kbd>: This value is a hash of Hiera lookup keys and their respective override settings. Hiera checks in the overrides hash for the key; if it is found, it returns that value finally, ignoring any merge behavior. An empty hash is the default.</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p>Additionally, as explained in the <em>Lookup function syntax</em> section, there is a third alternative to providing the arguments to the <kbd>lookup()</kbd> function using a single lambda expression. If the Hiera lookup is unable to retrieve a value, the requested key is passed into the lambda expression, the result of which becomes the <kbd>default_value</kbd>:</p>
+<pre>lookup(‘my::key’) |$my_key| {"Hiera couldn't find '${my_key}'. Did you forget to add this key-value pair to your hierarchy?"}</pre>
+<p>Here, <kbd>&lt;lambda_expression&gt;</kbd> is returning a custom string to provide feedback to the user and to handle Hiera being unable to retrieve the required key gracefully , which in previous versions of Hiera would fail silently, causing all sorts of mischief.</p>
+<p>We could also add our fact values and so on to help the user find the right place to insert their key-value pair (please refer to the <em>A more complete hierarchy</em> section at the beginning of this chapter):</p>
+<pre>lookup(‘my::key’) |$my_key| {"Hiera couldn't find '${my_key}' using certname  ‘${trusted.certname}’, application ‘${facts.application}’, environment ${server_facts.environment}, and datacenter ${facts.datacenter}. Did you forget to add this key-value pair to your hierarchy?"}</pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Lookup function examples</h1>
+                </header>
+            
+            <article>
+                
+<p>Let's just quickly run through the main use cases for the <kbd>lookup( )</kbd> function, also showing the equivalent usages of the old <kbd>hiera( )</kbd> function:</p>
+<ul>
+<li>
+<p>The following usage is a completely regular lookup:</p>
+</li>
+</ul>
+<pre style="padding-left: 60px">lookup('ntp::user')<br/> # equivalent to hiera('ntp::user')</pre>
+<ul>
+<li>
+<p>The following usage is a regular lookup, while providing a default:</p>
+</li>
+</ul>
+<pre style="padding-left: 60px">lookup('ntp::user','root')<br/> # equivalent to hiera('ntp::user','root')</pre>
+<ul>
+<li>
+<p>The following usage is an array lookup:</p>
+</li>
+</ul>
+<pre style="padding-left: 60px">lookup('my_ntp_servers', Array, 'unique')<br/> # equivalent to hiera_array('ntp_servers')</pre>
+<ul>
+<li>
+<p>The following is a deep-merge lookup:</p>
+</li>
+</ul>
+<pre style="padding-left: 60px">lookup('users', Hash, 'deep')<br/> # equivalent to hiera_hash('users') with deep</pre>
+<ul>
+<li>
+<p>The following is a classification lookup:</p>
+</li>
+</ul>
+<pre style="padding-left: 60px">lookup('classes', Array[String], 'unique').include<br/> # equivalent to hiera_include('classes')</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Lookup strategies</h1>
+                </header>
+            
+            <article>
+                
+<p>The merge strategy is no longer set globally as it was in previous versions of Hiera, and this is a big improvement. The valid merge strategies are as follows:</p>
+<ul>
+<li class="mce-root"><kbd>first</kbd><span>: A retrieval of the first match is made; this is equivalent to the traditional</span> <kbd>hiera()</kbd> <span>default behavior</span></li>
+<li><kbd>unique</kbd>: This is an array merge, equivalent to the old <kbd>hiera_array()</kbd> function</li>
+<li><kbd>hash</kbd>: This is equivalent to the old <kbd>hiera_hash()</kbd> function without deep merging enabled</li>
+<li><kbd>deep</kbd>: This is equivalent to the old <kbd>hiera_hash()</kbd> function with <kbd>deeper</kbd> merging enabled (<kbd>deep</kbd> is no longer supported)</li>
+</ul>
+<div class="packt_infobox">Check the official Hiera 3.3 documentation to understand the concept of deep and deeper merges fully: <a href="https://puppet.com/docs/hiera/3.3/lookup_types.html#example">https://puppet.com/docs/hiera/3.3/lookup_types.html#example</a>. Note, <kbd>deeper</kbd> merges in Hiera 3 are equivalent to a <kbd>deep</kbd> merge in Hiera 4+.<br/>
+<kbd>deep</kbd> merges are no longer supported.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Deep merge lookup settings explained</h1>
+                </header>
+            
+            <article>
+                
+<p>Let's now look together at these commonly misunderstood merge settings, to make sure we have our Hiera know-how at the mastery level.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">knockout_prefix setting</h1>
+                </header>
+            
+            <article>
+                
+<p>Here is an example of a deep merge, using the <kbd>knockout_prefix</kbd> setting to specify a prefix to indicate a value should be removed from the result:</p>
+<pre># common.yaml<br/> ---<br/> classification:<br/>   classes:<br/>     - paessler<br/>     - other<br/># mynode.myorg.net.yaml<br/> classification:<br/>   classes:<br/>     - -- paessler<br/>     - nagios<br/>     - webserver</pre>
+<p>Here, we are indicating that <kbd>mynode.myorg.net.yaml</kbd> is not using Paessler for monitoring, but rather Nagios. The use of this lookup returns the correct value, as follows:</p>
+<pre>lookup({<br/> 'name' =&gt; 'classification',<br/> 'merge' =&gt; {<br/> 'strategy' =&gt; 'deep',<br/> 'knockout_prefix' =&gt; '--',<br/> },<br/> })</pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mceNonEditable"/>
+<p class="mceNonEditable"/>
+<p class="mceNonEditable"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">sort_merge_arrays setting</h1>
+                </header>
+            
+            <article>
+                
+<p>We could also sort the merged arrays with the <kbd>sort_merge_arrays</kbd> setting, and remove the data that matches <kbd>knockout_prefix</kbd>. An array member or entire keys can be removed from the resulting hash:</p>
+<pre> lookup({<br/>   'name'  =&gt; 'classification',<br/>   'merge' =&gt; {<br/>     'strategy'          =&gt; 'deep',<br/>     'knockout_prefix'   =&gt; '--',<br/>     ‘sort_merge_arrays’ =&gt; true,<br/>   },<br/> })<br/> </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">merge_hash_arrays setting</h1>
+                </header>
+            
+            <article>
+                
+<p>If a certain array member contains a hash and you desire these to be merged together, this is possible by using the <kbd>merge_hash_arrays</kbd> setting.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">unpack_arrays setting</h1>
+                </header>
+            
+            <article>
+                
+<p>Finally, there's the <kbd>unpack_arrays</kbd> setting. Let us change the data for our node again to look as follows, while leaving the common data the same:</p>
+<pre># mynode.myorg.net.yaml<br/> classification:<br/>   classes:<br/>     - --paessler,nagios<br/>     - webserver<br/> </pre>
+<p>The <kbd>unpack_arrays</kbd> setting takes each string, splits it according to the <kbd>,</kbd> delimiter, creating an array of, in our example, <kbd>[“–-paessler”, “nagios”]</kbd>, and then merging it; in our example knocking out the <kbd>paessler</kbd> value, since it was indicated with the <kbd>knockout_prefix</kbd> as follows:</p>
+<pre>lookup({<br/>   'name'  =&gt; 'classification',<br/>   'merge' =&gt; {<br/>     'strategy'        =&gt; 'deep',<br/>     'knockout_prefix' =&gt; '--',<br/>     unpack_arrays     =&gt;’,’,<br/>   },<br/> })</pre>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Debugging Hiera</h1>
+                </header>
+            
+            <article>
+                
+<p><span>Hiera's data lookups are all done with reference to the details of the node being configured, and it's that node's scope which informs Hiera the datasets it should select, how to order the data, and how to interpolate certain values.</span></p>
+<div>
+<div class="packt_infobox">
+<p>See the Hiera documentation for more specifics on debugging and the lookup function: <a href="https://puppet.com/docs/puppet/5.3/hiera_quick.html#testing-hiera-data-on-the-command-line">https://puppet.com/docs/puppet/5.3/hiera_quick.html#testing-hiera-data-on-the-command-line</a> and <a href="https://puppet.com/docs/puppet/5.3/man/lookup.html">https://puppet.com/docs/puppet/5.3/man/lookup.html</a>.</p>
+</div>
+</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Old debugging techniques</h1>
+                </header>
+            
+            <article>
+                
+<div>
+<p>Previously, we have run <kbd>hiera</kbd> from the command line with the <kbd>–debug</kbd> argument, and provided the setting, for example, <kbd>mysetting</kbd>, we would like to look up, as follows:</p>
+<pre><strong>$ hiera -c /etc/puppetlabs/puppet/hiera.yaml --debug mysetting</strong></pre>
+<p>The preceding command runs <kbd>hiera</kbd> in the debug verbosity necessary, but we also need to collect the node's facts and other relevant information (particularly the environment and <kbd>fqdn</kbd>):</p>
+<pre><strong>$ hiera -c /etc/puppetlabs/puppet/hiera.yaml --debug --json facts.json mysetting environment=production fqdn=mynode.example.local</strong></pre>
+<p>Another earlier debugging method was to use the <kbd>hiera</kbd> lookup function inside <kbd>puppet apply</kbd> using the <kbd>-e</kbd> (execute) argument:</p>
+<pre><strong>$ puppet apply --debug -e '$foo = hiera(mysetting) notify { $foo: }'</strong></pre></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Equivalent debugging technique</h1>
+                </header>
+            
+            <article>
+                
+<div>
+<p>The <kbd>hiera</kbd> command has now been completely replaced with the <kbd>puppet lookup</kbd> command, so we can run the following and use the <kbd>--node</kbd> argument to provide the node to which the lookup pertains:</p>
+<pre><strong>$ puppet lookup --node mynode.example.local --debug mysetting</strong></pre>
+<p>The key difference here is that the <kbd>puppet lookup</kbd> function will now query <kbd>puppetdb</kbd> to gather all the appropriate facts for the given <kbd>node</kbd> argument.</p>
+<p>We can also now use the <kbd>--explain</kbd> argument to give a complete description of how Hiera fetches the data in its hierarchy.</p>
+</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Beyond Hiera using Jerakia</h1>
+                </header>
+            
+            <article>
+                
+<p><span>If you would like to transcend single-customer and small-scale hierarchical data classifications and open up the possibilities of modeling larger, more complex and diverse environments, you should consider the use of Jerakia (</span><a href="http://jerakia.io">http://jerakia.io</a><span>), using Jerakia as a Hiera backend, or configuring Puppet to accept Jerakia as a data-binding terminus.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Jerakia advanced use cases</h1>
+                </header>
+            
+            <article>
+                
+<p>Here are some questions around advanced use cases for Jerakia:</p>
+<ul>
+<li><span>How can I </span>use a different Hiera backend for just one module?</li>
+<li><span>How can I </span>allow a team the use of a separate hierarchy, exclusively for their own application?</li>
+<li><span>How can I </span>allow access to a smaller subset of data to a certain user or team?</li>
+<li><span>How can I </span>use <kbd>eyaml</kbd> encryption without being forced to use YAML?</li>
+<li><span>How can I </span>implement a dynamic hierarchy rather than hard coding it?</li>
+<li><span>How can I </span>group together application-specific data into separate YAML files?</li>
+</ul>
+<p>Jerakia allows us to implement some of these corner cases.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing Jerakia</h1>
+                </header>
+            
+            <article>
+                
+<p>Jerakia is installed from a RubyGem. Simply run the following command:</p>
+<pre><strong>$ gem install jerakia</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring Jerakia</h1>
+                </header>
+            
+            <article>
+                
+<p>Set up the <kbd>jerakia.yaml</kbd> configuration file as follows:</p>
+<pre><strong>$ mkdir /etc/jerakia</strong><br/><strong>$ vim /etc/jerakia/jerakia.yaml</strong></pre>
+<p>This is the simplest configuration:</p>
+<pre>--- <br/>policydir: /etc/jerakia/policy.d <br/>logfile: /var/log/jerakia.log <br/>loglevel: info <br/>eyaml:   <br/> private_key: /etc/puppetlabs/puppet/eyaml/private_key.pkcs7.pem         <br/> public_key: /etc/puppetlabs/puppet/eyaml/public_key.pkcs7.pem</pre>
+<p>If you intend to use encryption, you should also provide the keys in the <kbd>private_key</kbd> and <kbd>public_key</kbd> settings as indicated.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating your default Jerakia policy</h1>
+                </header>
+            
+            <article>
+                
+<p>All requests for data from Jerakia are processed according to the so-called <strong>policy</strong>. The filenames for policies should be the same as the actual name of the policy, and are loaded from the directory indicated by the <kbd>policydir</kbd> setting in your <kbd>jerakia.yaml</kbd> configuration file. If a certain policy name is not indicated by the lookup request, then the name <kbd>default</kbd> is used. Let's create the default policy, as follows:</p>
+<pre><strong>$ mkdir /etc/jerakia/policy.d</strong><br/><strong>$ vim /etc/jerakia/policy.d/default.rb</strong></pre>
+<p>A Jerakia <kbd>policy</kbd> is a container of the so-called <kbd>lookup</kbd>, which is performed in the indicated order. A lookup consists of a <kbd>datasource</kbd> that should be used for the data lookup, along with any plugin functions.</p>
+<p>There follows a simple example, using the <kbd>file</kbd> data source to provide data from simple YAML files:</p>
+<pre>policy :default do<br/><br/>   lookup :default do<br/>     datasource :file, {<br/>       :format     =&gt; :yaml,<br/>       :docroot    =&gt; "/var/lib/jerakia",<br/>       :searchpath =&gt; [<br/>         "hostname/#{scope[:fqdn]}",<br/>         "environment/#{scope[:environment]}",<br/>         "common",<br/>        ],<br/>     }<br/>   end<br/><br/> end</pre>
+<p>Let's change the default policy to accommodate settings for another configuration team, based in, let's say, <kbd>denmark</kbd>:</p>
+<pre>policy :default do<br/><br/>   lookup :denmark do<br/>     datasource :file, {<br/>       :format     =&gt; :yaml,<br/>       :docroot    =&gt; "/var/external/data/ie",<br/>       :searchpath =&gt; [<br/>         "project/#{scope[:project]}",<br/>         "common",<br/>       ]<br/>     }<br/><br/>     confine scope[:location], "dk"<br/><br/>     confine request.namespace[0], [<br/>       "apache",<br/>       "php",<br/>     ]<br/>     stop<br/><br/>   end<br/><br/>   lookup :default do<br/>     datasource :file, {<br/>       :format     =&gt; :yaml,<br/>       :docroot    =&gt; "/var/lib/jerakia",<br/>       :searchpath =&gt; [<br/>         "hostname/#{scope[:fqdn]}",<br/>         "environment/#{scope[:environment]}",<br/>         "common",<br/>        ],<br/>     }<br/>   end<br/><br/> end</pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mceNonEditable"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using Vault as an encryption backend</h1>
+                </header>
+            
+            <article>
+                
+<p>The version 2 release of Jerakia now supports integration with Vault via the transit secret backend.</p>
+<p>Vault is an open source platform for encrypting, securing, storing, and tightly controlling access to passwords, tokens, certificates, and other secret settings for your infrastructure. Vault also handles those tricky aspects of secret management, such as leasing, rolling, revocation, and auditing.</p>
+<p>So, Vault provides something like an <em>encryption as a service</em> backend for Jerakia.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing and configuring Vault</h1>
+                </header>
+            
+            <article>
+                
+<div>
+<p>See the Vault documentation to install and configure Vault: <a href="https://www.vaultproject.io/docs/install/index.html">https://www.vaultproject.io/docs/install/index.html</a></p>
+</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Unsealing Vault</h1>
+                </header>
+            
+            <article>
+                
+<div>
+<p>Follow the procedures in the Vault documentation to unseal Vault: <a href="https://www.vaultproject.io/docs/concepts/seal.html">https://www.vaultproject.io/docs/concepts/seal.html</a></p>
+</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Enabling the transit backend</h1>
+                </header>
+            
+            <article>
+                
+<p>Enable the transit backend by mounting it as follows:</p>
+<pre><strong>$ ./vault mount transit</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating an encryption key</h1>
+                </header>
+            
+            <article>
+                
+<p>Let's create a key Jerakia will use for encrypting and decrypting. By default, the key is simply called <kbd>jerakia</kbd>:</p>
+<pre><strong>$ ./vault write -f transit/keys/jerakia</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating a policy for encrypting and decrypting</h1>
+                </header>
+            
+            <article>
+                
+<p>Now we need to create a policy which restricts Jerakia to using only the encryption and decryption endpoints.</p>
+<p class="mce-root"/>
+<p>In order to create this policy, we'll create a new file, <kbd>jerakia_policy.hcl</kbd>, and then import it into Vault using the <kbd>policy-write</kbd> Vault command:</p>
+<pre># jerakia_policy.hcl <br/>path "transit/decrypt/jerakia" {<br/>   policy = "write"<br/> }<br/> path "transit/encrypt/jerakia" {<br/>   policy = "write"<br/> }<br/><strong>$ ./vault policy-write jerakia jerakia_policy.hcl</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Checking the encryption is working correctly</h1>
+                </header>
+            
+            <article>
+                
+<p>We can now try to encrypt a value on the command line using the Jerakia transit key and the policy that we've just created:</p>
+<pre><strong>$ echo -n "Lorem ipsum dolor sit amet" | base64 | ./vault write transit/encrypt/jerakia plaintext=- -policy=jerakia</strong><br/><strong>vault:v1:Xv3R5CugxnCLhL/T2eJ+rN+UilHzo78evxd0tf5efx0M2U2qIgaI</strong></pre>
+<div class="packt_infobox">
+<p>See the Vault documentation for more specifics on the <kbd>read</kbd> and <kbd>write</kbd> commands: <a href="https://www.vaultproject.io/docs/commands/read-write.html">https://www.vaultproject.io/docs/commands/read-write.html</a>.</p>
+</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Allowing Jerakia to authenticate with our Vault</h1>
+                </header>
+            
+            <article>
+                
+<p>AppRole authentication is the recommended method of authenticating with Vault.</p>
+<p>When using this authentication method, Jerakia is configured with a role ID (<kbd>role_id</kbd>) and a secret ID (<kbd>secret_id</kbd><em>)</em>, and Jerakia uses these values to acquire a limited-lifetime token from Vault to interact with the API of the transit backend. </p>
+<p>Upon token expiry, Jerakia will request a new token using <kbd>role_id</kbd> and <kbd>secret_id</kbd> again.</p>
+<p>First, we'll create an AppRole for Jerakia, giving it a TTL of 15 minutes. This has to be associated with the access policy we created earlier using the policies argument:</p>
+<pre><strong>$ ./vault write auth/approle/role/jerakia token_ttl=15m policies=jerakia</strong></pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Now, we can check the Jerakia AppRole and ascertain the <kbd>role_id</kbd>:</p>
+<pre><strong>$ ./vault read auth/approle/role/jerakia/role-id</strong><br/><strong>Key     Value</strong><br/><strong> ---     -----</strong><br/><strong> role_id bfce3860-0805-43dc-ab6d-fe789559fe32</strong></pre>
+<p>We also need to create a <kbd>secret_id</kbd>:</p>
+<pre><strong>$ ./vault write -f auth/approle/role/jerakia/secret-id</strong><br/><strong>Key                 Value</strong><br/><strong> ---                 -----</strong><br/><strong> secret_id           94f23dba-7355-426c-ae1e-5768dbb70280</strong><br/><strong> secret_id_accessor  f7b0f10a-99f4-4c7e-b69d-7bbd27a3c016</strong></pre>
+<p>Now that we have <kbd>role_id</kbd> and <kbd>secret_id</kbd>, we can proceed to integrate Jerakia with Vault.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring Jerakia for encryption</h1>
+                </header>
+            
+            <article>
+                
+<p>In the <kbd>jerakia.yaml</kbd> configuration file, we configure the encryption option with a provider of Vault and the specific configuration that our provider requires: </p>
+<pre>encryption:<br/>   provider: vault<br/>   vault_addr: http://127.0.0.1:8200<br/>   vault_use_ssl: false<br/>   vault_role_id: bfce3860-0805-43dc-ab6d-fe789559fe32<br/>   vault_secret_id: 8a2fa99c-7811-5e65-a74a-8ab2ba9b6389<br/>   vault_keyname: jerakia</pre>
+<p>We should now be able to <kbd>encrypt</kbd> and <kbd>decrypt</kbd> using Jerakia:</p>
+<pre><strong>$ jerakia secret encrypt mySecret</strong><br/><strong> vault:v1: d3HftM8HAJDwWeSfLkBcdpAdTFy8fBu3mj4Kf3mHADSLuevwCbjZ</strong><br/><strong>$ jerakia secret decrypt vault:v1:d3HftM8HAJDwWeSfLkBcdpAdTFy8fBu3mj4Kf3mHADSLuevwCbjZ</strong><br/><strong> mySecret</strong></pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Encryption-enabling our Jerakia lookups</h1>
+                </header>
+            
+            <article>
+                
+<p>We enable encryption by using the <kbd>output_filter</kbd> method to our lookup in our policy:</p>
+<pre>policy :default do<br/><br/>   lookup :default do<br/>     datasource :file, {<br/>       :format     =&gt; :yaml,<br/>       :docroot    =&gt; "/var/lib/jerakia",<br/>       :searchpath =&gt; [<br/>         "hostname/#{scope[:fqdn]}",<br/>         "environment/#{scope[:environment]}",<br/>         "common",<br/>        ],<br/>     }<br/>     output_filter :encryption<br/>   end<br/><br/> end</pre>
+<p>This instructs Jerakia to pass everything to the encryption filter and to match all the retrieved values against the signature of the encryption provider. If a match is made, the encryption provider will be used to decrypt the value before it is returned.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, we have taken a close look at the main differences between Hiera 5 and its earlier incarnations. We have also described how you can now quickly set up the encrypted YAML backend, so you no longer have to save your secret Hiera values in plain text.</p>
+<p>We've also looked at Jerakia, which you can use to cover more advanced use cases, such as providing different hierarchies to different teams, and integrating Vault to provide something like an <em>encryption as a service</em> backend for Jerakia.</p>
+<p>In the next chapter, let's continue our master class by examining the management of Puppet code.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

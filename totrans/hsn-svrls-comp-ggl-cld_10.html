@@ -1,0 +1,495 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Introducing Cloud Run</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root">So far in this book, we have discussed many things relating to building serverless technologies in the cloud. In this chapter, we'll look at the latest offering from Google, which provides a stateless environment for your applications. Unlike Cloud Functions, Cloud Run explicitly utilizes container technology to provide a constrained environment for HTTP endpoints. Cloud Functions, on the other hand, provides an opinionated view of serverless workloads, for example, runtime language limitations. Cloud Run removes many of those restrictions in order to meet developers where they are. If you follow these things carefully, you will know that containers and Kubernetes are both the top skills any cloud professional can have.</p>
+<p class="mce-root">To commence our discussion, we will outline the Cloud Run component architecture. In doing so, we will discuss several topics in order to try and set the scene for Cloud Run. The primary objective of this chapter is to present the supporting technologies. You should take the time to understand the use cases and be aware of how Cloud Run leverages each.</p>
+<p>Before moving on to the Cloud Run component architecture, we will lay some of the groundwork in terms of outlining some key technologies. To commence this discussion, we'll start with microservices.</p>
+<p>In a nutshell, we will cover the following topics in this chapter:</p>
+<ul>
+<li>Working with microservices</li>
+<li>Working with containers</li>
+<li>Introducing Cloud Run</li>
+<li>Cloud Run versus Cloud Run for Anthos</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Technical requirements</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root">To complete the exercises in this chapter, you will need a Google Cloud project or a Qwiklabs account.</p>
+<p class="mce-root">You can find the code files for this chapter in this book's GitHub repository, under the <kbd>ch07</kbd> <span>subdirectory, </span>at <a href="https://github.com/PacktPublishing/Hands-on-Serverless-Computing-with-Google-Cloud/tree/master/ch07">https://github.com/PacktPublishing/Hands-on-Serverless-Computing-with-Google-Cloud/tree/master/ch07</a>.</p>
+<div class="mce-root packt_infobox"><br/>
+While you are going through the code snippets in this book, you will notice that, in a few instances, a few lines from the code/output have been removed and replaced with dots (<kbd>...</kbd>). The use of ellipses is only to show relevant code/output. The complete code is available on GitHub at the link mentioned previously.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Working with microservices</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root">There has been a lot of discussion about the critical benefits of monoliths versus microservices. The possibility associated with creating smaller code packages has apparent advantages in that they are typically easier to debug, more straightforward to integrate, and have a consistent message interface. Those benefits, by themselves, would not be sufficient to warrant a wholesale migration to microservices.</p>
+<p class="mce-root">In the following diagram, we're contrasting a typical monolithic software construct to a microservice architecture. The first thing to notice is that the microservice architecture has a lot more component services available. A key point to note is the deconstruction of the single application into the delivery of services focus on business operation. Over the next couple of paragraphs, we will discuss the reasoning behind this approach and how it is beneficial (and highly relevant) when moving to environments such as Cloud Run:</p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-831 image-border" src="assets/504e87fd-c396-4877-8b59-5ed1c38e53e1.png" style=""/></div>
+<p class="mce-root">First and foremost, microservices should be autonomous; that is, they provide an isolated and independent component. Providing a standardized interface allows the microservice to participate in the broader ecosystem seamlessly. Ensuring the components achieve inter-component communication provides the basis for building scalable and flexible solutions.</p>
+<p class="mce-root">From the perspective of microservices, they typically serve multiple container components that have been deployed within a loosely coupled architecture. Each microservice represents the decomposition of an application into a series of functions. Consider how we focused on building lightweight tasks with a single purpose for Cloud Functions (reference chapters three, four and five). In this conversation, we elevated containers as the artifact of choice. The communication mechanism that's used delivers consistent communication across components in some cases, acting as an <strong>Application Programming Interface</strong> (<strong>API</strong>). The use of containers provides a layer of abstraction to ensure compatibility with any runtime language.</p>
+<p class="mce-root">Contrast this to a single monolithic application in which tightly coupled constituent components exist. Tightly coupled indicates it would be challenging to pull the various modules apart or create new integrations. Due to the single application structure, the language runtime is typically consistent across the monolith. The inability to use different runtime languages can lead to issues as the best option for the task cannot necessarily be used. Similarly, scaling can also be an issue when incurring specific performance bottlenecks.</p>
+<p class="mce-root">The application architecture patterns shown in the preceding diagram are essential considerations since we will be using containers for Cloud Run. In doing so, we'll commit ourselves to continue building lightweight and loosely coupled functions. This will help you to solidify your understanding of building and specific design approaches that are taken while you work through the remainder of this chapter.</p>
+<p><span>Of course, that is not to say that microservices are for every occasion. There are occasions where one size does not fit all. Pragmatically selecting the architecture and the approach lends itself to better-designed applications and increases the skills of the designer. Microservices are far from simple to write and do not give themselves to every occasion. Modeling the services, the correct scope, and the correct content for a microservice is a significant challenge if you wish to deliver the benefits we outlined earlier.</span></p>
+<p><span>To assist with this process, it is often helpful to consider how microservice design patterns can cater to requirements and help you to build scalable solutions. As you might expect, this subject is both broad and varied and has been covered in many presentations and books to try and define a consensus on the base level of knowledge required for the subject. Since we will be predominantly dealing with HTTP-related communication, we will provide a quick overview of the event processing patterns we will need to consider. These are as follows:</span></p>
+<ul>
+<li><span>The asynchronous event processing pattern</span></li>
+<li><span>The synchronous event processing pattern</span></li>
+</ul>
+<p><span>These models are the most relevant types of communication that you will experience.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Asynchronous event processing pattern</h1>
+                </header>
+            
+            <article>
+                
+<p><span>While not explicitly called out on the platform, in truth, you will already be familiar with most of the patterns. Asynchronous communication will typically utilize a publisher/subscriber pattern. In this pattern, listeners are activated through an event that they subscribe to. Messages in this partnership are suitable for one-to-many relationships. On Google Cloud, Cloud Pub/Sub provides this service, which is where a defined topic and the subscribers to this topic present information for each matching event on the publisher. A service, such as Cloud Pub/Sub, will need a model like this to provide an asynchronous communication pattern that's suitable for streaming information.</span></p>
+<p><span>In a situation where a batch-oriented or one-to-one communication flow is desirable, a job queue pattern is more appropriate. In this (winner takes all) model, a queue mechanism is used to hold information while the queue consumer determines when the information will be retrieved.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Synchronous event processing pattern</h1>
+                </header>
+            
+            <article>
+                
+<p><span>It is important to note that, with any design method, the design does not create a perfect situation for every situation. Generalizing code in this way may introduce a need to repeat content/code, and this can sometimes be unavoidable. Focusing on keeping microservices isolated and independent should be the primary focus and you need to accept that there will always be exceptional cases. In the case of synchronous event processing, there are two patterns that you need to be familiar with: </span></p>
+<ul>
+<li><span>The request/response pattern</span></li>
+<li><span>The sidewinder pattern</span></li>
+</ul>
+<p><span>For synchronous messaging, an immediate response demand by the calling service delivers the acknowledgment. Most commonly associated with the HTTP model, this pattern is the one most people are familiar with. In this request/response situation, the message is to be consumed as part of point-to-point communication.</span></p>
+<p><span>An alternative state to manage is one where synchronous communication is to be observed rather than consumed. This is known as the</span> <strong>sidewinder</strong> pattern <span>and can be useful if there are multiple endpoints ready to consume the message. However, only a specific endpoint address can be responsible for the generation of a response.</span></p>
+<p><span>Before diving into more detail on Cloud Run, we will take a quick tour of containers and explain why they are an essential piece of technology. For this discussion, we will focus on Docker containers; however, it is good to know that other containers exist and offer similar benefits.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Working with containers</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root">While applications can run anywhere, working in different environments has traditionally led to issues in terms of general consistency. Deploying code from one environment to another falls foul of a change that renders it incompatible with the underlying infrastructure. The industry's focus on moving away from a monolithic application to small, integrated components (that is, microservices) has, in general, led to the consideration of generating loosely coupled artifacts.</p>
+<p class="mce-root">Traditional development in an environment based on virtualized hardware provides a well-understood platform on which many successful deployments exist. However, the inefficiency of deploying microservice components has meant this approach has become less attractive due to the unnecessary replication of underlying resources:</p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-939 image-border" src="assets/7eb6f8c3-2294-4074-8c11-7b9953eb9a15.png" style=""/></div>
+<p class="mce-root">In the preceding diagram, you can see that, with the virtualized hardware, each virtual machine invocation requires replication of resources, both for the operating system and libraries. While virtual machines do continue to provide advantages for large-scale machines, for a microservice-based architecture, a more lightweight approach is desirable.</p>
+<p class="mce-root">Containers provide access to the underlying hardware through a shared resource model. An approach such as this, which allows the host hardware to share its existing resources among the containers, is more desirable. Through the use of containers, the host can allocate its resources to the container that will be executed in this environment. If you are working in an environment that utilizes microservices, it is likely that this environment is looking to deliver the efficiencies associated with containers.</p>
+<p class="mce-root">Consistently building these components is only half the story; how do you ensure the artifact remains consistent across each deployment? For this, we use containers to define a software package in which we can control the environment (for example, memory, disk, network, filesystem, and so on). The underlying cloud environment utilizes the existing filesystem to create a partition that enacts isolation specifically for your container. So, rather than installing applications directly onto a host, we can install the container and run this on our host. Since the application exists in the host, any incompatibility is likely to be platform-related. A consequence of this is that your application can now provide consistency<span> between</span> deployments.</p>
+<p>In the next section, we will go through a lightning-fast overview of Docker and how to use it with Google Cloud. In this discussion, we will cover the basics so that those of you who are unfamiliar with containers can get up to speed.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Leveraging Docker</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root">One of the most common ways to enact containers is by using the Docker container runtime. Docker provides all of the advantages of containers. It presents a simple interface that you can use to manage your application while it's running inside a container. For the sake of brevity, our discussion will focus on using Docker in a Linux environment. However, keep in mind that other options exist and can be just as effective.</p>
+<p class="mce-root">In general, the container has three main elements to consider. Primarily, containers utilize a base image that an application is run on. The base image represents the operating system that the application will run on, for example, Debian, Ubuntu, or Alpine. Also, dependency packages for the base image will need to be installed to ensure the environment can achieve compatibility with the application. Packages are typically compatible libraries that are applied to the container, such as SSL, cURL, and the GCloud SDK. Finally, there is command execution, which indicates what runs at the point of execution. The addition of an entry point defines what happens when the container runs.</p>
+<p class="mce-root">As we mentioned previously, containers are an excellent way for us to isolate application functionality. However, they also offer an elegant means to define a signature for your application. You may be wondering what I mean by this. Imagine we have an application running inside a container. The image is built using a file that is used to define the environment that the application should run in. In this context, an image represents the executable package and holds the necessary dependencies for the application. By going through the necessary process, we have isolated our application requirements into a transportable environment (container image). Doing this is extremely powerful. But that's enough theoretical discussion—<span>let's </span>build something.</p>
+<p class="mce-root">The base element we will start with is the manifest. A manifest represents the image specification, including the application to be created. This environment incorporates a base image (for example, Scratch, Alpine, Ubuntu, Debian, and so on) denoted by a FROM statement. Choosing a base image is a topic in itself, but note that the more lightweight an image is, the easier it will be to deploy the workload.</p>
+<p class="mce-root">In addition to the base image, we will also incorporate the packages and libraries that are necessary for the task at hand. If you are working with a modern language, you will potentially have this information already as they will have been installed locally (thank you Node.js). If you are making an image from someone else's application, this is the part where relationships become frayed. In our example, we won't be installing any additional packages; instead, we will be using the existing capabilities of the base Alpine image.</p>
+<p><span>Finally, in our configuration, we will set out what our image should do when the application container starts. The <kbd>ENTRYPOINT</kbd> command indicates invocation when the container starts up. The <kbd>CMD</kbd> label indicates the parameter to the entry point. Note that this configuration is being used to allow the image to be extended so that it can print other messages. It is highly recommended to read up on the usage of both <kbd>ENTRYPOINT</kbd> and <kbd>CMD</kbd> as they can save a significant amount of time when it comes to processing commands.</span></p>
+<p><span>At the end of this process, you will have a manifest file that incorporates each of these elements. For the sake of our example, we can create a simple Dockerfile. Follow these steps to do so:</span></p>
+<ol>
+<li class="mce-root">Create a Dockerfile manifest file:</li>
+</ol>
+<pre style="padding-left: 60px"><span>FROM alpine <br/></span><span>ENTRYPOINT [ "echo" ] <br/></span><span>CMD [ "Hello, welcome to Docker!" ]</span></pre>
+<p style="padding-left: 60px"><span>If we were to build the preceding manifest, it would take the instructions we laid out and create an image based on each of the manifest lines. Consider the previous statement for a moment and what that means for us; we have built a host machine for a single application based on a file.</span></p>
+<p style="padding-left: 60px"><span>Looking at the preceding manifest content can tell us a lot about the requirements of the application and little about the execution. From the manifest, we can reference the base image (that is, OS), the dependencies (that is, libraries/packages), and the command to be run (that is, the application to be run). The next step would be to run the build process to turn this manifest into an image that is representative of the information contained in the file.</span></p>
+<p style="padding-left: 60px"><span>Building a Docker image is managed through the command line. Turning a manifest into something useful means we need to generate an image. The build process goes through each line of the manifest and adds it to the final image. As the build process is running, each line will create an archive layer that represents the command executed. Using the example manifest presented earlier, we can build an image for our application.</span></p>
+<ol start="2">
+<li>Build the Dockerfile manifest file:</li>
+</ol>
+<pre style="padding-left: 60px"><strong><span>   docker build -t hello-docker:1.0 .</span></strong></pre>
+<p style="padding-left: 60px"><span>In the preceding command, we're telling Docker that we want to create an image by initiating the process with the verb <kbd>build</kbd>. Docker will, by default, assume there is a local file named <kbd>Dockerfile</kbd> present in the current directory. If you wish to use an alternative manifest naming convention, you can, for example, append <kbd>-f [FILENAME]</kbd> to the command line, in which case you would need the following command which is technically equivalent to <em>step 2</em>.</span></p>
+<ol start="3">
+<li>Build a manifest file named <kbd>myDockerfile</kbd>:</li>
+</ol>
+<pre style="padding-left: 60px"><strong><span> docker build -t hello-docker:1.0 -f myDockerfile .</span></strong></pre>
+<p style="padding-left: 60px"><span>Following the <kbd>build</kbd> parameter, we tell Docker to label the images by using the </span><kbd>-t [label]</kbd><span> command. In this example, we have provided both the name and version to be applied to the image that will be generated.</span></p>
+<div class="packt_infobox" style="padding-left: 60px"><span>It is considered good practice to incorporate a revision of all of the images that are created.</span></div>
+<p style="padding-left: 60px"><span>Finally, we indicate where the new image will find the manifest by adding a period (full stop) to the end of the command, indicating that the local directory contains the source information. You can replace this with a more specific destination if you wish to.</span></p>
+<p style="padding-left: 60px"><span>Running the preceding command will initiate the Docker tool that will be used to build the local manifest. On successful completion of this process, we can confirm that a new image is present on our machine by asking Docker to list the available images.</span></p>
+<ol start="4">
+<li class="mce-root">List the images that are held locally:</li>
+</ol>
+<pre style="padding-left: 60px"><strong><span>   docker images</span></strong></pre>
+<p style="padding-left: 60px">Here, you can view how the output looks: </p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-901 image-border" src="assets/eefb2f4e-2f9c-4446-b662-cbbb1d8cb44a.png" style=""/></div>
+<p style="padding-left: 60px"><span>From the resulting list, we will see that our image has been successfully created and is now available to access. In addition the latest alpine image has been downloaded and used as the base image for your new image. Congratulations—building an image from a manifest is a great thing and increases your general understanding of a range of subjects. For reference, containers are images that run on Linux subsystems and share the kernel of the host machine. In this respect, we can see that containers provide a lightweight mechanism for running discrete processes on a host.</span></p>
+<p style="padding-left: 60px"><span>Now that you know how to build an image, we can move on to running a container on the host. A point of confusion when starting with containers is switching between the terms image and container. For reference, an image references a non-running container. Once the image is running, it is a container. These terms are used interchangeably all of the time, but now you know the difference. Please don't lose any sleep over this.</span></p>
+<p style="padding-left: 60px"><span>To run a container on our host, we need to tell Docker which image we wish to initiate and state the parameters that are necessary for the application to run. At a minimum, we need the Docker command that will be used to launch a container on the host.</span></p>
+<ol start="5">
+<li>Run the image:</li>
+</ol>
+<pre style="padding-left: 60px"><strong><span>   docker run hello-docker:1.0<br/></span></strong></pre>
+<p style="padding-left: 60px">Here, you can view how the output looks: </p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-902 image-border" src="assets/7c7cd7be-3693-43f7-9a97-f1956bfb2991.png" style=""/></div>
+<p style="padding-left: 60px"><span>In the preceding command, we're using the verb, <kbd>run</kbd>, to indicate to Docker that we want to initiate an image. Note that, at this point, the image's location (that is, local or remote) is not important. If the image is not found locally, a remote repository search will proceed automatically. Finally, if the image does not exist locally or remotely, an error will be returned.</span></p>
+<div class="packt_infobox"><br/>
+Note the preceding application is actually quite useful. If you specify an additional argument, it will print that instead of the default message associated with the command. Try <kbd>docker run hello-docker:1.0 "I love working on Google Cloud"</kbd></div>
+<p style="padding-left: 60px"><span>Earlier in this section, we built our image, meaning it should be accessible to Docker. This process can be seen in the following diagram:</span></p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-940 image-border" src="assets/78235e4b-9fc2-44cd-8033-0268c6723f23.png" style=""/></div>
+<p style="padding-left: 60px"><span>In the preceding diagram, we can see a container, which has a running state and a container ID assigned to it.</span></p>
+<p style="padding-left: 60px"><span>So far, we have performed the following steps:</span></p>
+<ol>
+<li style="list-style-type: none">
+<ol>
+<li><span>Created a manifest file (for example, a Dockerfile)</span></li>
+<li><span>Built the image from the manifest</span></li>
+<li><span>Run the image to create a container</span></li>
+</ol>
+</li>
+</ol>
+<p style="padding-left: 60px"><span>Hopefully, all of these actions are clear to you, and you can see how straightforward it is to incorporate Docker within your development workflow. As the container is running on the host machine, it is sharing its resources with the host. To confirm that the Docker container has been started successfully, you will need to use the Docker process command to list all the running containers.</span></p>
+<ol start="6">
+<li>List all the Docker processes available on the host:</li>
+</ol>
+<pre style="padding-left: 60px"><strong><span>   docker ps -a</span></strong></pre>
+<p style="padding-left: 60px"><span>The <kbd>ps</kbd> command option relates to the process that's initiated by the Docker application. In this example, we want to see all of the active containers on the host. Being able to track which processes are currently running on the host is very important. In the preceding command, we're listing all of the processes in the</span> Docker <span>namespace. Doing this allows us to see what is active on a host and gives us valuable insight into the dynamic process that's occurring on the host. Running operations on a localhost doesn't come without a price. The machine resource state that holds the active containers will need to be stopped to restore the machine's overall resources.</span></p>
+<p style="padding-left: 60px"><span>Going back to the topic of microservices, in this example, I am outputting information to the screen. It may be more desirable to not output the status on the screen for a majority of situations. Unless you have a genuine requirement to output the status (that is, it's a frontend HTTP application), try and avoid providing feedback via the screen. Sending information directly to the logging infrastructure is a more scalable approach. In the upcoming sections, we will work on more sophisticated examples that require specific network ports to be exposed and information to be written directly to the logs. Adopting this best practice at the earlier stages of using containers is an excellent habit to get into, and minimizes any potential rework associated with removing screen content.</span></p>
+<p style="padding-left: 60px"><span>Before releasing the resource associated with the container, take a minute to observe the logs that have been generated by the running application. To do this, we need to use a specific command and insert the actual container ID for the active process.</span></p>
+<ol start="7">
+<li>Show the logs associated with a specific container:</li>
+</ol>
+<pre style="padding-left: 60px"><strong><span>   docker logs &lt;CONTAINER ID&gt;</span></strong></pre>
+<p style="padding-left: 60px"><span>Accessing containers logs in this way is a great strategy if we wish to investigate what is happening during the active life cycle of a container. In an instance where runtime information is not available as a direct output, Docker can be used to ascertain what is happening in the application so that any errors that occur can be addressed. Now that we have examined the properties of an active container, we should look at how to release resources.</span></p>
+<p style="padding-left: 60px"><span>To stop an active container, we need to use a specific command that will halt the active process from running. Entering the following at the command line will stop the active container from running on the host.</span></p>
+<ol start="8">
+<li>Stop the container running on the host:</li>
+</ol>
+<pre style="padding-left: 60px"><strong><span>   docker stop &lt;CONTAINER_ID&gt;</span></strong></pre>
+<p><span>In the preceding command, the container identifier is the one that was presented by the <kbd>ps</kbd> command that we initiated earlier. Whenever Docker requests an identifier, it is more than likely referring to this helpful reference title to distinguish it from the active component. Once the container stops, the associated resources for our simple container example will be released back to the host machine. Now that you know how to build and invoke an image, we can look at how to increase our productivity by introducing two developer tools: <strong>Google Cloud Build</strong> and <strong>Container Registry</strong>.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Populating Container Registry</h1>
+                </header>
+            
+            <article>
+                
+<p><span>In the previous section, we provided a high-level introduction to Docker and containers. In this section, we will expand on this discussion by looking at Google developer tools and how these increase developer productivity.</span></p>
+<p><span>Before we continue, let's outline our assumptions for this section since there are going to be some dependencies. First and foremost, your environment should already have been set up to use the GCloud SDK and should be pointing to a valid project on Google Cloud. Also, the Docker application should be installed and capable of building images.</span></p>
+<p><span>The following diagram shows a typical development environment:</span></p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-941 image-border" src="assets/a19b63a2-8111-46b7-ad2c-7992e9414afd.png" style=""/></div>
+<p><span>As you can see, rather than using a local repository, we have defined a remote repository based on <strong>Google Container</strong> <strong>Registry</strong> (<strong>GCR</strong>). The remote registry replaces the use of Docker Hub for Google-based projects and gives us access to a multi-regional repository. </span><span>In this example, we will use a simple manifest to build a small image and populate the Google Cloud Repository. Let's get started:</span></p>
+<ol>
+<li>Create a Dockerfile manifest file:</li>
+</ol>
+<pre style="padding-left: 60px"><span>FROM alpine <br/></span><span>ENTRYPOINT [ "echo" ] <br/></span><span>CMD [ "Hello Container Registry Repo!" ]</span></pre>
+<p style="padding-left: 60px"><span>From here, we can initiate a local build to test the manifest file using the default Dockerfile, which is available in the <kbd>build</kbd> directory.</span></p>
+<ol start="2">
+<li>Build the Docker image:</li>
+</ol>
+<pre style="padding-left: 60px"><strong><span>   docker build -t hello-docker:1.1 .</span></strong></pre>
+<p style="padding-left: 60px"><span>The first difference in this process is populating the repository based on the build output. The manual path to achieve this is by tagging the image with the identifier for the repository endpoint. We need to apply a <kbd>tag</kbd> to indicate that the created artifact resides in GCR. We do this by appending the <kbd>gcr.io/[PROJECT_ID]</kbd> label. This will tell the GCloud SDK to use the US repository and a particular Google Cloud project.</span></p>
+<ol start="3">
+<li>Tag the Docker image:</li>
+</ol>
+<pre style="padding-left: 60px"><strong><span>   docker tag hello-docker:1.1 gcr.io/[PROJECT_ID]/hello-docker:1.1</span></strong></pre>
+<p style="padding-left: 60px"><span>Now that the image has been labeled correctly, we can push the image to the remote repository on Google Cloud.</span></p>
+<ol start="4">
+<li>Push the image to GCR:</li>
+</ol>
+<pre style="padding-left: 60px"><strong><span>   docker push gcr.io/[PROJECT_ID]/hello-docker:1.1</span></strong></pre>
+<p style="padding-left: 60px"><span>At this point, the locally held image will be pushed to GCR and hence be available remotely. Remote repository image access requires a <kbd>pull</kbd> command to be used if we wish to retrieve it on the localhost. It is essential to note that authenticated access uses IAM to control access (even if you make the repository public).</span></p>
+<ol start="5">
+<li>Pull the image from GCR:</li>
+</ol>
+<pre style="padding-left: 60px"><strong><span>   docker pull gcr.io/[PROJECT_ID]/hello-docker:1.1</span></strong></pre>
+<p><span>Looking at the preceding example, it is clear that this process is incredibly similar to building and using the Docker Hub repository. Images that are stored locally will require storage, which means where disk space is tight, remotely hosting your images is a worthwhile endeavor. As we learned earlier, Docker images are very flexible and the convenience of remote repositories provides for more flexible deployment strategies. </span></p>
+<p><span>Looking at remote repositories and how to populate Container Registry has taught us that it involves some additional steps. Fortunately, Google has created a versatile tool named Cloud Build that helps to remove some of that effort.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using Cloud Build</h1>
+                </header>
+            
+            <article>
+                
+<p><span>To enhance the build process, tools such as Cloud Build can help us to build more sophisticated scripts for the creation of images. Cloud Build is a developer tool that doesn't get much fanfare, but it is beneficial for things such as offloading and automating mundane tasks such as building images. In terms of image creation, the images that are built will reside in Google Container Registry and be maintained within a project-bound repository. Information that's stored in these repositories can be declared public or private on an individual basis, which establishes a simple but effective way to manage the images that are generated by the build process.</span></p>
+<p><span>Cloud Build is incredibly straightforward to integrate into your development workflow. The package is described as a language-independent manifest that is used to script the desired automation flow. Some key features of Cloud Build to consider are as follows:</span></p>
+<ul>
+<li><span>Native Docker support</span></li>
+<li><span>Supports multiple repositories (for example, Cloud Source Repositories, Bitbucket, and GitHub)</span></li>
+<li><span>Custom pipeline workflow</span></li>
+<li><span>Customized package support (for example, Docker, Maven, and Gradle)</span></li>
+<li><span>Local or cloud-based builds</span></li>
+<li><span>Package vulnerability scanning</span></li>
+</ul>
+<p><span>Now, we are going to use some of these tools to build our images and add them to a remote repository hosted on Google Cloud. </span><span>To start, we will update our example manifest once more and amend the message's output via the command parameter. Let's get started:</span></p>
+<ol start="1">
+<li>Create the Docker manifest file:</li>
+</ol>
+<pre style="padding-left: 60px"><span>FROM alpine <br/></span><span>ENTRYPOINT [ "echo" ] <br/></span><span>CMD [ "Hello Cloud Build!" ]</span></pre>
+<p style="padding-left: 60px"><span>When using Cloud Build, we no longer directly call Docker from the command line. Instead, to build the artifact, it uses the GCloud SDK command to create an image on the remote repository. The default Dockerfile needs to be present locally and should be used as the basis for image creation.</span></p>
+<ol start="2">
+<li>Initiate the build process based on the Docker manifest file:</li>
+</ol>
+<pre style="padding-left: 30px"><strong><span>   gcloud builds submit --tag gcr.io/[PROJECT_ID]/hello-docker:1.2 .</span></strong></pre>
+<p style="padding-left: 60px"><span>An additional option that starts to show the value of Cloud Build is that we can also create a file that will be responsible for automating the build process. Creating a <kbd>cloudbuild.yaml</kbd> file allows the developer to specify a series of steps to perform as part of the build process. The arguments for this process include a rich set of functionality that goes beyond Docker. It is highly recommended to investigate this at your leisure. In the following example, we're essentially replicating the <kbd>docker</kbd> command to build our image and tell it to hold the output in the Cloud Repository. The <kbd>images</kbd> line denotes the label associated with the build artifact. On completion, a new version (that is, <kbd>hello-docker:1.3</kbd>) is created and available on Container Registry.</span></p>
+<ol start="3">
+<li>Create the Cloud Build manifest file:</li>
+</ol>
+<pre class="mce-root" style="padding-left: 60px">steps: <br/>- name: 'gcr.io/cloud-builders/docker' <br/>  args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/hello-docker:1.3', '.' ] <br/>images: <br/>- 'gcr.io/$PROJECT_ID/hello-docker:1.3'</pre>
+<p style="padding-left: 60px"><span>To build the preceding file using Cloud Build, we need to run the following from the command line.</span></p>
+<ol start="4">
+<li>Build the image with Cloud Build and submit the image to Google Container Registry:</li>
+</ol>
+<pre style="padding-left: 60px"><strong><span>   gcloud builds submit --config cloudbuild.yaml</span></strong></pre>
+<p><span>In the preceding example, we outlined a simple way to incorporate a Docker manifest into Cloud Build. There are a variety of ways in which you can</span><span> enhance this model so that you can include more sophisticated options that can be combined. For now, that's all we need to cover in terms of establishing a Docker workflow. </span>Having enhanced our general understanding of Docker and some of the development tools associated with Google Cloud, we will turn our attention to Cloud Run.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Introducing Cloud Run</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root">Cloud Run (and Cloud Run for Anthos) is a container-based serverless technology. A distinct advantage here is that containerization is a widely adopted approach. Being able to package your application as a container and then subsequently migrate it to a fully managed serverless environment without any additional work is a desirable proposition.</p>
+<p class="mce-root">When working with any technology, it is always good to have an understanding of the constituent parts. In this respect, Google Cloud has chosen to base its technology on several open source technologies that the community can contribute to. Underestimating the ability to move between cloud providers occurs frequently. When developing an application, an important consideration is how that product/service technology can be adapted and the support it will receive.</p>
+<p class="mce-root">Beyond the fundamental proposition of running containers in the cloud, Cloud Run provides a fully managed, serverless execution environment. Similar to both App Engine and Cloud Functions, Google have predominantly done all of the heavy lifting in terms of infrastructure management. I say this mostly due to the inclusion of Cloud Run for Anthos, which requires the addition of a Kubernetes (Google Kubernetes Engine) cluster.</p>
+<p class="mce-root">Building full-stack serverless applications is a reality right now, and the tools and patterns that allow you to take advantage are within your grasp. Integrating with other services and platforms should not require significant code rewrites. Similarly, moving between different products and cloud providers should not present an issue when they're based on standard components and compatible architectural platforms.</p>
+<p>Before we continue our discussion of Cloud Run, w<span>e'll turn our attention to some key features that are used to enable this flexible serverless environment. </span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">gVisor</h1>
+                </header>
+            
+            <article>
+                
+<p><span>The gVisor open source project provides a sandboxed runtime environment for containers. In this environment, the containers that are created are run against a userspace kernel in which compatibility exists through the use of the <strong>Open Container Initiative</strong> (<strong>OCI</strong>) runtime specification. Intercepting application system calls provides a layer of isolation so that interaction can occur with the controlled host. The central tenet of this approach is to limit the system call surface area to minimize the attack radius. For a container environment, being able to exploit kernel space provides access to the host machines. To reduce the possibility of that eventuality, gVisor seeks to restrict this access and limit untrusted userspace code. </span><span>As shown in the following diagram, a sandboxing technique is used with gVisor to provide a virtualized environment for application execution:</span></p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-1180 image-border" src="assets/e2894b7f-ad0c-4ed3-bcff-96aea1b2dde8.png" style=""/></div>
+<p><span>As we can see, the system calls from the application get passed to gVisor, and it is here that it's determined whether they're permissible or not. Restricting the system calls via gVisor means permission is only given to verified access at the <strong>Host Kernel</strong> level. An approach such as this is described as defense in depth, meaning multiple layers are used to provide increased isolation from the host.</span></p>
+<p><span>Establishing an environment such as this allows us to run untrusted containers. In this instance, gVisor limits the possible interactions with the host kernel through the use of an independent operating system kernel. The beauty of OCI makes this type of integration possible and establishes an elegant way to interchange solutions such as Docker and gVisor seamlessly.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Knative</h1>
+                </header>
+            
+            <article>
+                
+<p><span>To begin our discussion, we'll delve into what Knative provides and then follow this up with an overview of the components within the project. Knative delivers APIs for close integration on the Kubernetes platform for both developers and operators. I would highly encourage further reading in this area to achieve greater insight than what would be possible given the brief synopsis provided in this book.</span></p>
+<p><span>Knative offers a multifaceted solution for the Kubernetes platform by providing a series of components. These components are responsible for many standard aspects of working with a platform, such as deployment, routing, and scaling. As you might expect with something associated with Kubernetes, the components offer compatibility across both frameworks and application tiers, making it relatively simple to incorporate into any design:</span></p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-836 image-border" src="assets/2039ff58-dfc3-4e71-a763-2ff0b3b7fe07.png" style=""/></div>
+<p><span>In the preceding diagram, we can see that different persona are involved in a Kubernetes workflow. Operators are typically responsible for infrastructure maintenance. Developers focus on creating application workloads that reside on the platform and interact with the API. It is at this level that Knative allows developers to deliver greater efficiency for their applications.</span></p>
+<p><span>Discussions of Knative typically describe it as middleware since it sits between the Kubernetes platform and your application. Earlier in this chapter, we looked at microservice design patterns; Knative is essentially a fully realized expression of this approach for serverless workloads. In this relationship, two primary components are essential to the discussion, that is, Knative Serving and Knative Events:</span></p>
+<ul>
+<li><span>Serving relates to access to the <strong>Custom Resource Definitions</strong> (<strong>CRDs</strong>) that control workload interaction with the underlying Kubernetes cluster. The supporting compute resource for this service will be capable of scaling to zero. Note that, on Kubernetes, this relates to the resource, not the cluster. Interaction with the platform API provides us with an opportunity to enact more granular control. In this respect, being able to control elements such as service, route, configuration, and revision is possible using Knative serving. Each element is used to provide specific management of the desired state and communication via the rules put in place.</span></li>
+</ul>
+<div class="packt_tip">Knative Serving is capable of abstracting services such as ingress between different environments and cloud providers. By doing this, the interaction between application developers and Kubernetes becomes significantly more straightforward. </div>
+<ul>
+<li><span>Events follow the notion of producers and consumers in which responsibility is required for shared activities. Enabling the late binding of generated artifacts allows us to incorporate a loosely coupled service that is capable of interacting with other services. The list of event artifacts uses an event registry, thereby allowing a consumer to be triggered without the need to reference other objects. In this respect, the event consumer must be addressable; that is, they must be capable of receiving and acknowledging messages.</span></li>
+</ul>
+<p>While on the subject of Knative, I will briefly mention Istio, which is a service mesh that provides policy enforcement and traffic management, among other things. So, what is a service mesh? A service mesh represents a network of microservices typically deployed on Kubernetes. Istio provides several sophisticated features, including metrics that support the overall management of the mesh network. For serverless workloads that are deployed on Cloud Run for Anthos, Knative, together with Istio, provides an extension to the Kubernetes platform to enable more granular control of the microservice architecture being implemented.</p>
+<p><span>This brief overview of the lower-level components should have provided you with some additional context about the underlying Cloud Run architecture. In the next section, we'll return to the topic of Cloud Run and Cloud Run on Anthos to </span><span>perform a brief comparison of the products.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Cloud Run versus Cloud Run for Anthos</h1>
+                </header>
+            
+            <article>
+                
+<p>Fundamentally, Cloud Run is a serverless platform for stateless workloads. For this solution, there is no requirement for infrastructure management. Alternatively, you may have an existing Kubernetes cluster. In this scenario, all of your workloads run from this environment. Additionally, you may need features such as namespacing, control over pod colocation, or additional telemetry. In this case, Cloud Run on Anthos provides a more considered choice. In both instances, the workloads to be deployed remain the same, so as a developer, the associated effort does not increase, despite the apparent differences in terms of deployment platform.</p>
+<p class="mce-root">To understand what we mean in terms of Cloud Run/Cloud Run for Anthos, let's start with a diagram. This will help us to observe the technology stack of each so that we can understand the workflow:</p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-837 image-border" src="assets/74ee304c-2231-4da7-a35a-d05cadddd062.png" style=""/></div>
+<p class="mce-root">In the preceding diagram, it is clear that there is a lot of commonality between the two forms of Cloud Run. At the forefront of communication is a gateway that's used to consume HTTP traffic. Here, we can route traffic to the underlying product.</p>
+<p class="mce-root">At the start of our diagram, we can discern that HTTP traffic is routed to our environment. Traffic to Google environments typically routes through the <strong>Google Front End</strong> (<strong>GFE</strong>). For Cloud Run for Anthos traffic, there is additional routing configuration based on a Google Cloud Load Balancer that's active at the network layer (and potentially an Istio gateway).</p>
+<p class="mce-root">From the perspective of the container, we can see a crucial difference at this level. The management of the artifact has explicit dependencies, based on which the platform takes precedent. This is a central difference between the compute platform that's used to run the objects. On Kubernetes, the deployment process uses<span> <strong>Google Kubernetes Engine</strong></span> (<strong>GKE</strong>). As we discussed earlier, the container artifact that's deployed uses the OCI to deliver the runtime and image specification. To access the broader services of Google, the Knative Serving API is used to communicate with Google APIs.</p>
+<p class="mce-root">We already know that Knative is used to deliver both a portable and extensible API across different runtime environments in support of the development of serverless applications. Utilizing the Knative Serving API to provide portability and access to backend Google APIs is inherent with Cloud Run. Don't underestimate the power of portability, whether you are already reaping the benefits of Kubernetes or still undecided; having a core component to manage the transition seamlessly is a welcome addition. We touched on these high-level aspects of Knative earlier in this chapter; however, incorporating this capability makes for a great platform that we can use to extend applications to take advantage of orchestrated workloads.</p>
+<p class="mce-root">Now that we have an understanding of the underlying architecture, we know that there are many moving parts that provide this serverless architecture on Google Cloud. In the next couple of chapters, we will turn our attention to the specifics of Cloud Run and Cloud Run for Anthos.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root">In this chapter, we discussed Cloud Run at a high level and introduced the constituent components that make all of this a reality. Just like Google's other serverless products, Cloud Run scales to zero, except here, the deployment artifact is now a container. Utilizing a container artifact provides additional benefits as Cloud Run can be deployed with Kubernetes or without it. In addition, any language runtime can be used, making for a very flexible product.</p>
+<p class="mce-root">Familiarity with container environments (for example, Docker) is a real advantage here, but Cloud Run removes much of the complexity of deploying code. Once the container has been successfully built, it can be deployed. Support for serverless request/response messages is inherent in Cloud Run, so there is always a simple and consistent method for developing components. For those of you who weren't previously familiar with containers, hopefully, you now know enough to be able to utilize them.</p>
+<p class="mce-root">Over the course of this chapter, we provided a common grounding for working with Cloud Run and containers. Whether or not you believe that containers are the future, they are an important topic to grasp. Now that we have gone through the basics of Cloud Run, we can move on to more interesting projects. In the next chapter, we will continue to investigate this serverless product and build some example projects.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Questions</h1>
+                </header>
+            
+            <article>
+                
+<ol>
+<li class="mce-root">Describe some differences between a monolith and a microservice application.</li>
+<li>What function does the GFE perform?</li>
+<li>Name two synchronous event processing patterns.</li>
+<li>When using Docker, what is the <kbd>ENTRYPOINT</kbd> keyword used for?</li>
+<li>What Docker command is used to build an image?</li>
+<li>Can you name the product that Google Cloud uses for image management?</li>
+<li>What purpose does Cloud Build fulfill?</li>
+<li>Why is the Knative API an important component of Cloud Run?</li>
+<li>What is OCI and what is it used for?</li>
+<li>Can you name some different operating systems that support containers?</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Further reading</h1>
+                </header>
+            
+            <article>
+                
+<ul>
+<li><strong>Migrating monolithic application microservices on GKE</strong>: <a href="https://cloud.google.com/solutions/migrating-a-monolithic-app-to-microservices-gke">https://cloud.google.com/solutions/migrating-a-monolithic-app-to-microservices-gke</a></li>
+<li><strong>Knative</strong>: <a href="https://cloud.google.com/knative/">https://cloud.google.com/knative/</a></li>
+<li><strong>gVisor</strong>: <a href="https://gvisor.dev/">https://gvisor.dev/</a></li>
+<li><strong>Istio</strong>: <a href="https://istio.io/docs/concepts/">https://istio.io/docs/concepts/</a></li>
+<li><strong>Google Infrastructure Security Design Overview</strong>: <a href="https://cloud.google.com/security/infrastructure/design/">https://cloud.google.com/security/infrastructure/design/</a></li>
+<li><strong>Google Load Balancing</strong>: <a href="https://cloud.google.com/load-balancing/">https://cloud.google.com/load-balancing/</a></li>
+<li><strong>Quickstart for Docker</strong>: <a href="https://cloud.google.com/cloud-build/docs/quickstart-docker">https://cloud.google.com/cloud-build/docs/quickstart-docker</a></li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

@@ -1,0 +1,529 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Cloud Run Labs</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, we will explore some use cases to see how Cloud Run can be deployed on <strong>Google Kubernetes Engine</strong> (<strong>GKE</strong>). The most common use cases revolve around building web applications, performing deployments, and the need for<strong> continuous integration</strong> (<strong>CI</strong>).</p>
+<p>The focus of this chapter is to illustrate the wide spectrum of use cases that are possible using Cloud Run. This chapter will also show how to perform many of the activities required to deploy your container when using this platform.</p>
+<p>Over the course of this chapter, we will discuss the following topics:</p>
+<ul>
+<li>Building a container </li>
+<li>De<span>ploying Cloud Run on GKE</span></li>
+<li>Creating a<span> simple web application</span></li>
+<li><span>CI on GKE</span></li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Technical requirements</h1>
+                </header>
+            
+            <article>
+                
+<p>To complete the exercises in this chapter, you will require a Google Cloud Project or a Qwiklabs account.</p>
+<p>You can find the code files of this chapter in the GitHub repository for this book in the <kbd>ch10</kbd> <span>subdirectory </span>at <a href="https://github.com/PacktPublishing/Hands-on-Serverless-Computing-with-Google-Cloud/tree/master/ch10">https://github.com/PacktPublishing/Hands-on-Serverless-Computing-with-Google-Cloud/tree/master/ch10</a>.</p>
+<div class="packt_infobox"><br/>
+While you are going through the code snippets in this book, you will notice that, in a few instances, a few lines from the code/output have been removed and replaced with dots (<kbd>...</kbd>). Ellipses are used to <span>only </span>show relevant code/output. The complete code is available on GitHub at the link mentioned previously.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Building a container</h1>
+                </header>
+            
+            <article>
+                
+<p>Building a container for an application should be a familiar activity at this point in this book. For the most part, when building an image, we can normally rely on existing knowledge to determine how to incorporate a runtime language or package. From a personal perspective, I like to containerize applications as it provides a consistent and well-understood interface. The isolation from system updates and other changes impacting an application is a very common and annoying aspect of maintaining a computer.</p>
+<p>At this point, the assumption is that building images is second nature and the next challenge relates to deploying the containers. What your container is actually meant to do will probably influence the complexity of the running container. For example, running a container with a graphical user interface (potentially) presents more issues than one using a command-line interface. Over the course of this chapter, we will walk through a couple of examples dedicated to indicating how this process can be performed.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating a service</h1>
+                </header>
+            
+            <article>
+                
+<p>We will be using Cloud Shell or a local development environment (Cloud SDK) to create the next example, which is a fun example to demonstrate how to build an application running in a container. In this example, we will develop a simple application called <strong>announce</strong> (based on the command-line utility <strong>Boxes</strong>) that will display a message on the command line.</p>
+<div class="packt_infobox"><br/>
+If you are not familiar with Boxes, it draws ASCII art around text. To begin, we want to create an application that can call the Boxes application to output some arbitrary text.</div>
+<p class="mce-root"/>
+<p class="mce-root">To commence the example, let's initialize the environment ready to build our application.</p>
+<ol>
+<li><span>Initialize the <kbd>npm</kbd> package:</span></li>
+</ol>
+<pre style="padding-left: 60px"><strong><span>npm init --yes</span></strong></pre>
+<ol start="2">
+<li>
+<p>Edit the <kbd>package.json</kbd> to add a <kbd>start</kbd> command:</p>
+</li>
+</ol>
+<pre style="padding-left: 60px">...<br/>"scripts": {<br/>"start": "node index.js",<br/>"test": "echo \"Error: no test specified\" &amp;&amp; exit 1"<br/>},<br/>...</pre>
+<ol start="3">
+<li>Install the <kbd>npm</kbd> packages:</li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>npm install express</strong><br/><strong>npm install util</strong><br/><strong>npm install child-process</strong></pre>
+<ol start="4">
+<li>Create and edit a file named <kbd>index.js</kbd>:</li>
+</ol>
+<pre style="padding-left: 60px">const {promisify} = require('util');<br/>const exec = promisify(require('child_process').exec);<br/>const express = require('express');<br/>const app = express();<br/>const port = process.env.PORT || 8080;<br/><br/>app.listen(port, () =&gt; {<br/>  console.log('Listening on port', port);<br/>});</pre>
+<ol start="5">
+<li>
+<p><span>Add the main functionality to the <kbd>index.js</kbd> file:</span></p>
+</li>
+</ol>
+<pre style="color: black;padding-left: 60px">app.get('/', async (req, res) =&gt; {<br/>  try {<br/>    let message = req.query.message;<br/>    console.log ('Message: ' + message);<br/>    const cmd='echo ' + message + ' | boxes -d boy';<br/>    const {stdout, stderr} = await exec(cmd);<br/>    if (stderr) {<br/>      throw stderr;<br/>    }<br/>    res.status(200).send("&lt;pre&gt;" + stdout + "&lt;/pre&gt;");<br/>  }<br/>  catch (ex) {<br/>    console.log(`${ex}`);<br/>    res.status(500);<br/>  }<br/>});<br/><br/></pre>
+<div class="packt_tip"><br/>
+You can check your application at this stage by just running <kbd>npm start</kbd> from the command line. It won't do anything spectacular, but it will give you the chance to correct any issues in terms of code not working as expected. Assuming you don't have <kbd>boxes</kbd> installed locally, the output would be similar to the following:<br/>
+<br/>
+<kbd>Message: undefined</kbd><br/>
+<kbd>Error: Command failed: echo undefined | boxes -d boy</kbd><br/>
+<br/>
+Don't worry—this is expected and will be corrected with the creation of our application image.</div>
+<ol start="6">
+<li>Create a Dockerfile:</li>
+</ol>
+<pre style="color: black;padding-left: 60px">FROM node:12-slim<br/>LABEL MAINTAINER Rich Rose<br/>RUN apt-get update -y &amp;&amp; apt-get install -y boxes &amp;&amp; apt-get clean<br/>WORKDIR /usr/src/app<br/>COPY package*.json ./<br/>RUN npm install --only=production<br/>COPY . .<br/>CMD [ "npm", "start" ]</pre>
+<ol start="7">
+<li>Build the image:</li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>gcloud builds submit --tag gcr.io/$GOOGLE_CLOUD_PROJECT/announce-service:1.0</strong></pre>
+<p>Once the build process is invoked, an output similar to the following will be displayed:</p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-905 image-border" src="assets/a9c03ce9-6fbb-4a4e-aa23-98e0f5eca765.png" style=""/></div>
+<p><span>Pushing the</span><span> image to the Container</span> <span>Registry means we have more control over how and where our image can be accessed. Now that the image has been built</span>, <span>we can perform an initial test of the container by deploying it locally.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Testing the announce service</h1>
+                </header>
+            
+            <article>
+                
+<p>Having a container deployed to Container Registry is only part of the work to be performed. Next, we need to run the container from the image stored. Cloud Run containers run on port <kbd>8080</kbd>, so we should enable port mapping for images pulled from the repository:</p>
+<ol>
+<li>Run the container from the command line:</li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>docker run -d -p 8080:8080 gcr.io/$GOOGLE_CLOUD_PROJECT/announce-service:1.0</strong></pre>
+<ol start="2">
+<li>Test the output from the application:</li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>curl 127.0.0.1:8080</strong></pre>
+<ol start="3">
+<li>Test sending a message to the application:</li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>curl 127.0.0.1:8080/?message=cloud+run+on+anthos</strong></pre>
+<ol start="4">
+<li>Stop the Docker container running on the local machine:</li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>docker stop $(docker ps -aq)</strong></pre>
+<p>Congratulations, you have now deployed and tested the application to generate box ASCII art from a container. In the next section, we will deploy the application to <strong>Google Kubernetes Engine</strong> (<strong>GKE</strong>) and access the service from a cluster.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Deploying Cloud Run on GKE</h1>
+                </header>
+            
+            <article>
+                
+<p>Now that we know how to create an image of an application, how does that translate to running an image on GKE? Fortunately, we already know how to deploy a container on Cloud Run, which means we know most of what is required for deployment on GKE.</p>
+<p>From an external perspective, we interact with the Cloud Run service URL. Internally, when running on GKE, there is actually a lot more going on in the background. However, we will focus on how to replicate our application when running as a service.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Provisioning a GKE cluster</h1>
+                </header>
+            
+            <article>
+                
+<p>Before we can deploy our application onto Cloud Run on GKE, we need to create a GKE cluster. So, let's begin:</p>
+<ol>
+<li><span>In this example we use the standard cluster definition. So, c</span>reate a GKE cluster called <kbd>hos-cluster-1</kbd>:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-1256 image-border" src="assets/09b71612-679f-4686-a489-55bd738c6138.png" style=""/></div>
+<div class="packt_infobox"><span>It's important to select the </span><span class="packt_screen">Enable Cloud Run for Anthos</span><span> option. </span></div>
+<p style="padding-left: 60px"><span>The following screenshot indicates that Cloud Run for Anthos has been enabled for the cluster. By default, monitoring is enabled on the cluster to be created:</span></p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/bbe92de3-13c2-4f66-92c1-1bf1cea147c1.png" style=""/></div>
+<div class="packt_infobox"><br/>
+We can also use the command line to create a cluster and perform tasks on Google Cloud. In this instance, creating a cluster requires quite a long command, so I normally stick to doing this activity through the Cloud Console. </div>
+<p style="padding-left: 60px">The Kubernetes cluster to be created is standard apart from the checkbox located right at the bottom of the cluster configuration screen. For Cloud Run to be enabled within the cluster, this box needs to be checked.</p>
+<ol start="2">
+<li>Once the cluster has been successfully provisioned, configure <kbd>kubectl</kbd> to connect to the cluster:</li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>gcloud container clusters get-credentials hos-cluster-1 --zone us-central1-a --project $GOOGLE_CLOUD_PROJECT</strong></pre>
+<ol start="3">
+<li>Deploy the service to the <kbd>hos-cluster-1</kbd> Kubernetes cluster. Note that we now specify GKE as the platform as well as the cluster and cluster location:</li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>gcloud run deploy announce-service \</strong><br/><strong>--platform gke \</strong><br/><strong>--cluster hos-cluster-1 \</strong><br/><strong>--cluster-location us-central1-a \</strong><br/><strong>--image gcr.io/$GOOGLE_CLOUD_PROJECT/announce-service</strong></pre>
+<ol start="4">
+<li>Make an environment variable called <kbd>ANNOUNCE_URL</kbd> to store the URL of the deployed service:</li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>ANNOUNCE_URL=$(gcloud beta run services describe announce-service --platform gke --cluster hos-cluster-1 --cluster-location us-central1-a --format "value(status.url)")</strong></pre>
+<p><span>External access to the Cloud Run service is provided via Istio, which is deployed to another namespace. The deployed namespaces are displayed in the Cloud Console. However, if you were to do <kbd>kubectl get service</kbd> from the command line in the default namespace, there would be no reference to Istio. To access the Istio gateway service from the command line, we need to indicate that we would like to use the <kbd>gke-system</kbd> namespace.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Testing the GKE service</h1>
+                </header>
+            
+            <article>
+                
+<p>We have a service deployed, but we need to know how to access it. Cloud Run on GKE utilizes an Istio Ingress to enable external access to the GKE cluster:</p>
+<ol>
+<li>To show the details on the Istio Ingress (which is a <kbd>loadBalancer</kbd> created in the <kbd>gke-system</kbd> namespace), use the following command:</li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>kubectl get svc istio-ingress -n gke-system</strong></pre>
+<ol start="2">
+<li>Assign the <kbd>loadBalancer.ingress</kbd> address to the <kbd>ISTIO_INGRESS</kbd> <span>environment variable:</span></li>
+</ol>
+<pre style="padding-left: 60px"><strong><span>ISTIO_INGRESS=$(kubectl get svc istio-ingress -n gke-system -o json | jq -r '.status.loadBalancer.ingress[0].ip')<br/></span></strong></pre>
+<p style="padding-left: 60px">In the following screenshot, we can see the result of the cluster. The information we need is labeled <kbd>istio-ingress</kbd>:</p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-866 image-border" src="assets/77ea1f2f-c5ea-48a9-9dec-d8d1d4e48674.png" style=""/></div>
+<div class="packt_tip">Information returned from the <kbd>kubectl</kbd> command can be filtered to only display the field required. For example, in this instance, we only require the IP address. If we would like to filter the output to return specific information, we can use JQ to filter on the information desired.<br/>
+<br/>
+JQ is a lightweight command-line tool built to process JSON objects. Using this tool, you can manipulate JSON objects in a similar fashion to using <kbd>sed</kbd> or <kbd>awk</kbd>. You can find more information on this amazing tool at <a href="https://stedolan.github.io/jq/">https://stedolan.github.io/jq/</a>.</div>
+<ol start="3">
+<li>The application running in the cluster can be tested by visiting the Cloud Run service page or by using <kbd>curl</kbd> on the external IP associated with istio-ingress displayed in the Cloud Run console. For example, in my case, it is <kbd>announce-service.default.35.223.78.170.xip.io</kbd>:</li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>curl -v http://announce-service.default.[EXTERNAL_IP].xip.io</strong></pre>
+<p class="mce-root">The namespace default can be seen in the service details screen for Cloud Run, as follows:</p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-867 image-border" src="assets/eb109e96-5e62-419d-bc2a-d27d4969362f.png" style=""/></div>
+<p>For the <span>deployed </span><span>service, you may have noticed that the domain associated with our service is registered as</span> <kbd>xip.io</kbd><span>. The default used by Cloud Run on GKE is actually</span> <kbd>example.com</kbd><span>. So, how did this address become assigned to the deployed service? When testing, it is possible to change from the default domain to an alternative. Google currently provides three wildcard DNS test sites that can be set up to be used with Cloud Run services:</span></p>
+<ul>
+<li class="mce-root"><kbd>nip.io</kbd></li>
+<li class="mce-root"><kbd>xip.io</kbd></li>
+<li class="mce-root"><kbd>sslip.io</kbd></li>
+</ul>
+<p>The sites declared above  represent a simple and effective way to register a temporary domain for the purposes of testing. </p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Applying a custom domain</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root">Alternatively, if you own a domain, this can also be set up instead of the default domain. Changing to use one of the free DNS sites requires doing the following:</p>
+<ol>
+<li>Set the cluster to use a custom domain by patching the <kbd>configmap</kbd> for the cluster:</li>
+</ol>
+<pre class="mce-root" style="padding-left: 60px"><strong>kubectl patch configmap config-domain --namespace knative-serving --patch \</strong><br/><strong> '{"data": {"example.com": null, "[EXTERNAL-IP].xip.io": ""}}'</strong></pre>
+<p class="mce-root" style="padding-left: 60px">To determine the external IP of a Cloud Run service on GKE, remember that this is referring to the <span>external IP of the </span>Istio Ingress. Once the DNS has been updated, you will see that the address of the deployed service will use the new DNS reference.</p>
+<p class="mce-root" style="padding-left: 60px">In addition to an alternative domain, there might also be a need to incorporate HTTPS for the cluster in use. For most situations, it is advisable to utilize a service such as Let's Encrypt on your cluster. Note that when using a Google service, HTTPS may be required, so it is important to know how to apply this to your environment so that the authentication methods work as expected.</p>
+<div class="mce-root packt_tip"><br/>
+The console output includes a reference to <span class="packt_screen">s</span><span class="packt_screen">ervice and ingress</span>. The deployed service URL will be available in the Cloud Run console. The externally available IP <span>is only available to the Istio Ingress of the load balancer <span>type</span>. Note that the internal address range, that is,</span> <kbd>10.0.x.x</kbd><span>, is not accessible to the</span> <kbd>curl</kbd> <span>command.<br/>
+<br/></span></div>
+<ol start="2">
+<li class="mce-root">Access the service URL and store it in an environment variable:</li>
+</ol>
+<pre class="mce-root" style="padding-left: 60px"><strong>SERVICE-URL=$(gcloud beta run services describe password-service --platform gke --cluster hos-cluster-1 --cluster-location us-central1-a --format "value(status.url)")</strong></pre>
+<ol start="3">
+<li class="mce-root">List the information for the <kbd>istio-ingress</kbd> associated with the <kbd>gke-system</kbd> namespace:</li>
+</ol>
+<pre class="mce-root" style="padding-left: 60px"><strong>kubectl get svc istio-ingress -n gke-system</strong></pre>
+<ol start="4">
+<li>Get the external IP associated with the <kbd>istio-ingress</kbd> endpoint:</li>
+</ol>
+<pre class="mce-root" style="padding-left: 60px"><strong>ISTIO_INGRESS=$(kubectl get svc istio-ingress -n gke-system -o json | jq '.status.loadBalancer.ingress[0].ip')</strong></pre>
+<ol start="5">
+<li class="mce-root">Use the external IP of the Istio Ingress to patch the endpoint for testing:</li>
+</ol>
+<pre class="mce-root" style="padding-left: 60px"><strong>kubectl patch configmap config-domain --namespace knative-serving --patch \</strong><br/><strong> '{"data": {"example.com": null, "[EXTERNAL_IP].xip.io": ""}}'</strong></pre>
+<ol start="6">
+<li class="mce-root"><span>Next, we need to generate a digital SSL certificate. We can do this by using the <kbd>Certbot</kbd> utility. Certbot automates certificate generation using</span> <span class="packt_screen"><span>Let's Encrypt</span></span> <span>as its backend. </span>Download the Certbot (<a href="https://certbot.eff.org/">https://certbot.eff.org/</a>) application and use it to generate a digital SSL certificate:</li>
+</ol>
+<pre class="mce-root" style="padding-left: 60px"><strong>wget https://dl.eff.org/certbot-auto</strong><br/><strong>chmod a+x ./certbot-auto</strong><br/><strong>./certbot-auto --help</strong></pre>
+<ol start="7">
+<li class="mce-root">Add the SSL certificate to the domain to provide SSL access for the domain:</li>
+</ol>
+<pre class="mce-root" style="padding-left: 60px"><strong>./certbot-auto certonly --manual --preferred-challenges dns -d '*.default.[EXTERNAL_IP].xip.io'</strong></pre>
+<p>Congratulations! We have successfully built and deployed a simple service on Cloud Run on GKE. However, to use it, we need to add some additional components. In the next section, we will expand on this example to illustrate how application components are integrated.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating a simple web application</h1>
+                </header>
+            
+            <article>
+                
+<p>Now that we know how to build and deploy a container on Cloud Run on GKE, the next step is to explore how to link this together with other services to create an application. With our application deployed on GKE, we now need to configure Cloud Storage and Cloud Pub/Sub.</p>
+<p>For our example, we are going to build a form to call our announce service:</p>
+<ol>
+<li>Create a new directory called <kbd>simple-form</kbd>:</li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>mkdir simple-form &amp;&amp; cd $_</strong></pre>
+<ol start="2">
+<li>Initialize the environment:</li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>npm init --yes</strong></pre>
+<ol start="3">
+<li>Edit the <kbd>package.json</kbd> file and add the <kbd>start</kbd> command:</li>
+</ol>
+<pre style="color: black;padding-left: 60px">…<br/>"scripts": {<br/>"start": "node index.js",<br/>"test": "echo \"Error: no test specified\" &amp;&amp; exit 1"<br/>},<br/>...</pre>
+<ol start="4">
+<li>Install the <kbd>npm</kbd> packages (<kbd>pug</kbd> and <kbd>express</kbd>):</li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>npm install pug</strong><br/><strong>npm install express</strong></pre>
+<div class="packt_tip">In the following code, we will call our <kbd>announce-service:1.0</kbd>. Replace the service URL endpoint with the address that was generated on Google Cloud for your Cloud Run deployment.  <br/>
+<br/>
+To get a list of services that have been deployed, use the following command:<br/>
+<br/>
+<kbd>gcloud run services list --platform managed</kbd></div>
+<p>In the following table, the commands that were used to deploy has been listed for reference. Take note of the platform command as this determines the target system: </p>
+<div>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td style="width: 26%">
+<p><strong>Platform</strong></p>
+</td>
+<td style="width: 81.0198%">
+<p><strong>Command</strong></p>
+</td>
+</tr>
+<tr>
+<td style="width: 26%">
+<p>Cloud Run</p>
+</td>
+<td style="width: 81.0198%">
+<p><kbd>gcloud run deploy SERVICE --platform managed --region REGION</kbd></p>
+</td>
+</tr>
+<tr>
+<td style="width: 26%">
+<p>Cloud Run for Anthos (Google Cloud)</p>
+</td>
+<td style="width: 81.0198%">
+<p class="mce-root"><kbd>gcloud run deploy SERVICE --platform gke --cluster CLUSTER-NAME</kbd></p>
+<p class="mce-root"><kbd>       --cluster-location CLUSTER-LOCATION</kbd></p>
+</td>
+</tr>
+<tr>
+<td style="width: 26%">
+<p>Cloud Run for Anthos (VMware)</p>
+</td>
+<td style="width: 81.0198%">
+<p><kbd>gcloud run deploy SERVICE --platform kubernetes --kubeconfig KUBECONFIG-FILE</kbd></p>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<ol start="5">
+<li>Create an <kbd>index.js</kbd> file and add the following content to it:</li>
+</ol>
+<pre style="color: black;padding-left: 60px">const express = require('express');<br/>const pug = require('pug');<br/>const app = express();<br/>const port = process.env.PORT || 8080;<br/><br/>app.get("/", function(req, res) {<br/>  const pugTemplate = pug.compileFile('./views/index.pug');<br/>  res.status(200).send(pugTemplate({<br/>    service_url: 'http://do.com'}));<br/>});<br/><br/>app.listen(port, () =&gt; {<br/>  console.log('Listening on port', port);<br/>});</pre>
+<ol start="6">
+<li>Create a new directory for a <kbd>pug</kbd> view:</li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>mkdir views &amp;&amp; cd $_</strong></pre>
+<ol start="7">
+<li>Create an <kbd>index.pug</kbd> file in the <kbd>views</kbd> directory and add the following style content:</li>
+</ol>
+<pre style="color: black;padding-left: 60px">html<br/>head<br/>style.<br/><br/>  input[type=text], select {<br/>    width: 100%;<br/>    padding: 12px 20px;<br/>    margin: 8px 0;<br/>    display: inline-block;<br/>  }<br/><br/>  input[type=submit] {<br/>    width: 20%;<br/>    padding: 14px 20px;<br/>    border-radius: 4px;<br/>  }</pre>
+<ol start="8">
+<li>Add the form controls to the <kbd>index.pug</kbd> file (replace <kbd>ANNOUNCE_URL</kbd> with the URL for the <kbd>announce-service</kbd> URL identified earlier in the project):</li>
+</ol>
+<pre style="color: black;padding-left: 60px"><br/>body<br/>  div.header Cloud Run for Anthos:<br/>  p<br/>  div.card<br/>    p.<br/>    Add the text you want to see displayed in the boxes application.<br/>    form(action="[ANNOUNCE_URL]/?message" method="get" target="_blank")<br/>      label Message to display: &lt;input type="text" name="message"&gt;&lt;br&gt;<br/>      p<br/>      input(type='submit', value='Submit')</pre>
+<ol start="9">
+<li>
+<p>Run the application to test and see that the form calls the service and displays the message:</p>
+</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-906 image-border" src="assets/9973f34f-1864-468d-9fe5-0b5f12e7c5aa.png" style=""/></div>
+<p>On entering a message and pressing the <span class="packt_screen">Submit</span> button, the form will call the <kbd>announce-service</kbd> and display the message that was entered, as shown in the following screenshot:</p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-907 image-border" src="assets/ca1d7d2a-90c3-422a-abc0-c91370f46b14.png" style=""/></div>
+<p>Congratulations! At this point, when a message is entered, it will invoke the service associated with the <kbd>ANNOUNCE_URL</kbd>. As the service URL is exposed, we can easily integrate other applications or services using web forms or other straightforward applications built around the service.</p>
+<p>Now that we have looked at the general interface associated with deploying a web application, let's turn our focus to CI. In the next section, we will look at how to automate the build process.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">CI on GKE</h1>
+                </header>
+            
+            <article>
+                
+<p>As we have already seen, getting Cloud Run on GKE up and running takes a lot of work in comparison to Cloud Run. Besides that, we also need to iterate against the development cycle to ensure the build, testing, and deployment processes are performed consistently.</p>
+<p>Fortunately, there is a mechanism available to help out with the development life cycle. Cloud Build is used to automate development tasks and can easily be extended to automate many of the tasks associated with developing code. Making the transition to working with containers provides many benefits, but does add the additional layer of effort necessary to ensure the images reflect the latest changes. A typical life cycle may look something like the following:</p>
+<ol>
+<li>Amend the code.</li>
+<li><span>Build the code.</span></li>
+<li>Test the code.</li>
+<li>Push the code to version control.</li>
+</ol>
+<p>Additionally, there may be different environments, tools, and processes to contend with outside of the typical stage gates associated with a developer pipeline. However, by using Cloud Build, we can easily create a CI pipeline that can initiate a build function based on committing code.</p>
+<p>Defining a pipeline uses three parts:</p>
+<ul>
+<li>S<span>ervice account permissions</span></li>
+<li>B<span>uild triggers</span></li>
+<li>C<span>l</span><span>oud Build file</span></li>
+</ul>
+<p>To get started with Cloud Build, there are some additional permissions that need to be granted to the <span class="packt_screen">Cloud Run service account (Cloud Run Admin)</span>, and <span class="packt_screen">Service Accounts (Service Account User)</span> need to be set to enabled:</p>
+<ol>
+<li class="mce-root"><span>The permission state can be viewed in the Cloud Build interface:</span></li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-868 image-border" src="assets/e4077cf1-5f32-4f23-a452-8859ad833290.png" style=""/></div>
+<ol start="2">
+<li class="mce-root">Triggers a <span>signal when a build should be initiated:</span></li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-869 image-border" src="assets/20c40ab4-32f8-4720-b716-fc358d785beb.png" style=""/></div>
+<div class="packt_infobox"><br/>
+Creating a push trigger can be set up for specific branches or for all pushes to the repository. Note the type of trigger will attempt to auto-detect the configuration file.</div>
+<ol start="3">
+<li>The build process steps are defined in a <kbd>cloudbuild.yaml</kbd> file:</li>
+</ol>
+<pre style="color: black;padding-left: 60px">steps:<br/># Build the container image<br/>- name: 'gcr.io/cloud-builders/docker'<br/>args: ['build', '-t', 'gcr.io/$PROJECT_ID/hello-node', '.']<br/># push the container image to Container Registry<br/>- name: 'gcr.io/cloud-builders/docker'<br/>args: ['push', 'gcr.io/$PROJECT_ID/hello-node']<br/># Deploy container image to Cloud Run<br/>- name: 'gcr.io/cloud-builders/gcloud'<br/>args: ['beta', 'run', 'deploy', 'hello-node', '--image', 'gcr.io/$PROJECT_ID/hello-node', '--platform', 'managed', '--region', 'us-central1', '--quiet']<br/>images:<br/>- 'gcr.io/$PROJECT_ID/hello-node'<br/>timeout: "600s"</pre>
+<p>Clearly, working with Cloud Build can save a lot of effort in exchange for very little configuration. The dividend from using these types of development tools also has a high payoff for Google Cloud because the tool can be adapted to run a wide spectrum of packages. Indeed, the community for Cloud Build projects is quite significant and includes many different runtime languages beyond the scope of this book. Suffice to say it is well worth investing the time to understand how it works. A fully working example of how to incorporate Cloud Build for this type of CI pipeline is provided in <a href="d6dfba80-8556-4c35-ae9b-d6e33199fb8b.xhtml" target="_blank">Chapter 12</a>, <em>Consuming Third-Party Data via a REST API</em>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>Over the course of this chapter, we have highlighted the initial elements of migrating to Cloud Run on GKE. Containers are fundamental to working with Kubernetes and provide a solid foundation on which to build both experience and expertise. To gain experience with the platform, we deployed a simple web application that illustrated many of the common elements that will need to be mastered as part of developing with Cloud Run on GKE.</p>
+<p>The additional complexity of managing a Kubernetes environment should not dissuade you from using this platform. While serverless does provide many benefits already alluded to in this book, having a self-healing platform supporting critical infrastructure should provide additional comfort. Having the ability to seamlessly transition between Cloud Run and Cloud Run for Anthos ensures that, whenever it is needed, the choice exists and is accessible.</p>
+<p>This chapter concludes our brief introduction to Cloud Run and GKE. In the next couple of chapters, we'll change pace once again. We'll introduce two case studies to illustrate the power of serverless and expand on some of the techniques we've acquired over the previous chapters.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Questions</h1>
+                </header>
+            
+            <article>
+                
+<ol>
+<li class="mce-root"><span>What is a key advantage of using Container Registry over another registry?</span></li>
+<li class="mce-root">When is it useful to use an environment variable such as <kbd>$GOOGLE_CLOUD_PROJECT</kbd>?</li>
+<li class="mce-root">What trigger types are supported by Cloud Build?</li>
+<li class="mce-root">What domain is used for the Cloud Build service account?</li>
+<li class="mce-root">What build configurations types are supported by Cloud Build?</li>
+<li class="mce-root">Who provides the Certbot SSL certificates used in this chapter's example?</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Further reading</h1>
+                </header>
+            
+            <article>
+                
+<ul>
+<li><strong>Cloud SDK</strong>: <a href="https://cloud.google.com/sdk">https://cloud.google.com/sdk</a></li>
+<li><strong>Creating and Using SSL Certificates</strong>: <a href="https://cloud.google.com/load-balancing/docs/ssl-certificates">https://cloud.google.com/load-balancing/docs/ssl-certificates</a></li>
+<li><strong>Certbot</strong>: <a href="https://certbot.eff.org/instructions">https://certbot.eff.org/instructions</a></li>
+<li><strong>Let's Encrypt</strong>: <a href="https://letsencrypt.org/">https://letsencrypt.org/</a></li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

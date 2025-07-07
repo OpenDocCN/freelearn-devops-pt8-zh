@@ -1,0 +1,325 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Exported Resources</h1>
+                </header>
+            
+            <article>
+                
+<p>Exported resources provide a way for a system to declare a resource, but not necessarily realize it. They are designed to allow nodes to publish information about themselves to a central database (PuppetDB), so that another node can collect the Puppet resource and realize it on the system. Exported resources primarily provide a way to create an infrastructure that is aware of other infrastructures in your environment. They provide the most value for an infrastructure that must eventually converge with information from an infrastructure that has been dynamically created by an automated process.</p>
+<p>The following topics will be covered in this chapter:</p>
+<ul>
+<li>Virtual and exported resources</li>
+<li>Some use cases</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Virtual and exported resources</h1>
+                </header>
+            
+            <article>
+                
+<p>To understand exported resources, it first helps to understand virtual resources. Virtual resources declare a state that could be made available, but will not be enforced until declared with the <kbd>realize</kbd> function. These resources are designed to allow you to prepublish a resource, but only enforce it if other conditions are met. Virtual resources help overcome the single declaration challenge that can emerge in Puppet code if you have multiple manifests that need to generate the same resource—you may need to include more than one of these manifests on a single node. If multiple modules need to manage the same file, consider virtualizing the resource, and making that resource available from multiple modules.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Virtual resources</h1>
+                </header>
+            
+            <article>
+                
+<p>A common use example of virtual resources is the use of special access administrative users. With a robust security policy, you may not want any single user having administrative access to all systems in an infrastructure. You'd then want to declare the administrative user as a virtual resource and allow profiles to realize those users where appropriate. In the following example, I'll add myself to a Linux system as an administrative user, and then realize the resource in multiple manifests, not causing resource conflict but allowing me to  place myself <span>surgically</span> on the appropriate systems.</p>
+<p>First, I need to declare myself and possibly other users as a virtual resource:</p>
+<pre># modules/admins/manifests/infrastructure.pp<br/># This manifest declares the virtual resource for my administrative user<br/>class admins::infrastructure {<br/>  @user {'rrussellyates':<br/>    ensure =&gt; present,<br/>    comment =&gt; 'Ryan Russell-Yates',<br/>    groups =&gt; ['wheel']<br/>  }<br/>}</pre>
+<p>I want to use the <kbd>realize</kbd> function in multiple profiles to call the user object from the catalog, and ensure it is on the system. Notice the use of the capital letter in the reference: <kbd>User['rrussellyates']</kbd>. This object already exists in the catalog, so I'm calling an object that already exists. I'll want to make sure that I include the manifest this is declared in so that the virtual user is already in the catalog and realized by the profile:</p>
+<pre># modules/profile/manifests/monitoring_support.pp<br/># Assume I'm a member of a monitoring team, that monitors critical applications<br/>class profile::monitoring_support {<br/>  include admins::infrastructure<br/>  include profile::nagios<br/>  include profile::monitoring_baseline<br/><br/>  realize User['rrussellyates']<br/>}<br/><br/># modules/profile/manifests/team/baseline.pp<br/># This profile combines our multiple required classes for the application<br/>class profile::my_app<br/> {<br/><br/>  include admins::infrastructure<br/>  include security<br/>  include ntp<br/>  include dns<br/><br/>  realize User['rrussellyates']<br/>}</pre>
+<p>Now, my production-level application requires two manifests that call me as an administrative user. Because this is a virtual resource that has only been declared once, both manifests can call the user independently or together without conflict:</p>
+<pre># The role for our production application with special SLA monitoring<br/># Notice that both my_app and monitoring support require me as an administrative<br/># user. A development version of the application needs my support, as well as<br/># anything with a production-level SLA for monitoring. If I attempted to declare<br/># myself as a resource in both of these profiles, we'd have a duplicate resource<br/># declaration.<br/>class role::production_app {<br/>  include profile::my_app<br/>  include profile::monitoring_support<br/>}</pre>
+<p>We'll then apply this role to our node, using our <kbd>site.pp</kbd>:</p>
+<pre># site.pp<br/><br/>node 'appserver' {<br/>  include role::production_app<br/>}</pre>
+<p>When we run this on our system, this administrative user will be realized with no duplicate resource declaration errors, even though the user is realized in both profiles. We can successfully call this user from multiple places, without resource conflicts:</p>
+<pre><strong>[root@wordpress vagrant]# puppet agent -t</strong><br/><strong>Info: Using configured environment 'production'</strong><br/><strong>Info: Retrieving pluginfacts</strong><br/><strong>Info: Retrieving plugin</strong><br/><strong>Info: Retrieving locales</strong><br/><strong>Info: Loading facts</strong><br/><strong>Info: Caching catalog for wordpress</strong><br/><strong>Info: Applying configuration version '1529120853'</strong><br/><strong>Notice: /Stage[main]/Admins::Infrastructure/User[rrussellyates]/ensure: created</strong><br/><strong>Notice: Applied catalog in 0.10 seconds</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Tags</h1>
+                </header>
+            
+            <article>
+                
+<p>Not all virtual resources are independent from each other. Sometimes, we want to generate a collection of resources that we can realize together as a group. Puppet provides a metaparameter called a tag that allows us to categorize resources together. Tags allow us to run a subset of Puppet code using <kbd>puppet agent -t --tags &lt;tag&gt;</kbd>. They provide a user-specific marking of a resource in order to build a collection of similar objects. Tags are an array, so you can apply more than one tag to a resource, but still call them separately. Virtual resources with tags can be called with a resource collector, sometimes called the <em>spaceship operator</em>. The simple format for calling resources by a tag is <kbd>Resource &lt;| |&gt;</kbd>. Inside of the two pipes, you can search the catalog for any parameter or metaparameter.</p>
+<p>By using tags, we could call that administrative user with <kbd>User &lt;| tag == 'monitoring_admin' |&gt;</kbd>. This allows us to bundle resources and call them as a group, rather than as an individual pocket. Let's take the preceding example and expand it to use a tag-based system:</p>
+<pre>class admins::infrastructure {<br/>  @user {'rrussellyates':<br/>    ensure  =&gt; present,<br/>    comment =&gt; 'Ryan Russell-Yates',<br/>    groups  =&gt; ['wheel'],<br/>    tag     =&gt; ['infrastructure_admin','monitoring_support'],<br/>  }<br/>  @user {'jsouthgate':<br/>    ensure  =&gt; present,<br/>    comment =&gt; 'Jason Southgate',<br/>    groups  =&gt; ['wheel'],<br/>    tag     =&gt; ['infrastructure_admin'],<br/>  }<br/>  @user {'chuck':<br/>    ensure  =&gt; present,<br/>    comment =&gt; 'Our Intern',<br/>    groups  =&gt; ['wheel'],<br/>    tag     =&gt; ['monitoring_support'],<br/>  }<br/>}</pre>
+<p>Now, we've tagged <kbd>chuck</kbd> as a member of monitoring support, Jason as a member of infrastructure administrators, and myself as a member of both teams. My manifest would then call users of a group, rather than the users individually:</p>
+<pre>class profile::my_app {<br/>  include admins::infrastructure<br/>  include security<br/>  include ntp<br/>  include dns<br/><br/>  # This line calls in all Monitoring Support and Infrastructure Admin users.<br/>  User &lt;| tag == 'monitoring_support' or tag == 'infrastructure_admin' |&gt;<br/>}</pre>
+<p>After we change our profile to use both tags, the two additional users will be added: <kbd>jsouthgate</kbd> and <kbd>chuck</kbd>. The administrative user <kbd>russellyates</kbd> was already on the system, so he was not created again:</p>
+<pre><strong>[root@wordpress vagrant]# puppet agent -t</strong><br/><strong>Info: Using configured environment 'production'</strong><br/><strong>Info: Retrieving pluginfacts</strong><br/><strong>Info: Retrieving plugin</strong><br/><strong>Info: Retrieving locales</strong><br/><strong>Info: Loading facts</strong><br/><strong>Info: Caching catalog for wordpress</strong><br/><strong>Info: Applying configuration version '1529120940'</strong><br/><strong>Notice: /Stage[main]/Admins::Infrastructure/User[jsouthgate]/ensure: created</strong><br/><strong>Notice: /Stage[main]/Admins::Infrastructure/User[chuck]/ensure: created</strong><br/><strong>Notice: Applied catalog in 0.11 seconds</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Exported resources</h1>
+                </header>
+            
+            <article>
+                
+<p>Virtual resources allow us to stage resources to be used by the node they were created on. Expanding on this, exported resources allow a node to create a virtual resource and share it with other nodes in the infrastructure. Exported resources are a useful way to design automated systems that need information from other automated systems. In implementation, you can think of an exported resource as virtualized and announced. The resource is not realized on the system (although it could be), and it is instead shared with the rest of the infrastructure. This allows us to build systems that manage things based on knowing the states of other nodes in the infrastructure.</p>
+<p>Declaring an exported resource is done in the same way as a virtual resource, except we use two <kbd>@</kbd> symbols instead of one:</p>
+<pre>class profile::fillsuptmp <br/>{<br/>  # Exported Resource. Virtual and Shared<br/>  # Notice that only the @@ is different!<br/>  @@file {<br/>"/tmp/${::fqdn}":<br/>    ensure  =&gt; present,<br/>    content =&gt; $::ipaddress,<br/>    tag     =&gt; ['Fillsuptmp']<br/>  }<br/>}</pre>
+<p>Although we wouldn't want to use this particular example, we could realize this resource on the local system using file <kbd>&lt;| |&gt;</kbd> and receive just the local resource. By adding an additional set of brackets, <kbd>&lt;&lt;| |&gt;&gt;</kbd>, our infrastructure would take this file as described by every node in the infrastructure. The following example shows how to retrieve our resources from an exported catalog:</p>
+<pre>class profile::filltmp {<br/># This simple declaration will call our file from above and place one from<br/># each machine on the system. Notice the title containing $::fqdn, so a new<br/># file in /tmp will be created with the FQDN of each machine known to PuppetDB.<br/>  <br/>  include profile::fillsuptmp<br/><br/>  File &lt;&lt;| tag == 'Fillsuptmp' |&gt;&gt;<br/>}</pre>
+<p>We'll add this profile to our <kbd>site.pp</kbd> outside of a node definition so that it is utilized by all nodes:</p>
+<pre># site.pp<br/><br/>include profile::filltmp</pre>
+<p>When we run the agent, we will see a file being placed in <kbd>/tmp</kbd> for each node in the infrastructure.  For each node that checks into the master, all other nodes will also gain a new file:</p>
+<pre><strong>[root@wordpress vagrant]# puppet agent -t</strong><br/><strong>Info: Using configured environment 'production'</strong><br/><strong>Info: Retrieving pluginfacts</strong><br/><strong>Info: Retrieving plugin</strong><br/><strong>Info: Retrieving locales</strong><br/><strong>Info: Loading facts</strong><br/><strong>Info: Caching catalog for wordpress</strong><br/><strong>Info: Applying configuration version '1529121275'</strong><br/><strong>Notice: /Stage[main]/Profile::Fillsuptmp/File[/tmp/wordpress]/ensure: defined content as '{md5}c679836c51e9e0e92191c7d2d38f5fe5'</strong><br/><strong>Notice: /Stage[main]/Profile::Filltmp/File[/tmp/pe-puppet-master]/ensure: defined content as '{md5}c679836c51e9e0e92191c7d2d38f5fe5'</strong><br/><strong>Notice: Applied catalog in 0.10 seconds</strong></pre>
+<p class="mce-root"/>
+<div class="packt_tip packt_infobox"><span>Exported resources are collected out of the storage of catalogs last reported to PuppetDB. If a node has a change in the catalog, and the exported resource is no longer available in the last run, it will not be available for resource collection.</span></div>
+<p><span>One thing to take note of with exported resources: Your node that realizes these resources will </span><em>eventually</em><span> converge to the intended state of the infrastructure. Until a node reports this resource to the Puppet Master, your node will be unaware of the existence of the node. Let's use a scenario where you have a new node that you've classified with an external resource in the catalog. Until that node checks into the master for the first time, that resource will not populate into PuppetDB. Even after it checks into PuppetDB, the node realizing the resource must also run another <kbd>puppet agent run</kbd>. This means that, on a node that has just run Puppet with the default timer of 30 minutes, it may take 30 minutes to report its exported resource to the Puppet Master. Then, your node collecting these resources may take up to another 30 minutes to check in with the master and receive these changes. Exported resources are not immediate, but your infrastructure will eventually converge around the new information provided to PuppetDB.</span></p>
+<div class="packt_tip">The built-in default for a Puppet agent is a 30-minute timer to check in with the Puppet Master. If you have a simply configured machine that should find this information faster, such as a load balancer, consider having it check into the master more often. A load balancer that checks in every 5 minutes should report the node as online shortly after its initial configuration via Puppet.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Use cases</h1>
+                </header>
+            
+            <article>
+                
+<p>Exported resources are best used delicately within an infrastructure. We'll go over a few use cases, and talk about similar applications that may use this information as we go. We'll use Forge modules where they make sense, but we'll also build some custom exported resources so that a functional sample is available. In this section, we'll be discussing a few examples of exported resources:</p>
+<ul>
+<li>A dynamic <kbd>/etc/hosts</kbd> file</li>
+<li>Adding a node to an <kbd>haproxy</kbd> load balancer</li>
+<li>Building an external database on a database server for an application server</li>
+<li>Custom configuration files using the <kbd>concat</kbd> and <kbd>File_line</kbd> Puppet resources</li>
+</ul>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Hosts file</h1>
+                </header>
+            
+            <article>
+                
+<p>This first sample is easy to understand and interpret, but definitely should not be used in place of a true <strong>Domain Name Server</strong> (<strong>DNS</strong>). A few years ago, I had a customer that was using a public cloud, but it had been acquired by a very large company, which had a team dedicated to managing corporate DNS. The turnaround for a DNS record was often 4 days, while many of the applications they launched had a lifetime of only a few days before being replaced with a new node. The solution had some issues for resolution if node networking information changed for a period of time, but it was an effective short-term solution until the policies around DNS were relaxed for the customer.</p>
+<p>In the following example, we'll use a single profile that exports the FQDN and IP address of every system class<span>if</span><span>ied by</span> <kbd>profile::etchosts</kbd><span>, which is to be consumed and actioned on by every node (including the originator) in the environment:</span></p>
+<pre>class profile::etchosts {<br/># A host record is made containing the FQDN and IP Address of the classified node<br/>  @@host {$::fqdn:<br/>    ensure =&gt; present,<br/>    ip     =&gt; $::ipaddress,<br/>    tag    =&gt; ['shoddy_dns'], }<br/># The classified node collects every shoddy_dns host entry, including its own,<br/># and adds it to the nodes host file. This even works across environments, as<br/># we haven't isolated it to a single environment.<br/>  Host &lt;&lt;| tag == 'shoddy_dns' |&gt;&gt;<br/>}</pre>
+<div class="packt_tip"><span>If we wanted to ensure that we only collect host entries for hosts in the same Puppet environment, we can simply change our manifest to read <kbd>Host &lt;&lt;| tag == 'shoddy_dns'</kbd> and <kbd>environment == $environment |&gt;&gt;</kbd>.</span></div>
+<p>This manifest contains both the exported resource and the resource collection call. Any node we include this on will both report its host record and retrieve all host records (including its own). Because we want to apply this code to all nodes in our infrastructure, we will place it outside of any node definition in <kbd>site.pp</kbd>, causing it to apply to all nodes in the infrastructure:</p>
+<pre># site.pp<br/>include profile::etchosts<br/># Provided so nodes don't fail to classify anything<br/>node default { }</pre>
+<p>When we run our agent, we retrieve each host entry individually and place it in <kbd>/etc/hosts</kbd>. In the following example, I run this catalog against my Puppet Master. The Puppet Master retrieves each host entry found in PuppetDB and places it in <kbd>/etc/hosts</kbd>. The nodes reported are <kbd>haproxy</kbd>, <kbd>appserver</kbd>, and <kbd>mysql</kbd>. These nodes will be used for the rest of the examples in this chapter:</p>
+<pre><strong>[root@pe-puppet-master vagrant]# puppet agent -t</strong><br/><strong>Info: Using configured environment 'production'</strong><br/><strong>Info: Retrieving pluginfacts</strong><br/><strong>Info: Retrieving plugin</strong><br/><strong>Info: Retrieving locales</strong><br/><strong>Info: Loading facts</strong><br/><strong>Info: Caching catalog for pe-puppet-master</strong><br/><strong>Info: Applying configuration version '1529033713'</strong><br/><strong>Notice: /Stage[main]/Profile::Etchosts/Host[mysql]/ensure: created</strong><br/><strong>Info: Computing checksum on file /etc/hosts</strong><br/><strong>Notice: /Stage[main]/Profile::Etchosts/Host[appserver]/ensure: created</strong><br/><strong>Notice: /Stage[main]/Profile::Etchosts/Host[haproxy]/ensure: created</strong><br/><strong>Notice: Applied catalog in 14.07 seconds</strong><br/><br/><strong>[root@pe-puppet-master vagrant]# cat /etc/hosts</strong><br/><strong># HEADER: This file was autogenerated at 2018-06-15 03:36:02 +0000</strong><br/><strong># HEADER: by puppet. While it can still be managed manually, it</strong><br/><strong># HEADER: is definitely not recommended.</strong><br/><strong>127.0.0.1 localhost</strong><br/><strong>10.20.1.3 pe-puppet-master</strong><br/><strong>10.20.1.6 mysql</strong><br/><strong>10.20.1.5 appserver</strong><br/><strong>10.20.1.4 haproxy</strong></pre>
+<div class="packt_infobox">As noted previously, this should not be seen as a replacement for a true DNS. It is a simple and functional sample of how to build and use a Puppet exported resource.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Load balancing</h1>
+                </header>
+            
+            <article>
+                
+<p>A load balancer is a common system that uses the exported resources pattern in Puppet. Load balancers are used to forward traffic across multiple nodes, providing both high availability through redundancy and performance via horizontal scaling. Load balancers like HAProxy also allow for the design of applications that forward a user to data centers more local to them for performance.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>The load balancer itself will receive a traditional configuration, while every member of the balancer will export a resource to be consumed by the load balancer. The load balancer then uses each entry from each exported resource to build a combined configuration file.</p>
+<div class="packt_infobox">The following sample uses <kbd>puppetlabs-haproxy</kbd> (for more information visit <a href="https://forge.puppet.com/puppetlabs/haproxy">https://forge.puppet.com/puppetlabs/haproxy</a>) from the Puppet Forge. HAProxy is a free and open source load balancer that can be used without a license at home. There are other modules available for a few other load balancers on the Forge, and users are free to create their own custom modules for solutions in the Enterprise.</div>
+<p>We'll need to create two profiles to support this use case: one for the load balancer and one for the balancer member. The balancer member profile is a simple exported resource that declares the listener service it will use, and reports its hostname, IP address, and available ports to the HAProxy. The <kbd>loadbalancer</kbd> profile will configure a very simple default <kbd>loadbalancer</kbd>, a listening service to provide forwarding on, and most importantly collect all configurations from exported resources:</p>
+<pre><span class="pl-k">class profile::balancermember {<br/>  @@haproxy::balancermember</span> { <span class="pl-en">'haproxy'</span>:
+    <span class="pl-c1">listening_service </span>=&gt; <span class="pl-s"><span class="pl-pds">'</span>myapp<span class="pl-pds">'</span></span>,
+    <span class="pl-c1">ports             </span>=&gt; ['80',<span class="pl-s"><span class="pl-pds">'443</span><span class="pl-pds">']</span></span>,
+    <span class="pl-c1">server_names      </span>=&gt; <span class="pl-smi">$::hostname</span>,
+    <span class="pl-c1">ipaddresses       </span>=&gt; <span class="pl-smi">$::ipaddress</span>,
+    <span class="pl-c1">options           </span>=&gt; <span class="pl-s"><span class="pl-pds">'</span>check<span class="pl-pds">'</span></span>,
+  }<br/>}<br/>class profile::loadbalancer {<br/>  include haproxy<br/><br/>  haproxy::listen {'myapp':<br/>    ipaddress =&gt; $::ipaddress,<br/>    ports =&gt; ['80','443']<br/>  }<br/><br/>  Haproxy::Balancermember &lt;&lt;| listening_service == 'myapp' |&gt;&gt;<br/>}</pre>
+<p>We'll want then to place these profiles on two separate hosts. In the following example, I'm placing the <kbd>balancermember</kbd> profile on the <kbd>appserver</kbd>, and the <kbd>loadbalancer</kbd> profile on the <kbd>haproxy</kbd>. We'll continue expanding on our <kbd>site.pp</kbd> from before, adding code as we go along:</p>
+<pre>#site.pp<br/>include profile::etchosts<br/><br/>node 'haproxy' {<br/>  include profile::loadbalancer<br/>}<br/><br/>node 'appserver' {<br/>  include profile::balancermember<br/>}<br/><br/># Provided so nodes don't fail to classify anything<br/>node default { }</pre>
+<p>In the following sample, the load balancer had already been configured as a load balancer but had no balancer members to forward to. The <kbd>appserver</kbd> had also completed a run and reported its exported <kbd>haproxy</kbd> configuration to PuppetDB. Finally, the HAProxy server collects and realizes that resource and places it as a line in its configuration files, enabling the forwarding of traffic to the <kbd>appserver</kbd> from the <kbd>haproxy</kbd>:</p>
+<pre><strong>root@haproxy vagrant]# puppet agent -t</strong><br/><strong>Info: Using configured environment 'production'</strong><br/><strong>Info: Retrieving pluginfacts</strong><br/><strong>Info: Retrieving plugin</strong><br/><strong>Info: Retrieving locales</strong><br/><strong>Info: Loading facts</strong><br/><strong>Info: Caching catalog for haproxy</strong><br/><strong>Info: Applying configuration version '1529036882'</strong><br/><strong>Notice: /Stage[main]/Haproxy/Haproxy::Instance[haproxy]/Haproxy::Config[haproxy]/Concat[/etc/haproxy/haproxy.cfg]/File[/etc/haproxy/haproxy.cfg]/content:</strong><br/><strong>--- /etc/haproxy/haproxy.cfg 2018-06-15 04:27:25.398339144 +0000</strong><br/><strong>+++ /tmp/puppet-file20180615-17937-6bt84x 2018-06-15 04:28:05.100339144 +0000</strong><br/><strong>@@ -27,3 +27,5 @@</strong><br/><strong> bind 10.0.2.15:443</strong><br/><strong> balance roundrobin</strong><br/><strong> option tcplog</strong><br/><strong>+ server appserver 10.0.2.15:80 check</strong><br/><strong>+ server appserver 10.0.2.15:443 check</strong><br/><br/><strong>Info: Computing checksum on file /etc/haproxy/haproxy.cfg</strong><br/><strong>Info: /Stage[main]/Haproxy/Haproxy::Instance[haproxy]/Haproxy::Config[haproxy]/Concat[/etc/haproxy/haproxy.cfg]/File[/etc/haproxy/haproxy.cfg]: Filebucketed /etc/haproxy/haproxy.cfg to puppet with sum dd6721741c30fbed64eccf693e92fdf4</strong><br/><strong>Notice: /Stage[main]/Haproxy/Haproxy::Instance[haproxy]/Haproxy::Config[haproxy]/Concat[/etc/haproxy/haproxy.cfg]/File[/etc/haproxy/haproxy.cfg]/content: content changed '{md5}dd6721741c30fbed64eccf693e92fdf4' to '{md5}b819a3af31da2d0e2310fd7d521cbc76'</strong><br/><strong>Info: Haproxy::Config[haproxy]: Scheduling refresh of Haproxy::Service[haproxy]</strong><br/><strong>Info: Haproxy::Service[haproxy]: Scheduling refresh of Service[haproxy]</strong><br/><strong>Notice: /Stage[main]/Haproxy/Haproxy::Instance[haproxy]/Haproxy::Service[haproxy]/Service[haproxy]: Triggered 'refresh' from 1 event</strong><br/><strong>Notice: Applied catalog in 0.20 seconds</strong></pre>
+<div class="packt_tip">This module uses a <kbd>Concat</kbd> fragment to build an entire file. If a node does not report their <kbd>haproxy::balancermember</kbd> exported resource on a run, it will be removed from the <kbd>loadbalancer</kbd> realizing these resources on the next run.</div>
+<p>When a user requests port <kbd>80</kbd> (<kbd>http</kbd>) or port <kbd>443</kbd> (<kbd>https</kbd>) from the HAProxy server, it will automatically retrieve and forward traffic from our <kbd>appserver</kbd>. If we had multiple app servers, it would even split the load between the two, allowing for horizontal scaling.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Database connections</h1>
+                </header>
+            
+            <article>
+                
+<p>Many applications require databases to store information between sessions. In many large organizations, it is common to centralize these databases and point applications to them externally. The following example will consist of two profiles: one for the database and one for the application seeking to use the database.</p>
+<div class="packt_infobox">The following sample uses<span> </span><kbd>puppetlabs-mysql</kbd><span> </span>from the Puppet Forge. MySQL is a free and open source SQL database that can be used without a license at home. There are other modules available for other databases, such as SQL Server, OracleDB, Kafka, and MongoDB. These modules can be used in a familiar fashion to provide exported resources to an external database.</div>
+<p>In the following example, the <kbd>appserver::database</kbd> profile provides a very simple installation of MySQL. It also retrieves all <kbd>mysql::db</kbd> resources tagged <kbd>ourapp</kbd>, and realizes them on the central server. The <kbd>appserver</kbd> profile accepts a parameter for the password that could be supplied via <kbd>hiera</kbd> or encrypted using <kbd>eyaml</kbd>. Using this password, it will export a database resource to be collected and realized on the database server. Other configurations could be made to an application on this server to ensure it uses the database provided by this exported resource:</p>
+<pre><span class="err">class profile::appserver (<br/>  $db_pass = lookup('dbpass')<br/>) {<br/></span>  @@<span class="n">mysql::db</span><span> </span><span class="p">{</span><span> </span><span class="s2">"appdb_</span><span class="nv">${fqdn}</span><span class="s2">"</span><span class="p">:<br/></span>    <span class="py">user</span>     <span class="p">=&gt;</span> <span class="s1">'appuser'</span><span class="p">,</span>
+    <span class="py">password</span> <span class="p">=&gt;</span> $db_pass<span class="p">,</span>
+    <span class="py">host</span>     <span class="p">=&gt;</span> <span class="err">$::</span><span class="n">fqdn</span><span class="p">,</span>
+    <span class="py">grant</span>    <span class="p">=&gt;</span> <span class="p">[</span><span class="s1">'SELECT'</span><span class="p">,</span> <span class="s1">'UPDATE', 'CREATE'</span><span class="p">],</span>
+    <span class="py">tag</span>      <span class="p">=&gt;</span> ourapp<span class="p">,</span>
+<span class="p">  }<br/>}<br/><br/>class profile::appserver::database {<br/>  <br/>  class {'::mysql::server':<br/>    root_password =&gt; 'suP3rP@ssw0rd!',<br/>  }<br/><br/>  Mysql::Db &lt;&lt;| tag == 'ourapp' |&gt;&gt;<br/>}</span></pre>
+<p>We'll go ahead and insert these profiles into the node definition for our <kbd>appserver</kbd> and a new node definition for <kbd>mysql</kbd>. This configuration will ensure that our <kbd>appserver</kbd> has a relevant database on the <kbd>mysql</kbd> server, and that its application is forwarded properly through the <kbd>haproxy</kbd>. Notice the passing of the password on the <kbd>appserver</kbd> node:</p>
+<pre>#site.pp<br/><br/>include profile::etchosts<br/><br/>node 'haproxy' {<br/>  include profile::loadbalancer<br/>}<br/>node 'appserver' {<br/>  include profile::balancermember<br/>  class {'profile::appserver': db_pass =&gt; 'suP3rP@ssw0rd!' }<br/>}<br/>node 'mysql' {<br/>  include profile::appserver::database<br/>}<br/># Provided so nodes don't fail to classify anything<br/>node default { }</pre>
+<p>When applied to a previously configured database server, with a freshly exported resource from our <kbd>appserver</kbd>, a new database, database user, and set of permissions has been created on the DB Server:</p>
+<pre><strong>[root@mysql vagrant]# puppet agent -t</strong><br/><strong>Info: Using configured environment 'production'</strong><br/><strong>Info: Retrieving pluginfacts</strong><br/><strong>Info: Retrieving plugin</strong><br/><strong>Info: Retrieving locales</strong><br/><strong>Info: Loading facts</strong><br/><strong>Info: Caching catalog for mysql</strong><br/><strong>Info: Applying configuration version '1529037526'</strong><br/><strong>Notice: /Stage[main]/Profile::Appserver::Database/Mysql::Db[appdb_appserver]/Mysql_database[appdb_appserver]/ensure: created</strong><br/><strong>Notice: /Stage[main]/Profile::Appserver::Database/Mysql::Db[appdb_appserver]/Mysql_user[appuser@appserver]/ensure: created</strong><br/><strong>Notice: /Stage[main]/Profile::Appserver::Database/Mysql::Db[appdb_appserver]/Mysql_grant[appuser@appserver/appdb_appserver.*]/ensure: created</strong><br/><strong>Notice: Applied catalog in 0.34 seconds</strong></pre>
+<p>One flaw with this system is the up to 30-minute gap between the <kbd>appserver</kbd> being launched and the database being realized on the system. In the next chapter, we'll also be discussing application orchestration, which helps solve this problem by linking nodes together and orchestrating the agent runs. If you have time to let the infrastructure converge, this exported resource can work for databases and applications alone.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Concat, file lines, and you!</h1>
+                </header>
+            
+            <article>
+                
+<p>The previous samples relied on existing resources such as the host, or existing forge modules such as <kbd>haproxy</kbd> and <kbd>mysql</kbd>. In some cases, we'll need to build custom configuration files on systems using exported resources. We'll go over samples using both <kbd>concat</kbd> and <kbd>file_line</kbd>. <kbd>concat</kbd> to declare the entire contents of a file, using a list of ordered strings. File line is part of <kbd>puppetlabs-stdlib</kbd> (for more information visit <a href="https://forge.puppet.com/puppetlabs/stdlib">https://forge.puppet.com/puppetlabs/stdlib</a>) and it places lines that are not present into an existing file, and can also be used to match an existing line using <kbd>regex</kbd>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Concat – the hammer</h1>
+                </header>
+            
+            <article>
+                
+<p>We'll be building a file called <kbd>/tmp/hammer.conf</kbd> that is comprised of a header section and a variable number of sections provided by exported resources. This class was designed to be used on all machines in an infrastructure, but could easily be turned into a single server configuration file by splitting the exported resource into a separate profile from the <kbd>concat</kbd> resource and the header <kbd>concat::fragment</kbd>.</p>
+<p class="mce-root"/>
+<div class="packt_infobox"><span>The following sample uses</span><span> </span><kbd>puppetlabs-concat</kbd> from the Puppet Forge.(For more information visit <a href="https://forge.puppet.com/puppetlabs/concat">https://forge.puppet.com/puppetlabs/concat</a>). <span>The <kbd>concat</kbd> module allows us to declare a file, made from pieces or fragments, and order the creation of a single file on a system. This allows us to define one or more headers and footers, while leaving room for dynamic lines to be added into the file.</span></div>
+<p>In the following example, we're building a manifest that builds <kbd>hammer.conf</kbd>. The <kbd>concat</kbd> resource gives each fragment a location to build on. The hammer time <kbd>concat::fragment</kbd> is used to manage the header, as noted by order <kbd>01</kbd> in the parameters. Each machine will export a <kbd>concat</kbd> fragment detailing an FQDN, IP address, operating system, and version as a line in the file in order to simulate a global configuration file or inventory file. Finally, each machine will realize all of these exported fragments using the resource collector for <kbd>concat</kbd> fragments:</p>
+<pre>class files::hammer {<br/><br/>  $osname = fact('os.name')<br/>  $osrelease = fact('os.release')<br/><br/>  concat {'/tmp/hammer.conf':<br/>    ensure =&gt; present,<br/>  }<br/><br/>  concat::fragment {'Hammer Time':<br/>    target =&gt; '/tmp/hammer.conf',<br/>    content =&gt; "This file is managed by Puppet.It will be overwritten",<br/>    order =&gt; '01',<br/>  }<br/><br/>  @@concat::fragment {"${::fqdn}-hammer":<br/>    target =&gt; '/tmp/hammer.conf',<br/>    content =&gt; "${::fqdn} - ${::ipaddress} - ${osname} ${osrelease}",<br/>    order =&gt; '02',<br/>    tag =&gt; 'hammer',<br/>  }<br/><br/>  Concat::Fragment &lt;&lt;| tag == 'hammer' |&gt;&gt;<br/><br/>}</pre>
+<p>We'll add <kbd>files::hammer</kbd> outside of any node definitions so that this inventory file is created on all of the machines in our infrastructure:</p>
+<pre>include profile::etchosts<br/>include files::hammer<br/><br/>node 'haproxy' {<br/>  include profile::loadbalancer<br/>}<br/><br/>node 'appserver' {<br/>  include profile::balancermember<br/>  class {'profile::appserver': db_pass =&gt; 'suP3rP@ssw0rd!' }<br/>}<br/><br/>node 'mysql' {<br/>  include profile::appserver::database<br/>}<br/><br/># Provided so nodes don't fail to classify anything<br/>node default { }</pre>
+<p>When this is run on our <kbd>mysql</kbd> node as the final node in the infrastructure, <kbd>/tmp/hammer.conf</kbd> is created and contains Facter facts provided by each node in the infrastructure:</p>
+<pre><strong>root@mysql vagrant]# puppet agent -t</strong><br/><strong>Info: Using configured environment 'production'</strong><br/><strong>Info: Retrieving pluginfacts</strong><br/><strong>Info: Retrieving plugin</strong><br/><strong>Info: Retrieving locales</strong><br/><strong>Info: Loading facts</strong><br/><strong>Info: Caching catalog for mysql</strong><br/><strong>Info: Applying configuration version '1529040374'</strong><br/><strong>Notice: /Stage[main]/Files::Hammer/Concat[/tmp/hammer.conf]/File[/tmp/hammer.conf]/ensure: defined content as '{md5}f3f0d7ff5de10058846333e97950a7b9'</strong><br/><strong>Notice: Applied catalog in 0.33 seconds</strong><br/><br/><strong># /tmp/hammer.conf</strong><br/><strong>This file is managed by Puppet. It will be overwritten</strong><br/><strong>haproxy - 10.0.2.15 - CentOS 7</strong><br/><strong>mysql - 10.0.2.15 - CentOS 7</strong><br/><strong>pe-puppet-master - 10.0.2.15 - CentOS 7</strong><br/><strong>appserver - 10.0.2.15 - CentOS 7</strong></pre>
+<p>Most configuration files should be built this way, and be holistically managed by Puppet. In a case where the entirety of a file is not managed, we can use <kbd>file_line</kbd> provided by <kbd>stdlib</kbd> in its place.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">file_line – the scalpel</h1>
+                </header>
+            
+            <article>
+                
+<p>In this exercise, we'll be using a Puppet file resource to build a file, but only if it's not already present in the system. Then, we'll use file lines to insert values we want into the file, which are collected from exported resources across all systems.</p>
+<div class="packt_infobox"><span>The following sample uses</span><span> </span><kbd>puppetlabs-stdlib</kbd> (for more information visit <a href="https://forge.puppet.com/puppetlabs/stdlib">https://forge.puppet.com/puppetlabs/stdlib</a>)<span> </span><span>from the Puppet Forge. <kbd>stdlib</kbd> contains a large number of functions to use in manifests, as well as the resource <kbd>file_line</kbd>.  <kbd>file_line</kbd> allows a line to be individually managed inside of a file, and can also be used to provide regex matching when you want to use it as a find-and-replace to the unmanaged file. If targeting INI files, consider using <kbd>puppetlabs-inifile</kbd> instead.(For more information visit  <a href="https://forge.puppet.com/puppetlabs/inifile">https://forge.puppet.com/puppetlabs/inifile</a>).</span></div>
+<p>In this example, we will first build a file called <kbd>/tmp/scalpel.conf</kbd>. We'll ensure that this file is present and has ownership by root. We will set the replace flag to alert Puppet not to replace the content of this file if it's already present on the system, ensuring that any content already found in this file is not overwritten. A default will be provided by the content line if the file is not currently on the system. We'll then build an exported <kbd>file_line</kbd> to simulate a line of configuration with a match statement to ensure that we replace misconfigured lines rather than create new ones. Finally, we'll realize all of these resources on every node that this is classified on:</p>
+<pre>class files::scalpel {<br/><br/>  $arch = fact('os.architecture')<br/>  file {'/tmp/scalpel.conf':<br/>    ensure =&gt; file,<br/>    owner =&gt; 'root',<br/>    group =&gt; 'root',<br/>    content =&gt; 'This file is editable, with individually managed settings!',<br/>    replace =&gt; false,<br/>  }<br/>  @@file_line {"$::fqdn - setting":<br/>    path =&gt; '/tmp/scalpel.conf',<br/>    line =&gt; "${::fqdn}: $arch - ${::kernel} - Virtual: ${::is_virtual}",<br/>    match =&gt; "^${::fqdn}:",<br/>    require =&gt; File['/tmp/scalpel.conf'],<br/>    tag =&gt; 'scalpel',<br/>  }<br/>  File_line &lt;&lt;| tag == 'scalpel' |&gt;&gt;<br/>}</pre>
+<p>The scalpel configuration file is designed to be used on each machine in the infrastructure, so it is also placed outside of a node definition in the <kbd>site.pp</kbd>:</p>
+<pre>include profile::etchosts<br/><br/>include files::scalpel<br/><br/>node 'haproxy' {<br/>  include profile::loadbalancer<br/>}<br/><br/>node 'appserver' {<br/>  include profile::balancermember<br/>  class {'profile::appserver': db_pass =&gt; 'suP3rP@ssw0rd!' }<br/>}<br/><br/>node 'mysql' {<br/>  include profile::appserver::database<br/>}<br/><br/># Provided so nodes don't fail to classify anything<br/>node default { }</pre>
+<p>Finally, our node picks up the configuration change, and creates the file. Notice that the file is created, and then the file lines are inserted thanks to the require parameter we used in our exported <kbd>file_line</kbd> resource:</p>
+<pre><strong>[root@haproxy vagrant]# puppet agent -t</strong><br/><strong>Info: Using configured environment 'production'</strong><br/><strong>Info: Retrieving pluginfacts</strong><br/><strong>Info: Retrieving plugin</strong><br/><strong>Info: Retrieving locales</strong><br/><strong>Info: Loading facts</strong><br/><strong>Info: Caching catalog for haproxy</strong><br/><strong>Info: Applying configuration version '1529041736'</strong><br/><strong>Notice: /Stage[main]/Files::Scalpel/File[/tmp/scalpel.conf]/ensure: defined content as '{md5}2d3ebc675ea9c8c43677c9513f820db0'</strong><br/><strong>Notice: /Stage[main]/Files::Scalpel/File_line[haproxy - setting]/ensure: created</strong><br/><strong>Notice: /Stage[main]/Files::Scalpel/File_line[mysql - setting]/ensure: created</strong><br/><strong>Notice: /Stage[main]/Files::Scalpel/File_line[appserver - setting]/ensure: created</strong><br/><strong>Notice: /Stage[main]/Files::Scalpel/File_line[pe-puppet-master - setting]/ensure: created</strong><br/><strong>Notice: Applied catalog in 0.18 seconds</strong><br/><br/><strong># /tmp/scalpel.conf</strong><br/><strong>This file is editable, with individually managed settings!</strong><br/><strong>haproxy: x86_64 - Linux - Virtual: true</strong><br/><strong>mysql: x86_64 - Linux - Virtual: true</strong><br/><strong>appserver: x86_64 - Linux - Virtual: true</strong><br/><strong>pe-puppet-master: x86_64 - Linux - Virtual: true</strong></pre>
+<p>Unlike our <kbd>concat</kbd> example, this file remains editable outside of Puppet, except for the individual lines managed by the manifest. In the following sample, I've edited the file to have comments at the top and changed the <kbd>haproxy</kbd>'s virtual setting to false:</p>
+<pre># Our comments now stay in this file, because we're not managing<br/># The whole file, just individual lines. This methodology can<br/># come in useful once in a great while. This is still configuration<br/># drift, so make sure to use it sparingly!<br/>This file is editable, with individually managed settings!<br/>haproxy: x86_64 - Linux - Virtual: false<br/>mysql: x86_64 - Linux - Virtual: true<br/>appserver: x86_64 - Linux - Virtual: true<br/>pe-puppet-master: x86_64 - Linux - Virtual: true</pre>
+<p><span>When the agent is run again, the <kbd>haproxy</kbd> line is corrected, but our comments stay at the top of the file. Users could even add their own configuration lines to this file, and as long as that configuration is not reported by Puppet exported resources, it would remain in the configuration file:</span></p>
+<pre><strong>[root@haproxy vagrant]# puppet agent -t</strong><br/><strong>Info: Using configured environment 'production'</strong><br/><strong>Info: Retrieving pluginfacts</strong><br/><strong>Info: Retrieving plugin</strong><br/><strong>Info: Retrieving locales</strong><br/><strong>Info: Loading facts</strong><br/><strong>Info: Caching catalog for haproxy</strong><br/><strong>Info: Applying configuration version '1529042980'</strong><br/><strong>Notice: /Stage[main]/Files::Scalpel/File_line[haproxy - setting]/ensure:<br/>created</strong><br/><strong>Notice: Applied catalog in 0.15 seconds</strong><br/><br/><strong># Our comments now stay in this file, because we're not managing</strong><br/><strong># The whole file, just individual lines. This methodology can</strong><br/><strong># come in useful once in a great while. This is still configuration</strong><br/><strong># drift, so make sure to use it sparingly!</strong><br/><br/><strong>This file is editable, with individually managed settings!</strong><br/><strong>haproxy: x86_64 - Linux - Virtual: true</strong><br/><strong>mysql: x86_64 - Linux - Virtual: true</strong><br/><strong>appserver: x86_64 - Linux - Virtual: true</strong><br/><strong>pe-puppet-master: x86_64 - Linux - Virtual: true</strong></pre>
+<p>This methodology does allow for a lot of configuration drift in an infrastructure. If your team is acting to provide controlled self-service resources, this is an effective way to allow your customers to modify configuration files, except for settings specifically managed by your infrastructure team.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, we talked about virtual and exported resources. Virtual resources allow us to describe what a resource should be, and realize it under other conditions. Exported resources allow us to announce our virtual resources to other nodes in the infrastructure by using PuppetDB. We examined writing a virtual resource for administrative users and placed a file in <kbd>/tmp</kbd> for all other nodes in our infrastructure using exported resources. We then explored using exported resources to create an <kbd>/etc/hosts</kbd> file, a load balancer, a database, and an example of building a custom configuration file with <kbd>concat</kbd> and <kbd>file_line</kbd>.</p>
+<p>When we applied these exported resources across our systems, we noticed that the main limitation of these resources is timing. Our infrastructure will eventually converge, but it does not happen in an orchestrated and timely fashion. Our next chapter will be on application orchestration, which allows us to tie a multitier application together and orchestrate the order Puppet runs in on those nodes.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

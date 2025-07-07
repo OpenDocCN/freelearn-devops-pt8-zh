@@ -1,0 +1,622 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Scaling Puppet</h1>
+                </header>
+            
+            <article>
+                
+<p>Puppet is built to centrally manage all servers in an organization. In some organizations, the total node count may be in the hundreds. Other organizations have thousands or even tens of thousands of servers. For a smaller set of servers, we can configure a single monolithic Puppet Master (Puppetserver, PuppetDB or PE Console) on one server. Once we reach a certain size, we can export the components of Puppet Enterprise into separate servers. With even larger server sizes, we can begin to scale each component individually. This chapter will cover models of installing Puppet Enterprise, scaling to three servers, and finally load balancing multiple puppet components to support very large installations of Puppet.</p>
+<p>When supporting a smaller subset of servers, the first stage is to optimize our settings on a monolithic master.</p>
+<p>This chapter will primarily cover scaling Puppet Enterprise. Open source techniques will also be discussed in the context of this scaling, but full implementation methods will be left up to individual users of Puppet open source.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Inspection</h1>
+                </header>
+            
+            <article>
+                
+<p>Before we begin scaling our services, lets understand how to collect and understand metrics on those systems. A dashboard is included for both PuppetDB and the Puppet Enterprise console. We can use these dashboards to inspect the metrics of our system and identify problems along the way. As an environment grows, we want to ensure we have enough system resources available to Puppet to ensure that catalogs can be compiled and served to agents. A separate dashboard is provided for both PuppetDB and Puppetserver.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Puppetserver</h1>
+                </header>
+            
+            <article>
+                
+<p>Puppetserver is the primary driver behind Puppet and is the only required component in open source Puppet. The Puppetserver developer dashboard is used to track the Puppet Master's ability to serve catalogs to agents. The primary area of tracking on this dashboard focuses on Puppetserver's JRubies. JRubies on the Puppetserver are simply small ruby instances contained in the <strong>Java Virtual Machine</strong> (<strong>JVM</strong>), dedicated to compiling catalogs for agents. </p>
+<div class="packt_tip">You can reach the Puppetserver developer dashboard at <kbd>https://&lt;puppetserver&gt;:8140/puppet/experimental/dashboard.html</kbd>.</div>
+<p>The dashboard contains a few live metrics about the Puppetserver, broken down into current metrics and average metrics:</p>
+<ul>
+<li><strong>Free JRubies</strong>: The number of available JRuby instances to serve Puppet catalogs</li>
+<li><strong>Requested JRubies</strong>: How many JRubies have been requested by agents</li>
+<li><strong>JRuby Borrow Time</strong>: The amount of time in milliseconds the Puppetserver holds for a single request from an agent</li>
+<li><strong>JRuby Wait Time</strong>: How long an agent has to wait on average for a JRuby</li>
+<li><strong>JVM Heap Memory Used</strong>: The amount of system memory the JVM containing the JRubies is consuming</li>
+<li><strong>CPU Usage</strong>: The CPU used by the Puppetserver</li>
+<li><strong>GC CPU Usage</strong>: The amount of CPU used by <strong>Garbage Collection</strong> (<strong>GC</strong>) on the Puppetserver</li>
+</ul>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/b8f9dd2d-37bd-4878-bcd3-b6201ba169ff.png"/></p>
+<p>We can inspect this data to get quite a bit of information about the primary job of the Puppetserver, which is to compile and serve catalogs. One of the first key components to look at is <strong>JRuby Wait Time</strong>. Are our nodes often waiting in line to receive catalogs? If we find the wait time increasing, we'll need more total JRubies available to serve the agents. This can also be indicated by a low average free JRubies count, or a high current requested JRubies status. We can also inspect the <strong>JRuby Borrow Time</strong> to get an idea of how big our catalogs are and how much time each node expects to be able to talk to the Puppetserver. Finally, we have some metrics to let us know if we've allocated enough memory and CPU to the Puppetserver.</p>
+<p>We can also get some useful data about our API usage on <strong>Top 10 Requests</strong>, letting us know which APIs are being used most heavily in our infrastructure. <strong>Top 10 Functions</strong> help to identify which Puppet functions are being used most heavily on the master, and our <strong>Top 10 Resources</strong> can help us understand our most used code in an environment.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">PuppetDB dashboard</h1>
+                </header>
+            
+            <article>
+                
+<p>PuppetDB has it's own dashboard, designed to show what's going on in the server. It is primarily aimed at making sense of the data that PuppetDB stores. It covers some performance metrics, like the JVM Heap, and also a quick active and inactive node count. The following information is available on PuppetDB:</p>
+<ul>
+<li><strong>JVM Heap</strong>: Total memory heap size of database</li>
+<li><strong>Active and inactive nodes</strong>: Nodes with information inside of PuppetDB</li>
+<li><strong>Resources</strong>: Total resources seen in PuppetDB</li>
+<li><strong>Resource Duplication</strong>: Total resources that are a duplicate that PuppetDB can serve (higher is better)</li>
+<li><strong>Catalog Duplication</strong>: Total catalogs that are a duplicate that PuppetDB can serve (higher is better)</li>
+<li><strong>Command Queue</strong>: Number of commands waiting to be run</li>
+<li><strong>Command Processing</strong>: How long commands take to execute against the database</li>
+<li><strong>Processed</strong>: Number of queries processed since startup</li>
+<li><strong>Retried</strong>: Number of queries that had to be run more than once</li>
+<li><strong>Discard</strong>: Number of queries that did not return a value</li>
+<li><strong>Rejected</strong>: Number of queries that were rejected</li>
+<li><strong>Enqueuing</strong>: Average amount of time spent waiting to write to the database</li>
+<li><strong>Command Persistence</strong>: The time it takes to move data from memory to disk</li>
+<li><strong>Collection Queries</strong>: Collection query service time in seconds</li>
+<li><strong>DB Compaction</strong>: Round trip time for database compaction</li>
+<li><strong>DLO Size on Disk</strong>: Dynamic large object size on disk</li>
+<li><strong>Discarded Messages</strong>: Messages that did not enter PuppetDB</li>
+<li><strong>Sync Duration</strong>: Amount of time it takes to sync data between databases</li>
+<li><strong>Last Synced</strong>: How many seconds since the last database sync</li>
+</ul>
+<div class="packt_tip">By default, PuppetDB runs the PuppetDB Dashboard on port <kbd>8080</kbd>, but restricts this to localhost. We can reach this locally on our machine by forwarding the web port onto our workstation. The command <kbd>ssh -L 8080:localhost:8080 &lt;user&gt;@&lt;puppetdb-server&gt;</kbd> will allow you reach the PuppetDB dashboard at <kbd>http://localhost:8080</kbd> on the same workstation the command was run on.</div>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/7e0e763e-7c7b-498b-931c-c0fe3d3b6583.png" style="width:38.33em;height:56.25em;"/></p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>We can use this information to check the status of our PuppetDB server. We want to see a high resource duplication and catalog duplication, which speeds up our overall runs of Puppet using PuppetDB. Our JVM heap can let us know how we're doing on memory usage. Active and inactive nodes help us understand what's being stored in PuppetDB, and what is on it's way out. Most other data is metrics surrounding the database itself, letting us know the health of the PostgreSQL server. Once we understand some simple live metrics, we can start looking at tuning our environment.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Tuning</h1>
+                </header>
+            
+            <article>
+                
+<p>Before moving into horizontal scaling of services, we should optimize the workload we have. The best horizontal scaling is scaling you don't need to do. Don't build more puppet component nodes until you can't support your workload with a single large monolithic instance. Adding more resources to Puppet allows it to serve more agents. There is no hard and fast rule on how many agents can be served by a monolithic Puppet Master, even with additional compile masters. The size of Puppet catalogs differs for every organization and is the primary unknown variable for most organizations. </p>
+<div class="packt_tip"><span>If you just need some simple settings to get started, Puppet keeps a list of standard recommended settings for small monolithic masters and monolithic masters with additional compile masters at: <a href="https://puppet.com/docs/pe/latest/tuning_monolithic.html">https://puppet.com/docs/pe/latest/tuning_monolithic.html</a>.</span></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Puppetserver tuning</h1>
+                </header>
+            
+            <article>
+                
+<p>The Puppetserver generates catalogs for each of our agents, using the code placed in our environments and served via JRubies. We'll be configuring the JVM and implementing our changes in Puppet in both an Enterprise and open source installation.</p>
+<p>Puppetserver's primary job in our infrastructure is handling agent requests and returning a catalog. In older versions of Puppet, the RubyGem Passenger was commonly used to concurrently serve requests to multiple agents. Today Puppet runs multiple JRuby instances on the Puppetserver to handle concurrent requests. While Ruby itself runs with the operating system's native compiler, JRuby runs Ruby in an isolated JVM instance. These JRubies allow for better scaling with Puppet, providing multiple concurrent and thread-safe runs of Puppet. Each JRuby can serve one agent at a time, and Puppet will queue agents until a JRuby is available.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Every JVM (containing JRuby instances) has a minimum and maximum heap size. The maximum heap size determines how much memory a JVM can consume before garbage collection begins. Garbage collection is simply the process of clearing data from memory, starting from the oldest data to the newest. The minimum heap size ensures that new JVMs are started with enough memory allocated to run the application. If the JRuby can not allocate enough memory to the Puppet instance, it will trigger an <kbd>OutOfMemory</kbd> error and shut down the Puppetserver. We generally set our Java maximum heap size (sometimes referred to as -Xmx) and our minimum heap size (-Xms) to the same value, so that new JRubies start with the memory they need. We can also set the maximum number of JRuby instances using the <kbd>max-active-instances</kbd>. Puppet generally recommends this number be close to the number of CPUs available to the Puppetserver.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Puppet Enterprise implementation</h1>
+                </header>
+            
+            <article>
+                
+<p>In Puppet Enterprise, we can configure our Java settings in Puppet with the following settings in Hiera:</p>
+<pre>puppet_enterprise::profile::master::java_args:<br/>  Xmx: 512m<br/>  Xms: 512m</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Open source implementation</h1>
+                </header>
+            
+            <article>
+                
+<p>In open source, we need to manage our settings with our own module. Luckily, <kbd>camptocamp/puppetserver</kbd> provides exactly what we need! We can use this module to create a profile that applies to our Puppetservers:</p>
+<pre><span class="k">class profile::puppetserver {<br/><br/>  class</span> <span class="p">{</span> <span class="s1">'puppetserver'</span><span class="p">:</span>
+    <span class="py">config</span> <span class="p">=&gt;</span> <span class="p">{</span>
+      <span class="s1">'java_args'</span>     <span class="p">=&gt;</span> <span class="p">{</span>
+        <span class="s1">'xms'</span>         <span class="p">=&gt;</span> <span class="s1">'4g'</span><span class="p">,</span>
+        <span class="s1">'xmx'</span>         <span class="p">=&gt;</span> <span class="s1">'6g'</span><span class="p">,</span>
+        <span class="s1">'maxpermsize'</span> <span class="p">=&gt;</span> <span class="s1">'512m'</span><span class="p">,</span>
+      <span class="p">},<br/>    }<br/>  }<br/><br/>}</span></pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<div class="packt_tip">In an open source installation, the ulimits required for each component in larger installations may not be present. You can follow the instructions at <a href="https://puppet.com/docs/pe/latest/config_ulimit.html">https://puppet.com/docs/pe/latest/config_ulimit.html</a> if your master is serving an immense number of nodes and is unable to open more files on the Linux operating system.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">PuppetDB tuning</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root">PuppetDB is installed on a PostgreSQL instance, and can generally be managed the same as any PostgreSQL server. We do have a few configuration options that can help tune your PostgreSQL PuppetDB instance to your environment:</p>
+<ul>
+<li>Deactivate and purge nodes</li>
+<li>Tune max heap size</li>
+<li>Tune threads</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Deactivating and purging nodes</h1>
+                </header>
+            
+            <article>
+                
+<p>PuppetDB keeps records on every node that checks into your Puppet Enterprise installation. In an environment where nodes often come and go, such as an immutable infrastructure, lots of data can pile up about nodes that impact the performance of the database and infrastructure. By default, Puppet will expire nodes that have not checked in for seven days, and will cease exporting objects from the catalog. This setting can be managed with the <kbd>node-ttl</kbd> setting underneath the <kbd>[database]</kbd> section of <kbd>puppet.conf</kbd>. An additional setting, <kbd>node-purge-ttl</kbd>, lets the database know when to drop records for a node. By default, 14 days is the purge time for Puppet Enterprise. We can also perform these tasks manually with <kbd>puppet node deactivate</kbd> and <kbd>puppet node purge</kbd>. </p>
+<p>We can manage the default settings using <kbd>puppetlabs/inifile</kbd> as shown below:</p>
+<pre><span class="n"># This profile will clean out nodes much more aggressively, deactivating nodes not seen for 2 days, and purging nodes not seen for 4.<br/><br/>class profile::puppetdb {<br/><br/>  ini_setting</span> <span class="p">{</span> 'Node TTL':<span class="py"><br/>    ensure</span>  <span class="p">=&gt;</span> <span class="n">present</span><span class="p">,</span>
+    <span class="py">path</span>    <span class="p">=&gt;</span> <span class="s1">'/etc/puppetlabs/puppet/puppet.conf'</span><span class="p">,</span>
+    <span class="py">section</span> <span class="p">=&gt;</span> <span class="s1">'database'</span><span class="p">,</span>
+    <span class="py">setting</span> <span class="p">=&gt;</span> <span class="s1">'node-ttl'</span><span class="p">,</span>
+    <span class="py">value</span>   <span class="p">=&gt;</span> <span class="s1">'2d'</span><span class="p">,</span>
+<span class="p">  }<br/><br/></span><span class="n">  ini_setting</span> <span class="p">{</span> 'Node Purge TTL':
+    <span class="py">ensure</span>  <span class="p">=&gt;</span> <span class="n">present</span><span class="p">,</span>
+    <span class="py">path</span>    <span class="p">=&gt;</span> <span class="s1">'/etc/puppetlabs/puppet/puppet.conf'</span><span class="p">,</span>
+    <span class="py">section</span> <span class="p">=&gt;</span> <span class="s1">'database'</span><span class="p">,</span>
+    <span class="py">setting</span> <span class="p">=&gt;</span> <span class="s1">'node-purge-ttl'</span><span class="p">,</span>
+    <span class="py">value</span>   <span class="p">=&gt;</span> <span class="s1">'4d'</span><span class="p">,</span>
+<span class="p">  }<br/><br/>}</span></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Managing the heap size</h1>
+                </header>
+            
+            <article>
+                
+<p>The maximum heap size of our PuppetDB will depend on the total number of nodes checking into the system, the frequency of the Puppet runs, and the amount of resources managed by Puppet. The easiest way to determine heap size needs is to estimate or use defaults, and monitor the performance dashboard.  If your database triggers an <kbd>OutOfMemory</kbd> exception, just provide a larger memory allocation and restart the service. <span>If the JVM heap metric often gets close to maximum, you'll need to increase the max heap size using Java args, managed by the PostgreSQL init script.</span> PuppetDB will begin handling requests from the same point in the queue as when the service died. In an open source installation, this file will be named <kbd>puppetdb</kbd>, and will be named <kbd>pe-puppetdb</kbd> in a Puppet Enterprise installation. On an Enterprise Linux distribution (such as Red Hat), these files will be located in <kbd>/etc/sysconfig</kbd>. Debian based systems such as Ubuntu will place this file in <kbd>/etc/default</kbd>.</p>
+<p>In a Puppet Enterprise installation, we can set our heap size using the following Hiera values:</p>
+<pre>puppet_enterprise::profile::puppetdb::java_args:<br/>  Xms: 1024m<br/>  Xmx: 1024m</pre>
+<p>In an open source installation, preferably using <kbd>puppet/puppetdb</kbd> from the forge, we can simply set the Java args via the <kbd>puppetdb</kbd> class:</p>
+<pre>class profile::puppetdb {<br/><br/>  class {'puppetdb':<br/>    java_args =&gt; {<br/>      '-Xmx' =&gt; '1024m',<br/>      '-Xms' =&gt; '1024m',<br/>    },<br/>  }<br/><br/>}</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Tuning CPU threads</h1>
+                </header>
+            
+            <article>
+                
+<p>Tuning CPU threads for PuppetDB is not always a simple case of <em>add more and it will perform better</em>. CPUs on the PuppetDB are in use for the PostgreSQL instance, the <strong>Message Queue</strong> (<strong>MQ</strong>) and web server provided by PuppetDB. If your server does have CPUs to spare, consider adding more CPU threads to process more messages at a time. If increasing the number of CPUs to PuppetDB is actually decreasing throughput, instead make sure more CPU resources are available for the MQ and web server. The setting for CPU threads is also found in <kbd>puppet.conf</kbd>, under the <kbd>[command-processing]</kbd> section.</p>
+<p>On a Puppet Enterprise installation, we'll find this setting managed by Hiera:</p>
+<pre>puppet_enterprise::puppetdb::command_processing_threads: 2</pre>
+<p>In an open source installation, we will again use <kbd>puppetlabs/puppetdb</kbd> to manage this setting:</p>
+<pre>class profile::puppetdb {<br/><br/>  class {'puppetdb':<br/>    command_threads =&gt; '2',<br/>  }<br/><br/>}</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Automatically determining settings</h1>
+                </header>
+            
+            <article>
+                
+<p>Now that we've seen some of the settings, we can look at some tools to help us deliver a decent baseline using our hardware. To begin with, we'll be looking at automatically tuning our full Puppet Enterprise installation and using PGTune to tune our PuppetDB instance.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Puppet Enterprise</h1>
+                </header>
+            
+            <article>
+                
+<p>Before we inspect and tune our system, we will find a set of recommended settings based on the hardware available. Thomas Kishel at Puppet has designed a Puppet Face that queries PuppetDB for Puppet Enterprise Infrastructure. This command inspects available resources on the system and provides a sane default for the following Puppet Enterprise installations:</p>
+<ul>
+<li>Monolithic infrastructure</li>
+<li>Monolithic with compile masters</li>
+<li>Monolithic with external PostgreSQL</li>
+<li>Monolithic with compile masters with external PostgreSQL</li>
+<li>Monolithic with HA</li>
+<li>Monolithic with compile masters with HA</li>
+<li>Split infrastructure</li>
+<li>Split with compile masters</li>
+<li>Split with external PostgreSQL</li>
+<li>Split with compile masters with external PostgreSQL</li>
+</ul>
+<p>To get started with <kbd>tkishel/pe_tune</kbd>, we'll want to clone the Git repository onto our Puppet Enterprise on our primary master, and make the <kbd>tune.rb</kbd> script executable:</p>
+<pre><strong>git clone https://github.com/tkishel/pe_tune.git
+chmod +x ./pe_tune/lib/puppet_x/puppetlabs/tune.rb</strong> </pre>
+<p>When we have the binary cloned and executable, we'll want to run <kbd>tune.rb</kbd> to get information back about our system and return sane Puppet Enterprise settings in Hiera:</p>
+<pre><strong>[root@pe-puppet-master ~]# ./pe_tune/lib/puppet_x/puppetlabs/tune.rb</strong><br/><strong>### Puppet Infrastructure Summary: Found a Monolithic Infrastructure</strong><br/><br/><strong>## Found: 4 CPU(s) / 9839 MB RAM for Primary Master pe-puppet-master</strong><br/><strong>## Specify the following optimized settings in Hiera in nodes/pe-puppet-master.yaml</strong><br/><br/><strong>---</strong><br/><strong>puppet_enterprise::profile::database::shared_buffers: 3072MB</strong><br/><strong>puppet_enterprise::puppetdb::command_processing_threads: 2</strong><br/><strong>puppet_enterprise::master::puppetserver::jruby_max_active_instances: 2</strong><br/><strong>puppet_enterprise::master::puppetserver::reserved_code_cache: 1024m</strong><br/><strong>puppet_enterprise::profile::master::java_args:</strong><br/><strong>  Xms: 2048m</strong><br/><strong>  Xmx: 2048m</strong><br/><strong>puppet_enterprise::profile::puppetdb::java_args:</strong><br/><strong>  Xms: 1024m</strong><br/><strong>  Xmx: 1024m</strong><br/><strong>puppet_enterprise::profile::console::java_args:</strong><br/><strong>  Xms: 768m</strong><br/><strong>  Xmx: 768m</strong><br/><strong>puppet_enterprise::profile::orchestrator::java_args:</strong><br/><strong>  Xms: 768m</strong><br/><strong>  Xmx: 768m</strong><br/><br/><strong>## CPU Summary: Total/Used/Free: 4/4/0 for pe-puppet-master</strong><br/><strong>## RAM Summary: Total/Used/Free: 9839/8704/1135 for pe-puppet-master</strong><br/><strong>## JVM Summary: Using 768 MB per Puppet Server JRuby for pe-puppet-master</strong></pre>
+<p class="mce-root"/>
+<p>We can then place these values in Hiera anywhere that the Puppet Enterprise installation would be able to pick them up. I recommend <kbd>common.yaml</kbd>, unless you have a Hiera layer specifically set aside for Puppet settings.</p>
+<div class="packt_tip">This script will fail to run by default on infrastructure hosts with less than 4 CPUs or 8 GB of RAM. You can run the command with the <kbd>--force</kbd> flag to get results, even on nodes that are smaller than the recommended 4 CPUs and 8GB of memory.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">PuppetDB – PostgreSQL with PGTune</h1>
+                </header>
+            
+            <article>
+                
+<p><span>When in doubt about how to tune a PostgreSQL server, try PGTune. This project will read your current <kbd>postgresql.conf</kbd> and output a new one with tuning settings designed for the machine it's running on. As an important side note, this will not take into account the necessary memory for the message queue or the web server, so leaving a small amount of extra resources by slightly tuning down these settings can help with performance.</span></p>
+<div class="packt_tip"><span>Please note that PGTune assumes the only purpose of the node it is running on is to serve a Postgres server. These settings will be difficult to use on a single monolithic master, and <kbd>tkishel/pe_tune</kbd> will be a much more useful tool for configuring these servers.</span></div>
+<p>We'll want to begin by cloning and entering the current PGTune project:</p>
+<pre><strong>git clone https://github.com/gregs1104/pgtune.git</strong><br/><strong>Cloning into 'pgtune'...</strong><br/><strong>remote: Counting objects: 112, done.</strong><br/><strong>remote: Total 112 (delta 0), reused 0 (delta 0), pack-reused 112</strong><br/><strong>Receiving objects: 100% (112/112), 66.21 KiB | 0 bytes/s, done.</strong><br/><strong>Resolving deltas: 100% (63/63), done.</strong><br/><strong>cd pgtune</strong></pre>
+<p>Then we run PGTune against our Puppet Enterprise <kbd>postgresql.conf</kbd>:</p>
+<pre><strong>./pgtune -i /opt/puppetlabs/server/data/postgresql/9.6/data/postgresql.conf</strong><br/><strong>#------------------------------------------------------------------------------</strong><br/><strong># pgtune for version 8.4 run on 2018-08-19</strong><br/><strong># Based on 3882384 KB RAM, platform Linux, 100 clients and mixed workload</strong><br/><strong>#------------------------------------------------------------------------------</strong><br/><br/><strong>default_statistics_target = 100</strong><br/><strong>maintenance_work_mem = 224MB</strong><br/><strong>checkpoint_completion_target = 0.9</strong><br/><strong>effective_cache_size = 2816MB</strong><br/><strong>work_mem = 18MB</strong><br/><strong>wal_buffers = 16MB</strong><br/><strong>checkpoint_segments = 32</strong><br/><strong>shared_buffers = 896MB</strong><br/><strong>max_connections = 100</strong></pre>
+<p>These settings come back in a form for manually managing a <kbd>postgresql.conf</kbd>. Let's translate these values into Puppet Enterprise Hiera settings that can be placed in <kbd>common.yaml</kbd> to drive our PuppetDB:</p>
+<pre>---<br/>puppet_enterprise::profile::database::maintenance_work_mem: 224MB<br/>puppet_enterprise::profile::database::checking_completion_target = 0.9<br/>puppet_enterprise::profile::database::effective_cache_size: 2816MB<br/>puppet_enterprise::profile::database::work_mem: 18MB<br/>puppet_enterprise::profile::database::wal_buffers: 16MB<br/>puppet_enterprise::profile::database::checkpoint_segments: 32<br/>puppet_enterprise::profile::database::shared_buffers: 896MB<br/><br/># PgTune recommends just 100 max_connections, but Puppet Enterprise <br/># generally recommends a higher amount due to the number of nodes that <br/># can connect to the system. I'll tune it for that purpose.<br/>puppet_enterprise::profile::database::max_connections: 400</pre>
+<p>When using open source, we'll instead want to lean on the <kbd>puppetlabs/postgresql</kbd> module that is a dependency of <kbd>puppetlabs/puppetdb</kbd>. Each value we want to set is an individual resource, and can be represented in Hiera at the PuppetDB level. I would not recommend putting these particular settings in <kbd>common.yaml</kbd> if you have other PostgreSQL servers in your environment:</p>
+<pre>---<br/>postgresql::server::config_entries:<br/>  maintenance_work_mem: 224MB<br/>  checkpoint_completion_target: 0.9<br/>  effective_cache_size: 2816MB<br/>  work_mem: 18MB<br/>  wal_buffers: 16MB<br/>  checkpoint_segments: 32<br/>  shared_buffers: 896MB<br/>  max_connections: 400</pre>
+<p>Understanding these key concepts allows us to configure our individual nodes to maximize performance. For many users, this will be enough to run Puppet in their environment. For more extreme cases, we can turn to horizontal scaling, allowing more copies of our Puppetservers and PuppetDBs to support more agents.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Horizontal scaling</h1>
+                </header>
+            
+            <article>
+                
+<p>When a single monolithic master can no longer serve our environment, we split our master into distinct components: console, Puppetserver and PuppetDB.  This allows us to serve more clients with a smaller footprint. In an ever growing environment, even this setup may not be able to cover your needs for all agents. </p>
+<p>In this section, we'll be discussing the scaling of Puppetserver, PuppetDB and our certificate authority to serve more agents. With concepts of vertical tuning and horizontal scaling, we can serve a very large installation of nodes, up to the tens of thousands of individual servers on a single setup.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Puppetserver</h1>
+                </header>
+            
+            <article>
+                
+<p>Generally, the first component that is required to scale in any Puppet setup is the Puppetserver. The Puppetserver does the bulk of the work in Puppet, compiling catalogs to agents. In this section, we're going to explore some of the theory behind how many agents a Puppetserver can support, how to create new Puppetservers, and some load balancing strategies around your Puppet Masters. We'll be viewing this from the lens of open source and Enterprise.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Estimating the number of agents a Puppetserver supports</h1>
+                </header>
+            
+            <article>
+                
+<p>Puppet has a mathematics equation for estimating how many nodes a Puppetserver can support. This equation is an estimate and should not replace actual benchmarks, as things such as catalog compile size often shift over time.</p>
+<p>The estimation of Puppetservers is represented as <em>j = ns/mr</em>. In this equation, we see the following values:</p>
+<ul>
+<li><em>j</em>: JRuby instances per master</li>
+<li><em>m</em>: Number of compile masters (Puppetservers)</li>
+<li><em>n</em>: Number of nodes served by the master</li>
+<li><em>s</em>: Catalog compile size in seconds</li>
+<li><em>r</em>: Run interval in seconds</li>
+</ul>
+<p>Using this equation, let's post a simple metric to work with: how many nodes can a single Puppetserver with one JRuby instance serve, with an average catalog compile time of 10 seconds and a default run interval of 30 minutes? Our equation looks like this: <em>1 = n10 / 1*1800</em>. We can simplify this to <em>1 = n10 / 1800</em>. We can multiple both sides of our equation to get <em>1800 = n10</em>. Simplifying by dividing both sides by 10 gives us <em>n = 180</em>.</p>
+<p>A single master, with one JRuby instance, with a run interval of 30 minutes and catalog compile time of 10 seconds can serve 180 agents. If we want to serve more agents, we have the following options:</p>
+<ul>
+<li>Increase the number of JRuby instances per master</li>
+<li>Increase the number of compile masters</li>
+<li>Decrease run interval</li>
+<li>Decrease catalog compilation times with more efficient code</li>
+</ul>
+<p>Just increasing this tiny server to a server with 8 CPUs, and setting the <kbd>jruby_max_active_instances</kbd> setting to 8 would allow us to serve 1,440 agents on this server. Adding two more compile masters with the same number of CPUs would get us to 4,320 agents to serve. We can continually add more Puppetservers to this until we have the ability to serve all the nodes in our infrastructure.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Adding new compile masters</h1>
+                </header>
+            
+            <article>
+                
+<p>In a Puppet Enterprise installation, bringing on new compile masters is very easy. Simply add a new node to the PE Master <strong>Classification</strong> group underneath the PE Infrastructure:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/21a8fd6c-27e0-4e14-8453-82118a0b64cf.png"/></p>
+<p>These nodes will receive the same configuration as the Primary Master, including code manager configuration and necessary connections to PuppetDB. There are no hidden tricks to managing additional compile masters in Puppet Enterprise. Classify and add them to a load balancer.</p>
+<p>In open source, we need to ensure each Puppet Master is configured to use PuppetDB. Luckily, <kbd>puppetlabs/puppetdb</kbd> provides that connection for us:</p>
+<pre>class profile::puppetserver {<br/><span class="k">  class</span> <span class="p">{</span> <span class="s1">'puppetdb::master::config'</span><span class="p">:</span>
+    <span class="py">puppetdb_server</span> <span class="p">=&gt;</span> <span class="nv">&lt;hostname of PuppetDB&gt;</span><span class="p">,</span>
+  <span class="p">}<br/>}<br/></span></pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>We'll still need to make sure this open source installation has the ability to retrieve code. r10k does not federate across servers, unlike Code Manager, so you'll need to determine a strategy for deploying code out to these masters. One easy method of managing this is included in the <kbd>puppet/r10k module</kbd>! Not only can the <kbd>puppet/r10k</kbd> module configure r10k in the same way across each Puppetserver, but a new Puppet task is available for deploying code in that module. This can be run from the command line, or preferably from a CI/CD server on commit:</p>
+<pre><strong>$ puppet task run r10k::deploy environment=production -n puppet-master1,puppet-master2,puppet-master3</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Load balancing</h1>
+                </header>
+            
+            <article>
+                
+<p>When we have multiple Puppetservers, it's important we decide how agents determine which server to connect to. We'll be inspecting a simple strategy of placing Puppetservers closest to the nodes they serve, as well as load balancing strategies that cover larger infrastructure needs. These two methods can be combined if there is a security requirement for isolated masters and a technical requirement for more catalog compilation from additional Puppetservers.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Simple setup – direct connection</h1>
+                </header>
+            
+            <article>
+                
+<p>One of the simplest setups many organizations use is to isolate data centers and provide a Puppetserver for each data center. Some organizations have data centers across the world, whether in the cloud in regions, or on site in various locations. Providing a compile master to these individual data centers is a fairly simple task and only requires a few things:</p>
+<ul>
+<li>The agent is aware of compile master FQDN and has network connectivity to it</li>
+<li>Compile master has connectivity back to the primary master, sometimes called <strong>Master of Masters</strong></li>
+</ul>
+<p>In this setup, during provisioning an agent would reach out to the local compile master for it's agent installation. On a Puppet Enterprise installation, the agent can simply run <kbd>curl -k https://&lt;compile_master&gt;:8140/packages/current/install.bash</kbd> command during provisioning, and it will retrieve an agent thanks to the <kbd>pe_repo</kbd> classification found in the PE Master node group. This agent will not need network connectivity to PuppetDB, the Primary Master, or the PE console, as information will be handled by the compile master in the middle.</p>
+<p>The following infographic from Puppet shows the necessary firewall connections required for each component in a large environment installation of Puppet Enterprise:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/4073ac03-1ee4-4b75-bdf9-9b9f97394d6a.png" style="width:56.17em;height:40.75em;"/></p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>These same ports remain true in an open source installation, although the node classifier API endpoint will not be available from the Puppet console.</p>
+<p>If a single data center grows so large that it needs multiple compile masters, or we want to centralize our compile masters for every data center, we'll instead need to focus on load balancing. Everything in this section still applies in a load balanced cluster, but there are a few new pieces to work with behind a load balancer.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Load balancing</h1>
+                </header>
+            
+            <article>
+                
+<p>In very large environments, we may worry about having enough resources to serve all of our agents. We start building more compile masters and our agents need to connect to them. There are only a few key additional concerns when placing our compile masters behind a load balancer: certificate management and load balancing strategy.</p>
+<p>Puppet builds trusted SSL connections between agents and masters at compile time using self-signed certificates. The FQDN of both the master and the agent are recorded in their respective certs by default. During each connection, the agent inspects the certificate to ensure that the requested domain name is in the certificate. If our agent uses DNS or a VIP from load balancing to connect to a master at <kbd>puppet.example.com</kbd>, and the certificate does not contain that name explicitly, the agent will reject the connection. We want to identify a common name for our pool of compile masters (often just a shortname, such as <kbd>puppet</kbd>), and embed that into the certificate. We can include multiple DNS alt names in the <kbd>puppet.conf</kbd> in the main section on each compile master:</p>
+<pre>[main]<br/>dns_alt_names = puppet,puppet-portland<br/>...</pre>
+<p>When we connect to the Puppet Master for the first time, these <kbd>dns_alt_names</kbd> will be embedded into our certificate. For Enterprise users, this certificate will not show up in the Puppet Enterprise console, so that no one can accidentally approve DNS alt names from the GUI. You'll need to log in to the Puppet Master and run <kbd>puppet cert sign &lt;name&gt; --allow-dns-alt-names</kbd> to sign the certificate, and accept it with alternate names. If you have already built this compile master and need to regenerate the certificates, you can run <kbd>puppet cert clean &lt;name&gt;</kbd> on the Master of Masters, and remove the SSL directory with <kbd><span>sudo rm -r $(puppet master --configprint ssldir)</span></kbd> on the compile master prior to running the agent again.</p>
+<div class="packt_tip"><span>It is generally considered safe to remove the SSL directory on any agent, including compile masters. Running this on the Master of Masters, which acts as the centralized Certificate Authority, on the other hand, will cause all SSL connections and all Puppet runs to stop in the environment. If you do this, you'll need to rebuild your certificate authority on the Master of Masters. Directions can be found at: <a href="https://docs.puppet.com/puppet/4.4/ssl_regenerate_certificates.html">https://docs.puppet.com/puppet/4.4/ssl_regenerate_certificates.html</a>.</span></div>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p><span>Your agents should now be referring to all compile masters by their common DNS alt name. You'll need to decide a load balancing strategy: using DNS round robin, DNS SRV records, or a dedicated load balancer. Major DNS providers provide a mechanism for DNS round robin and SRV records, and you should consult their documentation. We'll walk through a sample of setting up HAProxy as a software load balancer for our compile masters, as if they were all in a single pool. We'll be using <kbd>puppetlabs/haproxy</kbd> and the usage sample on the forge to build a HAProxy instance for multiple compile masters. We could use our exported resources sample from <a href="036a4b96-b91a-4c72-83dc-e5505efc26cd.xhtml">Chapter 9</a>, <em>Exported Resources</em>, but we'll use a simple example as we don't often add Puppet Masters to our load balancer:</span></p>
+<pre><span class="k">class</span> <span class="s1">puppet::proxy</span> <span class="p">{<br/></span>
+  <span class="k">include</span> <span class="nc">::haproxy</span>
+<br/>  <span class="n">haproxy::listen</span> <span class="p">{</span> <span class="s1">'puppetmaster'</span><span class="p">:</span>
+    <span class="py">collect_exported</span> <span class="p">=&gt;</span> <span class="kc">false</span><span class="p">,</span>
+    <span class="py">ipaddress</span>        <span class="p">=&gt;</span> <span class="nv">$::ipaddress</span><span class="p">,</span>
+    <span class="py">ports</span>            <span class="p">=&gt;</span> <span class="s1">'8140'</span><span class="p">,</span>
+  <span class="p">}</span>
+<br/>  <span class="n">haproxy::balancermember</span> <span class="p">{</span> <span class="s1">'master00'</span><span class="p">:</span>
+    <span class="py">listening_service</span> <span class="p">=&gt;</span> <span class="s1">'puppetmaster'</span><span class="p">,</span>
+    <span class="py">server_names</span>      <span class="p">=&gt;</span> <span class="s1">'master00.packt.com'</span><span class="p">,</span>
+    <span class="py">ipaddresses</span>       <span class="p">=&gt;</span> <span class="s1">'10.10.10.100'</span><span class="p">,</span>
+    <span class="py">ports</span>             <span class="p">=&gt;</span> <span class="s1">'8140'</span><span class="p">,</span>
+    <span class="py">options</span>           <span class="p">=&gt;</span> <span class="s1">'check'</span><span class="p">,</span>
+  <span class="p">}</span>
+  <span class="n">haproxy::balancermember</span> <span class="p">{</span> <span class="s1">'master01'</span><span class="p">:</span>
+    <span class="py">listening_service</span> <span class="p">=&gt;</span> <span class="s1">'puppetmaster'</span><span class="p">,</span>
+    <span class="py">server_names</span>      <span class="p">=&gt;</span> <span class="s1">'master01.packt.com'</span><span class="p">,</span>
+    <span class="py">ipaddresses</span>       <span class="p">=&gt;</span> <span class="s1">'10.10.10.101'</span><span class="p">,</span>
+    <span class="py">ports</span>             <span class="p">=&gt;</span> <span class="s1">'8140'</span><span class="p">,</span>
+    <span class="py">options</span>           <span class="p">=&gt;</span> <span class="s1">'check'</span><span class="p">,</span>
+  <span class="p">}</span>
+<span class="p">}<br/></span></pre>
+<p>Using this configuration, our HAProxy will be able to serve requests to all agents requesting a connection to a compile master.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Certificate authority</h1>
+                </header>
+            
+            <article>
+                
+<p>In a Puppet Enterprise installation, the certificate authority portion of compile masters is fairly easy to solve. Puppet Enterprise uses separate node groups for a CA and compile master. By adding additional compile masters to the PE Master classification group, each master is configured to use the centralized certificate authority on the Master of Masters.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>In Puppet open source, we'll need to disable the certificate authority on each of our compile masters using Trapperkeeper. You can simply open <kbd><span>/etc/puppetlabs/puppetserver/services.d/ca.cfg</span></kbd> and comment out the line <kbd><span>puppetlabs.services.ca.certificate-authority-service/certificate-authority-service</span></kbd> and uncomment <kbd>#puppetlabs.services.ca.certificate-authority-disabled-service/certificate-authority-disabled-service</kbd>. Finally, you'll need each agent in your infrastructure (including the compile masters) to add the <kbd>ca_server</kbd> setting into the <kbd>[main]</kbd> section of the <kbd>puppet.conf</kbd>, pointing at the Master of Masters. Note that this requires network connectivity over the CA port to the Master of Masters, which by default is <kbd>8140</kbd>, but can be toggled with the <kbd>ca_port</kbd> setting.</p>
+<p>The final goal of this setup is that each compile master has a DNS alt name, and every agent is connecting to the master via that DNS alt name, while using the Master of Master as the certificate authority for all nodes.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">PuppetDB</h1>
+                </header>
+            
+            <article>
+                
+<p>Scaling PuppetDB is generally scaling PostgreSQL. A single PuppetDB can cover a large number of nodes and compile masters, but should you need to scale PuppetDB, consult PostgreSQL documentation and organizational database guidance. Known methodologies of scaling PostgreSQL that work with Puppet include:</p>
+<ul>
+<li>High availability setups</li>
+<li>Load balancing</li>
+<li>Database replication</li>
+<li>Database clustering</li>
+<li>Connection pooling</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, we talked about scaling Puppet. We started by learning how to monitor the components inside Puppet and how to tune individual Puppet components. We then discussed horizontal scaling, adding more compile masters to serve more agents. We discussed how to load balance our Puppetservers behind a HAProxy and discussed that PuppetDB can be scaled like any PostgreSQL database.</p>
+<p>In our next chapter, we'll look at troubleshooting Puppet Enterprise. Learning to read and understand the errors you may see in Puppet will teach you to be a better practitioner, and allow you to really understand the Puppet system.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

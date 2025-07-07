@@ -1,0 +1,676 @@
+<html><head></head><body>
+<div id="sbo-rt-content"><div id="_idContainer058">
+<h1 class="chapter-number" id="_idParaDest-80"><a id="_idTextAnchor096"/>4</h1>
+<h1 id="_idParaDest-81"><a id="_idTextAnchor097"/>Running Docker Containers</h1>
+<p>Software containers are the new standard application artifacts for modern platforms. In the previous chapters, we learned to create software container images and share them with other developers or services. In this chapter, we will learn how to effectively work with containers. We will understand the main Docker containers’ objects and how to manage them using the appropriate command-line actions and options. Understanding the container network model and how to manage persistent data is key for working with containers. We will also cover the concepts for managing both. At the end of this chapter, we will review some very important maintenance tasks you should know about so that you can manage <span class="No-Break">your environment.</span></p>
+<p>In this chapter, we will cover the <span class="No-Break">following topics:</span></p>
+<ul>
+<li>Understanding Docker software <span class="No-Break">container objects</span></li>
+<li>Learning about using the command line to work <span class="No-Break">with containers</span></li>
+<li>Limiting container access to <span class="No-Break">host resources</span></li>
+<li>Managing <span class="No-Break">container behavior</span></li>
+<li>Container runtime <span class="No-Break">maintenance tasks</span></li>
+</ul>
+<h1 id="_idParaDest-82"><a id="_idTextAnchor098"/>Technical requirements</h1>
+<p>This book teaches you how to use software containers to improve your application’s development. The labs for this chapter can be found at <a href="https://github.com/PacktPublishing/Docker-for-Developers-Handbook/tree/main/Chapter4">https://github.com/PacktPublishing/Docker-for-Developers-Handbook/tree/main/Chapter4</a>. Here, you will find some extended explanations that have been omitted in this chapter’s content to make it easier to follow. The <em class="italic">Code In Action</em> video for this chapter can be found <span class="No-Break">at </span><a href="https://packt.link/JdOIY"><span class="No-Break">https://packt.link/JdOIY</span></a><span class="No-Break">.</span></p>
+<p>Let’s begin this chapter by introducing the most important Docker <span class="No-Break">container objects.</span></p>
+<h1 id="_idParaDest-83"><a id="_idTextAnchor099"/>Understanding Docker software container objects</h1>
+<p>Container runtimes<a id="_idIndexMarker408"/> usually work by following a client-server model. We interact with the runtime by using a client command line such as <strong class="source-inline">docker</strong>, <strong class="source-inline">nerdctl</strong>, or <strong class="source-inline">crictl</strong>, depending on the backend. The runtime itself is responsible for managing different objects or resources, which can easily be manipulated by interacting with it. Before we learn how to interact with and manage software containers, we will learn about the different objects that are managed by the container runtime in this section. All commands or actions will be related to them, to either create, remove, or modify their properties. We <a id="_idIndexMarker409"/>learned about container images in <a href="B19845_01.xhtml#_idTextAnchor015"><span class="No-Break"><em class="italic">Chapter 1</em></span></a>, <em class="italic">Modern Infrastructure and Applications with Docker</em>, and <a href="B19845_02.xhtml#_idTextAnchor036"><span class="No-Break"><em class="italic">Chapter 2</em></span></a>, <em class="italic">Building Docker Images</em>, where we also learned how to build them. Let’s start by reviewing these well-known objects, which are common within all <span class="No-Break">container runtimes:</span></p>
+<ul>
+<li><strong class="bold">Container images</strong>: These <a id="_idIndexMarker410"/>objects are also referred to as <strong class="bold">container artifacts</strong>. They are the base for <a id="_idIndexMarker411"/>creating a container because they contain all the files, integrated into different layers, that will be included inside a container’s filesystem. The images also contain the meta-information required for running a container, such as the processes that will run internally, the ports that will be exposed externally, the volumes that will be used to override the container’s filesystem, and so on. You, as a developer, will create and use a lot of images for your applications. Please take the best practices for security that were reviewed in <a href="B19845_02.xhtml#_idTextAnchor036"><span class="No-Break"><em class="italic">Chapter 2</em></span></a>, <em class="italic">Building Docker Images</em>, <span class="No-Break">into account.</span></li>
+<li><strong class="bold">Containers</strong>: When we use a container<a id="_idIndexMarker412"/> image and run a container using it, we are telling the container runtime to execute the processes defined in the image’s meta-information and use the image layers to provide a base filesystem for these processes. Kernel features such as cgroups and namespaces are also provided to isolate containers. This makes it possible to run different containers in the same hosts in a secure way. None of them will see each other unless specifically declared. The container’s filesystem layer will be added on top of the image layers in read and write mode. All layers below the container layer will be used in read-only mode, and the files that have been modified or created will be managed using the features of <span class="No-Break">CoW filesystems.</span></li>
+<li><strong class="bold">Networks</strong>: Containers always run <a id="_idIndexMarker413"/>in isolation within kernel namespaces. We can share some of the underlying operating system’s namespaces, such as for networks, processes, IPCs, and so on, but this feature should only be used in very special use cases (for example, for monitoring host resources). By default, each container will run with its own virtual interface and IP address, and this interface will be linked to a specially created <strong class="source-inline">docker0</strong> bridge interface at the host level, although other network options and drivers can be used. The container runtime manages IP addresses with an internal IPAM, and a NAT is used to allow container access to the real host’s attached network. Network objects allow us to create different bridge interfaces and attach containers to them, isolating containers running within <span class="No-Break">different networks.</span></li>
+<li><strong class="bold">Volumes</strong>: CoW filesystems may<a id="_idIndexMarker414"/> impact the application’s behavior. If your processes change a lot of files or any file must persist throughout a container’s life cycle, a volume must be used to override CoW filesystem management. We use volumes to store files outside of the container’s layers. These can be folders in our host system, remote filesystems, or even external block <a id="_idIndexMarker415"/>devices. Different drivers can be used and, by default, volumes will be locally available in each underlying host <span class="No-Break">as folders.</span></li>
+</ul>
+<p>All these objects will be identified by unique IDs and we will use either their names or IDs to refer to them. Common actions for creating and removing them will be available in our client command line. We can also list them and inspect their properties, and we can use Go template formatting, as we learned in <a href="B19845_02.xhtml#_idTextAnchor036"><span class="No-Break"><em class="italic">Chapter 2</em></span></a>, <em class="italic">Building </em><span class="No-Break"><em class="italic">Docker Images</em></span><span class="No-Break">.</span></p>
+<p>Container orchestrators<a id="_idIndexMarker416"/> will have their own set of objects or resources (in Kubernetes). We will review them in <a href="B19845_07.xhtml#_idTextAnchor147"><span class="No-Break"><em class="italic">Chapter 7</em></span></a>, <em class="italic">Orchestrating with Swarm</em>, and <a href="B19845_08.xhtml#_idTextAnchor170"><span class="No-Break"><em class="italic">Chapter 8</em></span></a>, <em class="italic">Deploying Applications with </em><em class="italic">the </em><em class="italic">Kubernetes </em><span class="No-Break"><em class="italic">Orchestrator</em></span><span class="No-Break">, respectively.</span></p>
+<p>Before we review these new objects, let’s remember that containers are processes that run on top of hosts thanks to container runtimes. These processes run isolated from each other by using the special kernel features of the hosts. Container images will provide the base filesystems for these processes and we will use a client command line to interact <span class="No-Break">with them.</span></p>
+<p>Containers<a id="_idIndexMarker417"/> are considered stateless and ephemeral, although they exist on the underlying host. Applications running within containers should be prepared to run anywhere, and their state and data should be managed out of the container’s life cycle. What if we need to store an application’s data or its status? We can use the volume objects to persist data and processes’ states when containers are removed or a new container is created using the same data. If we are working in a distributed or orchestrated environment, sharing these volumes is critical, and we need to use external volumes to attach the data to the containers wherever <span class="No-Break">it’s needed.</span></p>
+<p>Depending on the container runtime we use, the location of the files related to containers may change, but in the case of a Docker container runtime, we expect to have all images and container layers and their files under <strong class="source-inline">/var/lib/docker</strong> or <strong class="source-inline">c:\ProgramData\docker</strong>. This may seem completely different on new desktop environments, such as Docker Desktop and Rancher Desktop. In these environments, we will use WSL or the Windows <a id="_idIndexMarker418"/>command line to execute the client and interact with a container runtime. The runtime runs in a different WSL environment; hence, you will not be able to reach its data path. To review the current data path from your client, you can use <strong class="source-inline">docker info</strong> if you are using Docker as the <span class="No-Break">container runtime:</span></p>
+<pre class="console">
+$ docker info --format="{{ .DockerRootDir }}"
+/var/lib/docker</pre> <p>If you use <strong class="source-inline">containerd</strong> directly, the data root path will be located under the <strong class="source-inline">/var/lib/containerd</strong> directory, but in both cases, you will not be able to access these folders in desktop environments because client access uses a pipe connection to access the container runtime remotely. All the objects’ meta-information will be stored under this <strong class="source-inline">DockerRootDir</strong> path and we will be able to retrieve the objects’ properties by using the container runtime client with <span class="No-Break">appropriate commands.</span></p>
+<p>If you are using WSL2 with Docker Desktop, two WSL instances will have been created: <strong class="source-inline">docker-desktop</strong> and <strong class="source-inline">docker-desktop-data</strong>. The second one is used for mounting all data inside your own WSL instance (<strong class="source-inline">ubuntu-22.04</strong> in my case, but it may differ for you). This is possible <a id="_idIndexMarker419"/>thanks to the integration with Docker Desktop. We can find all the Docker container content inside the <strong class="source-inline">\\wsl.localhost\docker-desktop-data\data\docker</strong> directory. The following PowerShell screenshot shows my <span class="No-Break">environment’s data:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer055">
+<img alt="Figure 4.1 – Docker container runtime objects data inside the docker-desktop-data WSL instance" height="753" src="image/B19845_04_01.jpg" width="970"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 4.1 – Docker container runtime objects data inside the docker-desktop-data WSL instance</p>
+<p>Now that we know about the main objects that are managed by the container runtime, we can review the command-line options we have for managing and interacting <span class="No-Break">with them.</span></p>
+<h1 id="_idParaDest-84"><a id="_idTextAnchor100"/>Learning about using the command line to work with containers</h1>
+<p>In this section, we will <a id="_idIndexMarker420"/>learn how to manage containers. We will use the Docker command line, provided by the Docker client (the <strong class="source-inline">docker-client</strong> package or WSL integrated into Docker Desktop environments). All the command-line actions we are going to discuss in this chapter will be similar for other clients, such as <strong class="source-inline">nerdctl</strong> or <strong class="source-inline">podman</strong>, although in the latter case, it does not use a <span class="No-Break"><strong class="source-inline">containerd</strong></span><span class="No-Break"> daemon.</span></p>
+<p>The Docker client sends actions to the Docker daemon via an API every time we retrieve information <a id="_idIndexMarker421"/>about <a id="_idIndexMarker422"/>Docker objects. Clients can <a id="_idIndexMarker423"/>use <strong class="bold">SSH</strong>, <strong class="bold">HTTP/HTTPS</strong>, or direct <strong class="bold">sockets</strong> (or <strong class="bold">pipes</strong> in<a id="_idIndexMarker424"/> Microsoft <span class="No-Break">operating systems).</span></p>
+<p>First, we will start with the actions that are common and available to all container <span class="No-Break">runtime objects:</span></p>
+<ul>
+<li><strong class="source-inline">create</strong>: All the <a id="_idIndexMarker425"/>container runtime <a id="_idIndexMarker426"/>objects can be created and destroyed. This doesn’t apply to container images because we will use <strong class="source-inline">docker image build</strong> to start a building process to create them. All objects will automatically receive an ID, and in some cases, such as with containers, an automated random name will also be added. If we want to assign a defined name, we can use the <strong class="source-inline">--</strong><span class="No-Break"><strong class="source-inline">name</strong></span><span class="No-Break"> argument.</span></li>
+<li><strong class="source-inline">list</strong>: This action <a id="_idIndexMarker427"/>will show all the objects in the defined category; for example, <strong class="source-inline">docker image list</strong> will retrieve all the images available locally in our container runtime. As we learned in <a href="B19845_02.xhtml#_idTextAnchor036"><span class="No-Break"><em class="italic">Chapter 2</em></span></a>, <em class="italic">Building Docker Images</em>, we have options for filtering and formatting the output using <strong class="bold">Go templates</strong>. When we list the available containers, only those currently<a id="_idIndexMarker428"/> running will be listed by default. To also include already stopped containers, we should use the <strong class="source-inline">--all</strong> argument. If we only need the object identifiers, we can use the <strong class="source-inline">--quiet</strong> option. This can be very useful for piping the output to <span class="No-Break">another command.</span></li>
+</ul>
+<p class="callout-heading">Important note</p>
+<p class="callout">You may notice that we can also use <strong class="source-inline">docker container ps</strong> or the shorter version, <strong class="source-inline">docker ps</strong>, to list containers. Containers are processes that run in our host with kernel features providing isolation; hence, it seems appropriate to use this argument as if we were listing processes. By default, only running processes (or containers) will be listed, and we will have to use the <strong class="source-inline">--all</strong> argument to show stopped ones <span class="No-Break">as well.</span></p>
+<ul>
+<li><strong class="source-inline">inspect</strong>: Inspecting<a id="_idIndexMarker429"/> objects will allow us to retrieve all the information related to the defined object. By default, all objects’ data will be presented in JSON format, but we can also use the <strong class="source-inline">--format</strong> argument to format <span class="No-Break">the output.</span></li>
+<li><strong class="source-inline">remove</strong>: All <a id="_idIndexMarker430"/>objects can also be removed. We will use their IDs or names to delete them. In some cases, internal dependencies may appear. For example, we can’t remove a container image if any existing container is using it. To avoid these dependencies, we can use the <strong class="source-inline">--</strong><span class="No-Break"><strong class="source-inline">force</strong></span><span class="No-Break"> argument.</span></li>
+</ul>
+<p>These actions are common to all container runtime-managed objects, but when we deep dive into containers, more are available. Next, we will review the current actions for containers, but<a id="_idIndexMarker431"/> first, we have to understand that when we create an object, we prepare all the required configurations. This means that creating a container will prepare the container to run, but the container will be stopped. Let’s see this feature in action with a <span class="No-Break">quick example:</span></p>
+<pre class="console">
+$ docker container create --name test alpine
+f7536c408182698af04f53f032ea693f1623985ae12ab0525f7fb4119c8850d9
+$ docker container inspect test --format="{{ .Config.Cmd }}"
+[/bin/sh]
+$ docker container ls
+CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES</pre> <p>Our Docker container runtime has just created a container, but it is not running, although it is still in our <span class="No-Break">host system.</span></p>
+<p>We can remove this container and check it again. We will not be able to retrieve any value from this object because it will now <span class="No-Break">not exist:</span></p>
+<pre class="console">
+$ docker container rm test
+test
+$ docker container inspect test --format="{{ .Config.Cmd }}"
+Error: No such container: test</pre> <p>Now, we can continue reviewing the actions for containers, starting with the action for actually starting a container after <span class="No-Break">its creation:</span></p>
+<ul>
+<li><strong class="source-inline">start</strong>: This<a id="_idIndexMarker432"/> action requires a previously created container object to exist. The container runtime will execute the defined container object’s processes with its host’s isolation and defined <span class="No-Break">attached resources.</span></li>
+<li><strong class="source-inline">run</strong>: This <a id="_idIndexMarker433"/>action will <strong class="bold">create</strong> and <strong class="bold">start</strong> a container in one go. The container runtime will start a container and it will attach our terminal to the container’s main process. This process runs in the <strong class="bold">foreground</strong> unless we use the <strong class="source-inline">--detach</strong> argument; in this case, the container will run in the background and our terminal will be detached from the container. We can use <strong class="source-inline">--interactive</strong> and <strong class="source-inline">--tty</strong> to execute the current container in interactive mode and use a pseudo-terminal; this way, we can actively interact with the container’s main process. Containers will run using all the parameters defined in their configuration, such as usernames, defined kernel namespaces, volumes, networks, and so on. Some of these definitions may be modified by adding different arguments to our <span class="No-Break">command line.</span></li>
+<li><strong class="source-inline">stop</strong>: Containers<a id="_idIndexMarker434"/> can be stopped. This action will ask the container runtime to send a stop signal (<strong class="source-inline">SIGTERM</strong>) to the container’s main process and it will wait 10 seconds (by default) before sending a kill signal (<strong class="source-inline">SIGKILL</strong>) if the process is <span class="No-Break">still alive.</span></li>
+<li><strong class="source-inline">kill</strong>: Killing a <a id="_idIndexMarker435"/>container will directly ask the container runtime to send a <strong class="source-inline">SIGKILL</strong> signal. You, as a developer, should prepare<a id="_idIndexMarker436"/> your applications to die correctly in case <strong class="source-inline">SIGTERM</strong> or <strong class="source-inline">SIGKILL</strong> is received. Ensure your files are closed correctly and no unmanaged process continues running after the main process <span class="No-Break">has died.</span></li>
+<li><strong class="source-inline">restart</strong>: This action <a id="_idIndexMarker437"/>will be used to stop and start the container. We can ask the container runtime to always restart our container whenever our main <span class="No-Break">process dies.</span></li>
+<li><strong class="source-inline">pause</strong>/<strong class="source-inline">unpause</strong>: Containers<a id="_idIndexMarker438"/> can be paused. This will make the container runtime inform the kernel to remove any CPU time from the container’s processes. This is important because paused containers can be used to share container resources, such as volumes <span class="No-Break">and namespaces.</span></li>
+</ul>
+<p class="callout-heading">Important note</p>
+<p class="callout">You may get stuck and be unable to exit the container’s main process standard and error output if you run certain processes in the foreground without the <strong class="source-inline">--interactive</strong> argument. To avoid this situation, you can use the <em class="italic">CTRL</em> + <em class="italic">P</em> + <em class="italic">Q</em> <span class="No-Break">keyboard sequence.</span></p>
+<p>Now that have learned <a id="_idIndexMarker439"/>about the most important actions for managing containers, let’s review some of the arguments we can use to modify the <span class="No-Break">container’s behavior:</span></p>
+<ul>
+<li><strong class="source-inline">--name</strong>: Each container<a id="_idIndexMarker440"/> will be identified by a unique ID, but a name will always be assigned. This name will be random and composed of two strings. An internal database will be used to generate them and the final concatenated string will be unique. We can avoid this behavior by using <strong class="source-inline">--name</strong> and passing a string of our choice, but remember, container names must be unique and you will not be able to reuse <span class="No-Break">this name.</span></li>
+<li><strong class="source-inline">--restart</strong>: As<a id="_idIndexMarker441"/> mentioned before, we can ask the container runtime to manage the container’s life cycle for us. By default, containers will not restart if the main process dies, but we can use strings such as <strong class="source-inline">on-failure</strong>, <strong class="source-inline">always</strong>, or <strong class="source-inline">unless-stopped</strong> to define whether the container should start in case of failure (any exit code other than <strong class="source-inline">0</strong>), always, or just in case we didn’t effectively stop the container, respectively.  We can also ensure that the Docker runtime does not manage the life cycle of the container by not using any specific string <span class="No-Break">or command.</span></li>
+<li><strong class="source-inline">--entrypoint</strong>: This <a id="_idIndexMarker442"/>option will allow us to override the container image’s defined entry point (main process). It is very important to understand that anyone can change your image’s entry point, executing whatever binary or script is available in your image’s layers; therefore, it is critical to strictly include the files required by <span class="No-Break">your application.</span></li>
+<li><strong class="source-inline">--env</strong>: We<a id="_idIndexMarker443"/> can add new environment variables by using this argument or <strong class="source-inline">--env-file</strong>. In this case, a file with a key-value format will be included to add a set <span class="No-Break">of variables.</span></li>
+<li><strong class="source-inline">--expose</strong>: By <a id="_idIndexMarker444"/>default, only the ports defined in the container’s image will be exposed, but it is possible to add new ones if some modifications of the container’s behavior require new ports <span class="No-Break">or protocols.</span></li>
+<li><strong class="source-inline">--user</strong>: This<a id="_idIndexMarker445"/> argument allows us to modify the user who effectively executes the container’s main process. You must ensure that your application can run if you change the container’s user; this may be critical if you run your applications inside Kubernetes. In <a href="B19845_08.xhtml#_idTextAnchor170"><span class="No-Break"><em class="italic">Chapter 8</em></span></a>, <em class="italic">Deploying Applications with </em><em class="italic">the </em><em class="italic">Kubernetes Orchestrator</em>, we will learn whether we can improve our application’s security by <a id="_idIndexMarker446"/>using <span class="No-Break"><strong class="bold">security contexts</strong></span><span class="No-Break">.</span></li>
+<li><strong class="source-inline">--publish</strong> and <strong class="source-inline">--publish-all</strong>: These arguments allow us to publish one port (we can use the<a id="_idIndexMarker447"/> arguments multiple times<a id="_idIndexMarker448"/> to add multiple ports) or all the image’s defined exposed ports. This will make the application accessible from outside of the container’s network using NAT. Random host ports will be used to publish your applications unless you define specific ports during <span class="No-Break">container execution.</span></li>
+<li><strong class="source-inline">--memory</strong> and <strong class="source-inline">--cpus</strong>: These <a id="_idIndexMarker449"/>options, among others, will allow us to manage the amount of memory and CPU resources that will be attached to the container. We <a id="_idIndexMarker450"/>can also include the <a id="_idIndexMarker451"/>host’s GPUs by <span class="No-Break">using </span><span class="No-Break"><strong class="source-inline">-–gpus</strong></span><span class="No-Break">.</span></li>
+</ul>
+<p>Now that we have had an overview of the most important arguments that are used with containers, we will take a look at some critical options for securing <span class="No-Break">our workloads:</span></p>
+<ul>
+<li><strong class="source-inline">--cap-add</strong>: This <a id="_idIndexMarker452"/>option allows us to specifically add some kernel <a id="_idIndexMarker453"/>capabilities to our processes inside the container’s execution. Kernel capabilities are a set of privileges associated with a superuser, which the system provides in a fine-grained way. By default, a container runtime does not allow <em class="italic">privileged</em> containers to run with all available capabilities. Container runtimes allow only a subset of all available capabilities by default (the currently available capabilities can be reviewed at <a href="https://man7.org/linux/man-pages/man7/capabilities.7.xhtml">https://man7.org/linux/man-pages/man7/capabilities.7.xhtml</a>). The Docker runtime, for example, allows 14 capabilities (<a href="https://docs.docker.com/engine/reference/run/#runtime-privilege-and-linux-capabilities">https://docs.docker.com/engine/reference/run/#runtime-privilege-and-linux-capabilities</a>), which will probably be enough for your applications to run, but if your applications need some specific capability, such as the permission to manage network interfaces using <strong class="source-inline">NET_ADMIN</strong>, you should add that using the <strong class="source-inline">--cap-add NET_ADMIN</strong> argument. Adding capabilities may be useful for modifying your current kernel behavior if your application needs some special features. You, as a developer, should inform the relevant parties about the special privileges needed by your applications because capabilities may be dropped in secure container orchestrator environments. Inform your DevOps or cluster administrator teams about your <span class="No-Break">special requirements.</span></li>
+<li><strong class="source-inline">--cap-drop</strong>: This <a id="_idIndexMarker454"/>option, in contrast, is used to remove certain capabilities. This may be very useful, for example, if we need to remove the possibility of changing file ownership inside a container’s life cycle, which we can do using <strong class="source-inline">--cap-drop CHWON</strong>, or remove the ability to send raw network packets, for example, ICMP, which is done using <strong class="source-inline">--cap-drop NET_RAW</strong>. You may find secure<a id="_idIndexMarker455"/> environments<a id="_idIndexMarker456"/> where all capabilities <span class="No-Break">are dropped.</span></li>
+</ul>
+<p class="callout-heading">Important note</p>
+<p class="callout">Both <strong class="source-inline">--cap-drop</strong> and <strong class="source-inline">--cap-add</strong> can be used with the <strong class="source-inline">ALL</strong> argument, which means that all capabilities will be dropped or added, respectively. It is very important for you, as a developer, to test the possible issues that may appear if you drop all available capabilities. This will help you prepare your applications for <span class="No-Break">secure environments.</span></p>
+<ul>
+<li><strong class="source-inline">--privileged</strong>: This <a id="_idIndexMarker457"/>argument will provide all capabilities and avoid any resource limitations. You should avoid using this option for your application containers. Take time to review which capabilities and resources are required for your application and apply them. Overriding all the process limits in production is a bad idea and should be applied only to specific application containers, for example, to monitor your infrastructure. In these specific cases, you may need extra resources or be able to access all the host’s capabilities, processes, and so on to manage applications from the <span class="No-Break">containers themselves.</span></li>
+<li><strong class="source-inline">--disable-content-trust</strong>: This option will disable any Docker Content Trust verification; hence, any signature or <a id="_idIndexMarker458"/>image source check will <span class="No-Break">be omitted.</span></li>
+<li><strong class="source-inline">--read-only</strong>: Executing containers in <strong class="bold">read-only</strong> mode will ask the container runtime to present the root <a id="_idIndexMarker459"/>filesystem inside the container in read-only mode. This feature improves the security of your applications. All changes to files must be managed outside of the container’s life cycle using volumes. It is important to test your containers with this feature because it is quite probable that you may need to set this option for production environments. This applies to the entire root filesystem; hence, if your application needs to write, for example, in the <strong class="source-inline">/tmp</strong> directory, you need to set up a volume attached to this path to allow <span class="No-Break">this interaction.</span></li>
+<li><strong class="source-inline">--security-opt</strong>: Some <a id="_idIndexMarker460"/>extended security measures may need extra options, for example, for setting up a different <strong class="source-inline">seccomp</strong> profile or specifying SELinux options. In general, this option allows us to modify Linux security <span class="No-Break">modules’</span><span class="No-Break"><a id="_idIndexMarker461"/></span><span class="No-Break"> behavior.</span></li>
+</ul>
+<p>Now that we know how to run containers and the most important options, let’s review how to limit and include the underlying <span class="No-Break">host’s resources.</span></p>
+<h1 id="_idParaDest-85"><a id="_idTextAnchor101"/>Limiting container access to host resources</h1>
+<p>In this section, we will learn how to limit hosts’ resources inside containers, but first, we will take a look at the container network model and how to use volumes to override <span class="No-Break">container storage.</span></p>
+<h2 id="_idParaDest-86"><a id="_idTextAnchor102"/>Network isolation</h2>
+<p><strong class="bold">Network isolation</strong> is<a id="_idIndexMarker462"/> provided by assigning a network namespace to each container; hence, virtualized IP addresses are added to containers. These assignments are provided from a pool of defined IP addresses managed by the container runtime’s internal IPAM. This is the way that internal IP addresses are assigned, but all virtual interfaces are associated by default with a bridged host interface. Each container runtime will create and manage its own bridge interface. Docker will use <strong class="source-inline">docker0</strong> by default. This interface is created during Docker daemon installation and all IP containers’ interfaces will be associated with <strong class="source-inline">docker0</strong>. Different drivers can be used to extend this default behavior, for example, to attach network VLANs to <span class="No-Break">containers directly.</span></p>
+<p class="callout-heading">Important note</p>
+<p class="callout">By default, the following network plugins are available: <strong class="source-inline">bridge</strong>, <strong class="source-inline">host</strong>, <strong class="source-inline">ipvlan</strong>, <strong class="source-inline">macvlan</strong>, <strong class="source-inline">null</strong>, <span class="No-Break">and </span><span class="No-Break"><strong class="source-inline">overlay</strong></span><span class="No-Break">.</span></p>
+<p>By default, a fresh Docker container runtime installation creates three different interfaces. We can review them by listing the default network objects <span class="No-Break">after installation:</span></p>
+<pre class="console">
+$ docker network list
+NETWORK ID     NAME      DRIVER    SCOPE
+490f99141fa4   bridge    bridge    local
+b984f74311fa   host      host      local
+25c30b67b7cd   none      null      local</pre> <p>All containers will<a id="_idIndexMarker463"/> run using the <strong class="source-inline">bridge</strong> interface by default. Every time we create a container, a virtual interface is created in the host, attached to <strong class="source-inline">docker0</strong>. All egress and ingress traffic will go through this interface. In this scenario, it is very important to understand that all containers attached to this common bridge will see each other. Let’s see how this happens in <span class="No-Break">this example:</span></p>
+<pre class="console">
+$  docker container create --name one alpine sleep INF
+116220a54ee1da127a4b2b56974884b349de573a4ed27e2647b1e780543374f9
+$ docker container inspect one --format='{{ .NetworkSettings.IPAddress }}'</pre> <p>This container does not receive an IP address until it runs. We can now execute it and review the IP <span class="No-Break">address again:</span></p>
+<pre class="console">
+$ docker container start one
+one
+$ docker container inspect one --format='{{ .NetworkSettings.IPAddress }}'
+172.17.0.2</pre> <p>The container runtime manages the IP assignment and we can verify the network segment that <span class="No-Break">was used:</span></p>
+<pre class="console">
+$ docker network inspect bridge --format='{{ .IPAM }}'
+{default map[] [{172.17.0.0/16  172.17.0.1 map[]}]}</pre> <p>Let’s verify what happens when another container runs attached to the network <span class="No-Break">bridge interface:</span></p>
+<pre class="console">
+$ docker container ls
+CONTAINER ID   IMAGE     COMMAND       CREATED          STATUS         PORTS     NAMES
+116220a54ee1   alpine    "sleep INF"   12 minutes ago   Up 8 minutes             one
+$ docker container run -ti alpine ping -c 3 172.17.0.2
+PING 172.17.0.2 (172.17.0.2): 56 data bytes
+64 bytes from 172.17.0.2: seq=0 ttl=64 time=1.148 ms
+64 bytes from 172.17.0.2: seq=1 ttl=64 time=0.163 ms
+64 bytes from 172.17.0.2: seq=2 ttl=64 time=0.165 ms
+--- 172.17.0.2 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.163/0.492/1.148 ms</pre> <p>The second <a id="_idIndexMarker464"/>container executed three pings to the first one’s IP address and it was reachable. Both containers run in the same network segment, associated with the same bridge interface. This default behavior can be managed by setting certain network object’s keys during their creation, such as <strong class="source-inline">com.docker.network.bridge.enable_icc</strong>, which manages the isolation between containers in the same network (additional information can be found <span class="No-Break">at </span><a href="https://docs.docker.com/engine/reference/commandline/network_create"><span class="No-Break">https://docs.docker.com/engine/reference/commandline/network_create</span></a><span class="No-Break">).</span></p>
+<p>We will use <strong class="source-inline">--network</strong> to define the networks to which containers <span class="No-Break">should attach.</span></p>
+<p>The <strong class="source-inline">none</strong> network can be used to initialize and run containers without any networking capabilities. This can be interesting when we run certain tasks that don’t require any network traffic – for example, managing data stored in <span class="No-Break">a volume.</span></p>
+<p>We can share the<a id="_idIndexMarker465"/> host’s network namespace by using the <strong class="source-inline">host</strong> network. When we attach a container to this network, it will use the host’s IP interfaces. We can verify this behavior by executing <strong class="source-inline">docker container run --rm --network=host alpine ip address show</strong>. The following screenshot shows the output of this command, showing the interfaces inside a container using the <span class="No-Break"><strong class="source-inline">host</strong></span><span class="No-Break"> network:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer056">
+<img alt="Figure 4.2 – The network interfaces of our host, included inside a running container" height="798" src="image/B19845_04_02.jpg" width="1399"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 4.2 – The network interfaces of our host, included inside a running container</p>
+<p>Here, we can see that <strong class="source-inline">docker0</strong> and the previous container’s interface are inside the new container. The <strong class="source-inline">host</strong> network is used for monitoring and security applications – when we need access<a id="_idIndexMarker466"/> to all the host interfaces to manage or retrieve their traffic statistics, <span class="No-Break">for example.</span></p>
+<p class="callout-heading">Important note</p>
+<p class="callout">We used the <strong class="source-inline">--rm</strong> argument to remove the container right after its execution. This option is very useful for testing and executing quick commands <span class="No-Break">inside containers.</span></p>
+<h3>Understanding custom networks</h3>
+<p>We can also create <a id="_idIndexMarker467"/>custom networks, as with any other container runtime objects. We can use <strong class="source-inline">docker network create &lt;NETWORK_NAME&gt;</strong> for such tasks; a new bridge network interface will be created by default. These new network interfaces will be similar to the <strong class="source-inline">docker0</strong> interface, but some important features <span class="No-Break">are added:</span></p>
+<ul>
+<li>Each custom network is isolated from the others, using a completely different network segment. A new bridge interface will be created for each custom network and the network the segment will be associated with. All containers running attached to this network will see each other, but they won’t reach the ones attached to any other network, including the default bridge. This also works the opposite way; hence, containers attached to a network will only see those working on the <span class="No-Break">same network.</span></li>
+<li>Custom networks can be dynamically attached. This means that containers can be attached and detached by using <strong class="source-inline">docker network connect &lt;CONTAINER&gt;</strong> and <strong class="source-inline">docker network disconnect &lt;CONTAINER&gt;</strong>. This behavior can’t be reproduced in the default <span class="No-Break">bridge network.</span></li>
+<li>An internal DNS is provided for each custom network. This means that all containers that are attached can be accessed by using their names. Hence, network discovery is provided, and each time a new container runs attached to this network, a new entry is added to the internal DNS. However, remember that DNS names will only be accessible internally in the defined network. Default bridge networks can also access containers via their names if we use the <strong class="source-inline">--link</strong> argument. This way, we can link containers together to make them work as if they were using a DNS, but this will only work for the containers included in this argument; no other containers will be seen by <span class="No-Break">their names.</span></li>
+</ul>
+<p>Let’s see a quick example by <a id="_idIndexMarker468"/>creating a new network using <strong class="source-inline">docker network create</strong>. We will also define a name, its scope, and the <span class="No-Break">associated subnet:</span></p>
+<pre class="console">
+$ docker network create --subnet 192.168.30.0/24 mynetwork
+43ee9a8bde09de1882c91638ae7605e67bab0857c0b1ee9fe785c2d5e5c9c3a7
+$ docker network inspect mynetwork --format='{{ .IPAM }}'
+{default map[] [{192.168.30.0/24   map[]}]}
+$ docker run --detach  --name forty \
+--network=mynetwork alpine sleep INF
+3aac157b4fd859605ef22641ea5cc7e8b37f2216f0075d92a36fc7f62056e2da
+$ docker container ls
+CONTAINER ID   IMAGE     COMMAND       CREATED          STATUS         PORTS     NAMES
+3aac157b4fd8   alpine    "sleep INF"   10 seconds ago   Up 8 seconds             forty
+116220a54ee1   alpine    "sleep INF"   2 hours ago      Up 2 hours               one</pre> <p>Now, let’s try to access the<a id="_idIndexMarker469"/> container attached to the created <span class="No-Break">custom network:</span></p>
+<pre class="console">
+$ docker run  --rm --network=mynetwork alpine ping \
+-c 1 forty
+PING forty (192.168.30.2): 56 data bytes
+64 bytes from 192.168.30.2: seq=0 ttl=64 time=0.222 ms
+ --- forty ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 0.222/0.222/0.222 ms</pre> <p>It is accessible by its name, but let’s try this again with the container attached to the <span class="No-Break">default network:</span></p>
+<pre class="console">
+$ docker run  --rm --network=mynetwork alpine ping \
+-c 1 one
+ping: bad address 'one'</pre> <p>It is not accessible by the DNS name. Let’s verify whether the network <span class="No-Break">is available:</span></p>
+<pre class="console">
+$ docker container inspect one \
+--format='{{ .NetworkSettings.IPAddress }}'
+172.17.0.2
+$ docker run  --rm --network=mynetwork alpine ping -c 1 172.17.0.2
+PING 172.17.0.2 (172.17.0.2): 56 data bytes
+--- 172.17.0.2 ping statistics ---
+1 packets transmitted, 0 packets received, 100% packet loss</pre> <p>All packets are lost. The<a id="_idIndexMarker470"/> bridge network is not accessible from the custom one we created, although both use the host’s interfaces. Each network is attached to its own bridge network, but we can attach a container to both networks using <strong class="source-inline">docker connect &lt;</strong><span class="No-Break"><strong class="source-inline">NETWORK&gt; &lt;CONTAINER&gt;</strong></span><span class="No-Break">:</span></p>
+<pre class="console">
+$ docker network connect mynetwork one</pre> <p>Now, we have a container attached to the custom and default <span class="No-Break">bridge networks:</span></p>
+<pre class="console">
+$ docker exec -ti one ip address show|grep inet
+    inet 127.0.0.1/8 scope host lo
+    inet 172.17.0.2/16 brd 172.17.255.255 scope global eth0
+    inet 192.168.30.3/24 brd 192.168.30.255 scope global eth1</pre> <p>Therefore, we can now reach the containers in the <span class="No-Break">custom network:</span></p>
+<pre class="console">
+$ docker exec -ti one ping -c 1 forty
+PING forty (192.168.30.2): 56 data bytes
+64 bytes from 192.168.30.2: seq=0 ttl=64 time=0.199 ms
+ --- forty ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 0.199/0.199/0.199 ms</pre> <p>Some options can<a id="_idIndexMarker471"/> modify the default networking behavior inside containers. Let’s see some<a id="_idIndexMarker472"/> of them for running containers or <span class="No-Break">creating networks:</span></p>
+<ul>
+<li><strong class="source-inline">--add-host</strong>: This <a id="_idIndexMarker473"/>option allows us to include some external hosts in <strong class="source-inline">host:ip</strong> format to make them available as if they were included in <span class="No-Break">the DNS.</span></li>
+<li><strong class="source-inline">--dns</strong>, <strong class="source-inline">--dns-search</strong>, and <strong class="source-inline">--dns-option</strong>: These options allow us to modify the <a id="_idIndexMarker474"/>DNS <a id="_idIndexMarker475"/>resolution for the container. By default, the container runtime will <a id="_idIndexMarker476"/>include its current DNS, but we can change <span class="No-Break">this behavior.</span></li>
+<li><strong class="source-inline">--domainname</strong>: We <a id="_idIndexMarker477"/>can set the container’s domain name to something other than the <span class="No-Break">default one.</span></li>
+<li><strong class="source-inline">--ip</strong>: Although<a id="_idIndexMarker478"/> it is quite important to use default dynamic IP address mappings, we may prefer to assign a specific IP address to the container. Use this option with care as you can’t reuse <span class="No-Break">IP addresses.</span></li>
+<li><strong class="source-inline">--hostname</strong>: By <a id="_idIndexMarker479"/>default, each container will use the container’s ID as its name, but we can change this behavior by using <span class="No-Break">this option.</span></li>
+<li><strong class="source-inline">--link</strong>: This option<a id="_idIndexMarker480"/> will allow us to attach two or more containers by using this option multiple times. It is quite similar to the <strong class="source-inline">--add-host</strong> option, but in this case, we will use it to attach a container to a DNS name in <strong class="source-inline">CONTAINER_NAME:DNS_ALIAS</strong> format to make it accessible via its <span class="No-Break">DNS name.</span></li>
+<li><strong class="source-inline">--network-alias</strong>: Sometimes, we<a id="_idIndexMarker481"/> need a container to be known in the network with multiple names. This option allows us to add a DNS alias to <span class="No-Break">the container.</span></li>
+<li><strong class="source-inline">--subnet</strong> and <strong class="source-inline">--ip-range</strong>: This <a id="_idIndexMarker482"/>option <a id="_idIndexMarker483"/>is available for networks and allows us to modify the internal IP’s assignation. We can also modify the default gateway for each <a id="_idIndexMarker484"/>network by using the <strong class="source-inline">--gateway</strong> argument (by default, the lowest IP address will <span class="No-Break">be used).</span></li>
+</ul>
+<p>In the next section, we’ll learn how <span class="No-Break">volumes work.</span></p>
+<h2 id="_idParaDest-87"><a id="_idTextAnchor103"/>Managing persistent data with containers</h2>
+<p>Applications<a id="_idIndexMarker485"/> running in containers must be prepared <a id="_idIndexMarker486"/>to run in any host. We can even go further and say that we should be able to run them in the cloud or on-premises environments. However, containers’ life cycles should not include process states and data. <strong class="bold">Volumes</strong> will<a id="_idIndexMarker487"/> help us manage data outside of containers’ life cycles and hosts (if we’re using remote storage solutions such as NAS). In<a id="_idIndexMarker488"/> this section, we will learn how container runtimes manage local volumes. Volumes will allow containers to access hosts’ filesystems or <span class="No-Break">remote filesystems.</span></p>
+<p>Local volumes<a id="_idIndexMarker489"/> will be expected to be located <a id="_idIndexMarker490"/>by default under the <strong class="source-inline">DockerRootDir</strong> path in the container runtime’s host. This will work for <strong class="bold">unnamed volumes</strong>, which are created automatically by a container runtime whenever a <strong class="source-inline">VOLUME</strong> key is declared in any image’s meta-information, and <strong class="bold">named volumes</strong>, which <a id="_idIndexMarker491"/>are created or declared by users during a <span class="No-Break">container’s execution.</span></p>
+<p>We can also use any local<a id="_idIndexMarker492"/> filesystem (<strong class="bold">bind mount</strong>) and host’s memory by declaring a <strong class="source-inline">tmpfs</strong> volume (this is very interesting when we need the fastest possible storage backend). In the case of bind mounts, any directory or file from the host’s filesystem can be included inside a container. But a problem arises here: whenever we move an application to another host, any expected location related to the host may be different. To avoid such a situation, it is recommended to use external storage, presented on other hosts at the same time or whenever a container needs to run. This is especially relevant for clusters, where a pool of nodes can run your containers. At this point, we will just discuss having data outside of a container’s life cycle; in <a href="B19845_10.xhtml#_idTextAnchor231"><span class="No-Break"><em class="italic">Chapter 10</em></span></a>, <em class="italic">Leveraging Application Data Management </em><em class="italic">in Kubernetes</em>, we will discuss how to manage data in these more <span class="No-Break">complicated scenarios.</span></p>
+<p>Let’s deep dive a bit and describe the local <span class="No-Break">volume types:</span></p>
+<ul>
+<li><strong class="bold">Unnamed volumes</strong>: These are the<a id="_idIndexMarker493"/> volumes that are created automatically for you <a id="_idIndexMarker494"/>whenever you run a container from an image with some <strong class="source-inline">VOLUME</strong> definition. These volumes are used to override the container’s filesystem, but we, as users, are not responsible for its content. In other terms, whenever a new container runs, a new volume will be created dynamically and new data will be used. If we need data to persist between executions, we have to define a volume by ourselves. The container runtime manages the unnamed volumes completely. We can remove them using the <strong class="source-inline">docker volume rm</strong> command but we will need to stop and remove the associated containers first. Let’s run a quick example with the <strong class="source-inline">postgres:alpine</strong> image, which uses a dynamic unnamed volume to override the container’s filesystem for the <strong class="source-inline">/</strong><span class="No-Break"><strong class="source-inline">var/lib/postgresql/data</strong></span><span class="No-Break"> directory:</span><pre class="source-code">
+<strong class="bold">$ docker pull postgres:alpine -q</strong>
+<strong class="bold">docker.io/library/postgres:alpine</strong>
+<strong class="bold">$ docker image inspect postgres:alpine \</strong>
+<strong class="bold">--format="{{ .Config.Volumes }}"</strong>
+<strong class="bold">map[/var/lib/postgresql/data:{}]</strong>
+<strong class="bold">$ docker run -d -P postgres:alpine</strong>
+<strong class="bold">27f008dea3f834f85c8b8674e8e30d4b4fc6c643df5080c62a14b63b5651401f</strong>
+<strong class="bold">$ docker container inspect 27f008dea3 \</strong>
+<strong class="bold">--format="{{ .Mounts }}"</strong>
+<strong class="bold">[{volume 343e58f19c66d664e92a512ca2e8bb201d8787bc62bb9835d5b2d5ba46584fe2 /var/lib/docker/volumes/343e58f19c66d664e92a512ca2e8bb201d8787bc62bb9835d5b2d5ba46584fe2/_data /var/lib/postgresql/data local  true }]</strong>
+<strong class="bold">frjaraur@sirius:~$ docker volume ls</strong>
+<strong class="bold">DRIVER    VOLUME NAME</strong>
+<strong class="bold">local     343e58f19c66d664e92a512ca2e8bb201d8787bc62bb9835d5b2d5ba46584fe2</strong></pre><p class="list-inset">In this <a id="_idIndexMarker495"/>example, a local volume is created without a <a id="_idIndexMarker496"/>name, and it is used by a container running a PostgreSQL database. Any data created in the database will be stored inside the newly <span class="No-Break">created volume.</span></p></li> <li><strong class="bold">Named volumes</strong>: These<a id="_idIndexMarker497"/> volumes have a definition and we can use <strong class="source-inline">docker volume create</strong> to create them or just include a volume name when we run<a id="_idIndexMarker498"/> a container. If this volume already exists, the container runtime will attach it to the container, and if isn’t already present, it will be created. Container runtimes allow us to extend their volumes’ functionality by using different plugins; this will allow us to use NFS, for example. Let’s run the previous example using a defined volume; we will use <strong class="source-inline">DATA</strong> as the name for this <span class="No-Break">new volume:</span><pre class="source-code">
+<strong class="bold">$ docker run -d -P \</strong>
+<strong class="bold">-v DATA:/var/lib/postgresql/data postgres:alpine</strong>
+<strong class="bold">ad7dde43bfa926fb7afaa2525c7b54a089875332baced7f86cd3709f04629709</strong>
+<strong class="bold">$ docker container inspect ad7dde43bf \</strong>
+<strong class="bold">--format="{{ .Mounts }}"</strong>
+<strong class="bold">[{volume DATA /var/lib/docker/volumes/DATA/_data /var/lib/postgresql/data local z true }]</strong>
+<strong class="bold">$ docker volume ls</strong>
+<strong class="bold">DRIVER    VOLUME NAME</strong>
+<strong class="bold">local     343e58f19c66d664e92a512ca2e8bb201d8787bc62bb9835d5b2d5ba46584fe2</strong>
+<strong class="bold">local     DATA</strong></pre><p class="list-inset">In this example, <strong class="source-inline">DATA</strong> is the name of the volume, and we will be able to reuse this volume whenever we remove the <strong class="source-inline">postgresql</strong> container and create a <span class="No-Break">new one.</span></p><p class="list-inset">Data will be <a id="_idIndexMarker499"/>persisted in the volumes in both examples but the named <a id="_idIndexMarker500"/>volume will allow us to manage the data <span class="No-Break">most conveniently.</span></p></li> </ul>
+<p class="callout-heading">Important note</p>
+<p class="callout">It is very important to understand that named and unnamed (dynamic) volumes use our host’s storage. You must take care of volumes forgotten in your filesystem; we will review some techniques for this in the <em class="italic">Container runtime maintenance tasks</em> section later in <span class="No-Break">this chapter.</span></p>
+<ul>
+<li><strong class="bold">Bind mounts</strong>: In this <a id="_idIndexMarker501"/>case, we will include a host’s directory or file inside our container. We will practice using this type of volume in the <span class="No-Break"><em class="italic">Labs</em></span><span class="No-Break"> section.</span></li>
+<li><strong class="bold">In-memory or tmpfs volumes</strong>: These <a id="_idIndexMarker502"/>volumes can be used to override the container’s storage, providing fast storage, such as the host’s memory. This can be very useful for storing a small amount of data that changes quite often, such as statistics. It also can be very dangerous if you don’t limit the amount of memory <span class="No-Break">for use.</span></li>
+</ul>
+<p class="callout-heading">Important note</p>
+<p class="callout">Volumes can be <a id="_idIndexMarker503"/>used in read-only mode to preserve any existing data. This is very useful for presenting data from the host that you want to ensure remains unchanged, such as operating system files. We can also manipulate the ownership and permissions seen inside the container’s filesystem for any mounted volume. It is also common to use <strong class="source-inline">--volumes-from</strong> to share volumes <span class="No-Break">between containers.</span></p>
+<p>As you have <a id="_idIndexMarker504"/>probably noticed, we used the <strong class="source-inline">-v</strong> or <strong class="source-inline">--volumes</strong> argument<a id="_idIndexMarker505"/> to add volumes to our container at runtime. We can use this argument multiple times and use the <strong class="source-inline">--volume SOURCE_VOLUME:FULL_DESTINE_PATH[:ro][:Z]</strong> format, where <strong class="source-inline">SOURCE_VOLUME</strong> can be any of the previously described types (you have to use the full path for the shared directory when using bind mounts). A volume can be mounted in read-only mode, which is very interesting when you provide configurations to your container, and we can force SELinux usage if needed with the <strong class="source-inline">Z</strong> option. However, we can also use volumes with the <strong class="source-inline">--mount</strong> argument, which provides an extended version of the volume-mounting options in <span class="No-Break">key-value format:</span></p>
+<ul>
+<li><strong class="source-inline">type</strong>: We specify the type of the mount (<strong class="source-inline">bind</strong>, <strong class="source-inline">volume</strong>, <span class="No-Break">or </span><span class="No-Break"><strong class="source-inline">tmpfs</strong></span><span class="No-Break">).</span></li>
+<li><strong class="source-inline">source</strong> (or <strong class="source-inline">src</strong>): This key is used to define the source of the mount. The value can either be a name (for named volumes), a full path (for bind mounts), or empty (for <span class="No-Break">unnamed volumes).</span></li>
+<li><strong class="source-inline">target</strong> (or <strong class="source-inline">dst</strong>): This key defines the destination path where the volume will <span class="No-Break">be presented.</span></li>
+</ul>
+<p>We can also<a id="_idIndexMarker506"/> include the <strong class="bold">read-only</strong> value or even extend<a id="_idIndexMarker507"/> the volume mount behavior by using specific options and <span class="No-Break">adding </span><span class="No-Break"><strong class="source-inline">volume-opt</strong></span><span class="No-Break">.</span></p>
+<p>Now that we have learned how to include the host’s network and filesystems inside containers, let’s continue by accessing the CPU and memory, among <span class="No-Break">other resources.</span></p>
+<h2 id="_idParaDest-88"><a id="_idTextAnchor104"/>Limiting access to host hardware resources</h2>
+<p>Sharing host resources within <a id="_idIndexMarker508"/>containers is the key to the container model, but this requires being able to limit how they access these resources. In <a href="B19845_01.xhtml#_idTextAnchor015"><span class="No-Break"><em class="italic">Chapter 1</em></span></a>, <em class="italic">Modern Infrastructure and Applications with Docker</em>, we learned that resource isolation is provided <span class="No-Break">by cgroups.</span></p>
+<p>If our host runs out of memory or CPU, all containers running on top will be affected. That’s why is so important to limit access to the <span class="No-Break">host’s resources.</span></p>
+<p>By default, containers run without any limits; hence, they can consume all the host’s resources. You, as a developer, should know the resources that are required by all your application components and limit the resources provided to them. We will now review the arguments we can pass to the container runtime to effectively limit the container’s access <span class="No-Break">to resources:</span></p>
+<ul>
+<li><strong class="source-inline">--cpus</strong>: This argument allows us to define the number of CPUs provided to the container’s main process. This value depends on the number of CPUs available to the host. We can use decimals to indicate a subset of the total number of CPUs. This value guarantees the number of CPUs that can be used to run the <span class="No-Break">container’s process.</span></li>
+<li><strong class="source-inline">--memory</strong>: We can set the maximum memory available to the container’s processes. When this limit is reached, the host’s kernel will kill the container’s main process by <a id="_idIndexMarker509"/>executing a runtime called <strong class="bold">Out-Of-Memory-Killer</strong> (<strong class="bold">OOM-Killer</strong>). We can avoid this task by using <strong class="source-inline">--oom-kill-disable</strong>; however, it is not recommended as<a id="_idIndexMarker510"/> you may leave your host without any protection if too much memory <span class="No-Break">is consumed.</span></li>
+</ul>
+<p class="callout-heading">Important note</p>
+<p class="callout">Container runtimes provide more options for managing CPU and memory resources available for any container. It is possible to even limit the access to block devices’ <strong class="bold">input/output</strong> (<strong class="bold">I/O</strong>) operations<a id="_idIndexMarker511"/> or modify the default kernel’s scheduling behavior. We have just reviewed the most important ones to help you understand how we can limit access to the host’s resources. You can review the full options <span class="No-Break">at </span><a href="https://docs.docker.com/config/containers/resource_constraints/"><span class="No-Break">https://docs.docker.com/config/containers/resource_constraints/</span></a><span class="No-Break">.</span></p>
+<h2 id="_idParaDest-89"><a id="_idTextAnchor105"/>Extending access to host resources</h2>
+<p>Containers run on top of <a id="_idIndexMarker512"/>our hosts thanks to container runtimes. By default, the host’s CPU and memory are provided thanks to cgroups. Volumes are provided inside containers using different types (dynamic unnamed volumes, named volumes, host binds, or tmpfs volumes) and the network is provided using kernel namespaces. We can use other Docker client arguments to integrate or modify <span class="No-Break">kernel namespaces:</span></p>
+<ul>
+<li><strong class="source-inline">--ipc</strong>: This argument allows us to modify the IPC behavior (shared memory segments, semaphores, and message queues) inside containers. It is quite common to include the host’s IPC by using <strong class="source-inline">--ipc host</strong> for <span class="No-Break">monitoring purposes.</span></li>
+<li><strong class="source-inline">--pid</strong>: This option is intended to set the PID kernel namespace. By default, containers run with their own process trees, but we can include other containers’ PIDs by using <strong class="source-inline">--pid container:CONTAINER_NAME</strong>. We can also include the underlying host’s PIDs tree by using <strong class="source-inline">--pid host</strong>. This can be very interesting if your application needs to monitor the <span class="No-Break">host’s processes.</span></li>
+<li><strong class="source-inline">--userns</strong>: We can create a different kernel user’s namespace and include it inside containers. This allows us to map different user IDs to the processes running inside <span class="No-Break">the containers.</span></li>
+</ul>
+<p>Other interesting options <a id="_idIndexMarker513"/>allow us to include different <span class="No-Break">host devices:</span></p>
+<ul>
+<li><strong class="source-inline">--device</strong>: This option allows us to include the host’s devices inside containers. Processes running inside the containers will see these devices as if they were directly connected to the container. We can use this option to mount block devices (<strong class="source-inline">--device=/dev/sda:/dev/xvdc</strong>), sound devices (<strong class="source-inline">--device=/dev/snd:/dev/snd</strong>), and <span class="No-Break">so on.</span></li>
+<li><strong class="source-inline">--gpus</strong>: We can include <strong class="bold">graphic processing units</strong> (<strong class="bold">GPUs</strong>) inside containers. This is only possible if your application is prepared for working with modern GPUs and your host provides some of these devices. We can include a defined number of GPUs or<a id="_idIndexMarker514"/> all of them at once by using <strong class="source-inline">--</strong><span class="No-Break"><strong class="source-inline">gpus all</strong></span><span class="No-Break">.</span></li>
+</ul>
+<p>In this section, we learned how to limit access to different hosts’ resources. In the next section, we will learn how to manage containers running in our host and <span class="No-Break">their behavior.</span></p>
+<h1 id="_idParaDest-90"><a id="_idTextAnchor106"/>Managing container behavior</h1>
+<p>The<a id="_idIndexMarker515"/> container runtime will help us understand containers’ behavior by providing a set of options for reviewing process logs, copying files to and from containers, executing processes inside them, and <span class="No-Break">so on.</span></p>
+<p>The following actions <a id="_idIndexMarker516"/>allow us to interact with container processes <span class="No-Break">and filesystems:</span></p>
+<ul>
+<li><strong class="source-inline">exec</strong>: We <a id="_idIndexMarker517"/>can attach new processes to the containers’ namespaces by using <strong class="source-inline">docker container exec</strong>. This option will allow us to run any script or binary included in the container’s filesystems or <span class="No-Break">mounted columns.</span></li>
+<li><strong class="source-inline">attach</strong>: When <a id="_idIndexMarker518"/>a container is running in the background, detached from the container runtime client’s command line, we can attach its output by using this action. We will attach the Docker client to the container’s main process; hence, all the output and errors will be shown in our terminal. Take care with this option because you should detach from the container’s main process output to free your terminal. Do not use the <em class="italic">Ctrl</em> + <em class="italic">C</em> keyboard combination because this will send a <strong class="source-inline">SIGNINT</strong> signal to the container’s main process and it will probably be stopped. You can detach from the container’s process by using <em class="italic">Ctrl</em> + <em class="italic">P</em> + <span class="No-Break"><em class="italic">Q</em></span><span class="No-Break">.</span></li>
+<li><strong class="source-inline">cp</strong>: Sometimes, we <a id="_idIndexMarker519"/>need to retrieve some files from the container for debugging, for example, certain errors. We can use the <strong class="source-inline">cp</strong> action to copy files to/from a container. Remember that you can use volumes to provide files or directories to containers; the <strong class="source-inline">cp</strong> action should be used with small files because it uses the container runtime and your client to retrieve the files from the containers or send them from the <span class="No-Break">local client.</span></li>
+<li><strong class="source-inline">logs</strong>: Retrieving<a id="_idIndexMarker520"/> the logs from containers is key to understanding how your applications work. A container has a main process and this process’s <strong class="source-inline">STDOUT</strong> and <strong class="source-inline">STDERR</strong> streams are the output we receive by using the <strong class="source-inline">logs</strong> action. We can use <strong class="source-inline">--follow</strong> to attach to the container’s process output continuously and <strong class="source-inline">--tail</strong> to retrieve only a set of lines. It is possible to filter logs by dates by using <strong class="source-inline">--since</strong> <span class="No-Break">and </span><span class="No-Break"><strong class="source-inline">--until</strong></span><span class="No-Break">.</span></li>
+</ul>
+<p class="callout-heading">Important note</p>
+<p class="callout">If you need to execute an interactive session within a container, it is important to include <strong class="source-inline">--interactive</strong> and <strong class="source-inline">--tty</strong>. These options ask the container runtime to prepare a pseudo-terminal and interactive session attached to the binary defined in the <strong class="source-inline">exec</strong> action; for example, we will use <strong class="source-inline">docker container exec --ti CONTAINER /bin/bash</strong> to execute a <em class="italic">bash</em> shell inside a <span class="No-Break">defined container.</span></p>
+<p>We can also use<a id="_idIndexMarker521"/> a running container to create a container image. We learned about this feature in <a href="B19845_02.xhtml#_idTextAnchor036"><span class="No-Break"><em class="italic">Chapter 2</em></span></a>, <em class="italic">Building Docker Images</em>. Creating images from containers does not provide a reproducible recipe and it is not a good method for creating images, but in certain situations, you may need the container’s content to review the <span class="No-Break">files included.</span></p>
+<p>We can use <strong class="source-inline">docker container commit</strong> to create an image from the container’s layer and export all the layers by using <strong class="source-inline">docker container export</strong>. This action will only store the files included in the container. It does not include any meta-information because we are only working with <span class="No-Break">the content.</span></p>
+<p>Another action that’s quite interesting for quickly debugging the file changes made by the container’s processes is <strong class="source-inline">diff</strong>. This action allows us to retrieve the changes that are created in the container’s layer by comparing all its files with the image’s layers. Let’s review this action with a <span class="No-Break">quick example:</span></p>
+<pre class="console">
+$ docker container run --name test alpine touch /tmp/TESTFILE
+$ docker container diff test
+C /tmp
+A /tmp/TESTFILE</pre> <p>As we can see from the command’s output, the <strong class="source-inline">/tmp</strong> directory was changed (indicated by <strong class="source-inline">C</strong>) and a<a id="_idIndexMarker522"/> file was added, <strong class="source-inline">/tmp/TESTFILE</strong> (indicated <span class="No-Break">by </span><span class="No-Break"><strong class="source-inline">A</strong></span><span class="No-Break">).</span></p>
+<p>Now that we have had a good overview of how to interact with containers and obtain information for debugging our applications, let’s learn some housekeeping tasks that will help us maintain our container’s <span class="No-Break">environment healthily.</span></p>
+<h1 id="_idParaDest-91"><a id="_idTextAnchor107"/>Container runtime maintenance tasks</h1>
+<p>In this section, we are going to<a id="_idIndexMarker523"/> take a quick look at some housekeeping actions that are available for maintaining our <span class="No-Break">container runtime.</span></p>
+<p>Maintaining the right amount of storage available in your host is a very important task. Depending on your container runtime, you may have to prune certain objects instead of using a general tool. This happens, for example, with the <strong class="source-inline">containerd</strong> client called <strong class="source-inline">nerdctl</strong>. If you are using Rancher Desktop, you will need to specifically remove unnecessary objects per category. Let’s review how this can be done with the Docker client using <strong class="source-inline">docker system prune</strong>. But before you prune your system and clean old objects, you should first understand where the disk space has <span class="No-Break">been used.</span></p>
+<p>To review the actual amount of disk that’s been allocated to different objects, we can use the <strong class="source-inline">docker system </strong><span class="No-Break"><strong class="source-inline">df</strong></span><span class="No-Break"> command:</span></p>
+<pre class="console">
+$ docker system df
+TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE
+Images          5         4         1.564GB   11.1MB (0%)
+Containers      17        0         729.3MB   729.3MB (100%)
+Local Volumes   2         2         0B        0B
+Build Cache     13        0         1.094GB   1.094GB</pre> <p>This command shows the<a id="_idIndexMarker524"/> space used by images, containers, and local volumes on your system. We can obtain quite descriptive information by adding the <strong class="source-inline">–-verbose</strong> argument, which will show us exactly the amount of space that’s used by every object in our host. Specific sections for each object category will show the space we will free up after removing those objects (only object headers and one object line are shown as an example; you can access the full output <span class="No-Break">at </span><a href="https://github.com/PacktPublishing/Docker-for-Developers-Handbook/blob/main/Chapter4/Readme.md"><span class="No-Break">https://github.com/PacktPublishing/Docker-for-Developers-Handbook/blob/main/Chapter4/Readme.md</span></a><span class="No-Break">):</span></p>
+<pre class="console">
+$ docker system df --verbose
+Images space usage:
+ REPOSITORY               TAG             IMAGE ID       CREATED       SIZE      SHARED SIZE   UNIQUE SIZE   CONTAINERS
+localhost:32768/trivy    custom-0.38.2   bdde1846d546   2 weeks ago   1.3GB     7.05MB        1.293GB       4
+Containers space usage:
+CONTAINER ID   IMAGE                                 COMMAND                  LOCAL VOLUMES   SIZE      CREATED        STATUS                       NAMES
+df967027f21a   alpine                                "touch /tmp/TESTFILE"    0               0B        47 hours ago   Exited (0) 47 hours ago      test
+Local Volumes space usage:
+VOLUME NAME                                                        LINKS     SIZE
+DATA                                                               1         0B
+343e58f19c66d664e92a512ca2e8bb201d8787bc62bb9835d5b2d5ba46584fe2   1         0B
+ Build cache usage: 1.094GB
+ CACHE ID       CACHE TYPE     SIZE      CREATED       LAST USED     USAGE     SHARED
+lipx4a3h7x8j   regular        4.05MB    2 weeks ago   2 weeks ago   2         true</pre> <p>This output gives us a good<a id="_idIndexMarker525"/> idea of how are we running our environment. You, as a developer, will probably have a lot of cached layers if you are building your images locally. These layers will help speed up your build processes but all the layers that have not been used for a long time can <span class="No-Break">be removed.</span></p>
+<p>Let’s take a look at how images are distributed in <span class="No-Break">our example:</span></p>
+<pre class="console">
+REPOSITORY               TAG             IMAGE ID       CREATED       SIZE      SHARED SIZE   UNIQUE SIZE   CONTAINERS
+localhost:32768/trivy    custom-0.38.2   bdde1846d546   2 weeks ago   1.3GB     7.05MB        1.293GB       4
+localhost:32768/alpine   0.3             a043ba94e082   2 weeks ago   11.1MB    7.05MB        4.049MB       0
+registry                 2.8.1           0d153fadf70b   6 weeks ago   24.15MB   0B            24.15MB       1
+postgres                 alpine          6a35e2c987a6   6 weeks ago   243.1MB   7.05MB        236MB         2
+alpine                   latest          b2aa39c304c2   6 weeks ago   7.05MB    7.05MB        0B            10</pre> <p>All the images based on <strong class="source-inline">alpine</strong> share <strong class="source-inline">7.05MB</strong>; hence, using common base images will help you save a lot of storage and is a <span class="No-Break">good practice.</span></p>
+<p>The <strong class="source-inline">CONTAINERS</strong> section will help us find possible problems because we don’t expect to have much space in containers. Remember that containers are intended to be ephemeral, and persistent data should be maintained outside of their storage. Application logs should be redirected to either volumes or <strong class="source-inline">STDOUT</strong>/<strong class="source-inline">STDERR</strong> (this is the recommended option). Therefore, the space used by containers should be minimal, only consisting of runtime<a id="_idIndexMarker526"/> modifications that shouldn’t persist. In our example, we can see a couple of containers with several megabytes <span class="No-Break">of usage:</span></p>
+<pre class="console">
+737aa47334e2   localhost:32768/trivy:custom-0.38.2   "trivy image python:…"   0               365MB     2 weeks ago    Exited (0) 2 weeks ago       infallible_mirzakhani
+f077c99cb082   localhost:32768/trivy:custom-0.38.2   "trivy image python:…"   0               365MB     2 weeks ago    Exited (0) 2 weeks ago       sharp_kowalevski</pre> <p>In both cases, the <strong class="source-inline">trivy</strong> database is probably included in the container’s layer (we used <strong class="source-inline">trivy</strong> and updated its database during the build process for <span class="No-Break">these images).</span></p>
+<p>We also have a few volumes (dynamic and named) present, but no data was stored because we didn’t add any data to the <span class="No-Break">database example.</span></p>
+<p>And finally, we can see the cache section in the output of the <strong class="source-inline">docker system df –verbose</strong> command, where we will find the shared layers used in the <span class="No-Break"><strong class="source-inline">buildx</strong></span><span class="No-Break"> processes.</span></p>
+<p>The objects’ disk <a id="_idIndexMarker527"/>usage shown by <strong class="source-inline">docker system df</strong> is a representation of the physical space distributed in <strong class="source-inline">/var/lib/docker</strong> (the default <span class="No-Break">being </span><span class="No-Break"><strong class="source-inline">rootDir</strong></span><span class="No-Break">).</span></p>
+<h2 id="_idParaDest-92"><a id="_idTextAnchor108"/>Pruning container objects</h2>
+<p>Once we<a id="_idIndexMarker528"/> know how our host’s storage is distributed, we can proceed with cleaning unused objects. We will use <strong class="source-inline">docker system prune</strong> to clean all unused objects in one go. It will try to free disk space by removing objects from different categories. We can include the volumes by using the <strong class="source-inline">--volumes</strong> argument. The <strong class="source-inline">system prune</strong> command will remove <span class="No-Break">the following:</span></p>
+<ul>
+<li><strong class="bold">All dangling images (by default)</strong>: Image layers not referenced by any <span class="No-Break">container image.</span></li>
+<li><strong class="bold">All unused images (using the --all argument)</strong>: Images not referenced by any container (running or stopped in <span class="No-Break">our system).</span></li>
+<li><strong class="bold">All stopped containers (by default)</strong>: By default, all stopped containers will be removed (those with an <em class="italic">exited</em> status). This will remove the <span class="No-Break">containers’ layers.</span></li>
+<li><strong class="bold">All unused volumes (using --volumes)</strong>: Volumes are not used by <span class="No-Break">any container.</span></li>
+<li><strong class="bold">All unused networks (by default)</strong>: Networks with no <span class="No-Break">containers attached.</span></li>
+<li><strong class="bold">All dangling cache layers (by default)</strong>: All layers that are not referenced in any <span class="No-Break">build process.</span></li>
+</ul>
+<p>You will always be asked to confirm this action as it can’t <span class="No-Break">be undone:</span></p>
+<pre class="console">
+$ docker system prune
+WARNING! This will remove:
+  - all stopped containers
+  - all networks not used by at least one container
+  - all dangling images
+  - all dangling build cache
+ Are you sure you want to continue? [y/N] y
+Deleted Containers:
+df967027f21a15e473d236a9c30fa95d5104a8a180a91c3ca9e0e117bdeb6400
+...
+Deleted Networks:
+test1
+...
+Deleted build cache objects:
+1cmmyj0xgul6e37qdrwjijrhf
+...
+ Total reclaimed space: 1.823GB</pre> <p>A summary of<a id="_idIndexMarker529"/> the reclaimed space is shown after the <span class="No-Break">cleaning process.</span></p>
+<p>For each category of objects, we can execute these <span class="No-Break">pruning processes:</span></p>
+<ul>
+<li><strong class="source-inline">docker </strong><span class="No-Break"><strong class="source-inline">container prune</strong></span></li>
+<li><strong class="source-inline">docker </strong><span class="No-Break"><strong class="source-inline">image prune</strong></span></li>
+<li><strong class="source-inline">docker </strong><span class="No-Break"><strong class="source-inline">buildx prune</strong></span></li>
+<li><strong class="source-inline">docker </strong><span class="No-Break"><strong class="source-inline">network prune</strong></span></li>
+</ul>
+<p>These actions will only clean specific objects, which may be very useful if you don’t want to change <span class="No-Break">other objects.</span></p>
+<p>All pruning options<a id="_idIndexMarker530"/> can be filtered using the appropriate <strong class="source-inline">--filter</strong> argument. These are some of the most <span class="No-Break">common filters:</span></p>
+<ul>
+<li><strong class="source-inline">until</strong>: We use a timestamp argument to only remove containers that were created before <span class="No-Break">a date.</span></li>
+<li><strong class="source-inline">label</strong>: This will help us filter which objects from a category will only be removed. Multiple labels can be used, separated by commas. Labels can be filtered by their existence or absence and we can use keys and values for <span class="No-Break">fine-grained selections.</span></li>
+</ul>
+<p class="callout-heading">Important note</p>
+<p class="callout">If you are planning to schedule prune processes, you may need to use <strong class="source-inline">--force</strong> to execute them in a <span class="No-Break">non-interactive way.</span></p>
+<p>Before you move on to the next section, it is important to know that your containers’ logs will also be present in your <span class="No-Break">host system.</span></p>
+<h2 id="_idParaDest-93"><a id="_idTextAnchor109"/>Configuring container runtime logging</h2>
+<p>Container logging options for your system depend on your container<a id="_idIndexMarker531"/> runtime. In this section, we will quickly review some of the options available for a Docker container runtime as this is the one that has the most advanced options. You will probably find options for logging using JSON format, but Docker also provides other <span class="No-Break">logging drivers.</span></p>
+<p>By default, the Docker daemon will use the <strong class="source-inline">json-file</strong> logging driver, but we can change this behavior in Docker’s <strong class="source-inline">daemon.json</strong> file. This driver uses more disk space than others and that’s why it is recommended to use the local logging driver for local development. We can use our host’s system logs in Linux environments by configuring <strong class="source-inline">syslog</strong> or <strong class="source-inline">journald</strong> drivers, but if we need to send our containers logs to an external application, we will probably use <strong class="source-inline">gelf</strong> (a commonly used standard) or <strong class="source-inline">splunk</strong> drivers, although there are also some drivers specific for <span class="No-Break">cloud environments.</span></p>
+<p>We can configure some housekeeping options by adding specific keys to the <strong class="source-inline">daemon.json</strong> file. Here is an example that will keep the logs’ size under <span class="No-Break">20 MB:</span></p>
+<pre class="console">
+   {
+      "log-driver": "json-file",
+      "log-opts": {
+            "max-size": "20m",
+            "max-file": "10",
+        }
+   }</pre> <p>We will apply this configuration <a id="_idIndexMarker532"/>and restart our Docker container runtime. We can make these changes in <span class="No-Break">Docker Desktop:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer057">
+<img alt="Figure 4.3 – The available Docker daemon settings in Docker Desktop (the embedded daemon.json file configured in our environment)" height="670" src="image/B19845_04_03.jpg" width="1166"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 4.3 – The available Docker daemon settings in Docker Desktop (the embedded daemon.json file configured in our environment)</p>
+<p>It is possible to define a specific logging driver for each container, although <a id="_idIndexMarker533"/>it is preferred to define a common one for your <span class="No-Break">entire environment:</span></p>
+<pre class="console">
+$ docker run \
+      --log-driver local --log-opt max-size=10m \
+      alpine echo hello world</pre> <p>Before we complete this section, we should talk about the different logging strategies we can use in <span class="No-Break">our environments:</span></p>
+<ul>
+<li><strong class="bold">Local logging</strong>: You will probably use local logging<a id="_idIndexMarker534"/> when developing your applications. These logs will be removed whenever you remove a container and will always be managed by the container runtime. These are only present locally on your computer desktop, laptop, <span class="No-Break">or server.</span></li>
+<li><strong class="bold">Volumes</strong>: Using a<a id="_idIndexMarker535"/> container’s external storage will allow us to ensure that logs persist between executions; although these logs may be attached to the host’s storage, which will keep them locally only. If you want to keep these logs available in other servers just in case you move your containers (or execute new ones with the same attached volume), you will need to use external storage solutions such as NAS or SAN for <span class="No-Break">your volumes.</span></li>
+<li><strong class="bold">External logging ingestion</strong>: This should be your choice for production. Your application may send your logs directly from your code to an external logs ingestion solution or you may configure your container runtimes to send them directly for you. This will help you <a id="_idIndexMarker536"/>keep a homogeneous environment if your applications run <span class="No-Break">in containers.</span></li>
+</ul>
+<p>In the next section, we will review some of the content we learned about in this chapter by executing <span class="No-Break">some labs.</span></p>
+<h1 id="_idParaDest-94"><a id="_idTextAnchor110"/>Labs</h1>
+<p>The following labs will provide examples to put the concepts and procedures that you learned about in this chapter into practice. We will use Docker Desktop as the container runtime and WSL2 (or your Linux/macOS Terminal) to execute the <span class="No-Break">commands described.</span></p>
+<p>Ensure you have downloaded the content of this book’s GitHub repository from <a href="https://github.com/PacktPublishing/Docker-for-Developers-Handbook.git">https://github.com/PacktPublishing/Docker-for-Developers-Handbook.git</a>. For this chapter’s labs, we will use the content of the <span class="No-Break"><strong class="source-inline">Chapter4</strong></span><span class="No-Break"> directory.</span></p>
+<h2 id="_idParaDest-95"><a id="_idTextAnchor111"/>Reviewing container networking concepts</h2>
+<p>In this section, we will review some of the most<a id="_idIndexMarker537"/> important networking topics we learned about in <span class="No-Break">this chapter:</span></p>
+<ol>
+<li>First, we will run a container in the background, which will be used as a reference in other steps. We will run a simple <span class="No-Break"><strong class="source-inline">sleep</strong></span><span class="No-Break"> command:</span><pre class="source-code">
+<strong class="bold">$ docker container run -d --name one alpine sleep INF</strong>
+<strong class="bold">025e24a95b6939e025afda09bb9d646651025dfecc30357732e629aced18e66b</strong></pre></li> <li>Now that container <strong class="source-inline">one</strong> is running, we will run a second one directly with the <strong class="source-inline">ping</strong> command. We will use <strong class="source-inline">one</strong> as the name to test the default bridge network <span class="No-Break">DNS’s existence:</span><pre class="source-code">
+<strong class="bold">$ docker container run -ti --rm \</strong>
+<strong class="bold">--name two alpine ping -c1 one</strong>
+<strong class="bold">ping: bad address 'one'</strong></pre><p class="list-inset">We verified that the default bridge network doesn’t include a DNS because <strong class="source-inline">one</strong> can’t be resolved, but let’s verify whether communications exist. We used the <strong class="source-inline">--rm</strong> argument to delete the container right after <span class="No-Break">its execution.</span></p></li> <li> Let’s verify the container’s IP address by using the <span class="No-Break"><strong class="source-inline">inspect</strong></span><span class="No-Break"> action:</span><pre class="source-code">
+<strong class="bold">$ docker container inspect one \</strong>
+<strong class="bold">--format="{{ .NetworkSettings.IPAddress }}"</strong>
+<strong class="bold">172.17.0.2</strong></pre><p class="list-inset">Let’s test whether container <strong class="source-inline">two</strong> can reach <span class="No-Break">container </span><span class="No-Break"><strong class="source-inline">one</strong></span><span class="No-Break">:</span></p><pre class="source-code"><strong class="bold">$ docker container run -ti --rm --name two \</strong>
+<strong class="bold">--add-host one:172.17.0.2 alpine ping -c1 one</strong>
+<strong class="bold">PING one (172.17.0.2): 56 data bytes</strong>
+<strong class="bold">64 bytes from 172.17.0.2: seq=0 ttl=64 time=0.116 ms</strong>
+<strong class="bold"> --- one ping statistics ---</strong>
+<strong class="bold">1 packets transmitted, 1 packets received, 0% packet loss</strong>
+<strong class="bold">round-trip min/avg/max = 0.116/0.116/0.116 ms</strong></pre><p class="list-inset">As expected, both containers see each other because they are running in the default bridge network. Let’s remove the reference container so that we can test this again using a <span class="No-Break">custom network:</span></p><pre class="source-code"><strong class="bold">$ docker container rm --force one</strong>
+<strong class="bold">one</strong></pre></li> <li>We can repeat the same<a id="_idIndexMarker538"/> steps using a custom network, but first, we will create the new <strong class="source-inline">testnet</strong> network and review its <span class="No-Break">IPAM configuration:</span><pre class="source-code">
+<strong class="bold">$ docker network create testnet</strong>
+<strong class="bold">582fe354cf843270a84f8d034ca9e152ac4bffe47949ce5399820e81fb0ba555</strong>
+<strong class="bold">$ docker network inspect testnet --format="{{ .IPAM.Config }}"</strong>
+<strong class="bold">[{172.18.0.0/16  172.18.0.1 map[]}]</strong></pre><p class="list-inset">And now we start our reference container attached to <span class="No-Break">this network:</span></p><pre class="source-code"><strong class="bold">$ docker container run -d --net testnet --name one alpine sleep INF</strong>
+<strong class="bold">027469ad503329300c5df6019cfe72982af1203e0ccf7174fc7d0e242b7999aa</strong></pre></li> </ol>
+<p class="callout-heading">Important note</p>
+<p class="callout">This can also be done by using <strong class="source-inline">docker network connect NETWORK CONTAINER</strong> if the container is already running (for example, if we reused the container from previous steps and attached it to the bridge network, we would have been able to also connect the new <span class="No-Break">custom network).</span></p>
+<p class="list-inset">Now, let’s review the IP<a id="_idIndexMarker539"/> addresses that were assigned to the containers in this <span class="No-Break">custom network:</span></p>
+<pre class="source-code">
+<strong class="bold">$ docker network inspect testnet \</strong>
+<strong class="bold">--format="{{ .Containers }}"</strong>
+<strong class="bold">map[027469ad503329300c5df6019cfe72982af1203e0ccf7174fc7d0e242b7999aa:{one cc99284ffccb5705605075412b0a058bc58ec2ff5738efbd8d249a45bc5d65df 02:42:ac:12:00:02 172.18.0.2/16 }]</strong></pre> <p class="list-inset">Now, let’s verify the DNS resolution inside this custom network by executing a new container attached with a <strong class="source-inline">ping</strong> command with the first container’s name as <span class="No-Break">the target:</span></p>
+<pre class="source-code">
+<strong class="bold">$ docker container run -ti --rm --name two \</strong>
+<strong class="bold">--net testnet alpine ping -c1 one</strong>
+<strong class="bold">PING one (172.18.0.2): 56 data bytes</strong>
+<strong class="bold">64 bytes from 172.18.0.2: seq=0 ttl=64 time=0.117 ms</strong>
+<strong class="bold">--- one ping statistics ---</strong>
+<strong class="bold">1 packets transmitted, 1 packets received, 0% packet loss</strong>
+<strong class="bold">round-trip min/avg/max = 0.117/0.117/0.117 ms</strong></pre> <p>As we expected, DNS <a id="_idIndexMarker540"/>resolution and communications work when we use a custom network (which is also attached to the <strong class="source-inline">docker0</strong> bridge interface <span class="No-Break">by default).</span></p>
+<h2 id="_idParaDest-96"><a id="_idTextAnchor112"/>Access to container services</h2>
+<p>In this lab, we will use the created <a id="_idIndexMarker541"/>custom network and run a simple NGINX <span class="No-Break">web server:</span></p>
+<ol>
+<li>Let’s run a new container using the <strong class="source-inline">nginx:alpine</strong> image, attached to the custom network. Notice that we didn’t use <strong class="source-inline">--it</strong> (interactive and pseudo-terminal attached) arguments because we will not interact with the <span class="No-Break">NGINX</span><span class="No-Break"> process:</span><pre class="source-code">
+<strong class="bold">$ docker container run -d --net testnet \</strong>
+<strong class="bold">--name webserver nginx:alpine</strong>
+<strong class="bold">1eb773889e80f06ec1e2567461abf1244fe292a53779039a7731bd85a0f500b8</strong></pre><p class="list-inset">We can verify the running containers by using <strong class="source-inline">docker container ls</strong> or <span class="No-Break"><strong class="source-inline">docker ps</strong></span><span class="No-Break">:</span></p><pre class="source-code"><strong class="bold">$ docker ps</strong>
+<strong class="bold">CONTAINER ID   IMAGE          COMMAND                  CREATED          STATUS          PORTS     NAMES</strong>
+<strong class="bold">1eb773889e80   nginx:alpine   "/docker-entrypoint.…"   4 minutes ago    Up 4 minutes    80/tcp    webserver</strong>
+<strong class="bold">027469ad5033   alpine         "sleep INF"              23 minutes ago   Up 23 minutes             one</strong></pre></li> <li>We are now in our reference container, where we can install the <strong class="source-inline">curl</strong> package and test the connection to the web server running in the <span class="No-Break">custom network:</span><pre class="source-code">
+<strong class="bold">$ docker container exec -ti one /bin/sh</strong>
+<strong class="bold">/ # ps -ef</strong>
+<strong class="bold">PID   USER     TIME  COMMAND</strong>
+<strong class="bold">    1 root      0:00 sleep INF</strong>
+<strong class="bold">    7 root      0:00 /bin/sh</strong>
+<strong class="bold">   26 root      0:00 ps -ef</strong>
+<strong class="bold">/ # apk add --update --no-cache curl</strong>
+<strong class="bold">fetch https://dl-cdn.alpinelinux.org/alpine/v3.17/main/x86_64/APKINDEX.tar.gz</strong>
+<strong class="bold">...</strong>
+<strong class="bold">OK: 9 MiB in 20 packages</strong>
+<strong class="bold">/ # curl webserver -I</strong>
+<strong class="bold">HTTP/1.1 200 OK</strong>
+<strong class="bold">...</strong></pre><p class="list-inset">Now that we are executing a shell within the reference container, we can verify that the reference container’s hostname is the container’s ID by default <span class="No-Break">before exiting:</span></p><pre class="source-code"><strong class="bold">/ # hostname</strong>
+<strong class="bold">027469ad5033</strong>
+<strong class="bold">/ # exit</strong></pre></li> <li>We’re removing <a id="_idIndexMarker542"/>the <strong class="source-inline">webserver</strong> container because we are going to modify its main page by using a <strong class="bold">bind </strong><span class="No-Break"><strong class="bold">mount</strong></span><span class="No-Break"> volume:</span><pre class="source-code">
+<strong class="bold">$ docker container rm -fv webserver</strong></pre><p class="list-inset">We will now create the <strong class="source-inline">data</strong> directory in the current path, and we will just create the <strong class="source-inline">index.xhtml</strong> file by using a simple <span class="No-Break"><strong class="source-inline">echo</strong></span><span class="No-Break"> command:</span></p><pre class="source-code"><strong class="bold">$ mkdir $(pwd)/data</strong>
+<strong class="bold">$ echo "My webserver" &gt;data/index.xhtml</strong></pre><p class="list-inset">Now, we can execute the <strong class="source-inline">webserver</strong> container again, but this time, we will add the created directory as a volume so that we can include our <span class="No-Break"><strong class="source-inline">index.xhtml</strong></span><span class="No-Break"> file:</span></p><pre class="source-code"><strong class="bold">$ docker container run -d --net testnet -v $(pwd)/data:/usr/share/nginx/html \</strong>
+<strong class="bold">--name webserver nginx:alpine</strong>
+<strong class="bold">b94e7a931d2fbe65fab58848f38a771f7f66ac8306abce04a3ac0ec7e0c5e750</strong></pre></li> <li>Now, let’s test the <strong class="source-inline">webserver</strong> <span class="No-Break">service again:</span><pre class="source-code">
+<strong class="bold">$ docker container exec -ti one curl webserver</strong>
+<strong class="bold">My webserver</strong></pre><p class="list-inset">If we run a new <strong class="source-inline">webserver</strong> container using the same volume, we will obtain the same result because this directory provides persistency for <span class="No-Break">static content:</span></p><pre class="source-code"><strong class="bold">$ docker container run -d --net testnet -v $(pwd)/data:/usr/share/nginx/html \</strong>
+<strong class="bold">--name webserver2 nginx:alpine</strong>
+<strong class="bold">$ docker container exec -ti one curl webserver2</strong>
+<strong class="bold">My webserver</strong></pre><p class="list-inset">We can now change the content of the <strong class="source-inline">index.xhtml</strong> file and verify <span class="No-Break">the result:</span></p><pre class="source-code"><strong class="bold">$ echo "My webserver 2" &gt;data/index.xhtml</strong>
+<strong class="bold">$ docker container exec -ti one curl webserver2</strong>
+<strong class="bold">My webserver 2</strong></pre><p class="list-inset">Notice that we can <a id="_idIndexMarker543"/>change the static content with the container in a running state. If your application manages static content, you will be able to verify the changes online while developing, but this may not work for your application if your processes read the information while they start. In these cases, you will need to restart/recreate <span class="No-Break">your containers.</span></p></li> <li>Finally, let’s remove the second <span class="No-Break">web server:</span><pre class="source-code">
+<strong class="bold">$ docker container rm -fv webserver2</strong>
+<strong class="bold">webserver2</strong></pre><p class="list-inset">Notice that we used the <strong class="source-inline">-fv</strong> argument to force-remove the container (stop it if it was running) and the associated volumes (in this case, we used a bind mount, which will never be removed by the container runtime, so don’t worry about this type of mount). Let’s also launch our web server by using the extended mount definition just to understand <span class="No-Break">its usage:</span></p><pre class="source-code"><strong class="bold">$ docker container run -d --net testnet \</strong>
+<strong class="bold">–name webserver \</strong>
+<strong class="bold">--mount type=bind,source=$(pwd)/data,target=/usr/share/nginx/html \</strong>
+<strong class="bold">nginx:alpine</strong>
+<strong class="bold">b2446c4e77be587f911d141238a5a4a8c1c518b6aa2a0418e574e89dc135d23b</strong>
+<strong class="bold">$ docker container exec -ti one curl webserver</strong>
+<strong class="bold">My webserver 2</strong></pre></li> <li>Now, let’s test the<a id="_idIndexMarker544"/> behavior of a <span class="No-Break">named volume:</span><pre class="source-code">
+<strong class="bold">$ docker container run -d --net testnet -v WWWROOT:/usr/share/nginx/html --name webserver nginx:alpine</strong>
+<strong class="bold">fb59d6cf6e81dfd43b063204f5fd4cdbbbc6661cd4166bcbcc58c633fee26e86</strong>
+<strong class="bold">$ docker container exec -ti one curl webserver</strong>
+<strong class="bold">&lt;!DOCTYPE html&gt;</strong>
+<strong class="bold">&lt;html&gt;</strong>
+<strong class="bold">&lt;head&gt;</strong>
+<strong class="bold">&lt;title&gt;Welcome to nginx!&lt;/title&gt;</strong>
+<strong class="bold">…</strong>
+<strong class="bold">&lt;h1&gt;Welcome to nginx!&lt;/h1&gt;</strong></pre><p class="list-inset">As you can see, NGINX’s default page is shown, but we can copy our <strong class="source-inline">index.xhtml</strong> page to the webserver’s <strong class="source-inline">WWWROOT</strong> named volume by using the <span class="No-Break"><strong class="source-inline">cp</strong></span><span class="No-Break"> action:</span></p><pre class="source-code"><strong class="bold">$ docker cp data/index.xhtml webserver:/usr/share/nginx/html</strong></pre><p class="list-inset">Let’s test this once more to verify <span class="No-Break">the changes:</span></p><pre class="source-code"><strong class="bold">$ docker container exec -ti one curl webserver</strong>
+<strong class="bold">My webserver 2</strong></pre></li> </ol>
+<p>As we have seen, we can <a id="_idIndexMarker545"/>manage persistent data inside containers using volumes and we can copy some content inside them using <strong class="source-inline">docker cp</strong> (you can use the same command to retrieve the container’s content). We also tested all the internal communications; we didn’t expose any service outside of the container runtime environment. Let’s remove both <strong class="source-inline">webserver</strong> containers if they <span class="No-Break">still exist:</span></p>
+<pre class="console">
+$ docker rm -f webserver webserver2</pre> <p>Now, let’s move on to the <span class="No-Break">next lab.</span></p>
+<h2 id="_idParaDest-97"><a id="_idTextAnchor113"/>Exposing applications</h2>
+<p>In this lab, we will expose the <a id="_idIndexMarker546"/>application’s containers outside of the container runtime’s <span class="No-Break">internal networks:</span></p>
+<ol>
+<li>We will use the <strong class="source-inline">--publish-all</strong> or <strong class="source-inline">-P</strong> argument to publish all the image’s defined <span class="No-Break">exposed ports:</span><pre class="source-code">
+<strong class="bold">$ docker container run -d \</strong>
+<strong class="bold">--net testnet -P -v WWWROOT:/usr/share/nginx/html \</strong>
+<strong class="bold">--name webserver nginx:alpine</strong>
+<strong class="bold">dc658849d9c34ec05394a3d1f41377334261283092400e0a0de4ae98582238a7</strong>
+<strong class="bold">$ docker ps</strong>
+<strong class="bold">CONTAINER ID   IMAGE          COMMAND                  CREATED          STATUS          PORTS                   NAMES</strong>
+<strong class="bold">dc658849d9c3   nginx:alpine   "/docker-entrypoint.…"   14 seconds ago   Up 12 seconds   0.0.0.0:32768-&gt;80/tcp   webserver</strong>
+<strong class="bold">027469ad5033   alpine         "sleep INF"              23 hours ago     Up 23 hours                             one</strong></pre><p class="list-inset">You may have noticed that a NAT port is created. Consecutive host ports will be used within the port range of <strong class="source-inline">32768</strong> <span class="No-Break">and </span><span class="No-Break"><strong class="source-inline">61000</strong></span><span class="No-Break">.</span></p></li> <li>Now, let’s check the<a id="_idIndexMarker547"/> service from our host. We can use <strong class="source-inline">localhost</strong>, <strong class="source-inline">127.0.0.1</strong>, or <strong class="source-inline">0.0.0.0</strong> as the IP address because we didn’t specify any of the host’s <span class="No-Break">IP addresses:</span><pre class="source-code">
+<strong class="bold">$ curl 127.0.0.1:32768</strong>
+<strong class="bold">My webserver 2</strong></pre></li> <li>Now, let’s use the <span class="No-Break"><strong class="source-inline">host</strong></span><span class="No-Break"> network</span><span class="No-Break">.</span><p class="list-inset">As we already have <strong class="source-inline">curl</strong> installed on one container, we can use <strong class="source-inline">commit</strong> for these changes to prepare a new image for running new containers <span class="No-Break">with </span><span class="No-Break"><strong class="source-inline">curl</strong></span><span class="No-Break">:</span></p><pre class="source-code">
+<strong class="bold">$ docker container commit one myalpine</strong>
+<strong class="bold">sha256:6732b418977ae171a31a86460315a83d13961387daacf5393e965921499b446e</strong></pre></li> </ol>
+<p class="callout-heading">Important note</p>
+<p class="callout">If you are using the <strong class="source-inline">host</strong> network in Linux directly, you will be able to connect directly to your container’s ports, even if they aren’t exposed. This doesn’t work in WSL environments directly, but you can use this behavior in <span class="No-Break">cluster environments.</span></p>
+<ol>
+<li value="4">Now, we can use this new container by connecting it to the host’s network to verify how the <span class="No-Break">network changed:</span><pre class="source-code">
+<strong class="bold">$ docker container run -d --net host \</strong>
+<strong class="bold">--name two myalpine sleep INF</strong>
+<strong class="bold">885bcf52115653b05645ee10cb2862bab7eee0199c0c1b99e367d8329a8cc601</strong></pre></li> <li>If we use <strong class="source-inline">inspect</strong>, we will notice that no IP addresses will be associated with the container via the container runtime. Instead, all the host’s network interfaces will be attached to <span class="No-Break">the containers:</span><pre class="source-code">
+<strong class="bold">$ docker container exec \</strong>
+<strong class="bold">-ti two ip add show|grep "inet "</strong>
+<strong class="bold">    inet 127.0.0.1/8 scope host lo</strong>
+<strong class="bold">    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0</strong>
+<strong class="bold">    inet 192.168.65.4 peer 192.168.65.5/32 scope global eth0</strong>
+<strong class="bold">    inet 172.18.0.1/16 brd 172.18.255.255 scope global br-582fe354cf84</strong></pre></li> <li>However, you <a id="_idIndexMarker548"/>should notice that DNS container resolution doesn’t work in the <span class="No-Break">host network:</span><pre class="source-code">
+<strong class="bold">$ docker container exec -ti two curl webserver -I</strong>
+<strong class="bold">curl: (6) Could not resolve host: webserver</strong></pre></li> <li>Let’s retrieve the web server’s IP address to access it via the host <span class="No-Break">network container:</span><pre class="source-code">
+<strong class="bold">$ docker container inspect webserver --format="{{ .NetworkSettings.Networks.testnet.IPAddress }}"</strong>
+<strong class="bold">172.18.0.3</strong>
+<strong class="bold">$ docker container exec -ti two curl 172.18.0.3</strong>
+<strong class="bold">My webserver 2</strong></pre></li> </ol>
+<p>Next, we will review how to limit access to the host’s hardware resources and how exceeding the memory limit will trigger the execution of the OOM-Killer <span class="No-Break">kernel process.</span></p>
+<h2 id="_idParaDest-98"><a id="_idTextAnchor114"/>Limiting containers’ resource usage</h2>
+<p>In this lab, we will review how to limit the host’s <a id="_idIndexMarker549"/>memory inside <span class="No-Break">a container:</span></p>
+<ol>
+<li>First, we will create a custom image, including the <span class="No-Break"><strong class="source-inline">stress-ng</strong></span><span class="No-Break"> application:</span><pre class="source-code">
+<strong class="bold">$ cat &lt;&lt;EOF|docker build -q -t stress -</strong>
+<strong class="bold">FROM alpine:latest</strong>
+<strong class="bold">RUN apk add --update --no-cache stress-ng</strong>
+<strong class="bold">EOF</strong>
+<strong class="bold">sha256:4158ba4e466c974dee2a13ebc5a32462b38f687b28004a2dd79caf97ae764a08</strong></pre></li> <li>Now, we can test how <strong class="source-inline">stress-ng</strong> works by using just one worker process and a maximum memory capacity of <span class="No-Break">1,024 MB:</span><pre class="source-code">
+<strong class="bold">$ docker run -d --name stress stress stress-ng  \</strong>
+<strong class="bold">--vm-bytes 1024M  --fork 1 -m 1</strong>
+<strong class="bold">2bea5bcba3a9609e0f47b7c27b24fde9767a75764b4a9bb628ba696f569da001</strong></pre></li> <li>Let’s use <strong class="source-inline">docker stats</strong> to retrieve the current container’s <span class="No-Break">resource usage:</span><pre class="source-code">
+<strong class="bold">$ docker stats --no-stream</strong>
+<strong class="bold">CONTAINER ID   NAME      CPU %     MEM USAGE / LIMIT     MEM %     NET I/O     BLOCK I/O   PIDS</strong>
+<strong class="bold">2bea5bcba3a9   stress    219.77%   1.017GiB / 9.236GiB   11.01%    836B / 0B   0B / 0B     5</strong></pre><p class="list-inset">We can wait a few seconds and run this command again or simply execute <strong class="source-inline">docker stats</strong> to retrieve the <span class="No-Break">statistics continuously:</span></p><pre class="source-code"><strong class="bold">$ docker stats --no-stream</strong>
+<strong class="bold">CONTAINER ID   NAME      CPU %     MEM USAGE / LIMIT     MEM %     NET I/O     BLOCK I/O   PIDS</strong>
+<strong class="bold">2bea5bcba3a9   stress    217.13%   1.015GiB / 9.236GiB   10.99%    906B / 0B   0B / 0B     5</strong></pre></li> <li>Now, let’s kill the current <strong class="source-inline">stress</strong> container and run it again, limiting its access to the <span class="No-Break">host’s memory:</span><pre class="source-code">
+<strong class="bold">$ docker container kill stress</strong>
+<strong class="bold">stress</strong>
+<strong class="bold">$ docker run -d --name stress-limited  \</strong>
+<strong class="bold">--memory 128M stress stress-ng --vm-bytes 1024M  \</strong>
+<strong class="bold">--fork 1 -m 1</strong>
+<strong class="bold">238e34215885f5fc20b0ff157f17b18e6559720c7453064a1c7aedb9cb635284</strong></pre></li> <li>Now, we will <a id="_idIndexMarker550"/>execute the <strong class="source-inline">stats</strong> action again continuously (to show the output in this book, we executed it using <strong class="source-inline">--no-stream</strong> a few times) and we can verify that although <strong class="source-inline">stress-ng</strong> runs a process with 1,024 MB, the container never uses that amount <span class="No-Break">of memory:</span><pre class="source-code">
+<strong class="bold">$ docker stats --no-stream</strong>
+<strong class="bold">CONTAINER ID   NAME              CPU %     MEM USAGE / LIMIT   MEM %     NET I/O       BLOCK I/O   PIDS</strong>
+<strong class="bold">ff3f4797af43   stress-limited   166.65%   125.1MiB / 128MiB   97.74%    1.12kB / 0B   0B / 0B     4</strong></pre><p class="list-inset">Wait a few seconds and execute <span class="No-Break">it again:</span></p><pre class="source-code"><strong class="bold">$ docker stats --no-stream</strong>
+<strong class="bold">CONTAINER ID   NAME              CPU %     MEM USAGE / LIMIT   MEM %     NET I/O       BLOCK I/O   PIDS</strong>
+<strong class="bold">ff3f4797af43   stress-limited   142.81%   127MiB / 128MiB     99.19%    1.12kB / 0B   0B / 0B     5</strong></pre><p class="list-inset">As we <a id="_idIndexMarker551"/>expected, the memory usage is limited. You can verify what happened by reviewing the current host’s system log. The container runtime uses cgroups to limit the container’s use of resources and the kernel launched the OOM-Killer feature to kill the processes that were consuming more memory <span class="No-Break">than expected:</span></p><pre class="source-code"><strong class="bold">$ dmesg|grep -i oom</strong>
+<strong class="bold">[22893.337110] oom_reaper: reaped process 19232 (stress-ng), now anon-rss:0kB, file-rss:0kB, shmem-rss:32kB</strong>
+<strong class="bold">[22893.915193] stress-ng invoked oom-killer: gfp_mask=0xcc0(GFP_KERNEL), order=0, oom_score_adj=1000</strong>
+<strong class="bold">[22893.915221]  oom_kill_process.cold+0xb/0x10</strong>
+<strong class="bold">[22893.915307] [  pid  ]   uid  tgid total_vm      rss pgtables_bytes swapents oom_score_adj name</strong>
+<strong class="bold">[22893.915316] oom-kill:constraint=CONSTRAINT_MEMCG,nodemask=(null),cpuset=ff3f4797af43980e7ea223cbee27b39921dbaa84b61f22d8dcfb409347ba4a5a,mems_allowed=0,oom_memcg=/docker/ff3f4797af43980e7ea223cbee27b39921db</strong></pre><p class="list-inset">This kernel feature is killing the <strong class="source-inline">stress-ng</strong> worker processes, but it launches more (this is the normal <strong class="source-inline">stress-ng</strong> behavior, but your applications may die if OOM-Killer is asked to destroy <span class="No-Break">your processes).</span></p></li> <li>We will finish this lab by simply removing the <span class="No-Break">used containers:</span><pre class="source-code">
+<strong class="bold">$ docker container rm --force stress-limited</strong>
+<strong class="bold">stress-limited</strong></pre></li> </ol>
+<p>We can now move on to the next lab, in which we will learn how to limit the use of privileged users in our processes if they are <span class="No-Break">not needed.</span></p>
+<h2 id="_idParaDest-99"><a id="_idTextAnchor115"/>Avoiding the use of root users inside containers</h2>
+<p>This quick lab will<a id="_idIndexMarker552"/> show you how to run an NGINX web server without <strong class="source-inline">root</strong>. But first, we will review what happens when you change the default <span class="No-Break">NGINX</span><span class="No-Break"> environment:</span></p>
+<ol>
+<li>First, let’s review the user that a default <strong class="source-inline">nginx:alpine</strong> image will use by simply executing a new <span class="No-Break">web server:</span><pre class="source-code">
+<strong class="bold">$ docker container run -d --publish 8080:80 \</strong>
+<strong class="bold">--name webserver nginx:alpine</strong>
+<strong class="bold">cbcd52a7ca480606c081edc63a59df5b6a237bb2891a4f4bb2ae68f9882fd0b3</strong>
+<strong class="bold">$ docker container ls</strong>
+<strong class="bold">CONTAINER ID   IMAGE          COMMAND                  CREATED         STATUS         PORTS                  NAMES</strong>
+<strong class="bold">cbcd52a7ca48   nginx:alpine   "/docker-entrypoint.…"   7 seconds ago   Up 6 seconds   0.0.0.0:8080-&gt;80/tcp   webserver</strong></pre><p class="list-inset">As expected, it is running and served in the host’s <span class="No-Break">port </span><span class="No-Break"><strong class="source-inline">8080</strong></span><span class="No-Break">:</span></p><pre class="source-code"><strong class="bold">$ curl 0.0.0.0:8080 -I</strong>
+<strong class="bold">HTTP/1.1 200 OK</strong>
+<strong class="bold">...</strong></pre></li> <li>Now, let’s retrieve <span class="No-Break">its logs:</span><pre class="source-code">
+<strong class="bold">$ docker logs webserver</strong>
+<strong class="bold">/docker-entrypoint.sh: /docker-entrypoint.d/ is not empty, will attempt to perform configuration</strong>
+<strong class="bold">...</strong>
+<strong class="bold">2023/03/31 19:26:57 [notice] 1#1: start worker process 33</strong>
+<strong class="bold">172.17.0.1 - - [31/Mar/2023:19:28:18 +0000] "GET / HTTP/1.1" 200 615 "-" "curl/7.81.0" "-"</strong></pre><p class="list-inset">The log<a id="_idIndexMarker553"/> shows the request we make to the published service and the output of NGINX’s main process (standard output and error). We can limit the number of lines shown by using <strong class="source-inline">--tail 2</strong> (this will show only the last two lines of the <span class="No-Break">container’s logs):</span></p><pre class="source-code"><strong class="bold">$ docker logs webserver --details \</strong>
+<strong class="bold">--timestamps --tail 2</strong>
+<strong class="bold">2023-03-31T19:29:35.362006700Z  172.17.0.1 - - [31/Mar/2023:19:29:35 +0000] "GET / HTTP/1.1" 200 615 "-" "curl/7.81.0" "-"</strong>
+<strong class="bold">2023-03-31T19:29:39.427574300Z  172.17.0.1 - - [31/Mar/2023:19:29:39 +0000] "HEAD / HTTP/1.1" 200 0 "-" "curl/7.81.0" "-"</strong></pre><p class="list-inset">Notice that we also used <strong class="source-inline">--timestamp</strong> to show the container runtime’s included timestamp. This can be very useful when the running application does not provide <span class="No-Break">any timestamp.</span></p><p class="list-inset">By default, NGINX writes to <strong class="source-inline">/var/log/nginx/access.log</strong> and <strong class="source-inline">/var/log/nginx/error.log</strong>. It is very interesting to learn how this container’s image developers set the processes up to write to <strong class="source-inline">/dev/stdout</strong> and <strong class="source-inline">/dev/stderr</strong>. You can learn more at <a href="http://github.com/nginxinc/docker-nginx/blob/73a5acae6945b75b433cafd0c9318e4378e72cbb/mainline/alpine-slim/Dockerfile">github.com/nginxinc/docker-nginx/blob/73a5acae6945b75b433cafd0c9318e4378e72cbb/mainline/alpine-slim/Dockerfile</a>. An extract of the currently important lines is <span class="No-Break">shown here:</span></p><pre class="source-code"><strong class="bold"># forward request and error logs to docker log collector</strong>
+<strong class="bold">    &amp;&amp; ln -sf /dev/stdout /var/log/nginx/access.log \</strong>
+<strong class="bold">    &amp;&amp; ln -sf /dev/stderr /var/log/nginx/error.log \</strong></pre></li> <li>Now, let’s check the user running <span class="No-Break">this instance:</span><pre class="source-code">
+<strong class="bold">$ docker exec -ti webserver id</strong>
+<strong class="bold">uid=0(root) gid=0(root) groups=0(root),1(bin),2(daemon),3(sys),4(adm),6(disk),10(wheel),11(floppy),20(dialout),26(tape),27(video)</strong></pre></li> <li>As we already discussed in this chapter, running containers as non-<strong class="source-inline">root</strong> should always be preferred, so let’s remove this container and create a new safer one (<span class="No-Break">without </span><span class="No-Break"><strong class="source-inline">root</strong></span><span class="No-Break">):</span><pre class="source-code">
+<strong class="bold">$ docker container rm webserver --force -v</strong>
+<strong class="bold">webserver</strong></pre></li> <li> We will try <a id="_idIndexMarker554"/>changing the current <strong class="source-inline">0</strong> user (<strong class="source-inline">root</strong>) to a common <span class="No-Break"><strong class="source-inline">1000</strong></span><span class="No-Break"> ID:</span><pre class="source-code">
+<strong class="bold">$ docker container run -d --publish 8080:80 \</strong>
+<strong class="bold">--name webserver  --user 1000 nginx:alpine</strong>
+<strong class="bold">6fce3675a104ca658454d33bfa5f38fb48a0c7f71defd56caf70886c94c82e89</strong></pre><p class="list-inset">As we expected, issues appear because this image hasn’t been set up to be run by a <span class="No-Break">non-</span><span class="No-Break"><strong class="source-inline">root</strong></span><span class="No-Break"> user:</span></p><pre class="source-code"><strong class="bold">$ docker logs webserver</strong>
+<strong class="bold">...</strong>
+<strong class="bold">nginx: [warn] the "user" directive makes sense only if the master process runs with super-user privileges, ignored in /etc/nginx/nginx.conf:2</strong>
+<strong class="bold">2023/04/01 11:36:03 [emerg] 1#1: mkdir() "/var/cache/nginx/client_temp" failed (13: Permission denied)</strong>
+<strong class="bold">nginx: [emerg] mkdir() "/var/cache/nginx/client_temp" failed (13: Permission denied)</strong></pre></li> <li>We can try to modify this image behavior by adding a volume for the problematic path, but even with this change, it will not work. NGINX should avoid using port <strong class="source-inline">80</strong> because it is system-restricted; if this port must be used in your environment, special capabilities such as <strong class="source-inline">NET_BIND_SERVICE</strong> should be added. Instead of changing the current image behavior, we will use a new image from <span class="No-Break">NGINX,</span><span class="No-Break"> Inc.:</span><pre class="source-code">
+<strong class="bold">$ docker search nginxinc</strong>
+<strong class="bold">NAME                                         DESCRIPTION                                     STARS OFFICIAL   AUTOMATED</strong>
+<strong class="bold">nginxinc/nginx-unprivileged                  Unprivileged NGINX Dockerfiles                  90</strong>
+<strong class="bold">...</strong></pre><p class="list-inset">You can find this image and its information <span class="No-Break">at </span><a href="https://hub.docker.com/r/nginxinc/nginx-unprivileged#!"><span class="No-Break">https://hub.docker.com/r/nginxinc/nginx-unprivileged#!</span></a><span class="No-Break">.</span></p></li> <li>Let’s pull the <a id="_idIndexMarker555"/>image from Docker Hub and review the ports and the <span class="No-Break">user used:</span><pre class="source-code">
+<strong class="bold">$ docker image pull nginxinc/nginx-unprivileged:alpine-slim -q</strong>
+<strong class="bold">docker.io/nginxinc/nginx-unprivileged:alpine-slim</strong></pre><p class="list-inset">Run <strong class="source-inline">docker inspect</strong> to <span class="No-Break">do so:</span></p><pre class="source-code"><strong class="bold">$ docker image inspect \</strong>
+<strong class="bold">nginxinc/nginx-unprivileged:alpine-slim \</strong>
+<strong class="bold">--format="{{ .Config.ExposedPorts }} {{ .Config.User }}"</strong>
+<strong class="bold">map[8080/tcp:{}] 101</strong></pre><p class="list-inset">Now, let’s run a container by publishing port <strong class="source-inline">8080</strong> on our host’s port <strong class="source-inline">8080</strong>. Notice that we used the <strong class="source-inline">--publish</strong> option, which allows us to even use a specific IP address from our host in <span class="No-Break"><strong class="source-inline">IP:host_port:container_port</strong></span><span class="No-Break"> format:</span></p><pre class="source-code"><strong class="bold">$ docker container run -d --publish 8080:8080 --name webserver nginxinc/nginx-unprivileged:alpine-slim</strong>
+<strong class="bold">369307cbd5e8b74330b220947ec41d4f263ebfe7727efddae3efbcc3a1610e5e</strong>
+<strong class="bold">$ docker container ps</strong>
+<strong class="bold">CONTAINER ID   IMAGE                                     COMMAND                  CREATED          STATUS          PORTS                    NAMES</strong>
+<strong class="bold">369307cbd5e8   nginxinc/nginx-unprivileged:alpine-slim   "/docker-entrypoint.…"   15 seconds ago   Up 13 seconds   0.0.0.0:8080-&gt;8080/tcp   webserver</strong></pre></li> <li>Let’s test our <a id="_idIndexMarker556"/>web server again and review <span class="No-Break">the logs:</span><pre class="source-code">
+<strong class="bold">$ curl 0.0.0.0:8080  -I</strong>
+<strong class="bold">HTTP/1.1 200 OK</strong>
+<strong class="bold">...</strong>
+<strong class="bold"> $ docker logs --tail 2 webserver</strong>
+<strong class="bold">2023/04/01 11:40:29 [notice] 1#1: start worker process 32</strong>
+<strong class="bold">172.17.0.1 - - [01/Apr/2023:11:41:36 +0000] "HEAD / HTTP/1.1" 200 0 "-" "curl/7.81.0" "-"</strong></pre></li> <li>Now, let’s <a id="_idIndexMarker557"/>review the web <span class="No-Break">server’s user:</span><pre class="source-code">
+<strong class="bold">$ docker exec webserver id</strong>
+<strong class="bold">uid=101(nginx) gid=101(nginx) groups=101(nginx)</strong></pre></li> </ol>
+<p>As we expected, this <strong class="source-inline">webserver</strong> application runs using a non-privileged user and it’s safer than the one running as <strong class="source-inline">root</strong>. You, as the developer, must prioritize the usage of non-privileged users in your applications to improve the <span class="No-Break">components’ security.</span></p>
+<h2 id="_idParaDest-100"><a id="_idTextAnchor116"/>Cleaning the container runtime</h2>
+<p>To finish this chapter’s labs, we <a id="_idIndexMarker558"/>will quickly clean up all the objects that were created during the labs by using a combination <span class="No-Break">of commands:</span></p>
+<ol>
+<li>Kill all the running containers (we can also remove them using a single line, but we will kill them before using the <span class="No-Break"><strong class="source-inline">prune</strong></span><span class="No-Break"> action):</span><pre class="source-code">
+<strong class="bold">$ docker ps -q|xargs docker kill</strong>
+<strong class="bold">6f883a19a8f1</strong>
+<strong class="bold">3e37afe57357</strong>
+<strong class="bold">369307cbd5e8</strong></pre><p class="list-inset">Here, we piped two commands. The first command retrieves the list of all the running containers, but the <strong class="source-inline">-q</strong> argument is used to only show the containers’ IDs. Then, we piped the result using the <strong class="source-inline">xargs</strong> command to <strong class="source-inline">docker kill</strong>. This combination kills all the <span class="No-Break">running containers.</span></p></li> <li>Now, we can use <strong class="source-inline">docker system prune</strong> to remove all the objects that were created. We will use <strong class="source-inline">--all</strong> to remove all the unused images and the volumes by adding <strong class="source-inline">–-volumes</strong> (you will be asked <span class="No-Break">for confirmation):</span><pre class="source-code">
+<strong class="bold">$ docker system prune --all --volumes</strong>
+<strong class="bold">WARNING! This will remove:</strong>
+<strong class="bold">  - all stopped containers</strong>
+<strong class="bold">  - all networks not used by at least one container</strong>
+<strong class="bold">  - all volumes not used by at least one container</strong>
+<strong class="bold">  - all images without at least one container associated to them</strong>
+<strong class="bold">  - all build cache</strong>
+<strong class="bold"> Are you sure you want to continue? [y/N] y</strong>
+<strong class="bold">...</strong>
+<strong class="bold">Total reclaimed space: 49.95MB</strong></pre><p class="list-inset">After a few seconds, your system will be clean, and you can start the next chapter’s labs without <a id="_idIndexMarker559"/>old objects. We can verify this by executing <strong class="source-inline">docker </strong><span class="No-Break"><strong class="source-inline">system df</strong></span><span class="No-Break">:</span></p><pre class="source-code"><strong class="bold">$ docker system df</strong>
+<strong class="bold">TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE</strong>
+<strong class="bold">Images          0         0         0B        0B</strong>
+<strong class="bold">Containers      0         0         0B        0B</strong>
+<strong class="bold">Local Volumes   0         0         0B        0B</strong>
+<strong class="bold">Build Cache     0         0         0B        0B</strong></pre></li> </ol>
+<p>In these labs, we covered almost all the content that we reviewed in this chapter. You may find additional information in the GitHub repository that’s been prepared for this <span class="No-Break">chapter: </span><a href="https://github.com/PacktPublishing/Docker-for-Developers-Handbook/tree/main/Chapter4"><span class="No-Break">https://github.com/PacktPublishing/Docker-for-Developers-Handbook/tree/main/Chapter4</span></a><span class="No-Break">.</span></p>
+<h1 id="_idParaDest-101"><a id="_idTextAnchor117"/>Summary</h1>
+<p>In this chapter, we learned how to run containers and manage their behavior. We also reviewed how we can limit access to the host’s resources by applying different kernel features. Different techniques allow us to interact with containers while they are running, and we can use them to retrieve important information about the applications running inside. By the end of this chapter, we also learned about some simple commands that will help us keep our environments free of old unused <span class="No-Break">containers’ objects.</span></p>
+<p>Now that we know how to create container images, store them, and run containers using them, we can move on to the next chapter, where we will learn how to run applications by using multiple containers that interact with <span class="No-Break">each other.</span></p>
+</div>
+</div></body></html>

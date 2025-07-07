@@ -1,0 +1,1679 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing OpenStack</h1>
+                </header>
+            
+            <article>
+                
+<p> Manually installing, configuring, and maintaining OpenStack clouds can be an arduous task. Many vendors provide downloadable cloud software based on OpenStack that provides deployment and management strategies using Chef, Puppet, Ansible, and other tools.</p>
+<p>This chapter will take you step by step through a package-based installation of the following OpenStack components on the Ubuntu 16.04 LTS operating system:</p>
+<ul>
+<li>OpenStack Identity (Keystone)</li>
+<li>OpenStack Image Service (Glance)</li>
+<li>OpenStack Compute (Nova)</li>
+<li>OpenStack Dashboard (Horizon)</li>
+</ul>
+<div class="packt_infobox">The installation process documented within this chapter is based on the <em>OpenStack Installation Guide</em> found at <span class="URLPACKT"><a href="http://docs.openstack.org/">http://docs.openstack.org/</a>.</span> If you wish to install OpenStack on a different operating system, the guides available at that site provide instructions for doing so.</div>
+<p>If you'd rather download and install a third-party cloud distribution based on OpenStack, try one of the following URLs:</p>
+<ul>
+<li>OpenStack-Ansible:  <a href="https://docs.openstack.org/openstack-ansible/">https://docs.openstack.org/openstack-ansible/</a></li>
+<li>Red Hat RDO:  <a href="http://openstack.redhat.com/">http://openstack.redhat.com/</a></li>
+<li>Kolla: <a href="https://docs.openstack.org/kolla-ansible/latest/">https://docs.openstack.org/kolla-ansible/latest/</a></li>
+</ul>
+<p>Once installed, many of the concepts and examples used throughout this book should still apply to the above distributions, but they may require extra effort to implement.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">System requirements</h1>
+                </header>
+            
+            <article>
+                
+<p>OpenStack components are intended to run on standard hardware, ranging from desktop machines to enterprise-grade servers. For optimal performance, the processors of the <kbd>compute</kbd> nodes need to support virtualization technologies such as Intel's VT-x or AMD's AMD-V.</p>
+<p>This book assumes OpenStack will be installed on servers that meet the following minimum requirements:</p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td class="CDPAlignCenter CDPAlign" style="width: 77px">
+<p><strong>Server</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 467.174px">
+<p><strong>Hardware requirements</strong></p>
+</td>
+</tr>
+<tr>
+<td style="width: 77px">
+<p>All</p>
+</td>
+<td style="width: 467.174px">
+<p>Processor: 64-bit x86</p>
+<p>CPU count: 2-4</p>
+<p>Memory: 4+ GB RAM</p>
+<p>Disk space: 32+ GB</p>
+<p>Network: 3x 1-Gbps network interface cards</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p class="mce-root"/>
+<p>While machines that fail to meet these minimum requirements are capable of installation based on the documentation included in this book, these minimums have been set to ensure a successful experience. Additional memory and storage is highly recommended when creating multiple virtual machine instances for demonstration purposes. Virtualization products such as VMware ESXi, VMware Fusion, or VirtualBox may be used in lieu of physical hardware, but will require additional configuration to the environment and to OpenStack that is outside the scope of this book. If virtualizing the environment, consider exposing hardware virtualization extensions for better performance.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Operating system requirements</h1>
+                </header>
+            
+            <article>
+                
+<p>OpenStack can be installed on the following Linux distributions: CentOS, Red Hat Enterprise Linux, openSUSE, SUSE Linux Enterprise Server, and Ubuntu. This book assumes that the Ubuntu 16.04 LTS server operating system has been installed on all hosts prior to installation of OpenStack. You can find Ubuntu Server at the following URL: <span class="URLPACKT"><a href="http://www.ubuntu.com/download/server">http://www.ubuntu.com/download/server</a>.</span></p>
+<p>In order to support all of the networking features discussed in this book, the following minimum kernel version is recommended: <kbd>4.13.0-45-generic</kbd>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Initial network configuration</h1>
+                </header>
+            
+            <article>
+                
+<p>To understand how networking should initially be configured on each host, please refer to the following diagram:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/1effdc54-7fb1-4547-ab01-8c02063634fb.png"/></div>
+<div class="packt_figure packt_figref CDPAlignCenter CDPAlign">Figure 2.1</div>
+<p>In <em>figure 2.1</em>, three interfaces are cabled to each host. The <kbd>eth0</kbd> interface will serve as the management interface for OpenStack services and API access while <kbd>eth1</kbd> will be used for overlay network traffic between hosts. On the <kbd>controller</kbd> node, <kbd>eth2</kbd> will be used for external network traffic to instances through Neutron routers. If VLAN tenant networks are used in lieu of overlay networks, then <kbd>eth2</kbd> will be configured on the <kbd>compute</kbd> nodes to support those networks.</p>
+<p>At a minimum, the management interface should be configured with an IP address that has outbound access to the internet. Internet access is required to download OpenStack packages from the Ubuntu package repository. Inbound access to the management address of the servers from a trusted network via SSH is recommended.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Example networks</h1>
+                </header>
+            
+            <article>
+                
+<p>Throughout the book, there will be examples of configuring and using various OpenStack services. The following table provides the VLANs and associated networks used for those services:</p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td class="CDPAlignCenter CDPAlign">
+<p><strong>VLAN name</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p><strong>VLAN ID</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p><strong>Network</strong></p>
+</td>
+</tr>
+<tr>
+<td style="width: 217px">
+<p>MGMT_NET</p>
+</td>
+<td style="width: 159px">
+<p>10</p>
+</td>
+<td style="width: 356.035px">
+<p>10.10.0.0/24</p>
+</td>
+</tr>
+<tr>
+<td style="width: 217px">
+<p>OVERLAY_NET</p>
+</td>
+<td style="width: 159px">
+<p>20</p>
+</td>
+<td style="width: 356.035px">
+<p>10.20.0.0/24</p>
+</td>
+</tr>
+<tr>
+<td style="width: 217px">
+<p>GATEWAY_NET</p>
+</td>
+<td style="width: 159px">
+<p>30</p>
+</td>
+<td style="width: 356.035px">
+<p>10.30.0.0/24</p>
+</td>
+</tr>
+<tr>
+<td style="width: 217px">
+<p>PROJECT_NET40</p>
+</td>
+<td style="width: 159px">
+<p>40</p>
+</td>
+<td style="width: 356.035px">
+<p>TBD</p>
+</td>
+</tr>
+<tr>
+<td style="width: 217px">
+<p>PROJECT_NET41</p>
+</td>
+<td style="width: 159px">
+<p>41</p>
+</td>
+<td style="width: 356.035px">
+<p>TBD</p>
+</td>
+</tr>
+<tr>
+<td style="width: 217px">
+<p>PROJECT_NET42</p>
+</td>
+<td style="width: 159px">
+<p>42</p>
+</td>
+<td style="width: 356.035px">
+<p>TBD</p>
+</td>
+</tr>
+<tr>
+<td style="width: 217px">
+<p>PROJECT_NET43</p>
+</td>
+<td style="width: 159px">
+<p>43</p>
+</td>
+<td style="width: 356.035px">
+<p>TBD</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>The following tables provide the IP addresses and VLAN IDs recommended for each host interface should you choose to follow along with the examples:</p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr style="height: 61px">
+<td class="CDPAlignCenter CDPAlign" style="width: 16%;height: 61px">
+<p><strong>Host Name</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 15%;height: 61px">
+<p><strong>Interface</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 15.9908%;height: 61px">
+<p><strong>IP address</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 14.0092%;height: 61px">
+<p><strong>Switchport</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 31%;height: 61px">
+<p><strong>VLAN ID</strong></p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 16%;height: 61px">
+<p><span>controller01</span></p>
+</td>
+<td style="width: 15%;height: 61px">
+<p>eth0</p>
+</td>
+<td style="width: 15.9908%;height: 61px">
+<p>10.10.0.100</p>
+</td>
+<td style="width: 14.0092%;height: 61px">
+<p>Access Port</p>
+</td>
+<td style="width: 31%;height: 61px">
+<p>VLAN 10(Untagged)</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 16%;height: 61px">
+<p><span>controller01</span></p>
+</td>
+<td style="width: 15%;height: 61px">
+<p>eth1</p>
+</td>
+<td style="width: 15.9908%;height: 61px">
+<p>10.20.0.100</p>
+</td>
+<td style="width: 14.0092%;height: 61px">
+<p>Access Port</p>
+</td>
+<td style="width: 31%;height: 61px">
+<p>VLAN 20(Untagged)</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 16%;height: 61px">
+<p><span>controller01</span></p>
+</td>
+<td style="width: 15%;height: 61px">
+<p>eth2</p>
+</td>
+<td style="width: 15.9908%;height: 61px">
+<p>None</p>
+</td>
+<td style="width: 14.0092%;height: 61px">
+<p>Trunk Port</p>
+</td>
+<td style="width: 31%;height: 61px">
+<p>VLAN 30, 40-44(Tagged)</p>
+</td>
+</tr>
+<tr style="height: 63px">
+<td style="width: 16%;height: 63px">
+<p class="CDPAlignCenter CDPAlign"><strong>Host Name</strong></p>
+</td>
+<td style="width: 15%;height: 63px">
+<p class="CDPAlignCenter CDPAlign"><strong>Interface</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 15.9908%;height: 63px">
+<p><strong>IP address</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 14.0092%;height: 63px">
+<p><strong>Switchport</strong></p>
+</td>
+<td style="width: 31%;height: 63px">
+<p class="CDPAlignCenter CDPAlign"><strong>VLAN ID</strong></p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 16%;height: 61px">
+<p><span>compute01</span></p>
+</td>
+<td style="width: 15%;height: 61px">
+<p>eth0</p>
+</td>
+<td style="width: 15.9908%;height: 61px">
+<p>10.10.0.101</p>
+</td>
+<td style="width: 14.0092%;height: 61px">
+<p>Access Port</p>
+</td>
+<td style="width: 31%;height: 61px">
+<p>VLAN 10(Untagged)</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 16%;height: 61px">
+<p><span>compute01</span></p>
+</td>
+<td style="width: 15%;height: 61px">
+<p>eth1</p>
+</td>
+<td style="width: 15.9908%;height: 61px">
+<p>10.20.0.101</p>
+</td>
+<td style="width: 14.0092%;height: 61px">
+<p>Access Port</p>
+</td>
+<td style="width: 31%;height: 61px">
+<p>VLAN 20(Untagged)</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 16%;height: 61px">
+<p><span>compute01</span></p>
+</td>
+<td style="width: 15%;height: 61px">
+<p>eth2</p>
+</td>
+<td style="width: 15.9908%;height: 61px">
+<p>None</p>
+</td>
+<td style="width: 14.0092%;height: 61px">
+<p>Trunk Port</p>
+</td>
+<td style="width: 31%;height: 61px">
+<p>VLAN 30, 40-44 (Tagged)</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td class="CDPAlignCenter CDPAlign" style="width: 16%;height: 61px">
+<p><strong>Host Name</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 15%;height: 61px">
+<p><strong>Interface</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 15.9908%;height: 61px">
+<p><strong>IP address</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 14.0092%;height: 61px">
+<p><strong>Switchport</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 31%;height: 61px">
+<p><strong>VLAN ID</strong></p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 16%;height: 61px">
+<p><span>compute02</span></p>
+</td>
+<td style="width: 15%;height: 61px">
+<p>eth0</p>
+</td>
+<td style="width: 15.9908%;height: 61px">
+<p>10.10.0.102</p>
+</td>
+<td style="width: 14.0092%;height: 61px">
+<p>Access Port</p>
+</td>
+<td style="width: 31%;height: 61px">
+<p>VLAN 10(Untagged)</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 16%;height: 61px">
+<p><span>compute02</span></p>
+</td>
+<td style="width: 15%;height: 61px">
+<p>eth1</p>
+</td>
+<td style="width: 15.9908%;height: 61px">
+<p>10.20.0.102</p>
+</td>
+<td style="width: 14.0092%;height: 61px">
+<p>Access Port</p>
+</td>
+<td style="width: 31%;height: 61px">
+<p>VLAN 20(Untagged)</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 16%;height: 61px">
+<p><span>compute02</span></p>
+</td>
+<td style="width: 15%;height: 61px">
+<p>eth2</p>
+</td>
+<td style="width: 15.9908%;height: 61px">
+<p>None</p>
+</td>
+<td style="width: 14.0092%;height: 61px">
+<p>Trunk Port</p>
+</td>
+<td style="width: 31%;height: 61px">
+<p>VLAN 30, 40-44 (Tagged)</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td class="CDPAlignCenter CDPAlign" style="width: 16%;height: 61px">
+<p><strong>Host Name</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 15%;height: 61px">
+<p><strong>Interface</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 15.9908%;height: 61px">
+<p><strong>IP address</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 14.0092%;height: 61px">
+<p><strong>Switchport</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 31%;height: 61px">
+<p><strong>VLAN ID</strong></p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 16%;height: 61px">
+<p><span>compute03</span></p>
+</td>
+<td style="width: 15%;height: 61px">
+<p>eth0</p>
+</td>
+<td style="width: 15.9908%;height: 61px">
+<p>10.10.0.103</p>
+</td>
+<td style="width: 14.0092%;height: 61px">
+<p>Access Port</p>
+</td>
+<td style="width: 31%;height: 61px">
+<p>VLAN 10(Untagged)</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 16%;height: 61px">
+<p><span>compute03</span></p>
+</td>
+<td style="width: 15%;height: 61px">
+<p>eth1</p>
+</td>
+<td style="width: 15.9908%;height: 61px">
+<p>10.20.0.103</p>
+</td>
+<td style="width: 14.0092%;height: 61px">
+<p>Access Port</p>
+</td>
+<td style="width: 31%;height: 61px">
+<p>VLAN 20(Untagged)</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 16%;height: 61px">
+<p><span>compute03</span></p>
+</td>
+<td style="width: 15%;height: 61px">
+<p>eth2</p>
+</td>
+<td style="width: 15.9908%;height: 61px">
+<p>None</p>
+</td>
+<td style="width: 14.0092%;height: 61px">
+<p>Trunk Port</p>
+</td>
+<td style="width: 31%;height: 61px">
+<p>VLAN 30, 40-44 (Tagged)</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td class="CDPAlignCenter CDPAlign" style="width: 16%;height: 61px">
+<p><strong>Host Name</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 15%;height: 61px">
+<p><strong>Interface</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 15.9908%;height: 61px">
+<p><strong>IP address</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 14.0092%;height: 61px">
+<p><strong>Switchport</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 31%;height: 61px">
+<p><strong>VLAN ID</strong></p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 16%;height: 61px">
+<p><span>snat01</span></p>
+</td>
+<td style="width: 15%;height: 61px">
+<p>eth0</p>
+</td>
+<td style="width: 15.9908%;height: 61px">
+<p>10.10.0.104</p>
+</td>
+<td style="width: 14.0092%;height: 61px">
+<p>Access Port</p>
+</td>
+<td style="width: 31%;height: 61px">
+<p>VLAN 10(Untagged)</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 16%;height: 61px">
+<p><span>snat01</span></p>
+</td>
+<td style="width: 15%;height: 61px">
+<p>eth1</p>
+</td>
+<td style="width: 15.9908%;height: 61px">
+<p>10.20.0.104</p>
+</td>
+<td style="width: 14.0092%;height: 61px">
+<p>Access Port</p>
+</td>
+<td style="width: 31%;height: 61px">
+<p>VLAN 20(Untagged)</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 16%;height: 61px">
+<p><span>snat01</span></p>
+</td>
+<td style="width: 15%;height: 61px">
+<p>eth2</p>
+</td>
+<td style="width: 15.9908%;height: 61px">
+<p>None</p>
+</td>
+<td style="width: 14.0092%;height: 61px">
+<p>Trunk Port</p>
+</td>
+<td style="width: 31%;height: 61px">
+<p>VLAN 30, 40-44 (Tagged)</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>To avoid loss of connectivity due to an interface misconfiguration or other mishap, out-of-band management access to the servers or some other mechanism is highly recommended.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Interface configuration</h1>
+                </header>
+            
+            <article>
+                
+<p>Ubuntu 16.04 LTS uses configuration files found in <kbd>/etc/network/interfaces.d/</kbd> or the file<kbd>/etc/network/interfaces</kbd> that describe how network interfaces should be configured.</p>
+<p>Using a text editor, update the network interface file on each host as follows.</p>
+<p>For <kbd>controller01</kbd>:</p>
+<pre>auto eth0<br/>iface eth0 inet static<br/>    address 10.10.0.100<br/>    netmask 255.255.255.0<br/>    gateway 10.10.0.1<br/>    dns-nameserver 8.8.8.8<br/>auto eth1<br/>iface eth1 inet static<br/>    address 10.20.0.100<br/>    netmask 255.255.255.0<br/>auto eth2<br/>iface eth2 inet manual </pre>
+<p>For <kbd>compute01</kbd>:</p>
+<pre>auto eth0<br/>iface eth0 inet static<br/>    address 10.10.0.101<br/>    netmask 255.255.255.0<br/>    gateway 10.10.0.1<br/>    dns-nameserver 8.8.8.8<br/>auto eth1<br/>iface eth1 inet static<br/>   address 10.20.0.101<br/>   netmask 255.255.255.0<br/>auto eth2<br/>iface eth2 inet manual</pre>
+<p>For <kbd>compute02</kbd>:</p>
+<pre>auto eth0<br/>iface eth0 inet static<br/>    address 10.10.0.102<br/>    netmask 255.255.255.0<br/>    gateway 10.10.0.1<br/> dns-nameserver 8.8.8.8<br/>auto eth1<br/>iface eth1 inet static<br/>    address 10.20.0.102<br/>    netmask 255.255.255.0<br/>auto eth2<br/>iface eth2 inet manual</pre>
+<p>For <kbd>compute03</kbd>:</p>
+<pre>auto eth0<br/>iface eth0 inet static<br/>   address 10.10.0.103<br/>   netmask 255.255.255.0<br/>   gateway 10.10.0.1<br/>   dns-nameserver 8.8.8.8<br/>auto eth1<br/>iface eth1 inet static<br/>   address 10.20.0.103<br/>   netmask 255.255.255.0<br/>auto eth2<br/>iface eth2 inet manual</pre>
+<p>For <kbd>snat01</kbd>:</p>
+<pre>auto eth0<br/>iface eth0 inet static<br/>   address 10.10.0.104<br/>   netmask 255.255.255.0<br/>   gateway 10.10.0.1<br/>   dns-nameserver 8.8.8.8<br/>auto eth1<br/>iface eth1 inet static<br/>   address 10.20.0.104<br/>   netmask 255.255.255.0<br/>auto eth2<br/>iface eth2 inet manual</pre>
+<p>The <kbd>eth2</kbd> interface will be used in a network bridge described in further detail in upcoming chapters. To activate the changes, cycle the interfaces using the <kbd>ifdown</kbd> and <kbd>ifup</kbd> commands on each node:</p>
+<pre>    <strong># ifdown --all; ifup --all</strong></pre>
+<p>For more information on configuring network interfaces, please refer to the Ubuntu man page at the following URL: <a href="http://manpages.ubuntu.com/manpages/xenial/man5/interfaces.5.html"><span class="URLPACKT">http://manpages.ubuntu.com/manpages/xenial/man5/interfaces.5.html</span></a></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Initial steps</h1>
+                </header>
+            
+            <article>
+                
+<p>Before we can install OpenStack, some work must be done to prepare each system for a successful installation.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Permissions</h1>
+                </header>
+            
+            <article>
+                
+<p>OpenStack services can be installed either as a root user or as a user with <kbd>sudo</kbd> permissions. The latter may require the user to be added to the <kbd>sudoers</kbd> file on each host. For tips on configuring <kbd>sudoers</kbd>, please visit the following URL: <a href="https://help.ubuntu.com/community/RootSudo">https://help.ubuntu.com/community/RootSudo.</a></p>
+<div class="packt_infobox">For this installation, all commands should be run as the root user unless specified otherwise.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring the OpenStack repository</h1>
+                </header>
+            
+            <article>
+                
+<p>When installing versions of OpenStack that are newer than what the operating system shipped with, Ubuntu uses the Ubuntu Cloud Archive (UCA). To enable the Cloud Archive repository, update the <kbd>apt</kbd> cache and download and install the <kbd>software-properties-common</kbd> package on all hosts:</p>
+<pre># apt update; apt install software-properties-common</pre>
+<p>Once installed, the OpenStack Pike repository should be added as an apt source on all hosts:</p>
+<pre># add-apt-repository cloud-archive:pike</pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Upgrading the system</h1>
+                </header>
+            
+            <article>
+                
+<p>Before installing OpenStack, it is imperative that the kernel and other system packages on each node be upgraded to the latest version provided by Ubuntu for the 16.04 LTS release using the Cloud Archive. Issue the following <kbd>apt</kbd> commands on each node:</p>
+<pre>    # apt update<br/>    # apt dist-upgrade</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Setting the hostnames</h1>
+                </header>
+            
+            <article>
+                
+<p>Before installing OpenStack, ensure that each node in the environment has been configured with its proper hostname. Use the <kbd>hostnamectl</kbd> command on each host to set the hostname accordingly:</p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td style="width: 163.924px">
+<p class="CDPAlignCenter CDPAlign"><strong>Host</strong></p>
+</td>
+<td style="width: 661.076px">
+<p class="CDPAlignCenter CDPAlign"><strong>Command</strong></p>
+</td>
+</tr>
+<tr>
+<td style="width: 163.924px">
+<p><kbd>controller01</kbd></p>
+</td>
+<td style="width: 661.076px">
+<p><kbd>hostnamectl set-hostname controller01</kbd></p>
+</td>
+</tr>
+<tr>
+<td style="width: 163.924px">
+<p><kbd>compute01</kbd></p>
+</td>
+<td style="width: 661.076px">
+<p><kbd>hostnamectl set-hostname compute01</kbd></p>
+</td>
+</tr>
+<tr>
+<td style="width: 163.924px">
+<p><kbd>compute02</kbd></p>
+</td>
+<td style="width: 661.076px">
+<p><kbd>hostnamectl set-hostname compute02</kbd></p>
+</td>
+</tr>
+<tr>
+<td style="width: 163.924px">
+<p><kbd>compute03</kbd></p>
+</td>
+<td style="width: 661.076px">
+<p><kbd>hostnamectl set-hostname compute03</kbd></p>
+</td>
+</tr>
+<tr>
+<td style="width: 163.924px">
+<p><kbd>snat01</kbd></p>
+</td>
+<td style="width: 661.076px">
+<p><kbd>hostnamectl set-hostname snat01</kbd></p>
+</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>To simplify communication between hosts, it is recommended that DNS or a local name resolver be used to resolve hostnames. Using a text editor, update the <kbd>/etc/hosts</kbd> file on each node to include the management IP address and hostname of all nodes:</p>
+<pre>10.10.0.100 controller01.learningneutron.com controller01<br/>10.10.0.101 compute01.learningneutron.com compute01<br/>10.10.0.102 compute02.learningneutron.com compute02<br/>10.10.0.103 compute03.learningneutron.com compute03<br/>10.10.0.104 snat01.learningneutron.com snat01 </pre>
+<p>On each node, use the <kbd>hostname -f</kbd> command to verify that the fully qualified host name is properly reflected:</p>
+<pre>root@controller01:~# hostname -f<br/>controller01.learningneutron.com </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing and configuring Network Time Protocol</h1>
+                </header>
+            
+            <article>
+                
+<p>A time synchronization program such as Network Time Protocol (<strong>NTP</strong>) is a requirement, as OpenStack services depend on consistent and synchronized time between hosts.</p>
+<p class="mce-root"/>
+<p>For Nova Compute, having synchronized time helps to avoid problems when scheduling VM launches on <kbd>compute</kbd> nodes. Other services can experience similar issues when the time is not synchronized.</p>
+<p>To install <kbd>chrony</kbd>, an NTP implementation, issue the following commands on all nodes in the environment:</p>
+<pre> # apt install chrony</pre>
+<p>On the <kbd>controller</kbd> node, add the following line to the <kbd>/etc/chrony/chrony.conf</kbd> file to allow other hosts in the environment to synchronize their time against the controller:</p>
+<pre>allow 10.10.0.0/24 </pre>
+<p>On the other nodes, comment out any <kbd>pool</kbd> lines in the <kbd>/etc/chrony/chrony.conf</kbd> file and add the following line to direct them to synchronize their time against the controller:</p>
+<pre># pool 2.debian.pool.ntp.org offline iburst<br/>server controller01 iburst </pre>
+<p>On each host, restart the <kbd>chrony</kbd> service:</p>
+<pre># systemctl restart chrony</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Rebooting the system</h1>
+                </header>
+            
+            <article>
+                
+<p>Reboot each host before proceeding with the installation:</p>
+<pre># reboot</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing OpenStack</h1>
+                </header>
+            
+            <article>
+                
+<p>The steps in this section document the installation of OpenStack services including Keystone, Glance, Nova, and Horizon on a single controller and three <kbd>compute</kbd> nodes. Neutron, the OpenStack Networking service, will be installed in the next chapter.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Prepare for the configuration of various services by installing the OpenStack command-line client, <kbd>python-openstackclient</kbd>, on the <kbd>controller</kbd> node with the following command:</p>
+<pre> # apt install python-openstackclient</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing and configuring the MySQL database server</h1>
+                </header>
+            
+            <article>
+                
+<p>On the <kbd>controller</kbd> node, use <kbd>apt</kbd> to install the MySQL database service and related Python packages:</p>
+<pre> # apt install mariadb-server python-pymysql</pre>
+<p>If prompted, set the password to <kbd>openstack</kbd>.</p>
+<div class="packt_infobox">Insecure passwords are used throughout the book to simplify the configuration and demonstration of concepts and are not recommended for production environments. Visit <span class="URLPACKT"><a href="http://www.strongpasswordgenerator.org">http://www.strongpasswordgenerator.org </a></span>to generate strong passwords for your environment.</div>
+<p>Once installed, create and edit the <kbd>/etc/mysql/mariadb.conf.d/99-openstack.cnf</kbd> configuration file. Add the <kbd>[mysqld]</kbd> block and the <kbd>bind-address</kbd> definition. Doing so will allow connectivity to MySQL from other hosts in the environment. The value for <kbd>bind-address</kbd> should be the management IP of the controller node:</p>
+<pre>[mysqld]<br/>bind-address = 10.10.0.100 </pre>
+<p>In addition to adding the <kbd>bind-address</kbd> definition, add the following options to the <kbd>[mysqld]</kbd>section as well:</p>
+<pre>default-storage-engine = innodb<br/>innodb_file_per_table = on<br/>max_connections = 4096<br/>collation-server = utf8_general_ci<br/>character-set-server = utf8</pre>
+<p class="mce-root"/>
+<p>Save and close the file, then restart the <kbd>mysql</kbd> service:</p>
+<pre>    <strong># systemctl restart mysql</strong></pre>
+<p>The MySQL secure installation utility is used to build the default MySQL database and to set a password for the MySQL root user. The following command will begin the MySQL installation and configuration process:</p>
+<pre>    <strong># mysql_secure_installation</strong></pre>
+<p>During the MySQL installation process, you will be prompted to enter a password and change various settings. The default root password may not yet be set. When prompted, set a root password of <kbd>openstack</kbd>. A more secure password suitable for your environment is highly recommended.</p>
+<p>Answer <kbd>[Y]es</kbd> to the remaining questions to exit the configuration process. At this point, the MySQL server has been successfully installed on the <kbd>controller</kbd> node.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing and configuring the messaging server</h1>
+                </header>
+            
+            <article>
+                
+<p><strong>Advanced Message Queue Protocol</strong> (<strong>AMQP</strong>) is the messaging technology powering most OpenStack-based clouds. Components such as Nova, Cinder, and Neutron communicate internally and between one another using a message bus. The following are instructions for installing RabbitMQ, an AMQP broker.</p>
+<p>On the <kbd>controller</kbd> node, install the messaging server:</p>
+<pre><strong>    # apt install rabbitmq-server</strong></pre>
+<p>Add a user to RabbitMQ named <kbd>openstack</kbd> with a password of <kbd>rabbit</kbd> as shown in the following command:</p>
+<pre><strong>    # rabbitmqctl add_user openstack rabbit </strong></pre>
+<p>Set RabbitMQ permissions to allow configuration, read, and write access for the <kbd>openstack</kbd> user:</p>
+<pre>    <strong># rabbitmqctl set_permissions openstack ".*" ".*" ".*"</strong>  </pre>
+<p>At this point, the installation and configuration of RabbitMQ is complete.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing and configuring memcached</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>memcached</kbd> service is used to cache common data and objects in RAM to reduce the numbers of times they are read from disk and it is used by various OpenStack services.</p>
+<p>On the <kbd>controller</kbd> node, install <kbd>memcached</kbd>:</p>
+<pre>    <strong># apt install memcached python-memcache</strong></pre>
+<p>Edit the <kbd>/etc/memcached.conf</kbd> file and replace the default listener address with the IP address of the <kbd>controller</kbd> node:</p>
+<ul>
+<li>From: <kbd>127.0.0.1</kbd></li>
+<li>To: <kbd>10.10.0.100</kbd></li>
+</ul>
+<p>Restart the <kbd>memcached</kbd> service:</p>
+<pre>    <strong># systemctl restart memcached</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing and configuring the identity service</h1>
+                </header>
+            
+            <article>
+                
+<p>Keystone is the identity service for OpenStack and is used to authenticate and authorize users and services in the OpenStack cloud. Keystone should only be installed on the <kbd>controller</kbd> node and will be covered in the following sections.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring the database</h1>
+                </header>
+            
+            <article>
+                
+<p>Using the <kbd>mysql</kbd> client, create the Keystone database and associated user:</p>
+<pre>    # mysql</pre>
+<p>Enter the following SQL statements at the <kbd>MariaDB [(none)] &gt;</kbd> prompt:</p>
+<pre>CREATE DATABASE keystone;<br/>GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'localhost' IDENTIFIED BY 'keystone';<br/>GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'%' IDENTIFIED BY 'keystone';<br/>quit;</pre>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing Keystone</h1>
+                </header>
+            
+            <article>
+                
+<p>Since the Kilo release of OpenStack, the Keystone project has used the Apache HTTP server with <kbd>mod_wsgi</kbd> to serve requests to the Identity API on ports <kbd>5000</kbd> and <kbd>35357</kbd>.</p>
+<p>Run the following command to install the Keystone packages on the <kbd>controller</kbd> node:</p>
+<pre>    # apt install keystone apache2 libapache2-mod-wsgi</pre>
+<p>Update the <kbd>[database]</kbd> section in the <kbd>/etc/keystone/keystone.conf</kbd> file to configure Keystone to use MySQL as its database. In this installation, the username and password will be <kbd>keystone.</kbd> You will need to overwrite the existing connection string with the following value on one line:</p>
+<pre>[database]<br/>...<br/>connection = mysql+pymysql://keystone:keystone@controller01/keystone </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring tokens and drivers</h1>
+                </header>
+            
+            <article>
+                
+<p>Keystone supports customizable token providers that can be defined within the <kbd>[token]</kbd> section of the configuration file. Keystone provides UUID, PKI, and Fernet token providers. In this installation, the Fernet token provider will be used. Update the <kbd>[token]</kbd> section in the <kbd>/etc/keystone/keystone.conf</kbd> file accordingly:</p>
+<pre>[token]<br/>...<br/>provider = fernet </pre>
+<p>Populate the Keystone database using the <kbd>keystone-manage</kbd> utility:</p>
+<pre>    <strong># su -s /bin/sh -c "keystone-manage db_sync" keystone</strong></pre>
+<p>Initialize the Fernet key repositories with the following commands:</p>
+<pre><strong>    # keystone-manage fernet_setup<br/></strong><strong>     --keystone-user keystone --keystone-group keystone<br/></strong><strong>    # keystone-manage credential_setup<br/></strong><strong>     --keystone-user keystone --keystone-group keystone</strong></pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Bootstrap the Identity service</h1>
+                </header>
+            
+            <article>
+                
+<p>Using the <kbd>keystone-manage</kbd> command, bootstrap the service catalog with Identity endpoints. In this environment, the password for the <kbd>admin</kbd> user will be <kbd>openstack</kbd>:</p>
+<pre><strong>    # keystone-manage bootstrap --bootstrap-password openstack <br/></strong><strong>      --bootstrap-admin-url http://controller01:35357/v3/ <br/></strong><strong>      --bootstrap-internal-url http://controller01:5000/v3/<br/></strong><strong>      --bootstrap-public-url http://controller01:5000/v3/ <br/></strong><strong>      --bootstrap-region-id RegionOne</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring the Apache HTTP server</h1>
+                </header>
+            
+            <article>
+                
+<p>Using <kbd>sed</kbd>, add the <kbd>ServerName</kbd> option to the Apache configuration file that references the short name of the <kbd>controller</kbd> node:</p>
+<pre><strong>    # sed -i '1s/^/ServerName controller01\n&amp;/' /etc/apache2/apache2.conf</strong></pre>
+<p>Restart the Apache web service for the changes to take effect:</p>
+<pre><strong>    # systemctl restart apache2</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Setting environment variables</h1>
+                </header>
+            
+            <article>
+                
+<p>To avoid having to provide credentials every time you run an OpenStack command, create a file containing environment variables that can be loaded at any time. The following commands will create a file named <kbd>adminrc</kbd> containing environment variables for the <kbd>admin</kbd> user:</p>
+<pre><strong>    # cat &gt;&gt; ~/adminrc &lt;&lt;EOF<br/></strong><strong>     export OS_PROJECT_DOMAIN_NAME=default<br/></strong><strong>     export OS_USER_DOMAIN_NAME=default<br/></strong><strong>     export OS_PROJECT_NAME=admin<br/></strong><strong>     export OS_USERNAME=admin<br/></strong><strong>     export OS_PASSWORD=openstack<br/></strong><strong>     export OS_AUTH_URL=http://controller01:35357/v3<br/></strong><strong>     export OS_IDENTITY_API_VERSION=3<br/>     </strong><strong>EOF</strong></pre>
+<p>The following commands will create a file named <kbd>demorc</kbd> containing environment variables for the <kbd>demo</kbd> user:</p>
+<pre><strong>    # cat &gt;&gt; ~/demorc &lt;&lt;EOF<br/></strong><strong>     export OS_PROJECT_DOMAIN_NAME=default<br/></strong><strong>     export OS_USER_DOMAIN_NAME=default<br/></strong><strong>     export OS_PROJECT_NAME=demo<br/></strong><strong>     export OS_USERNAME=demo<br/></strong><strong>     export OS_PASSWORD=demo<br/></strong><strong>     export OS_AUTH_URL=http://controller01:35357/v3<br/></strong><strong>     export OS_IDENTITY_API_VERSION=3<br/>     </strong><strong>EOF</strong></pre>
+<p>Use the <kbd>source</kbd> command to load the environment variables from the file:</p>
+<pre>    <strong># source ~/adminrc</strong></pre>
+<p>The <kbd>demo</kbd> user doesn't exist yet but will be created in the following sections.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Defining services and API endpoints in Keystone</h1>
+                </header>
+            
+            <article>
+                
+<p>Each OpenStack service that is installed should be registered with the Identity service so that its location on the network can be tracked. There are two commands involved in registering a service:</p>
+<ul>
+<li><kbd>openstack service create</kbd>: Describes the service that is being created</li>
+<li><kbd>openstack endpoint create</kbd>: Associates API endpoints with the service</li>
+</ul>
+<p>The OpenStack Identity service and endpoint were created during the bootstrap process earlier in this chapter. You can verify the objects were created using the <kbd>openstack endpoint list</kbd> and <kbd>openstack service list</kbd> commands as shown here:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/d7daca5f-6761-4c07-ab18-3ad03b9ce9b4.png" style="width:28.58em;height:6.92em;"/></div>
+<p>The IDs of resources within an OpenStack cloud are unique and will vary between environments, so don't worry if yours don't match those shown here:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/8b9c711f-033a-458b-a1e2-6635b1493603.png" style="width:66.75em;height:9.33em;"/></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Defining users, projects, and roles in Keystone</h1>
+                </header>
+            
+            <article>
+                
+<p>Once the installation of Keystone is complete, it is necessary to set up domains, users, projects, roles, and endpoints that will be used by various OpenStack services.</p>
+<div class="packt_infobox">In this installation, the <kbd>default</kbd> domain will be used.</div>
+<p>In Keystone, a project (or tenant) represents a logical group of users to which resources are assigned. The terms project and tenant are used interchangeably throughout various OpenStack services, but project is the preferred term. Resources are assigned to projects and not directly to users. An <kbd>admin</kbd> project, user, and role were created during the Keystone bootstrap process. Create a <kbd>demo</kbd> project for regular users and a <kbd>service</kbd> project for other OpenStack services to use:</p>
+<pre>    <strong># openstack project create --description "Service Project" service<br/></strong><strong>    # openstack project create --description "Demo Project" demo</strong></pre>
+<p>Next, create a regular user called <kbd>demo</kbd>. Specify a secure password for the <kbd>demo</kbd> user:</p>
+<pre><strong>    # openstack user create demo --password=demo</strong></pre>
+<p>Create the <kbd>user</kbd> role:</p>
+<pre><strong>    # openstack role create user</strong></pre>
+<p>Lastly, add the <kbd>user</kbd> role to the <kbd>demo</kbd> user in the <kbd>demo</kbd> project:</p>
+<pre><strong>    # openstack role add --project demo --user demo user</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing and configuring the image service</h1>
+                </header>
+            
+            <article>
+                
+<p>Glance is the image service for OpenStack. It is responsible for storing images and snapshots of instances, and for providing images to <kbd>compute</kbd> nodes when instances are created.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring the database</h1>
+                </header>
+            
+            <article>
+                
+<p>Using the <kbd>mysql</kbd> client, create the Glance database and associated user:</p>
+<pre><strong>    # mysql</strong></pre>
+<p class="mce-root"/>
+<p>Enter the following SQL statements at the <kbd>MariaDB [(none)] &gt;</kbd> prompt:</p>
+<pre>CREATE DATABASE glance;<br/>GRANT ALL PRIVILEGES ON glance.* TO 'glance'@'localhost' IDENTIFIED BY 'glance';<br/>GRANT ALL PRIVILEGES ON glance.* TO 'glance'@'%' IDENTIFIED BY 'glance';<br/>quit; </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Defining the Glance user, service, and endpoints</h1>
+                </header>
+            
+            <article>
+                
+<p>Using the <kbd>openstack</kbd> client, create the Glance user:</p>
+<pre><strong>    # openstack user create glance --domain default --password=glance</strong></pre>
+<p>Add the <kbd>admin</kbd> role to the <kbd>glance</kbd> user in the <kbd>service</kbd> project:</p>
+<pre><strong>    # openstack role add --project service --user glance admin</strong></pre>
+<p>Next, create the <kbd>glance</kbd> service entity:</p>
+<pre><strong>    # openstack service create --name glance \<br/>    </strong><strong>--description "OpenStack Image" image</strong></pre>
+<p>Lastly, create the Glance endpoints:</p>
+<pre><strong>    # openstack endpoint create --region RegionOne \<br/>    </strong><strong>image public http://controller01:9292<br/>    </strong><strong># openstack endpoint create --region RegionOne \<br/>    </strong><strong>image internal http://controller01:9292<br/>    </strong><strong># openstack endpoint create --region RegionOne \<br/>    </strong><strong>image admin http://controller01:9292</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing and configuring Glance components</h1>
+                </header>
+            
+            <article>
+                
+<p>To install Glance, run the following command from the <kbd>controller</kbd> node:</p>
+<pre><strong>    # apt install glance</strong></pre>
+<p>Update the database connection string in the <kbd>glance-api</kbd> configuration file found at <kbd>/etc/glance/glance-api.conf</kbd> to use the MySQL Glance database:</p>
+<pre>[database]<br/>...<br/>connection = mysql+pymysql://glance:glance@controller01/glance</pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Repeat the process for the <kbd>glance-registry</kbd> configuration file found at <kbd>/etc/glance/glance-registry.conf</kbd>:</p>
+<pre>[database]<br/>...<br/>connection = mysql+pymysql://glance:glance@controller01/glance </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring authentication settings</h1>
+                </header>
+            
+            <article>
+                
+<p>Both the <kbd>glance-api</kbd> and <kbd>glance-registry</kbd> service configuration files must be updated with the appropriate authentication settings before the services will operate.</p>
+<p>Update the <kbd>[keystone_authtoken]</kbd> settings in the <kbd>glance-api</kbd> configuration file found at <kbd>/etc/glance/glance-api.conf</kbd>:</p>
+<pre>[keystone_authtoken]<br/>...<br/>auth_uri = http://controller01:5000<br/>auth_url = http://controller01:35357<br/><span class="MsoHyperlink">memcached_servers = controller01:11211<br/></span>auth_type = password<br/>user_domain_name = default<br/>project_domain_name = default<br/>project_name = service<br/>username = glance<br/>password = glance </pre>
+<p>Repeat the process for the <kbd>glance-registry</kbd> configuration file found at <kbd>/etc/glance/glance-registry.conf</kbd>:</p>
+<pre>[keystone_authtoken]<br/>...<br/>auth_uri = http://controller01:5000<br/>auth_url = http://controller01:35357<br/>memcached_servers = controller01:11211<br/>auth_type = password<br/>user_domain_name = default<br/>project_domain_name = default<br/>project_name = service<br/>username = glance<br/>password = glance</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring additional settings</h1>
+                </header>
+            
+            <article>
+                
+<p>Update the <kbd>glance-api</kbd> configuration file found at <kbd>/etc/glance/glance-api.conf</kbd> with the following additional settings:</p>
+<pre>[paste_deploy]<br/>...<br/>flavor = keystone<br/><br/>[glance_store]<br/>...<br/>stores = file,http<br/>default_store = file<br/>filesystem_store_datadir = /var/lib/glance/images  </pre>
+<p>Next, update the <kbd>glance-registry</kbd> configuration file found at <kbd>/etc/glance/glance-registry.conf</kbd> with the following additional settings:</p>
+<pre>[paste_deploy]<br/>...<br/>flavor = keystone </pre>
+<p>When both files have been updated, populate the Glance database using the <kbd>glance-manage</kbd> utility:</p>
+<pre><strong># su -s /bin/sh -c "glance-manage db_sync" glance</strong></pre>
+<p>Lastly, restart the <kbd>Glance</kbd> services with the following command:</p>
+<pre><strong># systemctl restart glance-registry glance-api</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Verifying the Glance image service installation</h1>
+                </header>
+            
+            <article>
+                
+<p>Source the <kbd>adminrc</kbd> script to set or update the environment variables:</p>
+<pre><strong># source ~/adminrc</strong></pre>
+<p>To verify that Glance was installed and configured properly, download a test image from the internet and verify it can be uploaded to the image server:</p>
+<pre><strong>    # mkdir /tmp/images<br/>    </strong><strong># wget -P /tmp/images http://download.cirros-cloud.net/0.4.0/cirros-0.4.0-x86_64-disk.img</strong></pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Upload the image to Glance using the following command:</p>
+<pre>    <strong># openstack image create "cirros-0.4.0"<br/>    </strong><strong>--file /tmp/images/cirros-0.4.0-x86_64-disk.img<br/>    </strong><strong>--disk-format qcow2<br/>    --container-format bare<br/>    </strong><strong>--public</strong></pre>
+<p>Verify the image exists in Glance using the <kbd>openstack image list</kbd> command shown here:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/d9808b2c-5e0b-48c3-877c-260199e6a987.png" style="width:36.00em;height:8.00em;"/></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing additional images</h1>
+                </header>
+            
+            <article>
+                
+<p>The CirrOS image is limited in functionality and is recommended only for testing network connectivity and basic Compute services. Multiple vendors provide cloud-ready images for use with OpenStack, including the following:</p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td style="width: 36.9224%"><strong><span>Canonical - Ubuntu </span></strong></td>
+<td style="width: 62.2684%"><a href="http://cloud-images.ubuntu.com/">http://cloud-images.ubuntu.com/</a></td>
+</tr>
+<tr>
+<td style="width: 36.9224%"><strong><span>Red Hat - CentOS</span></strong></td>
+<td style="width: 62.2684%"><a href="http://cloud.centos.org/centos/">http://cloud.centos.org/centos/</a></td>
+</tr>
+</tbody>
+</table>
+<p>To install the Ubuntu 16.04 LTS image, download the file to <kbd>/tmp/images</kbd> and upload it to Glance:</p>
+<pre><strong>    # wget -P /tmp/images http://cloud-images.ubuntu.com/xenial/current/xenial-server-cloudimg-amd64-disk1.img</strong></pre>
+<p>Use the <kbd>openstack image create</kbd> command to upload the new image:</p>
+<pre>    <strong># openstack image create "ubuntu-xenial-16.04"<br/>    </strong><strong>--file /tmp/images/xenial-server-cloudimg-amd64-disk1.img<br/>    </strong><strong>--disk-format qcow2 --container-format bare<br/>    </strong><strong>--public</strong></pre>
+<p>Another look at the image list shows the new Ubuntu image is available for use:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/eea1c42a-47a3-429c-9910-4327fd092934.png" style="width:35.92em;height:8.08em;"/></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing and configuring the Compute service</h1>
+                </header>
+            
+            <article>
+                
+<p>OpenStack Compute is a collection of services that enable cloud operators and users to launch virtual machine instances. Most services run on the <kbd>controller</kbd> node, with the exception of the <kbd>nova-compute</kbd> service, which runs on the <kbd>compute</kbd> nodes and is responsible for launching the virtual machine instances on those nodes.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring the database</h1>
+                </header>
+            
+            <article>
+                
+<p>Using the <kbd>mysql</kbd> client on the <kbd>controller</kbd> node, create the Nova database(s) and associated user(s):</p>
+<pre>    <strong># mysql</strong></pre>
+<p>Enter the following SQL statements at the <kbd>MariaDB [(none)] &gt;</kbd> prompt:</p>
+<pre>CREATE DATABASE nova;<br/>CREATE DATABASE nova_api;<br/>CREATE DATABASE nova_cell0;<br/>GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'localhost' IDENTIFIED BY 'nova';<br/>GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'%' IDENTIFIED BY 'nova';<br/>GRANT ALL PRIVILEGES ON nova_api.* TO 'nova'@'localhost' IDENTIFIED BY 'nova';<br/>GRANT ALL PRIVILEGES ON nova_api.* TO 'nova'@'%' IDENTIFIED BY 'nova';<br/>GRANT ALL PRIVILEGES ON nova_cell0.* TO 'nova'@'localhost' IDENTIFIED BY 'nova';<br/>GRANT ALL PRIVILEGES ON nova_cell0.* TO 'nova'@'%' IDENTIFIED BY 'nova';<br/>quit;</pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Defining the Nova user, service, and endpoints</h1>
+                </header>
+            
+            <article>
+                
+<p>Source the <kbd>adminrc</kbd> credentials as shown here:</p>
+<pre>    <strong># source ~/adminrc</strong></pre>
+<p>Using the <kbd>openstack</kbd> client, create both the <kbd>nova</kbd> and <kbd>placement</kbd> users:</p>
+<pre>    <strong># openstack user create nova --domain default --password=nova<br/>    </strong><strong># openstack user create placement <br/></strong><strong>      --domain default --password=placement</strong></pre>
+<p>Add the <kbd>admin</kbd> role to the <kbd>nova</kbd> and <kbd>placement</kbd> users in the <kbd>service</kbd> project:</p>
+<pre>    <strong># openstack role add --project service --user nova admin<br/>    </strong><strong># openstack role add --project service --user placement admin</strong></pre>
+<p>Next, create the <kbd>compute</kbd> and <kbd>placement</kbd> service entities:</p>
+<pre>    <strong># openstack service create --name nova<br/>      </strong><strong>--description "OpenStack Compute" compute <br/></strong><strong>    # openstack service create --name placement<br/></strong><strong>      --description "Placement API" placement</strong></pre>
+<p>Lastly, create the <kbd>compute</kbd> and <kbd>placement</kbd> endpoints:</p>
+<pre>    <strong># openstack endpoint create --region RegionOne <br/></strong><strong>      compute public http://controller01:8774/v2.1<br/></strong><strong>    # openstack endpoint create --region RegionOne <br/></strong><strong>      compute internal http://controller01:8774/v2.1<br/></strong><strong>    # openstack endpoint create --region RegionOne <br/></strong><strong>      compute admin http://controller01:8774/v2.1<br/></strong><strong>    # openstack endpoint create --region RegionOne <br/></strong><strong>      placement public http://controller01:8778<br/></strong><strong>    # openstack endpoint create --region RegionOne <br/></strong><strong>      placement internal http://controller01:8778<br/></strong><strong>    # openstack endpoint create --region RegionOne <br/></strong><strong>      placement admin http://controller01:8778</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing and configuring controller node components</h1>
+                </header>
+            
+            <article>
+                
+<p>Execute the following command on the <kbd>controller</kbd> node to install the various <kbd>Compute</kbd> services used by the controller:</p>
+<pre>    <strong># apt install nova-api nova-conductor nova-consoleauth<br/>      </strong><strong>nova-novncproxy nova-scheduler nova-placement-api</strong></pre>
+<p>Update the <kbd>[database]</kbd> and <kbd>[api_database]</kbd> sections of the Nova configuration file found at <kbd>/etc/nova/nova.conf</kbd> with the following database connection strings:</p>
+<pre>[database]<br/>...<br/>connection = mysql+pymysql://nova:nova@controller01/nova </pre>
+<pre>[api_database]<br/>...<br/>connection = mysql+pymysql://nova:nova@controller01/nova_api </pre>
+<p>Update the <kbd>[DEFAULT]</kbd> section of the Nova configuration file to configure Nova to use the RabbitMQ message broker:</p>
+<pre>[DEFAULT]<br/>...<br/>transport_url = rabbit://openstack:rabbit@controller01 </pre>
+<p>The VNC Proxy is an OpenStack component that allows users to access their instances through VNC clients. VNC stands for <strong>Virtual Network Computing</strong>, and is a graphical desktop sharing system that uses the Remote Frame Buffer protocol to control another computer over a network. The controller must be able to communicate with <kbd>compute</kbd> nodes for VNC services to work properly through the Horizon dashboard or other VNC clients.</p>
+<p>Update the <kbd>[vnc]</kbd> section of the Nova configuration file to configure the appropriate VNC settings for the <kbd>controller</kbd> node:</p>
+<pre>[vnc]<br/>...<br/>enabled = true<br/>vncserver_listen = 10.10.0.100<br/>vncserver_proxyclient_address = 10.10.0.100 </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring authentication settings</h1>
+                </header>
+            
+            <article>
+                
+<p>Update the Nova configuration file at <kbd>/etc/nova/nova.conf</kbd> with the following Keystone-related attribute:</p>
+<pre>[api]<br/>...<br/>auth_strategy= keystone<br/><br/>[keystone_authtoken]<br/>...<br/>auth_uri = http://controller01:5000<br/>auth_url = http://controller01:35357<br/>memcached_servers = controller01:11211<br/>auth_type = password<br/>project_domain_name = Default<br/>user_domain_name = Default<br/>project_name = service<br/>username = nova<br/>password = nova </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Additional controller tasks</h1>
+                </header>
+            
+            <article>
+                
+<p>Update the Nova configuration file at <kbd>/etc/nova/nova.conf</kbd> to specify the location of the Glance API:</p>
+<pre>[glance]<br/>...<br/>api_servers = http://controller01:9292 </pre>
+<p>Update the Nova configuration file to set the lock file path for Nova services and specify the IP address of the <kbd>controller</kbd> node:</p>
+<pre>[oslo_concurrency]<br/>...<br/>lock_path = /var/lib/nova/tmp </pre>
+<pre>[DEFAULT]<br/>...<br/>my_ip = 10.10.0.100 </pre>
+<p>Configure the <kbd>[placement]</kbd> section within <kbd>/etc/nova/nova.conf</kbd>. Be sure to comment out any existing <kbd>os_region_name</kbd> configuration:</p>
+<pre>[placement]<br/>...<br/>os_region_name = RegionOne<br/>auth_url = http://controller01:35357/v3<br/>auth_type = password<br/>project_domain_name = Default<br/>user_domain_name = Default<br/>project_name = service<br/>username = placement<br/>password = placement</pre>
+<p>Populate the <kbd>nova-api</kbd> database using the <kbd>nova-manage</kbd> utility:</p>
+<pre>    <strong># su -s /bin/sh -c "nova-manage api_db sync" nova</strong></pre>
+<p>Register the <kbd>cell0</kbd> database using the <kbd>nova-manage</kbd> utility:</p>
+<pre>    <strong># su -s /bin/sh -c "nova-manage cell_v2 map_cell0" nova</strong></pre>
+<p>Create the <kbd>cell1</kbd> cell:</p>
+<pre>    <strong># su -s /bin/sh -c "nova-manage cell_v2 create_cell<br/>      </strong><strong>--name=cell1 --verbose" nova</strong> </pre>
+<p>Populate the <kbd>nova</kbd> database using the <kbd>nova-manage</kbd> utility:</p>
+<pre>    <strong># su -s /bin/sh -c "nova-manage db sync" nova</strong></pre>
+<p>Lastly, restart the controller-based Compute services for the changes to take effect:</p>
+<pre>    <strong># systemctl restart nova-api nova-consoleauth nova-scheduler </strong><strong>nova-conductor nova-novncproxy</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing and configuring compute node components</h1>
+                </header>
+            
+            <article>
+                
+<p>Once the <kbd>Compute</kbd> services have been configured on the <kbd>controller</kbd> node, at least one other host must be configured as a <kbd>compute</kbd> node. The <kbd>compute</kbd> node receives requests from the <kbd>controller</kbd> node to host virtual machine instances.</p>
+<p>On the <kbd>compute</kbd> nodes, install the <kbd>nova-compute</kbd> package and related packages. These packages provide virtualization support services to the <kbd>compute</kbd> node:</p>
+<pre>    <strong># apt install nova-compute</strong></pre>
+<p>Update the Nova configuration file at <kbd>/etc/nova/nova.conf</kbd> on the <kbd>compute</kbd> nodes with the following Keystone-related settings:</p>
+<pre>[api]<br/>...<br/>auth_strategy= keystone<br/><br/>[keystone_authtoken]<br/>...<br/>auth_uri = http://controller01:5000<br/>auth_url = http://controller01:35357<br/>memcached_servers = controller01:11211<br/>auth_type = password<br/>project_domain_name = Default<br/>user_domain_name = Default<br/>project_name = service<br/>username = nova<br/>password = nova </pre>
+<p>Next, update the <kbd>[DEFAULT]</kbd> section of the Nova configuration file to configure Nova to use the RabbitMQ message broker:</p>
+<pre>[DEFAULT]<br/>...<br/>transport_url = rabbit://openstack:rabbit@controller01 </pre>
+<p>Then, update the Nova configuration file to provide remote console access to instances through a proxy on the <kbd>controller</kbd> node. The remote console is accessible through the Horizon dashboard. The IP configured as <kbd>my_ip</kbd> should be the respective management IP of each <kbd>compute</kbd> node.</p>
+<p><kbd>Compute01</kbd>:</p>
+<pre>[DEFAULT]<br/>...<br/>my_ip = 10.10.0.101<br/><br/>[vnc]<br/>...<br/>vncserver_proxyclient_address = 10.10.0.101<br/>enabled = True<br/>vncserver_listen = 0.0.0.0<br/>novncproxy_base_url = http://controller01:6080/vnc_auto.html </pre>
+<p><kbd>Compute02</kbd>:</p>
+<pre>[DEFAULT]<br/>...<br/>my_ip = 10.10.0.102<br/><br/>[vnc]<br/>...<br/>vncserver_proxyclient_address = 10.10.0.102<br/>enabled = True<br/>vncserver_listen = 0.0.0.0<br/>novncproxy_base_url = http://controller01:6080/vnc_auto.html </pre>
+<p><kbd>Compute03</kbd>:</p>
+<pre>[DEFAULT]<br/>...<br/>my_ip = 10.10.0.103<br/><br/>[vnc]<br/>...<br/>vncserver_proxyclient_address = 10.10.0.103<br/>enabled = True<br/>vncserver_listen = 0.0.0.0<br/>novncproxy_base_url = http://controller01:6080/vnc_auto.html </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Additional compute tasks</h1>
+                </header>
+            
+            <article>
+                
+<p>Update the Nova configuration file at <kbd>/etc/nova/nova.conf</kbd> to specify the location of the Glance API:</p>
+<pre>[glance]<br/>...<br/>api_servers = http://controller01:9292 </pre>
+<p>Update the Nova configuration file to set the lock file path for <kbd>Nova</kbd> services:</p>
+<pre>[oslo_concurrency]<br/>...<br/>lock_path = /var/lib/nova/tmp </pre>
+<p>Configure the <kbd>[placement]</kbd> section within <kbd>/etc/nova/nova.conf</kbd>. Be sure to comment out any existing <kbd>os_region_name</kbd> configuration:</p>
+<pre>[placement]<br/>...<br/>os_region_name = RegionOne<br/>auth_url = http://controller01:35357/v3<br/>auth_type = password<br/>project_domain_name = Default<br/>user_domain_name = Default<br/>project_name = service<br/>username = placement<br/>password = placement </pre>
+<p>Restart the <kbd>nova-compute</kbd> service on all <kbd>compute</kbd> nodes:</p>
+<pre>    <strong># systemctl restart nova-compute</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Adding the compute node(s) to the cell database</h1>
+                </header>
+            
+            <article>
+                
+<p>When compute services are started for the first time on a <kbd>compute</kbd> node, the node is registered via the Nova Placement API. To verify the <kbd>compute</kbd> node(s) are registered, use the <kbd>openstack compute service list</kbd> command as shown here:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/92a4b63f-82d2-4095-a36c-382dbab74ddc.png" style="width:45.50em;height:11.58em;"/></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing the OpenStack Dashboard</h1>
+                </header>
+            
+            <article>
+                
+<p>The OpenStack Dashboard, also known as Horizon, provides a web-based user interface to OpenStack services including Compute, Networking, Storage, and Identity, among others.</p>
+<p>To add Horizon to the environment, install the following package on the <kbd>controller</kbd> node:</p>
+<pre>    <strong># apt install openstack-dashboard</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Updating the host and API version configuration</h1>
+                </header>
+            
+            <article>
+                
+<p>Edit the <kbd>/etc/openstack-dashboard/local_settings.py</kbd> file and change the <kbd>OPENSTACK_HOST</kbd> value from its default to the following:</p>
+<pre>OPENSTACK_HOST = "controller01" </pre>
+<p>Set the API versions with the following dictionary:</p>
+<pre>OPENSTACK_API_VERSIONS = {<br/>    "identity": 3,<br/>    "image": 2,<br/>    "volume": 2,<br/>}</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring Keystone settings</h1>
+                </header>
+            
+            <article>
+                
+<p>Edit the <kbd>/etc/openstack-dashboard/local_settings.py</kbd> file and replace the following Keystone-related configuration options with these values:</p>
+<pre>OPENSTACK_KEYSTONE_URL = "http://%s:5000/v3" % OPENSTACK_HOST 
+OPENSTACK_KEYSTONE_MULTIDOMAIN_SUPPORT = True 
+OPENSTACK_KEYSTONE_DEFAULT_DOMAIN = "Default" 
+OPENSTACK_KEYSTONE_DEFAULT_ROLE = "user" </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Modifying network configuration</h1>
+                </header>
+            
+            <article>
+                
+<p>The stock Horizon configuration enables certain network functionality that has not yet been implemented. As a result, you will experience errors in the dashboard that may impact usability. For now, disable all network functions in the dashboard by setting the following configuration:</p>
+<pre>OPENSTACK_NEUTRON_NETWORK = {<br/>    'enable_router': False,<br/>    'enable_quotas': False,<br/>    'enable_ipv6': False,<br/>    'enable_distributed_router': False,<br/>    'enable_ha_router': False,<br/>    'enable_lb': False,<br/>    'enable_firewall': False,<br/>    'enable_vpn': False,<br/>'enable_fip_topology_check': False,<br/>} </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Uninstalling default Ubuntu theme (optional)</h1>
+                </header>
+            
+            <article>
+                
+<p>By default, installations of the OpenStack Dashboard on Ubuntu include a theme that has been customized by Canonical. To remove the theme, update the <kbd>/etc/openstack-dashboard/local_settings.py</kbd> file and replace the <kbd>DEFAULT_THEME</kbd> value with <kbd>default</kbd> instead of <kbd>ubuntu</kbd>:</p>
+<pre>DEFAULT_THEME = 'default' </pre>
+<p>The examples in this book assume the default theme is in place.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Reloading Apache</h1>
+                </header>
+            
+            <article>
+                
+<p>Once the above changes have been made, reload the Apache web server configuration using the following command:</p>
+<pre>    <strong># systemctl reload apache2</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Testing connectivity to the dashboard</h1>
+                </header>
+            
+            <article>
+                
+<p>From a machine that has access to the management network of the <kbd>controller01</kbd> node, open the following URL in a web browser: <a href="http://controller01/horizon/"><span class="URLPACKT">http://controller01/horizon/.</span></a></p>
+<p>The API network is reachable from my workstation and the <kbd>/etc/hosts</kbd> file on my client workstation has been updated to include the same hostname-to-IP mappings configured earlier in this chapter.</p>
+<p>The following screenshot demonstrates a successful connection to the dashboard. The username and password were created in the <em>Defining users, projects, and roles in Keystone</em> section earlier in this chapter. In this installation, the domain is <kbd>Default</kbd>, the username is <kbd>admin,</kbd> and the password is <kbd>openstack</kbd>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Familiarizing yourself with the dashboard</h1>
+                </header>
+            
+            <article>
+                
+<p>Once you have successfully logged in, the dashboard defaults to the <span class="packt_screen">Identity </span>panel. Project-related tasks can be completed in the <span class="packt_screen">Project</span> panel, while users with the <kbd>admin</kbd> role will find an <span class="packt_screen">Admin</span> panel that allows for administrative tasks to be completed:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/4004c6df-de06-40d9-94c1-bd5b43c59395.png"/></div>
+<p>By navigating to the <span class="packt_screen">System Information</span> page within the <span class="packt_screen">Admin / System</span> panel, we can see services listed that correspond to those installed earlier in this chapter:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/a6c19155-c30e-4f8c-92db-2fd750a53567.png"/></p>
+<p>The OpenStack Dashboard allows users to make changes within any project for which they have permissions. The menu located to the right of the OpenStack logo is a drop-down menu that allows users to select the <span class="packt_screen">project</span> they'd like to work with:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/9832a490-2327-4046-847d-d0e0b528b299.png"/></div>
+<p>Only projects to which the user is assigned will be listed. If the user has the <kbd>admin</kbd> role, additional cloud-wide changes can be made within the <span class="packt_screen">Admin</span> panel. Using the Horizon dashboard to perform networking functions will be covered in later chapters.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>At this point in the installation, the OpenStack Identity, Image, Dashboard, and Compute services have been successfully deployed across the nodes of the cloud. The environment is not ready to host instances just yet, as OpenStack Networking services have not been installed or configured. If issues arise during the installation of services described in this chapter, be sure to check the log messages found in <kbd>/var/log/nova/</kbd>, <kbd>/var/log/glance/</kbd>, <kbd>/var/log/apache2/</kbd>, and <kbd>/var/log/keystone/</kbd> for assistance in troubleshooting. For additional information regarding the installation process, feel free to check out the documentation available the OpenStack website at the following URL: <a href="http://docs.openstack.org"><span class="URLPACKT">http://docs.openstack.org</span></a>.</p>
+<p>In the next chapter, we will begin the installation of Neutron networking services and discover additional information about the internal architecture of OpenStack Networking.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

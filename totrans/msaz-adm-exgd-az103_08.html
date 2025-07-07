@@ -1,0 +1,545 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring Azure Files and Implementing Azure Backup</h1>
+                </header>
+            
+            <article>
+                
+<p>In the previous chapter, we covered the <span>different ways of migrating large amounts of data to Azure using disks and Azure Data Box. We also covered how to configure an Azure <strong>Content Delivery Network</strong> (<strong>CDN</strong>) to cache static and dynamic content and deliver it more quickly to your users.</span></p>
+<p>This chapter proceeds with the last part of the <em>Implementing and Managing Storage</em> objective.<span> </span>In this chapter, we are going to cover how you can create Azure file share  and how to troubleshoot them. We are also going to look at the backup and restore capabilities in Azure. You will learn about Azure Backup and Azure Site Recovery, and we are going to perform a backup and restore operation for our Azure file share. </p>
+<p>The following topics will be covered in this chapter:</p>
+<ul>
+<li>Creating an Azure file share and Azure file share sync service</li>
+<li>Azure Backup</li>
+<li>Azure Site Recovery</li>
+<li>Performing a backup and restore operation</li>
+<li>Creating a Recovery Services vault</li>
+<li>Creating and configuring a backup policy</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Technical requirements</h1>
+                </header>
+            
+            <article>
+                
+<p>This chapter uses <span>Azure PowerShell</span><span> (<a href="https://docs.microsoft.com/en-us/powershell/azure/install-az-ps?view=azps-1.8.0">https://docs.microsoft.com/en-us/powershell/azure/install-az-ps?view=azps-1.8.0</a>) </span>for our examples.</p>
+<p class="mce-root"/>
+<p><span>The source code for this chapter can be downloaded from</span><span> <a href="https://github.com/PacktPublishing/Microsoft-Azure-Administrator-Exam-Guide-AZ-103/tree/master/Chapter06">https://github.com/PacktPublishing/Microsoft-Azure-Administrator-Exam-Guide-AZ-103/tree/master/Chapter06</a><a href="https://github.com/PacktPublishing/Microsoft-Azure-Administrator-Exam-Guide-AZ-103/tree/master/Chapter06">.</a></span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Azure file share and Azure file share sync service</h1>
+                </header>
+            
+            <article>
+                
+<p>Azure Files was briefly covered in <a href="82d030ea-5235-4278-9517-47cdefaabe22.xhtml">Chapter 4</a>, <em>Creating and Configuring Storage Accounts. </em>In this chapter, we are going to create and configure an Azure file share.</p>
+<p class="mce-root"><span>With Azure Files, you can create file shares in the cloud. You can access your files using the <strong>Server Message Block</strong> (<strong>SMB</strong>) protocol, which is an industry standard that can be used on Linux, Windows, and macOS devices. Azure Files can also be mounted as if it is a local drive on these same devices, and they can be cached for fast access on Windows Server using Azure File Sync.</span></p>
+<p>In the following section, we are going to create an Azure file share from the Azure portal.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating an Azure file share</h1>
+                </header>
+            
+            <article>
+                
+<p>To create an Azure file share, we first need to create a new storage account from the Azure portal. We created a storage account in <a href="82d030ea-5235-4278-9517-47cdefaabe22.xhtml">Chapter 4</a>,<a href="82d030ea-5235-4278-9517-47cdefaabe22.xhtml"/> <em>Creating and Configuring Storage Accounts.</em> In this demonstration, we are going to create one from the Azure portal as follows:</p>
+<ol>
+<li><span>Navigate to the Azure portal by opening </span><a href="https://portal.azure.com">https://portal.azure.com</a>.</li>
+<li>In the left menu, click <span class="packt_screen">+ Create a resource</span> | <span class="packt_screen">Storage</span> | <span class="packt_screen">Storage Account</span>.</li>
+<li>Add the following values:
+<ul>
+<li><strong>Subscription</strong>:<strong> </strong>Select the subscription where you want to create the storage account.</li>
+<li><strong>Resource group</strong>: Create a new one, and call it <kbd>PacktFileShareResourceGroup</kbd>.</li>
+<li><strong>Storage account name</strong>: <kbd>packtfileshare</kbd>.</li>
+<li><strong>Location</strong>: <span class="packt_screen">East US</span>.</li>
+<li><strong>Performance</strong>: <span class="packt_screen">Standard</span>.</li>
+<li><strong>Account type</strong>: <span class="packt_screen">StorageV2</span>.</li>
+<li><strong>Replication</strong>: Select <span class="packt_screen">Read-access geo-redundant Storage (RA-GRS)</span>. This will make six copies of the data distributed over different Azure regions. </li>
+<li class="CDPAlignLeft CDPAlign"><strong>Access tier</strong>: <span class="packt_screen">Hot</span>, because this data is going to be accessed frequently.</li>
+</ul>
+</li>
+</ol>
+<p style="padding-left: 60px">These values are shown in the following screenshot:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/daa4eb05-94e1-4b49-8f78-45c2540c20be.png" style="width:44.42em;height:43.92em;"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Creating a new storage account</div>
+<ol start="4">
+<li>Click <strong><span class="packt_screen">Review + create</span></strong>. After the review, click the <strong><span class="packt_screen">Create </span></strong>button.</li>
+<li>After creation, open the resource and you will be redirected to the overview blade of the storage account. In there, we can create our file share. In the left menu, under <strong><span class="packt_screen">File service</span></strong>, select <strong><span class="packt_screen">Files</span></strong>. And in the <span class="packt_screen">Files</span> blade, click <strong><span class="packt_screen">+ File share</span> </strong>in the top menu as shown in the following screenshot:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/b7cde747-8ec8-4707-be0f-8726500f6c1f.png"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Creating a new file share</div>
+<ol start="6">
+<li>Add the following values as shown in the following screenshot:
+<ul>
+<li><strong>Name</strong>: <kbd>packtfileshare</kbd></li>
+<li><strong>Quota</strong>: <kbd><kbd>10</kbd></kbd></li>
+</ul>
+</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/e3178fa0-ff49-44df-b3ae-a12788049651.png" style="width:19.92em;height:14.67em;"/></div>
+<div class="CDPAlignCenter CDPAlign packt_figref">Setting the file share properties</div>
+<ol start="7">
+<li>Click <strong><span class="packt_screen">Create</span></strong>.</li>
+<li>After creation, in the overview blade, click the context menu button. After that, select <span class="packt_screen">Connect </span>as follows:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/cf5ff279-5075-428f-99d6-292b43670697.png"/></div>
+<div class="mce-root CDPAlignCenter CDPAlign packt_figref"><span>Connect to the file share</span></div>
+<ol start="9">
+<li>A new blade will be opened with the details to connect to this file share from a <span class="packt_screen">Windows</span>, <span class="packt_screen">Linux</span>, and <span class="packt_screen">MacOS</span> machine <span>as shown in the following screenshot</span>:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/b8c9288a-2cbb-4a5b-956b-860c53773672.png" style="width:28.33em;height:45.50em;"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Connection information</div>
+<ol start="10">
+<li>Let's now connect this file share to our local computer using the command line prompt. Copy and paste the command highlighted in the preceding screenshot in a <span>command line prompt</span> window. When you run that command, the following output will be generated:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign packt_figref"><img src="assets/b6df1601-dd71-4e40-b7f5-54848fff2cd2.png"/><br/>
+<br/>
+Adding the drive to the local filesystem</div>
+<p>The drive is now added to your local filesystem.</p>
+<p>Now that we have created a file share and added it to our local machine, we can proceed with the Azure file share sync service.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Azure file share sync service</h1>
+                </header>
+            
+            <article>
+                
+<p>The Azure file share sync service is a service that can synchronize the data from on-premises file shares with Azure Files. This way, you can keep the flexibility, compatibility, and performance of an <span>on-premises file server, but also store a copy of all the data on the file share in Azure. You can use any protocol that's available on Windows Server to access your data locally, including <strong>Server Message Block</strong> (<strong>SMB</strong>), <strong>Network File System</strong> (<strong>NFS</strong>), and <strong>File Transfer Protocol over TLS</strong> (<strong>FTPS</strong>).</span></p>
+<p>In the next demonstration, we are going to configure Azure File Sync. For this, the following couple of things need to be in place:</p>
+<ul>
+<li>Windows Server. For this, I created a Windows Server 2016 VM in Azure. Make sure that you enable <strong>Remote Desktop</strong> (<strong>RDP</strong>) on the server.</li>
+</ul>
+<div class="packt_tip">Opening the RDP port for a virtual machine during creation is covered in <em>chapter 7: Creating and Configuring VMs for Windows and Linux</em><span>, in the "Deploying a Windows VM from the Azure portal" section.</span></div>
+<ul>
+<li>A storage account (this storage account needs to be created in one of the supported regions for Azure File Sync). You can refer to the following website for the available regions: <a href="https://docs.microsoft.com/en-us/azure/storage/files/storage-sync-files-planning#region-availability">https://docs.microsoft.com/en-us/azure/storage/files/storage-sync-files-planning#region-availability</a>.</li>
+<li>An Azure file share created in the same region as the storage account.</li>
+</ul>
+<p>Once the preceding resources are created, we can start with the creation of the Azure File Sync service in Azure and the installation of Azure File Sync on the Windows Server.</p>
+<p>First, we will create the <span>Azure File Sync service in Azure. Therefore, take the following steps:</span></p>
+<ol>
+<li class="CDPAlignLeft CDPAlign"><span>Navigate to the Azure portal by opening </span><a href="https://portal.azure.com">https://portal.azure.com</a>.</li>
+<li class="CDPAlignLeft CDPAlign">In the left menu, click<span> </span><strong>+ Create a resource</strong>, and <span>in the search box, type </span><kbd>Azure File Sync</kbd>. <span>Create a new service.</span></li>
+<li class="CDPAlignLeft CDPAlign">Add the following values:
+<ul>
+<li><strong>Name:</strong> <kbd><span>PacktFileSync</span></kbd>.</li>
+<li><strong>Subscription:</strong> Pick the same subscription as where the storage account and file share are created.</li>
+<li><strong>Resource group:</strong><span> </span>Pick the same subscription as where the storage account and file share are created.</li>
+<li><strong>Location:</strong> <span>Pick the same location as where the storage account and file share are created.</span></li>
+</ul>
+</li>
+</ol>
+<p style="padding-left: 60px"><span>These values are shown in the following screenshot:</span></p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/5d91487d-045d-4268-83a7-5f89545d9a0f.png" style="width:21.92em;height:27.25em;"/></div>
+<div class="CDPAlignCenter CDPAlign packt_figref"><span>Creating a file sync service<br/>
+<br/></span></div>
+<ol start="4">
+<li>Click <strong><span class="packt_screen">Create</span></strong>.</li>
+</ol>
+<ol start="5">
+<li>After deployment, open the Storage Sync Service<span> and click <strong><span class="packt_screen">+ Sync group</span></strong> in the top menu. We are going to create this group to connect the sync service to the file share as follows:</span></li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/26c448d4-bd8b-49ab-a606-5b5e343d1666.png"/></p>
+<div class="CDPAlignCenter CDPAlign packt_figref">Creating a sync group</div>
+<ol start="6">
+<li>Add the following values:
+<ul>
+<li><strong>Name</strong>: <kbd>packtsyncgroup</kbd>.</li>
+<li><strong>Subscription</strong>: Select the subscription where the storage account and file share are created.</li>
+<li><strong>Storage account</strong>: Select the storage account where the file share is created.</li>
+</ul>
+</li>
+</ol>
+<p style="padding-left: 60px"><span>These values are shown in the following screenshot:</span></p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/a7e5e3c2-3ec2-4fdc-81c8-9e63f8f32939.png" style="width:32.33em;height:39.75em;"/></div>
+<div class="CDPAlignCenter CDPAlign packt_figref">Configuring the sync group</div>
+<ol start="7">
+<li>RDP to the Windows Server and log in. We first need to disable <strong><span class="packt_screen">IE Enhanced Security Configuration</span></strong>. Open <span class="packt_screen"><strong>Server Manager</strong></span> | <span class="packt_screen"><strong>Local Server</strong></span> and disable it for both administrators and users.</li>
+<li>Download the Azure File Sync agent from the following website: <a href="https://www.microsoft.com/en-us/download/details.aspx?id=57159">https://www.microsoft.com/en-us/download/details.aspx?id=57159</a><a href="https://www.microsoft.com/en-us/download/details.aspx?id=57159">.</a></li>
+</ol>
+<ol start="9">
+<li>Install the agent on the server. Keep the default path to install the agent. In the next screen, enable<span> </span><strong><span class="packt_screen">Use the existing proxy settings configured on the server</span></strong> as shown in the following screenshot:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/589812d7-cbdf-49e0-b67f-e483b88eb7e7.png" style="width:38.67em;height:29.50em;"/></p>
+<div class="CDPAlignCenter CDPAlign packt_figref">Proxy Settings</div>
+<ol start="10">
+<li class="CDPAlignLeft CDPAlign">Click <span class="packt_screen">Next</span>.</li>
+<li class="CDPAlignLeft CDPAlign">Enable Windows updates and install the tool.</li>
+<li class="CDPAlignLeft CDPAlign">Once the tool is installed, open the installation folder, which will be <kbd>C:\Program Files\Azure\StorageSyncAgent</kbd>.</li>
+<li class="CDPAlignLeft CDPAlign">Run the <kbd>ServerRegistration</kbd> tool from the installation folder.</li>
+</ol>
+<ol start="14">
+<li class="CDPAlignLeft CDPAlign">Now, we can register the server. First, we need to sign in. Click the <span class="packt_screen">Sign In</span> button as follows:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/d4d44f7d-8d8f-4c48-afab-7c867ef4c57c.png" style="width:40.75em;height:24.50em;"/></p>
+<div class="CDPAlignCenter CDPAlign packt_figref">Selecting a Azure Environment</div>
+<ol start="15">
+<li>Log in using your Azure administrator credentials.</li>
+</ol>
+<ol start="16">
+<li>We can now <span>select t</span><span>he Storage Sync Service that we created in the Azure portal earlier. Therefore, you need to select the subscription, resource group, and</span> the <span>actual Storage Sync Service as follows:</span></li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/1edb35c0-790e-4583-abd6-d03f77c10590.png" style="width:44.00em;height:26.25em;"/></div>
+<div class="CDPAlignCenter CDPAlign packt_figref">Selecting a Storage Sync Service</div>
+<ol start="17">
+<li>Click <strong><span class="packt_screen">Register</span></strong>.</li>
+<li>After the registration is successful, there is a trust relationship established between the on-premises server and the Storage Sync Service in Azure. Click <strong><span class="packt_screen">OK</span></strong>.</li>
+</ol>
+<ol start="19">
+<li>Now, we need to go back to the sync service in the Azure portal to create an endpoint. Go to the <span>Storage Sync Service again and select the sync group that we created earlier. In the sync group settings blade, select <strong><span class="packt_screen">Add server endpoint</span></strong> in the top menu as follows:</span></li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/e4506c7d-56f7-4e7c-a205-5d366a4a7cce.png"/></div>
+<div class="CDPAlignCenter CDPAlign packt_figref"><span>Adding a server endpoint</span></div>
+<ol start="20">
+<li>Select the registered server and provide the followin<span>g path:</span> <kbd><span>D:\Data</span></kbd><span>. Keep <span class="packt_screen">Cloud Tiering</span> and <span class="packt_screen">Offline Data Transfer</span> disabled and click <span class="packt_screen">Create</span> as follows: </span></li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/221a9110-c142-4476-ab9c-27365f7aadb3.png" style="width:27.08em;height:50.17em;"/></div>
+<div class="CDPAlignCenter CDPAlign packt_figref"><span>Endpoint values</span></div>
+<p style="padding-left: 60px">The server endpoint is now created.</p>
+<ol start="21">
+<li>If you now go back to the VM where we installed the sync agent and open the <kbd>D</kbd> drive, you will see that there is a folder added called <kbd>Data</kbd>. You can copy files to it as shown in the following screenshot:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/0bf5bf92-ccc3-4423-8fe8-13b3f1c849a3.png"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Images stored in the Data folder</div>
+<ol start="22">
+<li>When you switch back to the file share in Azure, you will see that all the files are synced to the storage account in Azure <span>as shown in the following screenshot</span>:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/a6e7a62e-411c-4902-81b8-50d829223139.png"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Synced files to Azure file storage</div>
+<p>This concludes the section about Azure file storage and the Azure file share sync service. In the next section, we are going to look at Azure Backup and recovery.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Azure Backup</h1>
+                </header>
+            
+            <article>
+                
+<p>The Azure Backup service is used to back up resources and data in Azure. This can be used for cloud only or hybrid scenarios where you want to back up your on-premises VMs to Azure. Your on-premises backup solution can also be extended to the cloud in conjunction with Azure Backup. Azure Backup is capable of creating backups for VMs, files, folders, applications, workloads, system states, and volumes.</p>
+<p>Azure Backup consists of the following features and capabilities:</p>
+<ul>
+<li><strong>Back<span> </span>up on-premises resources to Azure</strong>: Azure Backup offers short and long-term backup. This can be a replacement for tape and off-site backup.</li>
+<li><strong>Back up Azure VMs</strong>: Azure Backup offers independent and isolated backups. These backups are stored in a Recovery Services vault. This vault has built-in management for recovery points. </li>
+<li><strong>Automatic scaling</strong>: You can get <span>unlimited scale without maintenance overheads. Alerts can be set for delivering information about events.</span></li>
+<li><strong>Unlimited data transfer</strong>:<strong> </strong>There is no limit to the amount of inbound and outbound traffic that can be transferred during the backup process. However, if you use the Azure import/export service for importing large amounts of data, then there is a cost <span>associated with inbound data.</span></li>
+<li><strong>Data encryption</strong>: Data can be encrypted using an <span>encryption </span>passphrase. This is stored locally and is then needed to restore the data.</li>
+<li><strong>Short and long-term retention</strong>: Recovery Services is where the backups are stored and provides short and long-term backups. Azure doesn't limit the time or length that data can be stored in a <span>Recovery Services vault.</span></li>
+<li><strong>Multiple storage options</strong>:<span> </span>Azure Backup offers two types of replication—<strong>Locally redundant storage</strong><span> </span>(<strong>LRS</strong>), where your data is replicated three times by creating three copies of the data within the same region, and <strong>G</strong><span><strong>eo</strong></span><span><strong>-redundant storage</strong> (<strong>GRS</strong>), which is the default option, where the data is replicated to a secondary region.</span></li>
+</ul>
+<p>You can use Azure Backup to back up data that is protected by the following products:</p>
+<ul>
+<li><strong>System Center Data Protection Manager (DPM)</strong>:<strong> </strong>DPM can run on-premises or in Azure on physical servers or virtual servers. The DPM server can be backed up to Recovery Services as well. The DPM server and its machines need to be in the same network. On-premises machines can only be protected by an on-premises DPM server, while Azure machines can only be protected by a DPM server that is running in Azure.</li>
+<li><strong>Microsoft Azure Backup Server (MABS)</strong>: <span>MABS can run on-premises or in Azure on physical servers or virtual servers. It offers similar capabilities to DPM, except that MABS can be backed up to tape and you don't need to have a system center license for it. Just like DPM, on-premises machines can only be protected by an on-premises MABS server, while Azure machines can only be protected by an MABS server that is running in Azure.</span></li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Azure Site Recovery</h1>
+                </header>
+            
+            <article>
+                
+<p><span>Azure Site Recovery can be replicated from Azure VMs and other workloads, such as Azure file storage between different Azure regions, as well as on-premises VMs, physical (file) servers, and Azure Stack VMs.</span></p>
+<p>Azure Recovery Services offers the following features:</p>
+<ul>
+<li><strong>Site Recovery service</strong><span>: Site Recovery makes sure that your VMs, apps, and workloads are still running during outages. It replicates the workloads running on the machines, both virtual and physical, from a primary to a secondary location. You can fail over to a secondary location when an outage occurs at the primary site. When the primary location is up again, you can fail back to it.</span></li>
+<li><strong>Backup service</strong>:<span> </span>This service keeps your data safe by backing it up to Azure.</li>
+</ul>
+<p>You can also use Azure Site Recovery for migration from on-premises machines to Azure VMs. This differs from disaster recovery in the following ways:</p>
+<ul>
+<li><strong>Disaster recovery</strong>: With disaster recovery, machines are replicated regularly. In the case of an outage, the machines are failed over from the primary to the secondary site in Azure. The machines can then be accessed from the secondary site. When the primary site is available again, you fail back from the secondary site<span> </span>to<span> </span>the primary again.</li>
+<li><strong>Migration</strong>: On-premises machines are replicated to Azure, or Azure VMs to a secondary region. After that, the VM is failed over from the primary site to the secondary site, which completes the migration process without a<span> </span>failback<span> </span>process.</li>
+</ul>
+<p>In the next section, we are going to perform a backup and restore operation for an Azure file share.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Performing a backup and restore operation</h1>
+                </header>
+            
+            <article>
+                
+<p><span>In this demonstration, we will be performing a backup and restore operation for an Azure file share. We are going to </span>back up<span> the file share that we created in this chapter and restore it from a Recovery Services vault. </span></p>
+<div class="packt_infobox">In <a href="a3544485-da13-4b33-932f-68a4709ba43e.xhtml">Chapter 8</a>, <em>Managing Azure VMs and VM Backups</em>, we are going to set up backup and restore for a virtual machine in Azure from the Azure portal. You can refer to this chapter for more information about backup and restore.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating a Recovery Services vault</h1>
+                </header>
+            
+            <article>
+                
+<p><span>We are going to create the Recovery Services vault in Azure. You can create this using the Azure portal, PowerShell, and CLI. We are going the create the vault using PowerShell. To create this, perform the following steps:</span></p>
+<ol>
+<li class="mce-root"><span>First, we need to log in to the Azure account as follows:</span></li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>Connect-AzAccount</strong></pre>
+<ol start="2">
+<li class="mce-root">If necessary, select the right subscription as follows (make sure that you use the same subscription here as that you've used to create the file share in)<span><span>:<br/></span></span></li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>Select-AzSubscription -SubscriptionId "********-****-****-****-***********"</strong></pre>
+<ol start="3">
+<li class="mce-root">Create a resource group for the Recovery Services Vault as follows<span>:</span></li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>New-AzResourceGroup -Name PacktRecoveryServicesGroup -Location EastUS</strong></pre>
+<ol start="4">
+<li>Create a new Recovery Services vault as follows:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>New-AzRecoveryServicesVault -Name PacktFileVault -ResourceGroupName PacktRecoveryServicesGroup -Location EastUS</strong></pre>
+<ol start="5">
+<li>
+<p>You can now set the<span> type of redundancy to use for the vault storage as follows:</span></p>
+</li>
+</ol>
+<pre style="padding-left: 60px"><strong>$vault1 = Get-AzRecoveryServicesVault `</strong><br/><strong> -Name PacktFileVault</strong><br/> <br/><strong>Set-AzRecoveryServicesBackupProperties -Vault $vault1 `</strong><br/><strong> -BackupStorageRedundancy GeoRedundant</strong></pre>
+<p class="mce-root"/>
+<p>We have now created the Recovery Services vault. In the next part, we are going to create a backup policy for the Azure file share.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring a backup policy</h1>
+                </header>
+            
+            <article>
+                
+<p>A backup policy specifies the schedule for backups, and how long backup recovery points should be kept. It is associated with at least one retention policy, which <span>defines how long a recovery point will be kept before it is deleted. </span></p>
+<p>In the following example, we are going to create a backup policy in PowerShell, which will take a daily backup and will retain for 30 days:</p>
+<ol>
+<li>First, we need to store the vault ID in a variable to pass it on creating the policy later as follows:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>$vaultID = Get-AzRecoveryServicesVault `</strong><br/><strong>    -ResourceGroupName PacktRecoveryServicesGroup `</strong><br/><strong>    -Name PacktFileVault `</strong><br/><strong>    | select -ExpandProperty ID </strong></pre>
+<ol start="2">
+<li>Next, we are going to set two variables for storing the schedule and retention policies. Then we will create a new backup policy using these values: </li>
+</ol>
+<pre style="padding-left: 60px"><strong>$packtSchPol = Get-AzRecoveryServicesBackupSchedulePolicyObject -WorkloadType "AzureFiles"</strong><br/><strong>$packtRetPol = Get-AzRecoveryServicesBackupRetentionPolicyObject -WorkloadType "AzureFiles"</strong><br/><br/><strong>$afsPol = New-AzRecoveryServicesBackupProtectionPolicy -Name "PacktFSPolicy" `</strong><br/><strong>    -WorkloadType "AzureFiles" `</strong><br/><strong>    -RetentionPolicy $packtRetPol `</strong><br/><strong>    -SchedulePolicy $packtSchPol `</strong><br/><strong>    -VaultId $vaultID `</strong><br/><strong>    -BackupManagementType AzureStorage</strong></pre>
+<ol start="3">
+<li>And lastly, we can enable this policy for the Azure files storage account as follows:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>Enable-AzRecoveryServicesBackupProtection -VaultId $vaultID `</strong><br/><strong>    -Policy $afsPol `</strong><br/><strong>    -Name "packtfileshare" `</strong><br/><strong>    -StorageAccountName "packtfileshare"</strong></pre>
+<p>We have now created a backup policy to back up our file share that we created at the beginning of this chapter. This backup policy will create a daily backup. You can also trigger an on-demand backup. For this, leave PowerShell open, because we need the Vault ID in to trigger an on-demand job. We will cover this in the next section.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Trigger an on-demand backup</h1>
+                </header>
+            
+            <article>
+                
+<p>In this demonstration, we are going to trigger an <span>on-demand backup</span> <span>using PowerShell. With your PowerShell session still open,  take the following steps:</span></p>
+<ol>
+<li class="mce-root"><span>First, we need to retrieve the backup container:</span></li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>$afsPacktContainer = Get-AzRecoveryServicesBackupContainer -FriendlyName "packtfileshare" `</strong><br/><strong>    -ContainerType AzureStorage `</strong><br/><strong>    -VaultId $vaultID</strong></pre>
+<ol start="2">
+<li class="mce-root"><span>T</span>hen we need to retriev<span>e the backup item from the container:</span></li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>$afsPacktBackupItem = Get-AzRecoveryServicesBackupItem `</strong><br/><strong>    -Container $afsPacktContainer `</strong><br/><strong>    -WorkloadType "AzureFiles" `</strong><br/><strong>    -Name "packtfileshare" `</strong><br/><strong>    -VaultId $vaultID</strong></pre>
+<ol start="3">
+<li class="mce-root">At last, w<span>e can schedule the job:</span></li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>$job = Backup-AzRecoveryServicesBackupItem -Item $afsPacktBackupItem </strong><strong>-VaultId $vaultID</strong></pre>
+<p>Now that we have created a backup, we can restore it using PowerShell. We will do this in the next section.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Restore the backup</h1>
+                </header>
+            
+            <article>
+                
+<p>To restore the backup that we created in the previous demonstration from PowerShell, we have to take the following steps:</p>
+<ol>
+<li class="mce-root"><span>Generate a list of available recovery points:</span></li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>$startDate = (Get-Date).AddDays(-7)</strong><br/><strong>$endDate = Get-Date</strong><br/><strong>$rp = Get-AzRecoveryServicesBackupRecoveryPoint -Item $afsPacktBackupItem `</strong><br/><strong>    -StartDate $startdate.ToUniversalTime() `</strong><br/><strong>    -EndDate $enddate.ToUniversalTime() `</strong><br/><strong>    -VaultId $vaultID</strong><br/><br/><strong>$rp[0] | fl</strong></pre>
+<ol start="2">
+<li class="mce-root"><span>R</span>estore the back<span>up. In this example we are going to restore the backup in the original destination. You can also use an alternative destination, like another storage account for instance. We first need to set the vault context again before we can restore the backup:</span></li>
+</ol>
+<pre style="color: black;padding-left: 60px"><strong>Get-AzRecoveryServicesVault -Name "PacktFileVault" | Set-AzRecoveryServicesVaultContext</strong><br/><br/><strong>Restore-AzRecoveryServicesBackupItem `</strong><br/><strong>    -RecoveryPoint $rp[0] `</strong><br/><strong>    -TargetStorageAccountName "packtfileshare" `</strong><br/><strong>    -TargetFileShareName "packtfileshare" `</strong><br/><strong>    -TargetFolder "AzureFS_restored" `</strong><br/><strong>    -ResolveConflict Overwrite</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p><span>In this chapter, we covered the third and last part of the <em>Implementing and Managing Storage</em><em> </em>objective. We covered the Azure file shares and we covered how to install and configure the Azure file share sync service. We also looked at backup and restore of our files shared in Azure.</span></p>
+<p>In the next chapter, we will introduce the <em>Deploying and Managing Virtual Machines</em> objective by covering how to create and configure VMs for Windows and Linux.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Questions</h1>
+                </header>
+            
+            <article>
+                
+<p>Answer the following questions to test your knowledge of the information in this chapter. You can find the answers in the <em>Assessments</em><span> section at the end of this book:</span></p>
+<ol start="1">
+<li>Can you use Azure Backup to back up Azure file shares?
+<ul>
+<li>Yes</li>
+<li>No</li>
+</ul>
+</li>
+<li><span>Can you use<span> </span>Azure Backup<span> </span>in conjunction with MABS</span>?
+<ul>
+<li>Yes</li>
+<li>No</li>
+</ul>
+</li>
+<li>Can you use the Azure file share sync service to mount an Azure file share to your local computer?
+<ul>
+<li>Yes</li>
+<li>No</li>
+</ul>
+</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Further reading</h1>
+                </header>
+            
+            <article>
+                
+<p><span>You can check out the following links for more information about the topics that were covered in this chapter:</span></p>
+<ul>
+<li><em>What is Azure Files?</em>: <a href="https://docs.microsoft.com/en-us/azure/storage/files/storage-files-introduction">https://docs.microsoft.com/en-us/azure/storage/files/storage-files-introduction</a></li>
+<li><em>Planning for an Azure File Sync deployment</em>: <a href="https://docs.microsoft.com/en-us/azure/storage/files/storage-sync-files-planning">https://docs.microsoft.com/en-us/azure/storage/files/storage-sync-files-planning</a></li>
+<li><em>Deploy Azure File Sync</em>: <a href="https://docs.microsoft.com/en-us/azure/storage/files/storage-sync-files-deployment-guide?tabs=azure-portal">https://docs.microsoft.com/en-us/azure/storage/files/storage-sync-files-deployment-guide?tabs=azure-portal</a></li>
+<li><em>What is Azure Backup?</em>: <a href="https://docs.microsoft.com/en-us/azure/backup/backup-overview">https://docs.microsoft.com/en-us/azure/backup/backup-overview</a></li>
+<li><em>Overview of the features in Azure Backup</em>: <a href="https://docs.microsoft.com/en-us/azure/backup/backup-introduction-to-azure-backup#which-azure-backup-components-should-i-use">https://docs.microsoft.com/en-us/azure/backup/backup-introduction-to-azure-backup#which-azure-backup-components-should-i-use</a></li>
+<li><em>About Site Recovery</em>: <a href="https://docs.microsoft.com/en-us/azure/site-recovery/site-recovery-overview">https://docs.microsoft.com/en-us/azure/site-recovery/site-recovery-overview</a></li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

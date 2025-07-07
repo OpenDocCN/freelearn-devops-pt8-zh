@@ -1,0 +1,720 @@
+<html><head></head><body><div class="chapter" title="Chapter&#xA0;8.&#xA0;Maintaining Systems Using Chef and Puppet"><div class="titlepage"><div><div><h1 class="title"><a id="ch08"/>Chapter 8. Maintaining Systems Using Chef and Puppet</h1></div></div></div><p>In this chapter, we will cover the following recipes:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Maintaining consistent systems using scheduled convergence</li><li class="listitem" style="list-style-type: disc">Creating environments</li><li class="listitem" style="list-style-type: disc">Using Chef encrypted data bags and Hiera-eyaml with Puppet</li><li class="listitem" style="list-style-type: disc">Using Chef Vault encryption</li><li class="listitem" style="list-style-type: disc">Accessing and manipulating system information with Ohai</li><li class="listitem" style="list-style-type: disc">Automating application deployment (a WordPress example)</li><li class="listitem" style="list-style-type: disc">Using a TDD workflow</li><li class="listitem" style="list-style-type: disc">Planning for the worse – train to rebuild working systems</li></ul></div><div class="section" title="Introduction"><div class="titlepage"><div><div><h1 class="title"><a id="ch08lvl1sec86"/>Introduction</h1></div></div></div><p>We've previously seen how to automate systems with code and how to properly test this code. Now we're ready for prime time; there's a whole set of features, constraints, and objectives to be properly set. We'll want to isolate environments such as dev, staging, and production. We'll need our infrastructure code to stay consistent without our intervention. Security and confidentiality will start becoming an issue, and maybe those passwords and secret keys should not be stored in clear text at all. After a few months, our automated infrastructure will grow into a large number of managed nodes, and it will become critical <a id="id862" class="indexterm"/>to have coherent behaviour according to systems profiles—we'll need to gather and process system information. We'll eventually end up deploying web applications directly from Chef. To keep a high level of quality while our code base gets more and more complex, we'll switch to the <span class="strong"><strong>Test-Driven Development</strong></span> (<span class="strong"><strong>TDD</strong></span>) approach for our workflow. And finally, we'll make sure we're always ready to redeploy any part of the infrastructure at any time (think of a disaster). </p><p>All recipes are based on Chef. However, when possible, we'll try to show how things work similarly with Puppet, Chef's direct alternative.</p></div></div>
+<div class="section" title="Maintaining consistent systems using scheduled convergence"><div class="titlepage"><div><div><h1 class="title"><a id="ch08lvl1sec87"/>Maintaining consistent systems using scheduled convergence</h1></div></div></div><p>Once <a id="id863" class="indexterm"/>initially deployed <a id="id864" class="indexterm"/>and configured, it's hardly imaginable to let our systems be manually updated afterwards by logging in to each host and launching the <code class="literal">chef-client</code> command. Systems maintained with Chef have the opportunity to be converged at a predetermined time, either through a <code class="literal">chef-client</code> daemon or a cron job. We'll go through both these options.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec216"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Vagrant installation on the workstation</li><li class="listitem" style="list-style-type: disc">The Chef code (optionally) from either <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet</em></span>, <a class="link" href="ch07.html" title="Chapter 7. Testing and Writing Better Infrastructure Code with Chef and Puppet">Chapter 7</a>, <span class="emphasis"><em>Testing and Writing Better Infrastructure Code with Chef and Puppet</em></span>, or any custom Chef code</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec217"/>How to do it…</h2></div></div></div><p>We recommend that you create a cookbook, different from other cookbooks, dedicated to configuring the underlying host. Let's call this cookbook <code class="literal">common</code>:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ cd chef-repo/cookbooks</strong></span>
+<span class="strong"><strong>$ chef generate cookbook common</strong></span>
+<span class="strong"><strong>$ cd common</strong></span>
+</pre></div><p>To configure the Chef client, there's an official cookbook aptly named <code class="literal">chef-client</code>. Let's declare a <code class="literal">cookbook</code> requirement to it, specifically to <code class="literal">Berksfile</code>:</p><div class="informalexample"><pre class="programlisting">cookbook 'chef-client', '~&gt; 7.0.0'</pre></div><p>To the <code class="literal">common/metadata.rb</code> file, add the dependency:</p><div class="informalexample"><pre class="programlisting">depends 'chef-client'</pre></div><div class="section" title="Using the Chef client as a daemon"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec157"/>Using the Chef client as a daemon</h3></div></div></div><p>The <a id="id865" class="indexterm"/>documentation tells us that including <a id="id866" class="indexterm"/>the default recipe will automatically detect the host platform and configure <code class="literal">chef-client</code> accordingly to run as a daemon. Here are the steps to enable <code class="literal">chef-client</code>:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Add the following to <code class="literal">recipes/default.rb</code>:<div class="informalexample"><pre class="programlisting">include_recipe 'chef-client'</pre></div></li><li class="listitem">Install the dependencies using Berkshelf:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ berks install</strong></span>
+</pre></div></li><li class="listitem">Now upload the <code class="literal">common</code> cookbook with all its dependencies:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ berks upload</strong></span>
+</pre></div></li><li class="listitem">Add the <code class="literal">common</code> cookbook to the host <code class="literal">run-list</code>:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife node run_list add vagrant common</strong></span>
+</pre></div></li><li class="listitem">On the target host, launch the Chef client one last time to make it deploy itself as a service:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ chef-client </strong></span>
+<span class="strong"><strong>Recipe: chef-client::systemd_service</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>  * service[chef-client] action enable</strong></span>
+<span class="strong"><strong>    - enable service service[chef-client]</strong></span>
+<span class="strong"><strong>  * service[chef-client] action start</strong></span>
+<span class="strong"><strong>    - start service service[chef-client]</strong></span>
+<span class="strong"><strong>  * service[chef-client] action restart</strong></span>
+<span class="strong"><strong>    - restart service service[chef-client]</strong></span>
+</pre></div></li><li class="listitem">The <a id="id867" class="indexterm"/>logs seem pretty <a id="id868" class="indexterm"/>optimistic, but let's double-check the daemon is really running on the host:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ systemctl status chef-client</strong></span>
+<span class="strong"><strong></strong></span>
+<span class="strong"><strong> chef-client.service - Chef Client daemon</strong></span>
+<span class="strong"><strong>   Loaded: loaded (/etc/systemd/system/chef-client.service; enabled; vendor preset: disabled)</strong></span>
+<span class="strong"><strong>   Active: active (running) since Mon 2016-11-07 01:35:05 UTC; 57s ago</strong></span>
+<span class="strong"><strong> Main PID: 12943 (chef-client)</strong></span>
+<span class="strong"><strong>   CGroup: /system.slice/chef-client.service</strong></span>
+<span class="strong"><strong>           └─12943 /opt/chef/embedded/bin/ruby /usr/bin/chef-client -c /etc/chef/client.rb -i 1800 -s 300</strong></span>
+</pre></div></li></ol></div><p>The <code class="literal">chef-client</code> service is indeed enabled and running!</p></div><div class="section" title="Tweaking the convergence interval time"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec158"/>Tweaking the convergence interval time</h3></div></div></div><p>Interesting enough, we <a id="id869" class="indexterm"/>see that the interval is introduced every 1,800 seconds (30 minutes). What if we want a different convergence interval, say, every 900 seconds (15 minutes)? Let's transform the <code class="literal">default.rb</code> recipe:</p><div class="informalexample"><pre class="programlisting">node.override['chef_client']['interval'] = '900'
+include_recipe 'chef-client'</pre></div><p>Bump the version in <code class="literal">metadata.rb</code>, upload the new version, wait for the new <code class="literal">chef-client</code> execution, or launch it yourself to save some time. The <code class="literal">systemd</code> unit is now updated:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ systemctl status chef-client</strong></span>
+<span class="strong"><strong></strong></span>
+<span class="strong"><strong> chef-client.service - Chef Client daemon</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>           └─13316 /opt/chef/embedded/bin/ruby /usr/bin/chef-client -c /etc/chef/client.rb -i 900 -s 300</strong></span>
+</pre></div><p>Our<a id="id870" class="indexterm"/> system is now configured to converge every 15 minutes with a controlled variation of 300 seconds.</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note59"/>Note</h3><p>We highly suggest that you include this <code class="literal">common</code> cookbook in every new host deployment process so they could all be automatically configured to converge at a predetermined interval.</p></div></div></div><div class="section" title="Running the Chef client as a cron"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec159"/>Running the Chef client as a cron</h3></div></div></div><p>Under <a id="id871" class="indexterm"/>certain circumstances, we might not want to run the Chef client as a daemon (such as memory or security requirements). So luckily, we can simply fall back to a simple method that is based on a cron. Let's transform the default <code class="literal">recipe.rb</code>  recipe to match this:</p><div class="informalexample"><pre class="programlisting">node.override['chef_client']['init_style'] = 'none'
+include_recipe 'chef-client::cron'</pre></div><p>Upload this cookbook version using Berkshelf and execute <code class="literal">chef-client</code> on the target host. See root's <code class="literal">crontab</code> file:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo crontab -l</strong></span>
+<span class="strong"><strong># Chef Name: chef-client</strong></span>
+<span class="strong"><strong>0 0,4,8,12,16,20 * * * /bin/sleep 69;  /usr/bin/chef-client &gt; /dev/null 2&gt;&amp;1</strong></span>
+</pre></div><p>By default, it's executing <code class="literal">chef-client</code> every four hours with, in this case, a <code class="literal">69</code> seconds delay to avoid every node from hammering the Chef server at the same time.</p></div><div class="section" title="Tweaking the Chef cron job"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec160"/>Tweaking the Chef cron job</h3></div></div></div><p>If <a id="id872" class="indexterm"/>converging every four hours is not enough for you and you would like to converge every 15 minutes, like we did with the daemon in the <code class="literal">default.rb</code> recipe, here's what you need to do:</p><div class="informalexample"><pre class="programlisting">node.override['chef_client']['init_style'] = 'none'
+node.override['chef_client']['cron']['minute'] = '*/15'
+node.override['chef_client']['cron']['hour'] = '*'
+
+include_recipe 'chef-client::cron'</pre></div><p>Upload <a id="id873" class="indexterm"/>the cookbook and run <code class="literal">chef-client</code> (or wait for the next scheduled run). The interval is now set to run every 15 minutes:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo crontab -l</strong></span>
+<span class="strong"><strong># Chef Name: chef-client</strong></span>
+<span class="strong"><strong>*/15 * * * * /bin/sleep 69;  /usr/bin/chef-client &gt; /dev/null 2&gt;&amp;1</strong></span>
+</pre></div></div></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec218"/>There's more…</h2></div></div></div><p>With <a id="id874" class="indexterm"/>Puppet, the agent can <a id="id875" class="indexterm"/>also run as a service or a cron.</p><p>The following command is used to enable the service mode:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong># puppet resource service puppet ensure=running enable=true</strong></span>
+</pre></div><p>In this mode, the Puppet agent will apply the configuration every 30 minutes by default. This delay can be changed in <code class="literal">/etc/puppetlabs/puppet.conf</code>. Here is an example to reduce this delay to five minutes:</p><div class="informalexample"><pre class="programlisting">[agent]
+  runinterval = 5m</pre></div><p>To run the Puppet agent as a cron, we need to declare a Puppet cron resource as follows:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong># puppet resource cron puppet-agent ensure=present user=root minute=0 command='/opt/puppet/bin/puppet agent --onetime --no-daemonize --splay --splaylimit 60' </strong></span>
+</pre></div><p>The generated <code class="literal">crontab</code> file is:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo crontab -l</strong></span>
+<span class="strong"><strong>0 * * * * /opt/puppet/bin/puppet agent --onetime --no-daemonize --splay --splaylimit 60</strong></span>
+</pre></div><p>In this example, the Puppet agent will run every hour. The <code class="literal">splay</code> option is used to introduce a random delay before the run itself, and this delay cannot exceed 60 minutes (the value of the <code class="literal">splaylimit</code> option). This is particularly useful when a lot of nodes are connected to the same Puppet server in order to spread the Puppet agent's requests in time.</p><p>Of course, if there are many nodes in your infrastructure, you should create a module containing these Puppet resources and include it for each node. Based on our previous Vagrant-based LAMP setup, let's create a local module with a single <a id="id876" class="indexterm"/>file, namely <code class="literal">module/baseconfig/manifests/init.pp</code>, with:</p><div class="informalexample"><pre class="programlisting"># @param agentmode Agent type: service or cron. If anything else, agent will be disabled. Default value: service
+class baseconfig (
+  $agentmode='service'
+) {
+  case $agentmode {
+    'service': {
+      $ensureservice='running';
+      $enableservice=true;
+      $ensurecron='absent'
+    }
+    'cron': {
+      $ensureservice='stopped';
+      $enableservice=false;
+      $ensurecron='present'
+    }
+    default: {
+      $ensureservice='stopped';
+      $enableservice=false;
+      $ensurecron='absent'
+    }
+  }
+  service {'puppet':
+    ensure =&gt; $ensureservice,
+    enable =&gt; $enableservice,
+  }
+  cron {'puppet-agent':
+    ensure  =&gt; $ensurecron,
+    user    =&gt; root,
+    minute  =&gt; 0,
+    command =&gt; '/opt/puppet/bin/puppet agent --onetime --no-daemonize --splay --splaylimit 60',
+  }
+}</pre></div><p>Now <a id="id877" class="indexterm"/>we can define the <a id="id878" class="indexterm"/>requested mode from the main manifest:</p><div class="informalexample"><pre class="programlisting">node 'web.pomes.pro' {
+...
+  class { 'baseconfig':
+    agentmode =&gt; 'cron';
+  }
+...
+}</pre></div><p>If<a id="id879" class="indexterm"/> there is any future change between <code class="literal">service</code> versus <code class="literal">cron</code>, our <code class="literal">baseconfig</code> module will remove the configuration for the previous mode.</p></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec219"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The <code class="literal">chef-client</code> cookbook source at <a class="ulink" href="https://github.com/chef-coo">https://github.com/chef-coo</a><a class="ulink" href="http://kbooks/chef-client">kbooks/chef-client</a></li><li class="listitem" style="list-style-type: disc">The Puppet cron resource at <a class="ulink" href="https://docs.puppet.com/puppet/4.8/types/cron.html">https://docs.puppet.com/puppet/4.8/types/cron.html</a></li></ul></div></div></div>
+<div class="section" title="Creating environments"><div class="titlepage"><div><div><h1 class="title"><a id="ch08lvl1sec88"/>Creating environments</h1></div></div></div><p>A <a id="id880" class="indexterm"/>classic organization has a minimum of two environments in which the infrastructure is run: development and production. Very often, a lot of environments are seen, such as staging, testing, alpha or beta. It's entirely up to the organization to model the infrastructure according to its needs, and the complexity can grow very quickly. The good news is that Chef helps a lot in mapping this model to the infrastructure. There's a set of information that will be different in two distinct environments, such as cookbook versions or attributes, and Chef makes it as easy as possible to manage these environments. By default, nodes without an environment set will run in a <code class="literal">_default</code> environment.</p><p>In this section, we'll see how to create different environments, how to set nodes (both existing and new) in a dedicated environment, how to set cookbook constraints, and finally how to override the attributes in each environment.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec220"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Vagrant installation on the workstation</li><li class="listitem" style="list-style-type: disc">The Chef code (optionally) from <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet</em></span>, <a class="link" href="ch07.html" title="Chapter 7. Testing and Writing Better Infrastructure Code with Chef and Puppet">Chapter 7</a>, <span class="emphasis"><em>Testing and Writing Better Infrastructure Code with Chef and Puppet</em></span>, or any custom Chef code</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec221"/>How to do it…</h2></div></div></div><p>Chef <a id="id881" class="indexterm"/>environments live in a folder named <code class="literal">environments</code> at the root of <code class="literal">chef-repo</code>. If the folder doesn't exist, create it:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ mkdir environments</strong></span>
+</pre></div><div class="section" title="Creating a production environment"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec161"/>Creating a production environment</h3></div></div></div><p>To <a id="id882" class="indexterm"/>create a production environment, follow these steps:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Let's start by creating a <code class="literal">production</code> environment in a <code class="literal">production.rb</code> file:<div class="informalexample"><pre class="programlisting">name 'production'
+description 'The production environment'</pre></div></li><li class="listitem">This is the simplest environment possible; it does nothing. Upload it to the Chef server:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife environment from file environments/production.rb</strong></span>
+<span class="strong"><strong>Updated Environment production</strong></span>
+</pre></div></li><li class="listitem">List the available remote environments:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife environment list</strong></span>
+<span class="strong"><strong>_default</strong></span>
+<span class="strong"><strong>production</strong></span>
+</pre></div></li></ol></div><p>We see we have two environments available: <code class="literal">production</code> and <code class="literal">_default</code>.</p></div><div class="section" title="Setting an environment to a node"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec162"/>Setting an environment to a node</h3></div></div></div><p>To <a id="id883" class="indexterm"/>set an already existing node to this new <code class="literal">production</code> environment, execute the following command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife node environment set my_node_name production</strong></span>
+<span class="strong"><strong>my_node_name:</strong></span>
+<span class="strong"><strong>  chef_environment: production</strong></span>
+</pre></div></div><div class="section" title="Bootstrapping a node with an environment"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec163"/>Bootstrapping a node with an environment</h3></div></div></div><p>If <a id="id884" class="indexterm"/>we're bootstrapping a node with the <code class="literal">knife bootstrap</code> command, we can start in the required environment right from the beginning (using an user named <code class="literal">vagrant</code> like the previous examples):</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife bootstrap a.b.c.d -N vagrant -x vagrant --sudo --environment production --run-list 'recipe[mysite]'</strong></span>
+</pre></div></div><div class="section" title="Fixing cookbook versions for an environment"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec164"/>Fixing cookbook versions for an environment</h3></div></div></div><p>Let's <a id="id885" class="indexterm"/>say our production systems are running a perfectly stable <code class="literal">mysite</code> cookbook in version 0.3.1, but we want to try a new feature in the development infrastructure in the 0.4.0 version of the same cookbook. As every cookbook version can live together, each environment can call its own version. The <code class="literal">production.rb</code> file would contain the following for the <code class="literal">production</code> environment:</p><div class="informalexample"><pre class="programlisting">cookbook_versions  'mysite' =&gt; '= 0.3.1'</pre></div><p>The <code class="literal">development.rb</code> file would contain the following for the development environment:</p><div class="informalexample"><pre class="programlisting">cookbook_versions  'mysite' =&gt; '= 0.4.0'</pre></div><p>A Chef environment file may contain many cookbook constraints, as follows:</p><div class="informalexample"><pre class="programlisting">cookbook_versions: {
+    'mysite': '= 0.4.0',
+    'apache': '= 0.6.0'
+}</pre></div></div><div class="section" title="Overriding attributes for an environment"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec165"/>Overriding attributes for an environment</h3></div></div></div><p>Each <a id="id886" class="indexterm"/>environment can override any value, and, in Chef, it's the highest level of override. Nothing else can override a value set for an environment. So, if we simply want to override the value of the <code class="literal">sitename</code> attribute to <code class="literal">production.rb</code>, it will look like this:</p><div class="informalexample"><pre class="programlisting">override_attributes 'sitename' =&gt; 'mysite_production'</pre></div></div><div class="section" title="Accessing the environment from a recipe"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec166"/>Accessing the environment from a recipe</h3></div></div></div><p>The <a id="id887" class="indexterm"/>node's environment is available from any recipe through the <code class="literal">node.chef_environment</code> attribute.</p><p>So if our wish is to create a file that would display the environment inside which the node is running, we would need to create a template like this:</p><div class="informalexample"><pre class="programlisting">Running in &lt;%= @node.chef_environment %&gt; mode.</pre></div></div></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec222"/>There's more...</h2></div></div></div><p>With <a id="id888" class="indexterm"/>Puppet, environments are located in distinct directories on the Puppet server. You probably noticed this in <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet</em></span>; we created the code in the <code class="literal">/etc/puppetlabs/code/environments/production</code> directory.</p><p>This is because the default Puppet environment is <code class="literal">production</code>. Other environments, for example <code class="literal">test</code>, should be created under <code class="literal">/etc/puppetlabs/code/environments/</code>.</p><div class="section" title="Manual environment creation in the Puppet server"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec167"/>Manual environment creation in the Puppet server</h3></div></div></div><p>Let's <a id="id889" class="indexterm"/>start with samples from <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet</em></span>, and try creating a new environment, namely <code class="literal">test</code>. On the Puppet server, we just need to do this:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo -s</strong></span>
+<span class="strong"><strong># cd /etc/puppetlabs/code/environments/</strong></span>
+<span class="strong"><strong># cp -a production test</strong></span>
+</pre></div></div><div class="section" title="Node environment selection"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec168"/>Node environment selection</h3></div></div></div><p>On <a id="id890" class="indexterm"/>the node side, the environment to use can be controlled using <code class="literal">--environment</code>:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong># puppet agent --test --environment test</strong></span>
+</pre></div><p>To use this environment as the default one, without using <code class="literal">--environment</code>, we can configure it in <code class="literal">/etc/puppetlabs/puppet/puppet.conf</code> with the following:</p><div class="informalexample"><pre class="programlisting">[agent]
+environment = test</pre></div></div><div class="section" title="Getting the environment from manifests"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec169"/>Getting the environment from manifests</h3></div></div></div><p>As <a id="id891" class="indexterm"/>for Chef, we can get the name of the running environment from any manifest. This is done by using the <code class="literal">$environment</code> variable, which is set by the Puppet server.</p><p>To illustrate this, let's modify our <code class="literal">index.php</code> file (<code class="literal">manifests/site.pp</code>), both in <code class="literal">production</code> and <code class="literal">test</code>:</p><div class="informalexample"><pre class="programlisting">file {"${docroot}/index.php":
+    ensure  =&gt; present,
+    owner   =&gt; 'www-data',
+    group   =&gt; 'www-data',
+    mode    =&gt; '0644',
+    content =&gt; "&lt;?php echo \"Running from ${environment}\" ?&gt;"
+}</pre></div><p>We can now switch between <code class="literal">test</code> and <code class="literal">production</code> and see the changes:</p><div class="informalexample"><pre class="programlisting"># puppet agent --test
+Info: Using configured environment 'production' 
+…
+@@ -1 +1 @@
+-&lt;?php echo "Running from test" ?&gt;
++&lt;?php echo "Running from production" ?&gt;
+…
+# puppet agent --test --environment test
+Info: Using configured environment 'test'
+@@ -1 +1 @@
+-&lt;?php echo "Running from production" ?&gt;
++&lt;?php echo "Running from test" ?&gt;</pre></div></div><div class="section" title="The dynamic way – r10k"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec170"/>The dynamic way – r10k</h3></div></div></div><p>We <a id="id892" class="indexterm"/>edited the environments and code directly in the Puppet master, which is not recommended. Fortunately, r10k (which we already used in <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet</em></span>, to install modules) can be used to create environments from a Git repository. Each branch from the Git repository will be checked out into a distinct directory and will be available as an environment. This feature is dynamic: each new branch added to the Git repository will be deployed by r10k.</p><p>Let's try it from our workstation. Until now, the job of the shared folder of our Vagrant setup was to map the relative directory <code class="literal">puppetcode</code> to <code class="literal">/etc/puppetlabs/code/environments/production</code> in the <code class="literal">puppet.pomes.pro</code> box. We are about to use multiple environments, so we need to change the mapping to <code class="literal">/etc/puppetlabs/code/</code>.</p><p>We <a id="id893" class="indexterm"/>need a Git repository with two branches, <code class="literal">production</code> and <code class="literal">test</code>, with all of the previous code. An example is available at <a class="ulink" href="https://github.com/ppomes/r10k_sample.git">https://github.com/ppomes/r10k_sample.git</a>.</p><p>The r10k tool needs a global configuration file, which must be created at the same level as our Vagrantfile, with the following content:</p><div class="informalexample"><pre class="programlisting">:sources:
+  :my-repos:
+    remote: 'https://github.com/ppomes/r10k_sample.git'
+    basedir: 'puppetcode/environments'</pre></div><p>Now let's use r10k:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ r10k -c ./r10k.yaml deploy environment -p</strong></span>
+<span class="strong"><strong>$ ls -l puppetcode/environments/</strong></span>
+<span class="strong"><strong>total 0</strong></span>
+<span class="strong"><strong>drwxr-xr-x  8 ppomes  staff   272B 26 Nov 16:40 production/</strong></span>
+<span class="strong"><strong>drwxr-xr-x  8 ppomes  staff   272B 26 Nov 16:40 test/</strong></span>
+</pre></div><p>Both branches from the Git repository have been deployed, and we can now fire up Vagrant and play with our boxes and branches.</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note60"/>Note</h3><p>The r10k tool also takes care of the <code class="literal">Puppetfile</code> file in each branch, as we already saw in <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet</em></span>, and deploys external modules, if any.</p></div></div></div></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec223"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The <a id="id894" class="indexterm"/>Chef environment documentation at <a class="ulink" href="http://://docs.chef.io/environments.html">https://docs.chef.io/environments.html</a></li><li class="listitem" style="list-style-type: disc">Puppet's<a id="id895" class="indexterm"/> r10k at <a class="ulink" href="https://github.com/puppetlabs/r10k">https://github.com/puppetlabs/r10k</a></li></ul></div></div></div>
+<div class="section" title="Using Chef encrypted data bags and Hiera-eyaml with Puppet"><div class="titlepage"><div><div><h1 class="title"><a id="ch08lvl1sec89"/>Using Chef encrypted data bags and Hiera-eyaml with Puppet</h1></div></div></div><p>Some <a id="id896" class="indexterm"/>information in data bags can be safely stored in the Chef server in plain text, but under some circumstances, sensitive information might be safer if encrypted. Companies might not like production API keys, private keys, or similar sensitive content to be stored in plain text on the Chef server or on third-party services, such as GitHub. We'll see how to encrypt and decrypt data in the command line and from inside a Chef recipe.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec224"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Vagrant installation on the workstation</li><li class="listitem" style="list-style-type: disc">The Chef code (optionally) from <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet</em></span>, <a class="link" href="ch07.html" title="Chapter 7. Testing and Writing Better Infrastructure Code with Chef and Puppet">Chapter 7</a>, <span class="emphasis"><em>Testing and Writing Better Infrastructure Code with Chef and Puppet</em></span>, or any custom Chef code</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec225"/>How to do it…</h2></div></div></div><p>Our goal is to create a configuration file containing our AWS credentials for the <code class="literal">us-east-1</code> region, and it's not acceptable that you store the credentials in clear text on the Chef server. We'd like to use a data bag, as it can be encrypted:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Create a data bag folder <code class="literal">aws</code> to store the credentials for the <code class="literal">us-east-1</code> region:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ mkdir data_bags/aws</strong></span>
+</pre></div></li><li class="listitem">Create the data bag on the Chef server while we're at it:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife data bag create aws</strong></span>
+<span class="strong"><strong>Created data_bag[aws]</strong></span>
+</pre></div></li><li class="listitem">Inside this <code class="literal">aws</code> data bag folder, create a sample <code class="literal">us-east-1.json</code> file containing the credentials:<div class="informalexample"><pre class="programlisting">{
+  "id": "us-east-1",
+  "aws_access_key": "AKIAJWTIBGE3NFDB4HOB",
+  "aws_secret_key": "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"
+}</pre></div></li></ol></div><p>This is <a id="id897" class="indexterm"/>the standard procedure for a normal data bag. If we upload it now as is, it won't be encrypted.</p><div class="section" title="Encrypting data bags with a shared secret"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec171"/>Encrypting data bags with a shared secret</h3></div></div></div><p>The solution <a id="id898" class="indexterm"/>to use an encrypted data bag is to send it encrypted from our workstation. The encryption is done through a shared secret, the secret being either a file or a string. Let's use the string <code class="literal">s3cr3t</code> as an encryption key (weak). To simply send the encrypted version of the data bag, let's use the encryption feature of the <code class="literal">knife</code> command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife data bag from file --encrypt --secret s3cr3t aws us-east-1.json</strong></span>
+<span class="strong"><strong>Updated data_bag_item[aws::us-east-1]</strong></span>
+</pre></div><p>If we request the data without providing a decryption key, we'll get the encrypted data from the Chef server:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife data bag show aws us-east-1</strong></span>
+<span class="strong"><strong>WARNING: Encrypted data bag detected, but no secret provided for decoding. Displaying encrypted data.</strong></span>
+<span class="strong"><strong>aws_access_key:</strong></span>
+<span class="strong"><strong>  cipher:         aes-256-cbc</strong></span>
+<span class="strong"><strong>  encrypted_data: RwbfsWgKk16sSCkMD38tXKGHmT1AHFGHRm/7fyzppye7wSS0kk19Zml0VuhQ</strong></span>
+<span class="strong"><strong>  XxxI</strong></span>
+
+<span class="strong"><strong>  iv:             iRRgrKfz6Ou2qdpYLkUA+w==</strong></span>
+
+<span class="strong"><strong>  version:        1</strong></span>
+<span class="strong"><strong>aws_secret_key:</strong></span>
+<span class="strong"><strong>  cipher:         aes-256-cbc</strong></span>
+<span class="strong"><strong>  encrypted_data: uSppKMYrRbEYn/njDYo3CIGC5tY+pptN1Z7LiARtNIU/zsllBNdSVENC1XwX</strong></span>
+<span class="strong"><strong>  QksifE6g00sdcHTGlHlVU0WJ0Q==</strong></span>
+
+<span class="strong"><strong>  iv:             ppjeAJcegZ9Yyn9rXgHRBQ==</strong></span>
+
+<span class="strong"><strong>  version:        1</strong></span>
+<span class="strong"><strong>id:             us-east-1</strong></span>
+</pre></div><p>It looks like we got what we wanted: data is stored encrypted on the Chef server!</p><p>As it <a id="id899" class="indexterm"/>may not be a secure move to store unencrypted data bags on version control systems, such as Git, we can ask for a JSON-formatted encrypted version, such as the following, and redirect the output to a JSON file for storage purposes:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife data bag show aws us-east-1 -Fj</strong></span>
+<span class="strong"><strong>{</strong></span>
+<span class="strong"><strong>  "id": "us-east-1",</strong></span>
+<span class="strong"><strong>  "aws_access_key": {</strong></span>
+<span class="strong"><strong>    "encrypted_data": "RwbfsWgKk16sSCkMD38tXKGHmT1AHFGHRm/7fyzppye7wSS0kk19Zml0VuhQ\nXxxI\n",</strong></span>
+<span class="strong"><strong>    "iv": "iRRgrKfz6Ou2qdpYLkUA+w==\n",</strong></span>
+<span class="strong"><strong>    "version": 1,</strong></span>
+<span class="strong"><strong>    "cipher": "aes-256-cbc"</strong></span>
+<span class="strong"><strong>  },</strong></span>
+<span class="strong"><strong>  "aws_secret_key": {</strong></span>
+<span class="strong"><strong>    "encrypted_data": "uSppKMYrRbEYn/njDYo3CIGC5tY+pptN1Z7LiARtNIU/zsllBNdSVENC1XwX\nQksifE6g00sdcHTGlHlVU0WJ0Q==\n",</strong></span>
+<span class="strong"><strong>    "iv": "ppjeAJcegZ9Yyn9rXgHRBQ==\n",</strong></span>
+<span class="strong"><strong>    "version": 1,</strong></span>
+<span class="strong"><strong>    "cipher": "aes-256-cbc"</strong></span>
+<span class="strong"><strong>  }</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div><p>This might be the content you'd like to store on Git!</p></div><div class="section" title="Accessing an encrypted data bag in the CLI"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec172"/>Accessing an encrypted data bag in the CLI</h3></div></div></div><p>To <a id="id900" class="indexterm"/>access unencrypted data from the knife CLI, the process is as easy as encrypting data—pass the shared secret as an argument:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife data bag show aws us-east-1 --secret s3cr3t</strong></span>
+<span class="strong"><strong>Encrypted data bag detected, decrypting with provided secret.</strong></span>
+<span class="strong"><strong>aws_access_key: AKIAJWTIBGE3NFDB4HOB</strong></span>
+<span class="strong"><strong>aws_secret_key: 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</strong></span>
+<span class="strong"><strong>id:             us-east-1</strong></span>
+</pre></div><p>Now we have access to our data but in an unencrypted form.</p></div><div class="section" title="Using an encrypted data bag from a recipe"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec173"/>Using an encrypted data bag from a recipe</h3></div></div></div><p>Now <a id="id901" class="indexterm"/>that the data is safely stored on the Chef server, how do we access it from inside a Chef recipe? Let's say our objective is to create a file named <code class="literal">/etc/aws/credentials</code> that will contain the unencrypted value from the encrypted version on the Chef server. The final file should look like this:</p><div class="informalexample"><pre class="programlisting">[region_name]
+aws_access_key_id = the_access_key
+aws_secret_access_key = the_secret_key</pre></div><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">To do so, create a new recipe named <code class="literal">aws</code> inside the <code class="literal">mysite</code> cookbook:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ chef generate recipe aws</strong></span>
+</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note61"/>Note</h3><p>Don't forget to bump the cookbook version and environment constraints accordingly.</p></div></div></li><li class="listitem">Start <a id="id902" class="indexterm"/>by creating the <code class="literal">/etc/aws</code> folder using the <code class="literal">directory</code> resource:<div class="informalexample"><pre class="programlisting">directory "/etc/aws" do
+  owner 'root'
+  group 'root'
+  mode '0755'
+  action :create
+end</pre></div></li><li class="listitem">Here's a <code class="literal">templates/aws.erb</code> ERB template file for our destination, namely <code class="literal">/etc/aws/credentials</code>:<div class="informalexample"><pre class="programlisting">[&lt;%= @aws_region %&gt;]
+aws_access_key_id = &lt;%= @aws_access_key %&gt;
+aws_secret_access_key = &lt;%= @aws_secret_key %&gt;</pre></div><p>We see the template is expecting the <code class="literal">aws_region</code>, <code class="literal">aws_access_key</code>, and <code class="literal">aws_secret_key</code> variables. Let's write the code to inject these values to the <code class="literal">aws.rb</code> recipe. To begin with, let's access our encrypted data bag item <code class="literal">us-east-1</code> from the <code class="literal">aws</code> data bag, using the inline shared secret <code class="literal">s3cr3t</code>:</p><div class="informalexample"><pre class="programlisting">aws = Chef::EncryptedDataBagItem.load("aws", "us-east-1", 's3cr3t')</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note62"/>Note</h3><p>All of this information can be set as attributes if we like. If the file method is chosen for the shared secret, the final argument will be the path to the secret key file to decrypt the data.</p></div></div></li><li class="listitem">Now let's create the template, writing the decrypted credentials to the <code class="literal">/etc/aws/credentials</code> file:<div class="informalexample"><pre class="programlisting">template "/etc/aws/credentials" do
+  source 'aws.erb'
+  owner 'root'
+  group 'root'
+  mode '0600'
+  variables(
+    aws_region: aws['id'],
+    aws_access_key: aws['aws_access_key'],
+    aws_secret_key: aws['aws_secret_key']
+  )
+end</pre></div></li></ol></div><p>Here we are! The Chef server is now safely storing encrypted data. For added security, it's better to not hardcode the shared key—use the key file that is sent separately (but this creates an added layer of complexity in the deployment system).</p></div></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec226"/>There's more…</h2></div></div></div><p>While <a id="id903" class="indexterm"/>using Puppet, it is a good practice to store the credentials and site information in Hiera, as we saw in <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet</em></span>. Using <code class="literal">hiera-eyaml</code>, it is possible to encrypt sensitive data. Using our previous LAMP setup with Vagrant, let's try to encrypt the root password for MySQL.</p><div class="section" title="Preparing the Puppet server"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec174"/>Preparing the Puppet server</h3></div></div></div><p>We <a id="id904" class="indexterm"/>need to install a new backend for Hiera. We have <a id="id905" class="indexterm"/>not discussed a lot about Hiera yet, and it's time to do so. Hiera is used to store data out of manifests, and is based on a hierarchy to look up data. A default configuration is provided with the Puppet server installation and is located at <code class="literal">/etc/puppetlabs/puppet/hiera.yaml</code>:</p><div class="informalexample"><pre class="programlisting">---
+:backends:
+  - yaml
+:hierarchy:
+  - "nodes/%{::trusted.certname}"
+  - common
+
+:yaml:
+:datadir:</pre></div><p>Here, a <code class="literal">yaml</code> backend is defined, allowing us to use <code class="literal">yaml</code> files in the <code class="literal">hieradata</code> directory of our environments. Then, a hierarchy is defined. Puppet will first try to look up data in a <code class="literal">yaml</code> file with the name matching the name of the client certificate (that is, the FQDN node) and located under the <code class="literal">nodes</code> subdirectory. If no data is found, Puppet will try to look up a <code class="literal">common.yaml</code> file.</p><p>With <code class="literal">hiera-eyaml</code>, we need to declare a new backend to look up data in encrypted files. This backend is <code class="literal">eyaml</code>, and by default, we will look for files with the <code class="literal">.eyaml</code> extension. This backend relies on a key pair to read data, so we need to generate these keys.</p><p>Fortunately, a <a id="id906" class="indexterm"/>Puppet module, named <code class="literal">puppet/hiera</code>, exists to handle all of this for us. So we just need to add it to <code class="literal">Puppetfile</code> with its dependencies (do not forget to run <code class="literal">r10k puppetfile install</code>):</p><div class="informalexample"><pre class="programlisting">mod 'puppetlabs/inifile'
+mod 'puppet/hiera'
+mod 'puppetlabs/puppetserver_gem' </pre></div><p>With this module, it is now very easy to prepare the Puppet server using the following:</p><div class="informalexample"><pre class="programlisting">node 'puppet.pomes.pro' {
+
+  # Create a service resource for the puppetserver
+  # This is needed by the hiera module, in order
+  # to restart the server once hiera-eyaml is installed
+  service {'puppetserver':
+    ensure =&gt; running,
+  }
+  # Configure hiera
+  class { 'hiera':
+    hierarchy =&gt; [
+      'nodes/%{::trusted.certname}',
+    ],
+    eyaml          =&gt; true,
+    manage_package =&gt; true,
+    provider       =&gt; 'puppetserver_gem',
+    master_service =&gt; 'puppetserver',
+  }
+}</pre></div><p>This piece of code will:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Declare a service resource for the Puppet server. This is needed by the <code class="literal">puppet/hiera</code> module (see parameter <code class="literal">master_service</code>)</li><li class="listitem" style="list-style-type: disc">Install the <code class="literal">eyaml</code> backend in the Puppet server</li><li class="listitem" style="list-style-type: disc">Update the Hiera configuration in order to use this backend</li><li class="listitem" style="list-style-type: disc">Generate the private and public keys</li><li class="listitem" style="list-style-type: disc">Restart the Puppet server</li></ul></div><p>Private and public keys will be respectively placed in <code class="literal">/etc/puppetlabs/puppet/keys/private_key.pkcs7.pem</code> and <code class="literal">/etc/puppetlabs/puppet/keys/public_key.pkcs7.pem</code>.</p></div><div class="section" title="Preparing the workstation"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec175"/>Preparing the workstation</h3></div></div></div><p>To <a id="id907" class="indexterm"/>prepare the workstation, follow these steps:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">To create and edit encrypted data, we need <code class="literal">eyaml</code>. Let's install it using the following:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo puppet resource package hiera-eyaml provider=puppet_gem</strong></span>
+</pre></div></li><li class="listitem">Let's copy the keys from the Puppet server and store them in a <code class="literal">keys</code> folder under <code class="literal">$HOME</code>:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ ls ~/keys/</strong></span>
+<span class="strong"><strong>private_key.pkcs7.pem  public_key.pkcs7.pem</strong></span>
+</pre></div></li><li class="listitem">For security reasons, it is a good idea to restrict access to the private key:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ chmod 500 keys</strong></span>
+<span class="strong"><strong>$ chmod 400 keys/private_key.pkcs7.pem</strong></span>
+</pre></div></li><li class="listitem">We also need an <code class="literal">eyaml</code> configuration file, located in <code class="literal">~/.eyaml/config.yaml</code>, with this content (do not forget to adjust the path of your <code class="literal">$HOME</code> directory):<div class="informalexample"><pre class="programlisting">---
+pkcs7_public_key: "/Users/me/keys/public_key.pkcs7.pem"
+pkcs7_private_key: "/Users/me/keys/private_key.pkcs7.pem"</pre></div></li></ol></div><p>We <a id="id908" class="indexterm"/>are now ready to encrypt sensitive data.</p></div><div class="section" title="Securing the MySQL root password"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec176"/>Securing the MySQL root password</h3></div></div></div><p>From <a id="id909" class="indexterm"/>the command line, <code class="literal">eyaml</code> can encrypt values. Here is a session example:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ eyaml encrypt -s 'super_secure_password'</strong></span>
+<span class="strong"><strong>[hiera-eyaml-core] Loaded config from /Users/me/.eyaml/config.yaml</strong></span>
+<span class="strong"><strong>string: ENC[PKCS7,MIIBiQYJKoZIhvcNAQcDoIIBejCCAXYCAQAxggEhMIIBHQIBADAFMAACAQEwDQYJKoZIhvcNAQEBBQAEggEALjJ2a9uZ04lk2V5xKqEd0n3BtA4OLe1B6rA2iVruJRKxWJdevuGvJ55DDedRwBMZmqbvSMO1cgMUyPbfEy54i3SXw4x3LEuxc1R31ILoOspBgzU4OLuepCotuhBASA/pI/xu40y66AZAcCQ4CtD9SZJYjiWNtUA91rcARy/xYQGK39QievxT2eq5De89qIn2w/5fIRIkJBRyNqnwyYCWKcKSRwaiLbimpwmarOP+dxGHEFRrD/FiM4NfoV1WNNVr1UkPEFuNrWBzwBpvyZUnMbGHN676Rg5vq9sS6aWI6zPxTrJyLtssZm1f4GsfhmE+anFmuxrcWtEH6C82wKMOoTBMBgkqhkiG9w0BBwEwHQYJYIZIAWUDBAEqBBC3MhSP09yUw8XTj0XdlG1VgCCDCGhqIFdUmORYKlq0Pn5CE/cDZKTO+bhHxdBw5amAGQ==]</strong></span>
+
+<span class="strong"><strong>OR</strong></span>
+
+<span class="strong"><strong>block: &gt;</strong></span>
+<span class="strong"><strong>    ENC[PKCS7,MIIBiQYJKoZIhvcNAQcDoIIBejCCAXYCAQAxggEhMIIBHQIBADAFMAACAQEw</strong></span>
+<span class="strong"><strong>    DQYJKoZIhvcNAQEBBQAEggEALjJ2a9uZ04lk2V5xKqEd0n3BtA4OLe1B6rA2</strong></span>
+<span class="strong"><strong>    iVruJRKxWJdevuGvJ55DDedRwBMZmqbvSMO1cgMUyPbfEy54i3SXw4x3LEux</strong></span>
+<span class="strong"><strong>    c1R31ILoOspBgzU4OLuepCotuhBASA/pI/xu40y66AZAcCQ4CtD9SZJYjiWN</strong></span>
+<span class="strong"><strong>    tUA91rcARy/xYQGK39QievxT2eq5De89qIn2w/5fIRIkJBRyNqnwyYCWKcKS</strong></span>
+<span class="strong"><strong>    RwaiLbimpwmarOP+dxGHEFRrD/FiM4NfoV1WNNVr1UkPEFuNrWBzwBpvyZUn</strong></span>
+<span class="strong"><strong>    MbGHN676Rg5vq9sS6aWI6zPxTrJyLtssZm1f4GsfhmE+anFmuxrcWtEH6C82</strong></span>
+<span class="strong"><strong>    wKMOoTBMBgkqhkiG9w0BBwEwHQYJYIZIAWUDBAEqBBC3MhSP09yUw8XTj0Xd</strong></span>
+<span class="strong"><strong>    lG1VgCCDCGhqIFdUmORYKlq0Pn5CE/cDZKTO+bhHxdBw5amAGQ==]</strong></span>
+</pre></div><p>Since the <code class="literal">eyaml</code> backend is looking for files with the <code class="literal">.eyaml</code> extension, we just need to create a <code class="literal">hieradata/nodes/web.pomes.pro.eyaml</code> file with the following content:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>---</strong></span>
+<span class="strong"><strong>root_password: &gt;</strong></span>
+<span class="strong"><strong>    ENC[PKCS7,MIIBiQYJKoZIhvcNAQcDoIIBejCCAXYCAQAxggEhMIIBHQIBADAFMAACAQEw</strong></span>
+<span class="strong"><strong>    DQYJKoZIhvcNAQEBBQAEggEALjJ2a9uZ04lk2V5xKqEd0n3BtA4OLe1B6rA2</strong></span>
+<span class="strong"><strong>    iVruJRKxWJdevuGvJ55DDedRwBMZmqbvSMO1cgMUyPbfEy54i3SXw4x3LEux</strong></span>
+<span class="strong"><strong>    c1R31ILoOspBgzU4OLuepCotuhBASA/pI/xu40y66AZAcCQ4CtD9SZJYjiWN</strong></span>
+<span class="strong"><strong>    tUA91rcARy/xYQGK39QievxT2eq5De89qIn2w/5fIRIkJBRyNqnwyYCWKcKS</strong></span>
+<span class="strong"><strong>    RwaiLbimpwmarOP+dxGHEFRrD/FiM4NfoV1WNNVr1UkPEFuNrWBzwBpvyZUn</strong></span>
+<span class="strong"><strong>    MbGHN676Rg5vq9sS6aWI6zPxTrJyLtssZm1f4GsfhmE+anFmuxrcWtEH6C82</strong></span>
+<span class="strong"><strong>    wKMOoTBMBgkqhkiG9w0BBwEwHQYJYIZIAWUDBAEqBBC3MhSP09yUw8XTj0Xd</strong></span>
+<span class="strong"><strong>    lG1VgCCDCGhqIFdUmORYKlq0Pn5CE/cDZKTO+bhHxdBw5amAGQ==]</strong></span>
+</pre></div><p>However, <code class="literal">eyaml</code> has a very handy feature—the <code class="literal">edit</code> mode—allowing us to create and edit <a id="id910" class="indexterm"/>encrypted values in plain text, based on the keys stored in the <code class="literal">$HOME</code> directory:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ eyaml edit hieradata/nodes/web.pomes.pro.eyaml</strong></span>
+</pre></div><p>This command will launch an editor, and we just need to enter the following content:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>---</strong></span>
+<span class="strong"><strong>root_password: &gt;</strong></span>
+<span class="strong"><strong>  DEC::PKCS7[super_secure_password]!</strong></span>
+</pre></div><p>While saving, <code class="literal">eyaml</code> will write the file with the encrypted content for <code class="literal">root_password</code>. If needed, we can edit the file again and all the encrypted values will be automatically decrypted.</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note63"/>Note</h3><p>When editing with <code class="literal">eyaml edit</code>, all the new values should be contained in a <code class="literal">DEC::PKCS7[value]!</code> block. For existing values, <code class="literal">eyaml</code> will add an index called <code class="literal">num</code> to <code class="literal">DEC(&lt;num&gt;)::PKCS7[value]!</code> blocks. This index must remain unchanged.</p></div></div><p>As our last step, we need to modify the main manifest to do a Hiera lookup in order to get the password:</p><div class="informalexample"><pre class="programlisting">node 'web.pomes.pro' {
+...
+    $pass=hiera('root_password');
+...
+    class { 'mysql::server':
+      root_password =&gt; $pass;
+    }
+...
+}</pre></div><p>Now <a id="id911" class="indexterm"/>the root password is encrypted in Hiera, and only people having the keys can recover it.</p></div></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec227"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The <code class="literal">hiera-eyaml</code> GitHub <a id="id912" class="indexterm"/>repository with its documentation at <a class="ulink" href="https://github.com/TomPoulton/hiera-eyaml">https://github.com/TomPoulton/hiera-eyaml</a></li><li class="listitem" style="list-style-type: disc">The <code class="literal">puppet-hiera</code> GitHub repository with its documentation at <a class="ulink" href="https://github.com/voxpupuli/puppet-hiera">https://github.com/voxpupuli/puppet-hiera</a></li></ul></div></div></div>
+<div class="section" title="Using Chef Vault encryption"><div class="titlepage"><div><div><h1 class="title"><a id="ch08lvl1sec90"/>Using Chef Vault encryption</h1></div></div></div><p>A <a id="id913" class="indexterm"/>different way of encrypting data is proposed through Chef Vault, and this does not require you to include the key somewhere in the code. The concept is elegant and simple: shared key encryption is done for each and every existing Chef node through their already existing client keys. This way, only the nodes allowed to access the data can decrypt it—each with their own private key—ensuring no clear-text shared keys are being sent, like with the classic encrypted data bag scheme.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec228"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Vagrant installation on the workstation</li><li class="listitem" style="list-style-type: disc">The Chef code (optionally) from <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet</em></span>, <a class="link" href="ch07.html" title="Chapter 7. Testing and Writing Better Infrastructure Code with Chef and Puppet">Chapter 7</a>, <span class="emphasis"><em>Testing and Writing Better Infrastructure Code with Chef and Puppet</em></span>, or any custom Chef code</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec229"/>How to do it…</h2></div></div></div><p>We'll build on the previous, already existing, <code class="literal">mysite</code> cookbook; however, any other situation will work similarly. Instead of using the <code class="literal">us-east-1</code> item from the <code class="literal">aws</code> data bag, let's create a new <code class="literal">eu-west-1</code> item, very similar to the other item for <code class="literal">us-east-1</code> in <code class="literal">data_bags/aws/eu-west-1.json</code>:</p><div class="informalexample"><pre class="programlisting">{
+  "id": "eu-west-1",
+  "aws_access_key": "an_access_key",
+  "aws_secret_key": "a_secret_key"
+}</pre></div><p>As <a id="id914" class="indexterm"/>we know, the data will be encrypted for each and every running node's public key. It means we have to filter hosts based on a search. I propose, that you search for every node using <code class="literal">search(*:*)</code>; however, feel free to limit to whatever is more secure or appropriate for you, such as tags or roles, like <code class="literal">search(tags:aws)</code> or <code class="literal">search(role:mysite)</code>:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife vault create aws eu-west-1 --json data_bags/aws/eu-west-1.json --search "*:*" --mode "client"</strong></span>
+</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note64"/>Note</h3><p>Don't forget the <code class="literal">--mode "client"</code> option when executing with a Chef server like we do!</p></div></div><div class="section" title="Accessing the encrypted vault from a cookbook"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec177"/>Accessing the encrypted vault from a cookbook</h3></div></div></div><p>The <a id="id915" class="indexterm"/>companion to <code class="literal">knife vault</code> is the <code class="literal">chef-vault</code> cookbook. We'll use it to easily access encrypted data in our recipe. If you're using Berkshelf to manage dependencies, don't forget to add the cookbook where required (either <code class="literal">metadata.rb</code> or <code class="literal">Berksfile</code>). In the <code class="literal">aws.rb</code> file, include the <code class="literal">chef-vault</code> recipe and set <code class="literal">aws</code> to the result of the <code class="literal">chef_vault_item</code> helper search:</p><div class="informalexample"><pre class="programlisting">include_recipe 'chef-vault'
+aws = chef_vault_item('aws', 'eu-west-1')</pre></div><p>If the node making the request isn't allowed to decrypt the data with its private key, we'll get an error. If the node can decrypt it, like we did previously with traditional data bags, the data will be available for use:</p><div class="informalexample"><pre class="programlisting">template "/etc/aws/credentials" do
+  source 'aws.erb'
+  owner 'root'
+  group 'root'
+  mode '0600'
+  variables(
+    aws_region: aws['id'],
+    aws_access_key: aws['aws_access_key'],
+    aws_secret_key: aws['aws_secret_key']
+  )
+end</pre></div><p>In the end, the <code class="literal">/etc/aws/credentials</code> file is populated with valid unencrypted data:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo cat /etc/aws/credentials</strong></span>
+<span class="strong"><strong>[eu-west-1]</strong></span>
+<span class="strong"><strong>aws_access_key_id = an_access_key</strong></span>
+<span class="strong"><strong>aws_secret_access_key = a_secret_key</strong></span>
+</pre></div><p>Using <a id="id916" class="indexterm"/>Chef Vault, no shared key has ever transited in clear text, and only filtered and existing nodes can decrypt data that has been encrypted specifically for them. Much more can be done with this tool!</p></div></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec230"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The <a id="id917" class="indexterm"/>Chef Vault gem at <a class="ulink" href="https://github.com/chef/chef-vault">https://github.com/chef/chef-vault</a></li><li class="listitem" style="list-style-type: disc">The Chef Vault cookbook at <a class="ulink" href="https://github.com/chef-cookbooks/chef-vault">https://github.com/chef-cookbooks/chef-vault</a></li></ul></div></div></div>
+<div class="section" title="Accessing and manipulating system information with Ohai"><div class="titlepage"><div><div><h1 class="title"><a id="ch08lvl1sec91"/>Accessing and manipulating system information with Ohai</h1></div></div></div><p>A <a id="id918" class="indexterm"/>vast amount of information from a given <a id="id919" class="indexterm"/>system is available to Chef through Ohai. This program is executed during each Chef run and stores all of the gathered <a id="id920" class="indexterm"/>information in the Chef database to make <a id="id921" class="indexterm"/>it available right from the cookbooks. The kind of information gathered by default is quite large.</p><p>It ranges from networking details—such as link speed, MTU, or addresses—to all the memory usage details you'd find on a utility such as <code class="literal">top</code>, all of the imaginable data regarding filesystems or virtualization systems, or the list of every single installed package and logged-in users.</p><p>On top of this, Ohai is a modular system with a lot of community plugins to integrate Dell DRAC information with support information related to a KVM, LXC, or XenServer.</p><p>It can <a id="id922" class="indexterm"/>even be used to retrieve some specific data related to <span class="strong"><strong>Windows Management Instrumentation</strong></span> (<span class="strong"><strong>WMI</strong></span>). We obviously can write our own plugins, but that's way beyond the scope of this book.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec231"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Vagrant installation on the workstation</li><li class="listitem" style="list-style-type: disc">The Chef code (optionally) from <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet</em></span>, <a class="link" href="ch07.html" title="Chapter 7. Testing and Writing Better Infrastructure Code with Chef and Puppet">Chapter 7</a>, <span class="emphasis"><em>Testing and Writing Better Infrastructure Code with Chef and Puppet</em></span>, or any custom Chef code</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec232"/>How to do it…</h2></div></div></div><p>In a fresh <a id="id923" class="indexterm"/>and minimal installation of a CentOS 7.2 virtual <a id="id924" class="indexterm"/>machine, the <code class="literal">ohai</code> output <a id="id925" class="indexterm"/>is 5,292 lines long, which is full of <a id="id926" class="indexterm"/>information. To see it bit by bit, refer to the following:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ ohai | more</strong></span>
+<span class="strong"><strong>{</strong></span>
+<span class="strong"><strong>  "cpu": {</strong></span>
+<span class="strong"><strong>    "0": {</strong></span>
+<span class="strong"><strong>      "vendor_id": "GenuineIntel",</strong></span>
+<span class="strong"><strong>      "family": "6",</strong></span>
+<span class="strong"><strong>      "model": "69",</strong></span>
+<span class="strong"><strong>      "model_name": "Intel(R) Core(TM) i7-4578U CPU @ 3.00GHz",</strong></span>
+<span class="strong"><strong>      "stepping": "1",</strong></span>
+<span class="strong"><strong>      "mhz": "2999.991",</strong></span>
+<span class="strong"><strong>      "cache_size": "4096 KB",</strong></span>
+<span class="strong"><strong>      "physical_id": "0",</strong></span>
+<span class="strong"><strong>      "core_id": "0",</strong></span>
+<span class="strong"><strong>      "cores": "1",</strong></span>
+</pre></div><p>Alternatively, another solution is to redirect its content to a file so it's easier to process with a dedicated tool:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ ohai &gt; ohai.json</strong></span>
+</pre></div><p>All of this information is also graphically available on the Chef interface when you select a node in the <span class="strong"><strong>Attributes</strong></span> tab:</p><div class="mediaobject"><img src="graphics/B05671_08_01.jpg" alt="How to do it…"/></div><div class="section" title="Accessing Ohai information from a Chef recipe"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec178"/>Accessing Ohai information from a Chef recipe</h3></div></div></div><p>Now <a id="id927" class="indexterm"/>let's access this information from a recipe. We'd like an <code class="literal">index.html</code> page with some of this information, so let's edit the one we already have from the <code class="literal">apache</code> cookbook; however, you can start from scratch as well. We'd like this page to dynamically display something like this:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>This centos 7.2.1511 linux system version 3.10.0-327.el7.x86_64 listening on 192.168.146.129 is up since 25 minutes 55 seconds</strong></span>
+</pre></div><p>All the information we need is stored somewhere in ohai: <code class="literal">platform</code>, <code class="literal">platform_version</code>, <code class="literal">os</code>, <code class="literal">os_version</code>, <code class="literal">ipaddress</code>, or <code class="literal">uptime</code> are all valid values. Let's use them.</p><p>In <code class="literal">apache/templates/index.html.erb</code>, add the following:</p><div class="informalexample"><pre class="programlisting">This &lt;%= node['platform'] %&gt; &lt;%= node['platform_version'] %&gt; &lt;%= node['os'] %&gt; system version &lt;%= node['os_version'] %&gt; listening on &lt;%= node['ipaddress'] %&gt; is up since &lt;%= node['uptime'] %&gt;</pre></div><p>To build something more interesting, as the platform name is available, let's make our <code class="literal">apache</code> cookbook a bit more portable across Linux distributions. When running on Ubuntu, install the <code class="literal">apache2</code> package; else, install the <code class="literal">httpd</code> package. (This will have to be more precise to handle all the real cases.) In the <code class="literal">apache::default</code> recipe, make the following change so the <code class="literal">httpd</code> variable is set to <code class="literal">apache2</code> when running Ubuntu and to the default <code class="literal">httpd</code> elsewhere:</p><div class="informalexample"><pre class="programlisting">if node['platform'] == 'ubuntu'
+  httpd = 'apache2'
+else
+  httpd = 'httpd'
+end
+
+package httpd do
+  action :install
+end
+
+service httpd do
+  action [:enable, :start]
+end</pre></div><p>This is <a id="id928" class="indexterm"/>how we can start leveraging the use of the powerful <code class="literal">ohai</code> command in our Chef infrastructure.</p></div></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec233"/>There's more…</h2></div></div></div><p>The counterpart for Puppet is <code class="literal">facter</code>, which is installed with the Puppet agent. Like <code class="literal">ohai</code>, <code class="literal">facter</code> is a command-line tool:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ facter | more</strong></span>
+<span class="strong"><strong>aio_agent_version =&gt; 1.8.0</strong></span>
+<span class="strong"><strong>augeas =&gt; {</strong></span>
+<span class="strong"><strong>  version =&gt; "1.4.0"</strong></span>
+<span class="strong"><strong>}</strong></span>
+<span class="strong"><strong>disks =&gt; {</strong></span>
+<span class="strong"><strong>  sda =&gt; {</strong></span>
+<span class="strong"><strong>    model =&gt; "VBOX HARDDISK",</strong></span>
+<span class="strong"><strong>    size =&gt; "40.00 GiB",</strong></span>
+<span class="strong"><strong>    size_bytes =&gt; 42949672960,</strong></span>
+<span class="strong"><strong>    vendor =&gt; "ATA"</strong></span>
+<span class="strong"><strong>  }</strong></span>
+<span class="strong"><strong>}</strong></span>
+<span class="strong"><strong>dmi =&gt; {</strong></span>
+<span class="strong"><strong>  bios =&gt; {</strong></span>
+<span class="strong"><strong>    release_date =&gt; "12/01/2006",</strong></span>
+<span class="strong"><strong>    vendor =&gt; "innotek GmbH",</strong></span>
+<span class="strong"><strong>    version =&gt; "VirtualBox"</strong></span>
+<span class="strong"><strong>  },</strong></span>
+<span class="strong"><strong>  board =&gt; {</strong></span>
+<span class="strong"><strong>    manufacturer =&gt; "Oracle Corporation",</strong></span>
+<span class="strong"><strong>    product =&gt; "VirtualBox"</strong></span>
+<span class="strong"><strong>  },</strong></span>
+<span class="strong"><strong>...</strong></span>
+</pre></div><p>As for Chef, the <code class="literal">facter</code> information can be accessed from a Puppet manifest. Such information <a id="id929" class="indexterm"/>in the Puppet world is named <span class="strong"><strong>facts</strong></span>.</p><p>Starting from Puppet 4.x, facts can be accessed from manifests using the <code class="literal">$facts</code> hash. Let's try to create more portable lines of code for the <code class="literal">apache</code> module:</p><div class="informalexample"><pre class="programlisting">if $facts['os']['family'] == 'debian' {
+  $packagename='apache2'
+} else {
+  $packagename='httpd'
+}
+
+package{'apache2':
+  ensure =&gt; present,
+  name   =&gt; $packagename,
+}  
+
+service{'apache2':
+  ensure =&gt; running,
+  enable =&gt; true,
+  name   =&gt; $packagename,
+}</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note65"/>Note</h3><p>You may find pieces of codes that are accessing facts using variables, such as <code class="literal">$osfamily</code> instead of <code class="literal">$facts['os']['family']</code>. This method works with previous versions of Puppet, but it is not obvious here that a fact is being used.</p></div></div></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec234"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Ohai <a id="id930" class="indexterm"/>plugins at <a class="ulink" href="http://ttps://docs.chef.io/plugin_com">https://docs.chef.io/plugin_com</a><a class="ulink" href="http://munity.html#ohai">munity.html#ohai</a></li><li class="listitem" style="list-style-type: disc"><a class="ulink" href="https://docs.puppet.com/puppet/4.8/lang_facts_and_builtin_vars.html">https://docs.puppet.com/puppet/4.8/lang_facts_and_builtin_vars.html</a></li></ul></div></div></div>
+<div class="section" title="Automating application deployment (a WordPress example)"><div class="titlepage"><div><div><h1 class="title"><a id="ch08lvl1sec92"/>Automating application deployment (a WordPress example)</h1></div></div></div><p>Chef <a id="id931" class="indexterm"/>can also be used to deploy applications from code repositories. It combines one of the most complete, feature rich, and complicated Chef resources available—the <code class="literal">deploy</code> resource—and the various powerful and popular cookbooks, such as the <code class="literal">database</code> cookbook. We'll show you how to deploy a simple WordPress application right from the GitHub repository, creating a dedicated database and user as well as all the required dependencies. This builds on what has already been done previously, but the resources and cookbook shown here are made to be reusable anywhere.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec235"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Vagrant installation on the workstation</li><li class="listitem" style="list-style-type: disc">The Chef code (optionally) from <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet</em></span>, <a class="link" href="ch07.html" title="Chapter 7. Testing and Writing Better Infrastructure Code with Chef and Puppet">Chapter 7</a>, <span class="emphasis"><em>Testing and Writing Better Infrastructure Code with Chef and Puppet</em></span>, or any custom Chef code</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec236"/>How to do it…</h2></div></div></div><p>As we're going to deploy an application for MySite (maybe an engineering blog for the MySite company), let's call this recipe <code class="literal">mysite::deploy</code>. Create the recipe like this from <code class="literal">chef-repo</code>:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ chef generate recipe cookbooks/mysite deploy</strong></span>
+</pre></div><p>Our next steps will be to include the Apache and MySQL dependencies, configure everything on MySQL so that WordPress can be installed, and finally deploy the WordPress code from GitHub.</p><div class="section" title="Including dependencies"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec179"/>Including dependencies</h3></div></div></div><p>A <a id="id932" class="indexterm"/>WordPress installation needs at least an HTTP server and a database. Start by including the known dependencies to the service we already have: an Apache virtual host and MySQL. Include them in <code class="literal">deploy.rb</code>:</p><div class="informalexample"><pre class="programlisting">include_recipe 'apache::virtualhost'
+include_recipe 'mysite::mysql'</pre></div></div><div class="section" title="Creating the application's database"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec180"/>Creating the application's database</h3></div></div></div><p>Before <a id="id933" class="indexterm"/>we deploy anything, we need to create a database on our already running MySQL server with a dedicated WordPress user. There's a wonderful cookbook meant just for this: the <code class="literal">database</code> cookbook. We'll reuse this one very often. It gives access to many helpers for most use cases and most types of databases. According to the documentation, we'll need to deploy a gem named <code class="literal">mysql2_chef_gem</code>, which fortunately comes with a dedicated cookbook as well. And finally, as we're using MySQL, let's make sure we depend on its official cookbook. Let's include all of this information in our <code class="literal">mysite</code> cookbook's <code class="literal">metadata.rb</code>:</p><div class="informalexample"><pre class="programlisting">depends 'database'
+depends 'mysql2_chef_gem', '~&gt; 1.1'
+depends 'mysql', '~&gt; 8.1'</pre></div><p>To build the <code class="literal">mysql2</code> gem using the cookbook's new <code class="literal">mysql2_chef_gem</code> resource, we'll need <a id="id934" class="indexterm"/>the MySQL development package named <code class="literal">mysql-community-devel</code>. Let's add the following to our <code class="literal">deploy.rb</code> recipe:</p><div class="informalexample"><pre class="programlisting">package 'mysql-community-devel'
+
+mysql2_chef_gem 'default' do
+  action :install
+end</pre></div><p>The database cookbook created, among others, two useful resources for us: <code class="literal">mysql_database</code> and <code class="literal">mysql_database_user</code>. As we can guess by their names, they respectively help create MySQL databases and MySQL users. Let's create the MySQL connection information variable so it can be reused in our two resources:</p><div class="informalexample"><pre class="programlisting">mysql_connection_info = {
+  host: '127.0.0.1',
+  username: 'root',
+  password: 'super_secure_password'
+}</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note66"/>Note</h3><p>In a proper <code class="literal">production</code> environment, we should use encrypted data bags for this matter, as seen in this chapter. We're trying to keep the code simple here.</p></div></div><p>Now we can create our database named <code class="literal">wordpress</code> using the <code class="literal">mysql_database</code> resource:</p><div class="informalexample"><pre class="programlisting">mysql_database 'wordpress' do
+  connection  mysql_connection_info
+  action      :create
+end</pre></div><p>Also, create a <code class="literal">wordpress_user</code> MySQL user with the password <code class="literal">changeme</code>. This will create the user and grant all the privileges to it:</p><div class="informalexample"><pre class="programlisting">mysql_database_user 'wordpress_user' do
+  connection    mysql_connection_info
+  password      'changeme'
+  database_name 'wordpress'
+  host          '%'
+  privileges    [:all]
+  action        [:create, :grant]
+end</pre></div><p>At <a id="id935" class="indexterm"/>this point, we should have everything we need related to the database.</p></div><div class="section" title="Deploying an application from git or GitHub"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec181"/>Deploying an application from git or GitHub</h3></div></div></div><p>Now <a id="id936" class="indexterm"/>on to application deployment! We know we <a id="id937" class="indexterm"/>want to deploy from <code class="literal">git</code>. Let's make sure <code class="literal">git</code> is installed:</p><div class="informalexample"><pre class="programlisting">package 'git'</pre></div><p>The <code class="literal">deploy_revision</code> resource is the most complex of all. It has a multitude of options, and a full chapter about it wouldn't be enough. Let's keep it simple here and refer to the complete online documentation for more complex uses. Let's keep it simple here, and please refer to the very complete online documentation for more complex uses—because this resource is absolutely powerful and does wonders when properly manipulated. We know the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Our <a id="id938" class="indexterm"/>code is available at <a class="ulink" href="https://github.com/WordPress/WordPress">https://github.com/WordPress/WordPress</a></li><li class="listitem" style="list-style-type: disc">We want to try the latest revision (<code class="literal">HEAD</code>) and keep the last five revisions to allow rollbacks</li><li class="listitem" style="list-style-type: disc">Our HTTP web server runs under the <code class="literal">apache</code> user</li><li class="listitem" style="list-style-type: disc">The virtual host folder is inherited from an attribute set earlier (<code class="literal">/var/www/#{node['sitename']}</code>)</li><li class="listitem" style="list-style-type: disc">There's no database migrations to execute with WordPress</li></ul></div><p>The <code class="literal">deploy_revision</code> resource is modeled after Capistrano and therefore comes from the Ruby on Rails world. But the concepts still apply to most languages, and it's a good practice in production to create shared folders and symlinks for long-lasting configurations and files. It includes certificates, database configuration files, local assets, and so on. However, to keep the current deployment simple, we won't use these right now, even though you'll probably start looking into it as soon as you'll need it. We'll include the symlinks configuration and initialize them to nothing so the code is already present when the time arises. Here's how all this ties together:</p><div class="informalexample"><pre class="programlisting">deploy_revision 'wordpress' do
+  repo 'https://github.com/WordPress/WordPress'
+  revision 'HEAD'
+  user 'apache'
+  deploy_to "/var/www/#{node['sitename']}"
+  keep_releases 5
+  symlinks({})
+  symlink_before_migrate({})
+  migrate false
+  action :deploy
+end</pre></div><p>Once the code is applied, the <code class="literal">/var/www/mysite</code> (or whatever name you may have overridden) structure will change a little:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ ls /var/www/mysite/</strong></span>
+<span class="strong"><strong>current  index.html  releases  shared</strong></span>
+</pre></div><p>There's a <code class="literal">current</code>, <code class="literal">releases</code>, and <code class="literal">shared</code> folder. The <code class="literal">shared</code> folder contains everything <a id="id939" class="indexterm"/>that will last through the releases, including <a id="id940" class="indexterm"/>a cached copy of the current code. The <code class="literal">releases</code> folder contains all the stored releases. The <code class="literal">current</code> folder is itself a symlink to a specific release, which is the git commit SHA on GitHub (<code class="literal">72606bed348e61b6f98318cf920684765aa08b37</code>). Each subsequent release will be identified by its SHA indicating its unique identification and symlinked to <code class="literal">current</code> at the end of the deployment process. The number of kept releases is set by the <code class="literal">keep_releases</code> integer:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ ls -ld /var/www/mysite/current</strong></span>
+<span class="strong"><strong>lrwxrwxrwx. 1 apache root 65 Nov 17 02:18 /var/www/mysite/current -&gt; /var/www/mysite/releases/72606bed348e61b6f98318cf920684765aa08b37</strong></span>
+</pre></div><p>Once this code is applied to our node, if we navigate to <code class="literal">http://&lt;node_ip&gt;/current/</code>, we'll see the WordPress setup page:</p><div class="mediaobject"><img src="graphics/B05671_08_02.jpg" alt="Deploying an application from git or GitHub"/></div><p>To <a id="id941" class="indexterm"/>check whether the connection to the database <a id="id942" class="indexterm"/>is working correctly, type in all of the information from our Chef code:</p><div class="mediaobject"><img src="graphics/B05671_08_03.jpg" alt="Deploying an application from git or GitHub"/></div><p>And, job done! The WordPress installer says, <span class="strong"><strong>All right, sparky! You’ve made it through this part of the installation. WordPress can now communicate with your database. If you are ready, time now to... run the installer!</strong></span>.</p><p>We're <a id="id943" class="indexterm"/>now basically able to deploy any WordPress <a id="id944" class="indexterm"/>installation from scratch, at will, and in seconds, again and again.</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note67"/>Note</h3><p>
+<span class="strong"><strong>Let's insist again</strong></span>:</p><p>Once you're comfortable with this, refer to the deploy resource documentation to discover everything this resource has to offer. It works wonders.</p></div></div></div></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec237"/>There's more…</h2></div></div></div><p>With Puppet, there <a id="id945" class="indexterm"/>is no deploy resource. However, Puppet Labs is providing a useful module—<code class="literal">vcsrepo</code>. With this module, we will be able to deploy a WordPress site from git.</p><p>Let's reuse our Vagrant LAMP example in <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet</em></span>. We just need to add the <code class="literal">vcsrepo</code> module to <code class="literal">Puppetfile</code> (do not forget to run <code class="literal">r10k puppetfile install</code>):</p><div class="informalexample"><pre class="programlisting">mod 'puppetlabs/vcsrepo', '1.4.0'</pre></div><p>Now we are ready to modify the main manifest of the box, namely <code class="literal">web.pomes.pro</code>, to include the WordPress deployment. First, install the <code class="literal">git</code> package:</p><div class="informalexample"><pre class="programlisting">  package {'git':
+    ensure =&gt; installed,
+  }</pre></div><p>Then, create a database for WordPress:</p><div class="informalexample"><pre class="programlisting">  mysql::db {'wordpress':
+    user     =&gt; 'wordpress_user',
+    password =&gt; 'changeme',
+    host     =&gt; '%',
+    grant    =&gt; 'ALL',
+  }</pre></div><p>Also, update <a id="id946" class="indexterm"/>our virtual definition to change <code class="literal">DocumentRoot</code>:</p><div class="informalexample"><pre class="programlisting">  apache::vhost { 'web.pomes.pro':
+    website =&gt; 'web.pomes.pro',
+    docroot =&gt; '/var/www/wordpress',
+  }</pre></div><p>And finally, install WordPress from <code class="literal">git</code> and give rights to Apache:</p><div class="informalexample"><pre class="programlisting">  vcsrepo {'/var/www/wordpress':
+    ensure   =&gt; latest,
+    provider =&gt; git,
+    source   =&gt; 'https://github.com/WordPress/WordPress',
+    revision =&gt; 'master',
+  }
+
+  file {'/var/www/wordpress':
+    ensure    =&gt; directory,
+    owner     =&gt; 'www-data',
+    group =&gt; 'www-data',
+	recurse =&gt; true,
+}	
+</pre></div></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec238"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The <code class="literal">deploy</code> resource <a id="id947" class="indexterm"/>documentation at <a class="ulink" href="https://docs.chef.io/resource_">https://docs.chef.io/resource_</a><a class="ulink" href="http://deploy.html">deploy.html</a></li><li class="listitem" style="list-style-type: disc">The <a id="id948" class="indexterm"/>PuppetLabs <code class="literal">vcsrepo</code> module at <a class="ulink" href="https://forge.puppet.com/puppetlabs/vcsrepo">https://forge.puppet.com/puppetlabs/vcsrepo</a></li><li class="listitem" style="list-style-type: disc">The <a id="id949" class="indexterm"/>WordPress hardening guide at <a class="ulink" href="https://codex.wordpress.org/Hardening_WordPress">https://codex.wordpress.org/Hardening_WordPress</a></li></ul></div></div></div>
+<div class="section" title="Using a TDD workflow"><div class="titlepage"><div><div><h1 class="title"><a id="ch08lvl1sec93"/>Using a TDD workflow</h1></div></div></div><p>TDD is a <a id="id950" class="indexterm"/>popular technique in development teams that <a id="id951" class="indexterm"/>consists of this: you begin by writing tests that will fail because no code is actually written and then write the code that will make these tests pass. This way, we ensure that the code we write is already tested, that it really covers the tested area; if some regression was to happen someday, it would be immediately noticed. Here, we'll show a whole workflow, from development to production, where we deploy Docker on CentOS 7 and Ubuntu 16.04 using the TDD technique. Using Git branches, Chef tools, Test Kitchen, linting, and ServerSpec, we'll go through each and every step of a small project led by TDD principles. We'll do this to achieve maximum code quality among teams, from the development phase in the beginning to the final production environment.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec239"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Vagrant installation on the workstation</li><li class="listitem" style="list-style-type: disc">The Chef code (optionally) from <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet</em></span>, <a class="link" href="ch07.html" title="Chapter 7. Testing and Writing Better Infrastructure Code with Chef and Puppet">Chapter 7</a>, <span class="emphasis"><em>Testing and Writing Better Infrastructure Code with Chef and Puppet</em></span>, or any custom Chef code</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec240"/>How to do it…</h2></div></div></div><p>Our goal is to start a new platform based on Docker. To do this, follow these steps:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Start by creating the <code class="literal">platform</code> cookbook:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ cd chef-repo</strong></span>
+<span class="strong"><strong>$ chef generate cookbook cookbooks/platform</strong></span>
+</pre></div></li><li class="listitem">Now create the empty <code class="literal">platform::docker</code> recipe:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ chef generate recipe cookbooks/platform docker</strong></span>
+</pre></div></li><li class="listitem">Initialize a <code class="literal">git</code> repo if it's not already done:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git init</strong></span>
+</pre></div></li><li class="listitem">Add and commit whatever work is in the repository right now, if any:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git add .</strong></span>
+<span class="strong"><strong>$ git commit -m "initial chef repo state" </strong></span>
+</pre></div></li><li class="listitem">Create a <a id="id952" class="indexterm"/>feature branch for we're about to work on supporting <code class="literal">docker</code> in our platform:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git checkout -b docker_support</strong></span>
+</pre></div></li></ol></div><div class="section" title="Infrastructure TDD – writing tests first"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec182"/>Infrastructure TDD – writing tests first</h3></div></div></div><p>Let's <a id="id953" class="indexterm"/>write our tests first so they will fail for sure, and we'll know we're building from there correctly.</p><p>Create the ServerSpec integration folder inside the platform cookbook:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ mkdir -p test/integration/default/serverspec</strong></span>
+</pre></div><p>Create <code class="literal">.kitchen.yml</code> at the root of the <code class="literal">platform</code> cookbook file with the following content. We'll use Vagrant and simulate a Chef server with the <code class="literal">chef_zero</code> provisioner. We'd like our platform to work on both Ubuntu 16.04 and CentOS 7.2, and we want the entry point for our cookbook as its default recipe:</p><div class="informalexample"><pre class="programlisting">---
+driver:
+  name: vagrant
+
+provisioner:
+  name: chef_zero
+  always_update_cookbooks: true
+
+platforms:
+  - name: centos-7.2
+
+suites:
+  - name: default
+    run_list:
+      - recipe[platform::default]
+    attributes:</pre></div><p>As we've seen earlier in this book, create a helper script in the <code class="literal">serverspec</code> folder named <code class="literal">spec_helper.rb</code>:</p><div class="informalexample"><pre class="programlisting">require 'serverspec'
+# Required by serverspec
+set :backend, :exec</pre></div><p>Let's start our test and see what is it we want to do according to our needs:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">We want the <code class="literal">docker-engine</code> package to be installed</li><li class="listitem" style="list-style-type: disc">We want the <code class="literal">docker</code> service to be enabled and started</li><li class="listitem" style="list-style-type: disc">We want a specific <code class="literal">docker</code> image to be pulled (that is, <code class="literal">sjourdan/terraform:0.7.10</code>)</li></ul></div><p>let's <a id="id954" class="indexterm"/>write these tests in <code class="literal">docker_spec.rb</code>, in the <code class="literal">serverspec</code> folder:</p><div class="informalexample"><pre class="programlisting">require 'spec_helper'
+
+describe package('docker-engine') do
+  it { should be_installed }
+end
+
+describe service('docker') do
+  it { should be_enabled }
+  it { should be_running }
+end
+
+describe command('docker images') do
+  its(:exit_status) { should eq 0 }
+  its(:stdout) { should match(%r{^sjourdan/terraform\s.*0.7.10}) }
+end</pre></div><p>This is good enough for our needs! Let's launch our test environment by firing up <code class="literal">kitchen</code>:</p><div class="informalexample"><pre class="programlisting">$ kitchen create
+$ kitchen converge
+$ kitchen verify
+[...]
+       Package "docker-engine"
+         should be installed (FAILED - 1)
+
+       Service "docker"
+         should be enabled (FAILED - 2)
+         should be running (FAILED - 3)
+
+       Command "docker images"
+         exit_status
+           should eq 0 (FAILED - 4)
+         stdout
+           should match /^sjourdan\/terraform\s.*0.7.10/ (FAILED - 5)
+[...]</pre></div><p>We've failed successfully! Docker is neither installed, enabled, nor started, and no <code class="literal">docker</code> image is there.</p><p>Let's get to work.</p></div><div class="section" title="Deploying Docker with Chef"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec183"/>Deploying Docker with Chef</h3></div></div></div><p>There's <a id="id955" class="indexterm"/>a very nice cookbook, which is extremely well-documented, that does everything we need (<a class="ulink" href="https://github.com/chef-cookbooks/docker">https://github.com/chef-cookbooks/docker</a>). Let's add it to <code class="literal">metadata.rb</code> so we depend on it:</p><div class="informalexample"><pre class="programlisting">depends 'docker', '~&gt; 2.0'</pre></div><p>Add it to Berkshelf as well if you plan to use it in <code class="literal">Berksfile</code>:</p><div class="informalexample"><pre class="programlisting">cookbook 'docker', '~&gt; 2.0'</pre></div><p>As we'll be writing our Docker code in the <code class="literal">platform::docker</code> recipe, let's start by including it in the <code class="literal">default.rb</code> recipe:</p><div class="informalexample"><pre class="programlisting">include_recipe 'platform::docker'</pre></div><p>The <code class="literal">docker</code> cookbook provides us with a new resource named <code class="literal">docker_installation</code> that does just this: install <code class="literal">docker</code>. There's a myriad of installation options you can toy around with. Let's keep it simple and install the current stable Docker version from Docker repositories (not from our Linux distribution). Add the following to the <code class="literal">docker.rb</code> recipe:</p><div class="informalexample"><pre class="programlisting">docker_installation 'default' do
+  repo 'main'
+  action :create
+end</pre></div><p>Execute <code class="literal">kitchen</code> again to apply our code and see whether the tests are passing or failing:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ kitchen converge</strong></span>
+<span class="strong"><strong>$ kitchen verify</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>       Package "docker-engine"</strong></span>
+<span class="strong"><strong>         should be installed</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>       Finished in 0.18797 seconds (files took 0.43908 seconds to load)</strong></span>
+<span class="strong"><strong>       5 examples, 4 failures</strong></span>
+</pre></div><p>Good! What was failing a few minutes ago is now passing. It proves our action has fixed the problem, and we're on the right track. However, other tests are still failing, though.</p><p>Let's create the Docker service and start it using the <code class="literal">docker_service</code> resource the cookbook is offering us:</p><div class="informalexample"><pre class="programlisting">docker_service 'default' do
+  action [:create, :start]
+end</pre></div><p>Execute <code class="literal">kitchen</code> again to apply our code and see what the tests say:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ kitchen converge</strong></span>
+<span class="strong"><strong>$ kitchen verify</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>       Package "docker-engine"</strong></span>
+<span class="strong"><strong>         should be installed</strong></span>
+
+<span class="strong"><strong>       Service "docker"</strong></span>
+<span class="strong"><strong>         should be enabled</strong></span>
+<span class="strong"><strong>         should be running</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>       Finished in 0.12301 seconds (files took 0.28237 seconds to load)</strong></span>
+<span class="strong"><strong>       5 examples, 1 failure</strong></span>
+</pre></div><p>Good! The <a id="id956" class="indexterm"/>service is now tested and enabled and it is running. Let's add this little requirement to have an image pulled right from the beginning, and we've chosen the Docker image <code class="literal">sjourdan/terraform</code> in its version 0.7.10:</p><div class="informalexample"><pre class="programlisting">docker_image 'sjourdan/terraform' do
+  tag '0.7.10'
+  action :pull
+end</pre></div><p>Execute <code class="literal">kitchen</code> again to apply our new code and check whether the tests pass:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ kitchen converge</strong></span>
+<span class="strong"><strong>$ kitchen verify</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>       Finished in 0.23526 seconds (files took 0.44015 seconds to load)</strong></span>
+<span class="strong"><strong>       5 examples, 0 failures</strong></span>
+</pre></div><p>Our code seems to do exactly what our tests expected! Let's destroy our testing environment:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ kitchen destroy</strong></span>
+</pre></div></div><div class="section" title="Linting the code"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec184"/>Linting the code</h3></div></div></div><p>Let's <a id="id957" class="indexterm"/>not forget to check how clean our code is with <code class="literal">cookstyle</code> from inside the <code class="literal">platform</code> cookbook:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ cookstyle</strong></span>
+<span class="strong"><strong>Inspecting 6 files</strong></span>
+<span class="strong"><strong>......</strong></span>
+
+<span class="strong"><strong>6 files inspected, no offenses detected</strong></span>
+</pre></div><p>No offenses! Our <a id="id958" class="indexterm"/>code is clean. Let's move on.</p></div><div class="section" title="Supporting another platform"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec185"/>Supporting another platform</h3></div></div></div><p>Let's <a id="id959" class="indexterm"/>check whether this code would work on Ubuntu 16.04 as well. Wouldn't it be awesome to have it working on both the current platforms with long-term support? Simply add the platform to the cookbook's <code class="literal">kitchen.yml</code> file:</p><div class="informalexample"><pre class="programlisting">  - name: ubuntu-16.04</pre></div><p>Launch <code class="literal">kitchen</code> again and check whether it works with Ubuntu 16.04 as well:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ kitchen test</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+
+<span class="strong"><strong>       Package "docker-engine"</strong></span>
+<span class="strong"><strong>         should be installed</strong></span>
+
+<span class="strong"><strong>       Service "docker"</strong></span>
+<span class="strong"><strong>         should be enabled</strong></span>
+<span class="strong"><strong>         should be running</strong></span>
+
+<span class="strong"><strong>       Command "docker images"</strong></span>
+<span class="strong"><strong>         exit_status</strong></span>
+<span class="strong"><strong>           should eq 0</strong></span>
+<span class="strong"><strong>         stdout</strong></span>
+<span class="strong"><strong>           should match /^sjourdan\/terraform\s.*0.7.10/</strong></span>
+
+<span class="strong"><strong>       Finished in 0.27516 seconds (files took 0.43079 seconds to load)</strong></span>
+<span class="strong"><strong>       5 examples, 0 failures</strong></span>
+
+<span class="strong"><strong>       Finished verifying &lt;default-ubuntu-1604&gt; (5m9.12s).</strong></span>
+</pre></div><p>We're now sure that our code supports Ubuntu 16.04 as well!</p></div><div class="section" title="Team working using Chef and git"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec186"/>Team working using Chef and git</h3></div></div></div><p>Now <a id="id960" class="indexterm"/>that our <code class="literal">platform</code> cookbook works pretty well in our <code class="literal">docker_support</code> git branch, let's commit <a id="id961" class="indexterm"/>that work. Start by verifying what's not tracked:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git status</strong></span>
+<span class="strong"><strong>On branch docker_support</strong></span>
+<span class="strong"><strong>Untracked files:</strong></span>
+<span class="strong"><strong>  (use "git add &lt;file&gt;..." to include in what will be committed)</strong></span>
+
+<span class="strong"><strong>        cookbooks/platform/ </strong></span>
+</pre></div><p>Commit that work:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git add cookbooks/platform</strong></span>
+<span class="strong"><strong>$ git commit -m "added docker support to the platform"</strong></span>
+</pre></div><p>Is our <code class="literal">git</code> tree clean so that we can ship it to our team? Check this using the following code:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git status</strong></span>
+<span class="strong"><strong>On branch docker_support</strong></span>
+<span class="strong"><strong>nothing to commit, working tree clean</strong></span>
+</pre></div><p>Then, let's push it to our <code class="literal">git</code> repository (supposedly GitHub, but it might be anything):</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git push</strong></span>
+</pre></div><p>Now <a id="id962" class="indexterm"/>one of our coworkers can peer review the code and eventually merge <code class="literal">docker_support</code> with the <code class="literal">master</code> branch:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git merge docker_support master </strong></span>
+</pre></div><p>Our new<a id="id963" class="indexterm"/> cookbook is now ready for prime time and can be deployed to staging.</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note68"/>Note</h3><p>In a more complex setup, it's highly recommended that you run those integration tests in a continuous integration system, such as Jenkins. These systems can integrate very well with services such as GitHub or GitLab and launch tests automatically after a push or pull request. This is an added value, ensuring quality in the process before shipping.</p></div></div></div><div class="section" title="Deploying to staging"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec187"/>Deploying to staging</h3></div></div></div><p>Now let's <a id="id964" class="indexterm"/>deploy this new platform cookbook to our staging environment. Let's begin by making sure we have all the required cookbook dependencies:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ cd cookbooks/platform</strong></span>
+<span class="strong"><strong>$ berks</strong></span>
+</pre></div><p>Then, upload all the required cookbooks:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ berks upload</strong></span>
+</pre></div><p>Use already existing environments, such as <code class="literal">staging</code>, and add our new <code class="literal">platform</code> cookbook version constraint to <code class="literal">environments/staging.rb</code> or any similar environment you're using:</p><div class="informalexample"><pre class="programlisting">name 'staging'
+description 'The staging environment'
+cookbook_versions  'platform' =&gt; '= 0.1.0'</pre></div><p>Update that environment using the <code class="literal">knife</code> command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife environment from file environments/staging.rb</strong></span>
+<span class="strong"><strong>Updated Environment staging</strong></span>
+</pre></div><p>Check this code into <code class="literal">git</code>:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git add .</strong></span>
+<span class="strong"><strong>$ git commit -m "added platform::docker to staging"</strong></span>
+</pre></div><p>Add <a id="id965" class="indexterm"/>the platform cookbook to the target node's run_list:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife node run_list add my_node_name 'recipe[platform]'</strong></span>
+</pre></div><p>Wait for the next Chef run or run it yourself and Docker will be available on any node, including this recipe.</p></div><div class="section" title="Deploying to production"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec188"/>Deploying to production</h3></div></div></div><p>Deploying <a id="id966" class="indexterm"/>to production at this stage is totally similar to shipping to staging; there's no difference. The <code class="literal">environments/production.rb</code> file should now look like this:</p><div class="informalexample"><pre class="programlisting">name 'production'
+description 'The production environment'
+cookbook_versions  'platform' =&gt; '= 0.1.0'</pre></div><p>Don't forget to upload it to the Chef server:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ knife environment from file environments/production.rb</strong></span>
+<span class="strong"><strong>Updated Environment production</strong></span>
+</pre></div><p>Commit the changes to <code class="literal">git</code>:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git add .</strong></span>
+<span class="strong"><strong>$ git commit -m "updated production env with platform::docker"</strong></span>
+</pre></div><p>Wait for the next Chef run or execute it yourself, and from now on, we'll have a nice four-step workflow:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Storing the TDD infrastructure code locally</li><li class="listitem">Peer reviewing and merging</li><li class="listitem">Deployment to staging</li><li class="listitem">Deployment to production</li></ol></div><p>Now, each time we're interested in testing or staging a new version of the cookbook that has passed steps 1 and 2, we just bump the cookbook's version number constraint, validating the results in the staging environment without impacting production, and finally deploy it in production whenever possible.</p></div></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec241"/>There's more…</h2></div></div></div><p>With Puppet, the same logic applies. In <a class="link" href="ch07.html" title="Chapter 7. Testing and Writing Better Infrastructure Code with Chef and Puppet">Chapter 7</a>, <span class="emphasis"><em>Testing and Writing Better Infrastructure Code with Chef and Puppet</em></span>, we introduced Beaker as <a id="id967" class="indexterm"/>an acceptance test tool. In a TDD workflow, we can first write acceptance tests in the <code class="literal">specs/acceptance</code> subdirectory of any module and then write the code itself.</p><p>Using multiple <code class="literal">nodesets</code>, we can also ensure tests can be validated on multiple platforms. In <a class="link" href="ch07.html" title="Chapter 7. Testing and Writing Better Infrastructure Code with Chef and Puppet">Chapter 7</a>, <span class="emphasis"><em>Testing and Writing Better Infrastructure Code with Chef and Puppet</em></span>, we used only one platform (Ubuntu) in <code class="literal">spec/acceptance/nodesets/default.yml</code>. However, we can create as many as needed. Here is an example of a CentOS node that should be defined in <code class="literal">spec/acceptance/nodesets/centos-7-x64.yml</code>:</p><div class="informalexample"><pre class="programlisting">HOSTS:
+  centos-7-x64:
+    roles:
+      - agent
+      - default
+    platform: redhat-7-x86_64
+    hypervisor: vagrant
+    box: puppetlabs/centos-7.2-64-nocm
+CONFIG:
+  type: foss</pre></div><p>Using the environment variable <code class="literal">BEAKER_set</code>, it is then possible to specify on which platform the test needs to be run:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ BEAKER_set=centos-7-x64 rake beaker</strong></span>
+</pre></div><p>And using git and r10k, the same team workflow applies. We first develop in a <code class="literal">test</code> branch. When all the tests have passed successfully, we merge them into the <code class="literal">production</code> branch and <a id="id968" class="indexterm"/>use r10k to deploy the code.</p></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec242"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The Docker chef cookbook at <a class="ulink" href="https://github.com/chef-cookbooks/docker">https://github.com/chef-cookbooks/docker</a></li></ul></div></div></div>
+<div class="section" title="Planning for the worse &#x2013; train to rebuild working systems"><div class="titlepage"><div><div><h1 class="title"><a id="ch08lvl1sec94"/>Planning for the worse – train to rebuild working systems</h1></div></div></div><p>It's <a id="id969" class="indexterm"/>one thing to get a full infrastructure finally managed by Chef—block by block, weeks after weeks, modification after modification—keeping the Chef run always smooth and working. However, it's something quite different to be able to rebootstrap a working system from scratch. What if the current setup that works perfectly well is in fact working because there's a script or a binary somewhere left from last year, which does the thing that makes it work? What if the application <a id="id970" class="indexterm"/>servers get corrupted tonight? If this happens, will we be able to rebuild it from scratch? If tomorrow our IaaS cloud provider crashes, in what timeframe will we be able to rebuild systems somewhere else (provided the backups are working; well, that's another story)?</p><p>Now our systems are as much as possible automated, hopefully 100 percent. It's important to know whether we'd be able to fully rebootstrap these systems in case of a disaster; if yes, how long it would take. You may be surprised when you collect some data and discover that many systems can be recovered in minutes. Compare this with the time it might take to find an outdated documentation, apply untested manual processes, and finally do whatever it takes to get something up and running under the pressure of an emergency. We'll all spend better nights and weekends if we know that all the system profiles are being continuously rebootstrapped successfully; in fact, why not use the CI system every night so every morning we would know whether the previous day's changes have impacted something. We, as a team, always know that we're ready to redeploy a system if required.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec243"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Vagrant installation on the workstation</li><li class="listitem" style="list-style-type: disc">The Chef code (optionally) from <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet</em></span>, <a class="link" href="ch07.html" title="Chapter 7. Testing and Writing Better Infrastructure Code with Chef and Puppet">Chapter 7</a>, <span class="emphasis"><em>Testing and Writing Better Infrastructure Code with Chef and Puppet</em></span>, or any custom Chef code</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec244"/>How to do it…</h2></div></div></div><p>There is no single way to achieve our goal. We've already covered Test Kitchen, and this might be a good solution, especially if we have written extensive tests. Integrate this in the company's <span class="strong"><strong>Continuous Integration</strong></span> (<span class="strong"><strong>CI</strong></span>) system and this will do the job.</p><p>A simpler and quicker solution can also be to just launch Vagrant boxes with the right Chef-provisioning profiles for each use case: <code class="literal">docker</code>, <code class="literal">webserver</code>, database server, or full deployment.</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note69"/>Note</h3><p>Refer to the Vagrant chapter of this book for more information about the Vagrant tool!</p></div></div><p>Our production servers are configured by the application of some Chef code, and currently, it does this job pretty well. Are we able to easily rebootstrap a similar CentOS 7.2 server from scratch to the point that it is similarly installed without any Chef or system error? Let's find this out by including <code class="literal">Vagrantfile</code> at the root of the infrastructure repository, using the previous project code for deploying Docker (but the idea is the same for any kind of Chef repo). The minimum we can do is boot a fresh CentOS 7.2:</p><div class="informalexample"><pre class="programlisting">Vagrant.configure("2") do |config|
+  config.vm.box = "bento/centos-7.2"
+end</pre></div><p>We'd like to automatically install Chef on our temporary node, so let's use the <code class="literal">vagrant-omnibus</code> plugin (remember, installing it is easy: <code class="literal">vagrant plugin install vagrant-omnibus</code>). Here's the code to do this:</p><div class="informalexample"><pre class="programlisting">  config.omnibus.chef_version = :latest</pre></div><p>Let's <a id="id971" class="indexterm"/>configure the Vagrant provisioning system to use Chef Zero in order to simulate a Chef server. We can also directly use a real Chef server; if we have one behind the firewall, it can be handy. We have to specify where is everything placed (cookbooks, environments, roles, and so on) with the added subtlety of a <code class="literal">nodes</code> folder that will be left empty in our case. Our virtual machine will run in the <code class="literal">production</code> environment and apply the <code class="literal">docker</code> role:</p><div class="informalexample"><pre class="programlisting">  config.vm.provision "chef_zero" do |chef|
+    chef.cookbooks_path = "cookbooks"
+    chef.environments_path = "environments"
+    chef.roles_path = "roles"
+    chef.nodes_path = "nodes"
+    chef.environment = "production"
+    chef.add_role "docker"
+  end</pre></div><p>We're almost done! We need to tell the Vagrant Berkshelf plugin where to look for <code class="literal">Berksfile</code> and whether to enable it (installing the Berkshelf plugin is easy: <code class="literal">vagrant plugin install vagrant-berkshelf</code>). Here's the code to do this:</p><div class="informalexample"><pre class="programlisting">  config.berkshelf.berksfile_path = "cookbooks/platform/Berksfile"
+  config.berkshelf.enabled = true</pre></div><p>Starting Vagrant at this point will just deploy everything from scratch:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ vagrant up </strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong># Chef Client finished, 17/45 resources updated in 03 minutes 30 seconds</strong></span>
+</pre></div><p>If the run succeeds, meaning the code from the Docker role is applied, we're safe. Let's destroy the VM:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ vagrant destroy -f</strong></span>
+</pre></div><p>Including this Vagrant command in our CI system will ensure this particular role will run flawlessly in this particular environment and with this particular system, and that potentially, it's a matter of three minutes and 30 seconds to recover from nothing to a working state.</p><div class="section" title="Multi-machine recovery"><div class="titlepage"><div><div><h3 class="title"><a id="ch08lvl3sec189"/>Multi-machine recovery</h3></div></div></div><p>Let's <a id="id972" class="indexterm"/>move to a more complicated setup. Vagrant supports multi-machine setups, letting us define profiles for each one of them. In a previous example of this chapter, we deployed a WordPress installation with a database configured and the Apache web server configured as well, all with encrypted data bags and templates. We'll implement the same idea, except that <code class="literal">Vagrantfile</code> will include multiple machine profiles: one to start a virtual machine only with the <code class="literal">webserver</code> role, another to deploy only the database part, and the third one to launch everything together, including the web application. So we'll make sure all the parts of the final product can be redeployed from scratch (which is the main point).</p><p>All VM definitions will live inside the main Vagrant configuration:</p><div class="informalexample"><pre class="programlisting">Vagrant.configure('2') do |config|
+  config.vm.define 'whatever_vm', autostart: false do |node|
+    [...]
+  end
+end</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note70"/>Note</h3><p>We suggest disabling the automatic start of VMs so we don't make the mistake of launching dozens of VMs by error.</p></div></div><p>To make sure our code is capable of bootstrapping only the <code class="literal">webserver</code> role from scratch, we will need to do the following—setting paths for everything, including the specific <code class="literal">Berksfile</code> for the job:</p><div class="informalexample"><pre class="programlisting">  config.vm.define 'webserver', autostart: false do |ws|
+    ws.vm.box = 'bento/centos-7.2'
+
+    ws.vm.provision :chef_zero do |chef|
+      chef.cookbooks_path = 'cookbooks'
+      chef.environments_path = 'environments'
+      chef.roles_path = 'roles'
+      chef.nodes_path = 'nodes'
+      chef.environment = 'production'
+      chef.add_role 'webserver'
+    end
+
+    ws.berkshelf.berksfile_path = 'cookbooks/apache/Berksfile'
+    ws.berkshelf.enabled = true
+  end</pre></div><p>To <a id="id973" class="indexterm"/>launch only this box in order to make sure the <code class="literal">webserver</code> role can be deployed from scratch, use the following command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ vagrant up webserver</strong></span>
+</pre></div><p>To make sure our code is capable of bootstrapping only the database part of this platform from scratch, just execute the <code class="literal">mysite::mysql</code> recipe in a similar context:</p><div class="informalexample"><pre class="programlisting">  config.vm.define 'db', autostart: false do |db|
+    db.vm.box = 'bento/centos-7.2'
+
+    db.vm.provision :chef_zero do |chef|
+      chef.cookbooks_path = 'cookbooks'
+      chef.environments_path = 'environments'
+      chef.roles_path = 'roles'
+      chef.nodes_path = 'nodes'
+      chef.environment = 'production'
+      chef.add_recipe 'mysite::mysql'
+    end
+
+    db.berkshelf.berksfile_path = 'cookbooks/mysite/Berksfile'
+    db.berkshelf.enabled = true
+  end</pre></div><p>To launch only this box in order to make sure the database recipe can be deployed from scratch, use the following command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ vagrant up db</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>Chef Client finished, 29/43 resources updated in 01 minutes 28 seconds</strong></span>
+</pre></div><p>To make sure our code is capable of bootstrapping the whole platform from scratch, we'll have to simply execute the whole <code class="literal">mysite::default</code> recipe with one more step. One of the included recipes uses an encrypted data bag. It's stored encrypted on the Chef server, but locally, our <code class="literal">./data_bags/</code> directory currently includes only the unencrypted JSON versions. We have to make sure another folder hosts the encrypted versions (maybe you already have one to store them on GitHub for example). Otherwise, import the encrypted version from the Chef server to a new directory, say, in JSON (using <code class="literal">-Fj</code>):</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ mkdir data_bags_encrypted </strong></span>
+<span class="strong"><strong>$ knife data bag show aws us-east-1 -Fj &gt; data_bags_encrypted/us-east-1.json </strong></span>
+</pre></div><p>Now we can define the full VM like the others with the modified data bag path for the encrypted version:</p><div class="informalexample"><pre class="programlisting">  config.vm.define 'mysite', autostart: false do |mysite|
+    mysite.vm.box = 'bento/centos-7.2'
+
+    mysite.vm.provision :chef_zero do |chef|
+      chef.cookbooks_path = 'cookbooks'
+      chef.environments_path = 'environments'
+      chef.data_bags_path = 'data_bags_encrypted'
+      chef.roles_path = 'roles'
+      chef.nodes_path = 'nodes'
+      chef.environment = 'production'
+      chef.add_recipe 'mysite::default'
+    end
+
+    mysite.berkshelf.berksfile_path = 'cookbooks/mysite/Berksfile'
+    mysite.berkshelf.enabled = true
+  end</pre></div><p>To <a id="id974" class="indexterm"/>launch only this box in order to make sure the whole recipe is deployed from scratch, use the following command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ vagrant up mysite</strong></span>
+</pre></div><p>Put these commands (with their destroy counterparts) in the CI or whatever system you prefer at a regular interval, like daily or weekly, for each and every automated part of the infrastructure. With this, you'll always be certain you can redeploy the system when a disaster comes.</p></div></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec245"/>There's more…</h2></div></div></div><p>Using Puppet, <a id="id975" class="indexterm"/>all the examples we used were based on Vagrant, and it is easy to rebuild nodes from scratch. But, in the real word, you probably won't deploy and maintain a production system running from Vagrant on your workstation.</p><p>However, these examples show that it is possible to simulate a complete infrastructure using a simple <code class="literal">vagrant up</code> command, and therefore, it is easy to put it into any CI system to ensure you will be able to rebuild your production system easily.</p></div></div></body></html>

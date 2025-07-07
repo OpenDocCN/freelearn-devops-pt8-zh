@@ -1,0 +1,1241 @@
+<html><head></head><body>
+        <section>
+
+            <header>
+                <h1 class="header-title">Management Tools</h1>
+            </header>
+
+            <article>
+                
+<p style="padding-left: 30px">In this chapter, we will cover:</p>
+<ul>
+<li>Auditing your AWS account</li>
+<li>Recommendations with Trusted Advisor</li>
+<li>Creating e-mail alarms</li>
+<li>Publishing custom metrics in CloudWatch</li>
+<li>Creating monitoring dashboards</li>
+<li>Creating a budget</li>
+<li>Feeding log files into CloudWatch logs</li>
+</ul>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Introduction</h1>
+            </header>
+
+            <article>
+                
+<p>As with all administration, monitoring and alerting is a critical part of using AWS-based infrastructure. If anything, due to the ephemeral nature of cloud resources, keeping track and measuring your usage is even more important than when using on-premises systems.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Auditing your AWS account</h1>
+            </header>
+
+            <article>
+                
+<p>We're now going to show you how to set up CloudTrail in your AWS account. Once CloudTrail has been enabled, it will start to record all of the API calls made in your account to the AWS service and then deliver them to you as log files in an S3 bucket.<br/>
+When we talk about API calls we mean things like:</p>
+<ul>
+<li>Actions performed in the AWS console.</li>
+<li>Calls made to AWS APIs using the CLI or SDKs.</li>
+<li>Calls made on your behalf by AWS services. Think CloudFormation or the auto scaling service.</li>
+</ul>
+<p>Each entry in the log will contain useful information, such as:</p>
+<ul>
+<li>The service that was called</li>
+<li>The action that was requested</li>
+<li>The parameters sent with the request</li>
+<li>The response that was returned by AWS</li>
+<li>The identity of the caller (including IP address)</li>
+<li>The date and time of the request</li>
+</ul>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How to do it...</h1>
+            </header>
+
+            <article>
+                
+<ol>
+<li>Create a new CloudFormation template file; we're going to define the following <kbd>Resources</kbd>:
+<ul>
+<li>An S3 bucket for our CloudTrail log files to be stored in</li>
+<li>A policy for our S3 bucket that allows the CloudTrail service to write to our bucket</li>
+<li>A CloudTrail <em>trail</em></li>
+</ul>
+</li>
+</ol>
+<ol start="2">
+<li>Define an S3 bucket like so. We don't need to give it a name; we'll add the bucket name to the list of <kbd>Outputs</kbd> later:</li>
+</ol>
+<pre>
+      ExampleTrailBucket: <br/>        Type: AWS::S3::Bucket
+</pre>
+<ol start="3">
+<li>Next, we need to define a policy for our bucket. This section is a little wordy so you may prefer to get this from the code samples instead. This policy essentially allows CloudTrail to do two things to our bucket: <kbd>s3:GetBucketAcl</kbd> and <kbd>s3:PutObject</kbd>.</li>
+</ol>
+<pre>
+      ExampleBucketPolicy: <br/>        Type: AWS::S3::BucketPolicy <br/>        Properties: <br/>          Bucket: !Ref ExampleTrailBucket <br/>          PolicyDocument: <br/>            Statement: <br/>            - Sid: AWSCloudTrailAclCheck20150319 <br/>              Effect: Allow <br/>              Principal: <br/>                Service: cloudtrail.amazonaws.com <br/>                Action: s3:GetBucketAcl <br/>                Resource: !Join <br/>                  - "" <br/>                  - <br/>                    - "arn:aws:s3:::" <br/>                    - !Ref ExampleTrailBucket <br/>            - Sid: AWSCloudTrailWrite20150319 <br/>              Effect: Allow <br/>              Principal: <br/>                Service: cloudtrail.amazonaws.com <br/>              Action: s3:PutObject <br/>              Resource: !Join <br/>                - "" <br/>                - <br/>                  - "arn:aws:s3:::" <br/>                  - !Ref ExampleTrailBucket <br/>                  - "/AWSLogs/" <br/>                  - !Ref AWS::AccountId <br/>                  - "/*" <br/>              Condition: <br/>                StringEquals: <br/>                  s3:x-amz-acl: bucket-owner-full-control
+</pre>
+<ol start="4">
+<li>Now we can set up our trail.</li>
+</ol>
+<div class="packt_infobox">One thing to note here is that we use <kbd>DependsOn</kbd> to make CloudFormation create this trail after it has created the S3 bucket and policy. If you don't do this you'll likely encounter an error when you create the stack because CloudTrail won't be able to access the bucket.</div>
+<ol start="5">
+<li>Add the <kbd>Trail</kbd> to your template like so:</li>
+</ol>
+<pre>
+      ExampleTrail: <br/>        Type: AWS::CloudTrail::Trail <br/>        Properties: <br/>          EnableLogFileValidation: true <br/>          IncludeGlobalServiceEvents: true <br/>          IsLogging: true <br/>          IsMultiRegionTrail: true <br/>          S3BucketName: !Ref ExampleTrailBucket <br/>        DependsOn: <br/>          - ExampleTrailBucket <br/>          - ExampleBucketPolicy
+</pre>
+<ol start="6">
+<li>Finally, we're going to output the name of the S3 bucket where our CloudTrail logs will be stored:</li>
+</ol>
+<pre>
+      Outputs: <br/>        ExampleBucketName: <br/>          Value: !Ref ExampleTrailBucket <br/>          Description: Bucket where CloudTrail logs will be stored
+</pre>
+<ol start="7">
+<li>You can go ahead and run your CloudFormation stack using the following command:</li>
+</ol>
+<pre>
+<strong>      aws cloudformation create-stack \</strong><br/>        <strong>--template-body file://05-auditing-your-aws-account.yaml \</strong><br/>        <strong>--stack-name example-cloudtrail</strong>
+</pre>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How it works...</h1>
+            </header>
+
+            <article>
+                
+<p>This template will set up CloudTrail with the following configuration:</p>
+<ul>
+<li>CloudTrail will be turned on for all regions in your account. This is a sensible place to start because it gives you visibility over where your AWS resources are being created. Even if you are the sole user of your AWS account it can be handy to know if you are making API calls to other regions by mistake (it's easy to do). When you create a multi region trail, new regions will automatically be included when they come online with no additional effort on your part.</li>
+<li>Global service events will also be logged. Again this is a sensible default because it includes services that aren't region-specific. CloudFront and IAM are two examples of AWS services that aren't region-specific.</li>
+<li>Log file validation is turned on. With this feature enabled, CloudTrail will deliver a digest file on an hourly basis that you can use to determine if your CloudTrail logs have been tampered with. CloudTrail uses SHA-256 for hashing and signing (RSA). The AWS CLI can be used to perform ad hoc validation of CloudTrail logs.</li>
+</ul>
+<p>For a quick view of your CloudTrial logs, with some basic search and filter functionality, you can head to the AWS web console:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_01.png"/></div>
+<div class="packt_figure CDPAlignCenter CDPAlign packt_figref">CloudTrail web console</div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">There's more...</h1>
+            </header>
+
+            <article>
+                
+<ul>
+<li>Log files are encrypted using server side encryption in S3. This encryption is transparent to you, but you can opt to encrypt these files with your own <strong>customer master key</strong> (<strong>CMK</strong>) if you wish.</li>
+<li>API calls are logged by CloudTrail in under 15 minutes.</li>
+<li>Logs are shipping to your S3 bucket every five minutes.</li>
+<li>It's possible to aggregate CloudTrail events across many accounts into a single bucket. This is a pattern often used to log AWS activity into a <em>SecOps</em> or similar account for auditing.</li>
+<li>Logging aside, CloudTrail keeps your API activity for seven days.</li>
+<li>You can create more than one trail. You might consider creating a trail for your developers that is separate from the trail consumed by security.</li>
+<li>If a CloudFormation stack creates an S3 bucket and that S3 bucket has objects in it the delete operation will fail if and when you choose to delete the stack. You can manually delete the S3 bucket in the S3 web console if you wish to work around this.</li>
+</ul>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Recommendations with Trusted Advisor</h1>
+            </header>
+
+            <article>
+                
+<p>Trusted Advisor covers four main areas and it is designed to give you some guidance around what are considered best practices for your cloud deployment. The areas covered are:</p>
+<ul>
+<li><span class="packt_screen">Cost Optimization</span></li>
+<li><span class="packt_screen">Performance</span></li>
+<li><span class="packt_screen">Security</span></li>
+<li><span class="packt_screen">Fault Tolerance</span></li>
+</ul>
+<p>It's available to everyone and free to use—with one fairly large catch. Unless you are paying for Business or Enterprise level support with AWS you only get access to four checks. At the time of publishing there are 55 possible checks.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How to do it...</h1>
+            </header>
+
+            <article>
+                
+<p>The good news is you don't need to do anything at all to turn on Trusted Advisor. It's automatically enabled when your AWS account is created and will continue to update for the lifetime of your account.</p>
+<p>Go ahead and navigate to the <span class="packt_screen">Trusted Advisor</span> section of the AWS web console.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How it works...</h1>
+            </header>
+
+            <article>
+                
+<p>The four checks provided for free with this service are:</p>
+<ul>
+<li><strong>Unrestricted ports</strong>: This is a check on the highest risk ports in your security groups. They'll be flagged if they're open to everyone (<kbd>0.0.0.0/0</kbd>).</li>
+<li><strong>IAM usage</strong>: This is a fairly rudimentary check. If there isn't at least one IAM user in your account this check won't pass. It's considered good practice to not use your root login credentials for your AWS account and instead create IAM users with least privilege access.</li>
+<li><strong>MFA on root account</strong>: This is also a fairly rudimentary check. You need to have MFA enabled for your root login in order for this check to pass. It's obviously a good idea to enable MFA for your IAM users too.</li>
+<li><strong>Service l</strong><strong>imits</strong>: This one is quite handy: if you're approaching 80% of your service limits, this check won't pass. For example, it's nice to know if you're about to hit the cap of CloudFormation stacks or EC2 instances before you attempt to create them.</li>
+</ul>
+<p>Even though there's only four checks here, these are some of the more useful ones so we'd encourage you to pay attention to them.</p>
+<p>The console uses a color scheme to denote the status of each check:</p>
+<ul>
+<li><strong>Red</strong>: It's recommended that you take action to remedy this check</li>
+<li><strong>Yellow</strong>: This check requires investigation and possible remediation</li>
+<li><strong>Green</strong>: This check is passing and needs no attention</li>
+</ul>
+<div class="packt_tip">Visit the <span class="packt_screen">Preferences</span> page in the <span class="packt_screen">Trusted Advisor</span> web console if you'd like to have a weekly report e-mailed to you.</div>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_02.png"/></div>
+<div class="packt_figure CDPAlignCenter CDPAlign packt_figref">Trusted Advisor console</div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">There's more...</h1>
+            </header>
+
+            <article>
+                
+<p>As well as opening up the entire suite of Trusted Advisor checks, a Business or Enterprise level support arrangement gives you access to the following:</p>
+<ul>
+<li><strong>Notifications</strong>: You are able to have notifications delivered to you at a higher frequency using a number of delivery methods. Since Trusted Advisor is an available source in CloudWatch Events you'll be able to create notifications that can be handled by SNS (e-mail, push, SMS) or even notifications that will trigger Lambda functions.</li>
+<li><strong>API a</strong><strong>ccess</strong>: You'll have access to a number of Trusted Advisor API methods such as <kbd>DescribeTrustedAdvisorCheckResult</kbd> and <kbd>DescribeTrustedAdvisorCheckSummaries</kbd>. You can use these to integrate the results from checks into your own dashboards or monitoring systems. You'll also be able to use the APIs to refresh Trusted Advisor checks (after you've taken corrective action on them, for example).</li>
+<li><strong>Exclusion</strong>: You can selectively mute checks that are failing. You'll sometimes want to do this for things such as RDS instances in your development environments that aren't in multi-AZ mode or don't have backups enabled.</li>
+</ul>
+<p>Finally, some of the more useful checks we see for our Business and Enterprise level support customers are:</p>
+<ul>
+<li><strong>Reserved Instances</strong>: A nice cost optimization if you have a reasonably static workload.</li>
+<li><strong>Unassociated Elastic IPs</strong>: If IP addresses are not associated with a network interface (on an EC2 instance for example) you will still be charged for them. Also if there are unassociated IPs floating around, that is usually a sign that they are being allocated manually instead of with CloudFormation. Remember that the goal here is for more automation, not less.</li>
+<li><strong>Idle load balancers</strong>: Again, these cost money and are often easily orphaned in low automation environments.</li>
+<li><strong>S3 bucket permissions</strong>: It's not always obvious if the permissions on an S3 bucket have been misconfigured. This check helps you avoid unintentionally leaking data.</li>
+</ul>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Creating e-mail alarms</h1>
+            </header>
+
+            <article>
+                
+<p>While e-mail alarms may not be the most scalable of all alarms (due to the amount of e-mail most people get), they are the easiest to integrate—almost everyone has an e-mail address!</p>
+<p>This recipe uses two AWS services:</p>
+<ul>
+<li><strong>CloudWatch</strong> (<strong>CW</strong>)</li>
+<li><strong>Simple Notification Service</strong> (<strong>SNS</strong>)</li>
+</ul>
+<p>As you will often want to create alarms for metrics after viewing them through the CloudWatch dashboard, this recipe will use the console to create the alarms.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How to do it...</h1>
+            </header>
+
+            <article>
+                
+<ol start="1">
+<li>In the CloudWatch console, go to the <span class="packt_screen">Alarms</span> section:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_03.png"/></div>
+<ol start="2">
+<li>Click <span class="packt_screen">Create Alarm</span> to start the wizard:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_04.png"/></div>
+<ol start="3">
+<li>Select the metric you are interested in alerting on. In this case, we will choose <span class="packt_screen">By Function Name</span> under <span class="packt_screen">Lambda Metrics</span>:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_05.png"/></div>
+<ol start="4">
+<li>Select the specific metric. You can filter by any of the values in the table. In this case, we will select <span class="packt_screen">Errors</span> and click <span class="packt_screen">Next</span>:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_06.png"/></div>
+<ol start="5">
+<li>Define the alarm, giving at least a name and a threshold. In this case, we will alert if there are ever <em>any</em> errors (such as <kbd>&gt; 0</kbd>):</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_07-1.png"/></div>
+<ol start="6">
+<li>In the <span class="packt_screen">Actions</span> section, create a new list by giving the e-mail address you want to be notified on of a breach, and a topic name (in this example, we use <kbd>EmailMe</kbd>), and then click <span class="packt_screen">Create Alarm</span>:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_08.png"/></div>
+<ol start="7">
+<li>You will be asked to confirm the e-mail address, and no notifications will be given until it is verified.</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_09.png"/></div>
+<ol start="8">
+<li>The confirmation e-mail will look like this:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_10.png"/></div>
+<ol start="9">
+<li>Once you have clicked on the <span class="packt_screen">Confirm subscription</span> link in the e-mail, you will see a confirmation message as follows:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class=" image-border" src="assets/image_05_011.png"/></div>
+<ol start="10">
+<li>Back in the console the status will update, showing that you have successfully confirmed your subscription:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_12.png"/></div>
+<ol start="11">
+<li>You will then see your newly created alarm in the console, and can view its status and history:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_13.png"/></div>
+<ol start="12">
+<li>In the SNS console, you can see the topic that was created for you as follows:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_14.png"/></div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How it works...</h1>
+            </header>
+
+            <article>
+                
+<p>While we normally prefer the CLI (or CloudFormation) for creating AWS resources the wizard for creating alarms does a lot of work for you, so it is a good place to start. Once you know what kinds of alarms you are interested in, you can automate them.</p>
+<p>The CloudWatch console is a great place to keep an eye on the performance of your resources. Often when looking at the metrics you might find a scenario that you would want to be notified of, and quickly create an alarm on it.</p>
+<div class="packt_tip">While e-mail is probably the easiest way to get started with alarms, it doesn't scale all that well (Do you really want more e-mail?). For very important metrics you might want a CloudWatch dashboard instead, or a different notification protocol/target.</div>
+<p>We start by selecting the metric we are interested in; in this case, it is errors from the <span class="packt_screen">example-lambda-function</span>, but the process would work the same regardless of the metric you select.</p>
+<p>You must define a name for the alarm, and you can optionally create a description. One of the most important parts of the alarm is how you define the threshold that will trigger it. You can choose not only the value and comparison operator used (for example, greater than (<span class="packt_screen">&gt;</span>), less than (<span class="packt_screen">&lt;</span>), greater than or equal to (<span class="packt_screen">&gt;=</span>), and so on), but also the number of failing data points that must occur before the alarm is triggered. This can stop you being alerted unnecessarily for temporary <em>spikes</em> in metric values. In this scenario we want to know if there are <em>any</em> errors, so we set the value to <kbd>1</kbd>.</p>
+<p>On the right-hand side you can define the check period and the statistic used (for example, <span class="packt_screen">Average</span>, <span class="packt_screen">Maximum</span>, <span class="packt_screen">Minimum</span>, and so on). You can also see the recent history of the selected metric in the top-right corner. The red line on the graph is where the currently defined threshold will sit, so you can quickly see if the alarm would have been triggered.</p>
+<p>In the <span class="packt_screen">Actions</span> section of the alarm, you define what action will be taken when triggered. While you can select an existing SNS topic, we will define a new one by clicking on <span class="packt_screen">New list</span>. You are then prompted for the details of the new topic; you must give both a name and an e-mail address to subscribe to the topic.</p>
+<p>When you click <span class="packt_screen">Create Alarm,</span> you will see the status of the subscription. After receiving the e-mail and clicking on the confirmation link, the status will automatically update. It doesn't matter if you navigate away from the window before you confirm the subscription. Just remember that your target e-mail address won't receive any notifications if you do not confirm the subscription.</p>
+<p>Viewing the newly created alarm shows its current state, and its recent history. An alarm has three possible states:</p>
+<ul>
+<li><span class="packt_screen">ALARM</span>: The metric is over the defined threshold</li>
+<li><span class="packt_screen">INSUFFICIENT_DATA</span>: There were not enough data points to determine if the metric is under or over the threshold</li>
+<li><span class="packt_screen">OK</span>: The metric is under the defined threshold</li>
+</ul>
+<p>You can filter alarms by their state by the links on the side menu, which also show an updated view of how many alarms are in each state.</p>
+<p>Behind the scenes, the wizard has created an SNS topic for you. The topic is what handles converting the alarm message to an e-mail, and sending it. Without the SNS topic the alarm would still alert (that is change state), but there would be no way to tell without looking at the metric in the CloudWatch dashboard.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">There's more...</h1>
+            </header>
+
+            <article>
+                
+<p>This recipe represents the simplest useful configuration of SNS topics and CW alarms, but there is a lot more depth available to you in this pattern.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Existing topics</h1>
+            </header>
+
+            <article>
+                
+<p>Instead of choosing <span class="packt_screen">New list</span> in the wizard, you can use the <span class="packt_screen">Select list</span> functionality. You then give the name of an existing SNS topic to use, rather than creating a new one.</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_15.png"/></div>
+<p>This means you can set up a single topic to push multiple alarms to. In addition to being simpler it also means you only need to confirm the subscription <em>once</em>, instead of doing it for each alarm.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Other subscriptions</h1>
+            </header>
+
+            <article>
+                
+<p>An SNS topic that notifies an e-mail is the most common subscription, but not the only option. SNS topics can also send notifications to:</p>
+<div style="margin-left: 2em">
+<ul>
+<li>HTTP(S) endpoints</li>
+<li>Amazon SQS</li>
+<li>AWS Lambda</li>
+<li>SMS</li>
+</ul>
+</div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">See also</h1>
+            </header>
+
+            <article>
+                
+<ul>
+<li>The <em>Creating monitoring dashboards</em> recipe</li>
+</ul>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Publishing custom metrics in CloudWatch</h1>
+            </header>
+
+            <article>
+                
+<p>Once you get used to using CloudWatch, it is highly likely that you will want to see more than just the built-in AWS metrics.</p>
+<p>One of the most common metrics users ask for after starting to run servers in EC2 is memory usage; the built-in metrics for EC2 instances are CPU utilization, network in/out, disk reads/writes, and status—memory is not included by default!</p>
+<p>This recipe will show you how to feed the amount of memory inuse on your Linux instances to CloudWatch, so that you can see them alongside the other instance metrics.</p>
+<div class="packt_tip">Knowing how utilized (or not) your instances are is a key component in choosing the right instance type to use for your workloads. Getting it wrong can cost you a lot of money!</div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Getting ready</h1>
+            </header>
+
+            <article>
+                
+<p>You will need an EC2 instance running Linux, with the AWS CLI tool installed to perform this recipe. If you use an instance based on AWS Linux, you will have the AWS CLI tool installed for you.</p>
+<p>The instance role or credentials you use to run the following commands must have permission to submit metrics to CloudWatch. This is the <kbd>CloudWatch:PutMetricData</kbd> permission.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How to do it...</h1>
+            </header>
+
+            <article>
+                
+<ol start="1">
+<li>On the instance, run the following AWS CLI command:</li>
+</ol>
+<pre>
+<strong>       aws cloudwatch put-metric-data \ </strong><br/><strong>         --metric-name MemoryUsagePercent \</strong><br/><strong>         --namespace CustomMetrics \</strong><br/><strong>         --dimensions InstanceId=`curl -s \</strong><br/><strong>           http://169.254.169.254/latest/meta-data/instance-id` \</strong><br/><strong>         --unit Percent \</strong><br/><strong>         --value `free | grep Mem | awk '{print $3/$2 * 100.0}'`</strong>
+</pre>
+<ol start="2">
+<li>Go to the CloudWatch console, and navigate to the <span class="packt_screen">Metrics</span> dashboard. Your metric will appear under the namespace <span class="packt_screen">CustomMetrics</span>, <span class="packt_screen">InstanceId</span>, and the unique ID for the instance, with the metric name <span class="packt_screen">MemoryUsagePercent</span>.</li>
+</ol>
+<div class="packt_infobox">It can take <em>up to</em> 15 minutes for a custom metric to appear in the CloudWatch dashboard (although it usually takes less). Even for the built-in metrics, it may take a minute or two for the metric data to appear in the console.</div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How it works...</h1>
+            </header>
+
+            <article>
+                
+<p>In this recipe, we use the built-in <kbd>put-metric-data</kbd> AWS CLI command to send our metric to CloudWatch.</p>
+<p>We start by defining the metric name and namespace that the values will appear under. This is important because it defines how we will see the metric in the console and dashboards. Names should identify and describe the metric. They do not need to be unique, as the dimension(s) we add will take care of that (we will discuss this later). Namespaces are used to group similar metrics together, like a category. The built-in metrics appear under the namespace <kbd>AWS/</kbd>. For example, EC2 metrics appear under the <kbd>AWS/EC2</kbd> namespace.</p>
+<p>We then specify a dimension for the metric. A <strong>dimension</strong> is a way to uniquely identify similar metrics. In this case we are using the instance's ID to identify the metric, because the metric is unique to that instance, but we will likely have many instances of the <kbd>MemoryUsagePercent</kbd> metric (across many EC2 instances). We are obtaining the instance ID by querying (via the <kbd>curl</kbd> command) the instance metadata service, which is accessed over HTTP on the special IP address <kbd>169.254.169.254</kbd>.</p>
+<div class="packt_infobox">There's a lot of other useful information in the instance metadata. See the AWS documentation on instance metadata for more details <a href="http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html"><span class="URLPACKT">http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html</span></a>.</div>
+<p>Next we specify a percent, because we know what kind of data we are dealing with. This argument can be leftoff if you don't know (or care), as CloudWatch attaches no significance to it (although some other applications may be able to use it, for example, for display).</p>
+<p>Finally we specify the value to send. We work this value out dynamically from the output of the <kbd>free</kbd> command and use <kbd>awk</kbd> to convert it to a percentage of memory inuse.</p>
+<p>Once the metric is being sent to CloudWatch, we can view it in the console. The easiest way is to select your specific metric and view it in the <span class="packt_screen">Metrics</span> section of the CloudWatch console.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">There's more...</h1>
+            </header>
+
+            <article>
+                
+<p>This is a good real-world use-case to get started with your own custom metrics, but there's a lot more you can do with them.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Cron</h1>
+            </header>
+
+            <article>
+                
+<p>One-off metric values are rarely useful on their own. The real value comes when you can plot and see them over time; how they change, how fast they change, what their range is, and so on.</p>
+<p>On Linux you can schedule a command easily with the <kbd>cron</kbd> command. By putting the AWS CLI commands in a script, and scheduling it with <kbd>cron</kbd> to run periodically, you can feed metrics consistently to CloudWatch, without the overhead of running a dedicated agent on your instances.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Auto scaling</h1>
+            </header>
+
+            <article>
+                
+<p>Instance-based metrics like memory usage become especially useful when collected from all the instances in an auto scaling group.</p>
+<p>By collecting instance or even application-specific metrics (for example: number of threads used, internal request duration, and so on) you can make your auto scaling groups increase and decrease in size at the most appropriate times to your workload and performance profile.</p>
+<p>To do this, make the auto scaling group name one of the dimensions (you can define multiple dimensions) sent along with your metric value.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Backfilling</h1>
+            </header>
+
+            <article>
+                
+<p>You can backfill metrics by running the same command and supplying an additional <kbd>--timestamp</kbd> argument. The timestamp argument accepts an ISO 8601 date and time stamp in UTC time for example: <kbd>2017-01-01T12:00:00.000Z</kbd></p>
+<p>Keep in mind that CloudWatch will only retain your metrics for a certain period, decided by the granularity of your metrics. The retention period is:</p>
+<ul>
+<li>Data points with a period of 60 seconds (1 minute) are available for 15 days</li>
+<li>Data points with a period of 300 seconds (5 minute) are available for 63 days</li>
+<li>Data points with a period of 3600 seconds (1 hour) are available for 455 days (15 months)</li>
+</ul>
+<div class="packt_infobox">While you can send metrics with millisecond precision, the minimum value CloudWatch will store is at the 1 minute level. Anything less than the 1 minute level and CloudWatch will aggregate the values. When aggregated, you can see some additional information about your metric; namely the sample size, minimum and maximum value, and the average of the values.</div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">See also</h1>
+            </header>
+
+            <article>
+                
+<ul>
+<li>The <em>Creating monitoring dashboards</em> recipe</li>
+<li>The <em>Launching an Instance</em> recipe in <a href="beece917-78ff-43b8-934b-706eca5968f9.xhtml"><span class="ChapterrefPACKT">Chapter 4</span></a>, <em>Using AWS Compute</em>.</li>
+</ul>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Creating monitoring dashboards</h1>
+            </header>
+
+            <article>
+                
+<p>The real value of collecting metrics is the ability to spot trends and relationships (often unknown or unexpected) between disparate systems. With this kind of visibility, you are able to identify and troubleshoot issues before they become an incident.</p>
+<p>In addition to providing a way to aggregate and view metrics from your systems, the CloudWatch service also makes it easy to create monitoring dashboards so that you can quickly and clearly view the most important metrics.</p>
+<p>This recipe uses the AWS console because you cannot create dashboards via CloudFormation or the AWS CLI tool yet.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Getting ready</h1>
+            </header>
+
+            <article>
+                
+<p>You will need to have some metrics already present in CloudWatch in order to create a dashboard.</p>
+<p>If you have been using AWS services (for example: EC2, RDS, DDB, and so on), then you should have plenty—almost all the AWS services populate metrics in CloudWatch by default.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How to do it...</h1>
+            </header>
+
+            <article>
+                
+<ol>
+<li>Navigate to the CloudWatch section of the AWS console:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_16.png"/></div>
+<ol start="2">
+<li>Go to the <span class="packt_screen">Dashboards</span> section of the console via the link on the left-hand menu:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_17.png"/></div>
+<ol start="3">
+<li>Click the <span class="packt_screen">Create Dashboard</span> button:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_18.png"/></div>
+<ol start="4">
+<li>Choose the type of widget you want to use to display your metric. In this example, we will choose the most versatile, <span class="packt_screen">Line</span>:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_19.png"/></div>
+<ol start="5">
+<li>Navigate the <span class="packt_screen">All metrics</span> tab to find the metric(s) you want to include, selecting it by clicking the tick box on the left of the metric details. You will see a preview of the metric(s) and how they will look:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_20.png"/></div>
+<ol start="6">
+<li>Once selected, you can modify how the metric is displayed via the settings on the <span class="packt_screen">Graphed metrics</span> tab. In this case we have given the widget a name, and changed the <span class="packt_screen">Period</span> setting for our metric to <span class="packt_screen">1 Minute</span> to reflect the additional granularity available (You can see that the metric line appears <em>smoother</em> because of it).</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_21.png"/></div>
+<ol start="7">
+<li>Once you click <span class="packt_screen">Create widget,</span> you will see your widget on the dashboard. Once you click <span class="packt_screen">Save dashboard,</span> it will appear under the <span class="packt_screen">Dashboards</span> heading on the left-hand menu:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_22.png"/></div>
+<ol start="8">
+<li>At a dashboard level, you can turn on <span class="packt_screen">Auto refresh</span> and the refresh frequency interval:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_23.png"/></div>
+<ol start="9">
+<li>You can resize and rearrange your widgets by dragging them. Just remember to click <span class="packt_screen">Save dashboard</span> to persist any changes:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_24.png"/></div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">There's more...</h1>
+            </header>
+
+            <article>
+                
+<p>CloudWatch dashboard's value is the ease and simplicity that it allows you to publicize your most important metrics.</p>
+<div class="packt_tip">As with any dashboard, make sure that the metrics you choose to display are relevant and actionable. There's no point in displaying a metric if there's no action required when it changes.</div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Widget types</h1>
+            </header>
+
+            <article>
+                
+<p>Line graphs are not the only type of widget that can be displayed in a dashboard. There is also:</p>
+<ul>
+<li><span class="packt_screen">Stacked area</span></li>
+<li><span class="packt_screen">Number</span></li>
+<li><span class="packt_screen">Text</span></li>
+</ul>
+<p>Depending on the type of metrics you are collecting or are interested in, you should experiment with different types of widgets to display them. Not all metrics are suited to line graphs.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">See also</h1>
+            </header>
+
+            <article>
+                
+<ul>
+<li>The <em>Publishing custom metrics in CloudWatch</em> recipe.</li>
+</ul>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Creating a budget</h1>
+            </header>
+
+            <article>
+                
+<p>One of the main attractions of using AWS, is its pay-as-you-go model. You only pay for what you use, no more and no less.</p>
+<p>Unfortunately, this can sometimes result in what's known as <strong>bill shock</strong> at the end of the month. This happens when you do something that you might not know is a charged service, or you do not know how much is charged for it, and you don't find out until it's too late. Especially when getting started, users may not fully appreciate the cost of the activities they're undertaking.</p>
+<p>There are also ways to optimize your costs on AWS, for example, by transferring at slower speeds, removing external access, and so on. All this means that you should be aware of your cost obligations, and manage them in real time. To this end, you can create budgets that help you be aware of your usage and spending.</p>
+<p>While you can create budgets via the AWS CLI tool, it is useful to know how the <span class="packt_screen">Billing</span> dashboard works for administration purposes, so we will use the AWS console for this recipe.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Getting ready</h1>
+            </header>
+
+            <article>
+                
+<p>By default, IAM Users do not have access to the billing section of the AWS console. You must perform these steps using the root login details for your account, or enable IAM access for other users, which is a one-off step.</p>
+<p>While you should not generally use the root credentials for your AWS account when administering, creating budgets (which should happen only infrequently) is an exception.</p>
+<div class="packt_infobox">You <em>should not</em> be creating access keys for your root account under any circumstances, which is another reason why we use the console (and not the CLI) for this recipe.</div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How to do it...</h1>
+            </header>
+
+            <article>
+                
+<ol>
+<li>Log in to the AWS console with your root credentials, and navigate to the <span class="packt_screen">My Billing Dashboard</span> via the user menu accessed by clicking on your name in the top right:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_25.png"/></div>
+<ol start="2">
+<li>The <span class="packt_screen">Billing</span> dashboard displays your up-to-date usage for the month. Click on <span class="packt_screen">Budgets</span> in the left-hand menu:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_26.png"/></div>
+<ol start="3">
+<li>When you first arrive at the <span class="packt_screen">Budgets</span> console, there will be no budgets to display. Click on the <span class="packt_screen">Create budget</span> button to get started:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class=" image-border" src="assets/image_05_027.png"/></div>
+<ol start="4">
+<li>Start by filling out the budget details, such as <kbd>Cost</kbd> for the measurement type, <kbd>Monthly</kbd> for the period, and the budget amount. Select the <span class="packt_screen">Start date</span> (which defaults to the first of the current month), and optionally the <span class="packt_screen">End date</span>. Leave the <span class="packt_screen">End date</span> field blank to create a rolling budget that is reset each month:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_28.png"/></div>
+<ol start="5">
+<li>Next enter the notification details. This includes the threshold for notification, which we will set to be 80% (of our budget) in forecasted use. For e-mail notifications, simply enter the e-mail addresses you want to receive the notifications. Click <span class="packt_screen">Create</span> when finished:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_29.png"/></div>
+<ol start="6">
+<li>You will be returned to the <span class="packt_screen">Budgets</span> section of the <span class="packt_screen">Billing</span> dashboard, and you can see your newly created budget:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_30.png"/></div>
+<ol start="7">
+<li>For each of the budgets you create, you can select it to view the full details:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_31.png"/></div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How it works...</h1>
+            </header>
+
+            <article>
+                
+<p>The <span class="packt_screen">Billing</span> dashboard is closely tied to the account itself, which is why it is not part of the regular services in the console. Accessing it via the user menu hints at the special access it requires. Generally, you would configure a budget when you first open a new AWS account, so you don't get any surprises in your bill at the end of the month.</p>
+<p>If you get access denied messages in the <span class="packt_screen">Billing</span> dashboard, it is most likely because you are using an IAM user and IAM access has not been enabled. You must use your root account credentials (such as that you used to create the account), or enable IAM access. IAM access can only be enabled by the root user.</p>
+<p>When you first arrive at the billing section, you will see a high-level summary of your usage and expenses. As I performed this example in a new account, there's not much to see at this point. The <span class="packt_screen">Month-to-Date Spend by Service</span> graph on the right can be particularly useful to find out what the most popular services you use are. This is a great place to start when trying to reduce or optimize your AWS spending.</p>
+<p>We then navigate to the budgets section and create a new budget. Most of the details should be self-explanatory, and obvious for the purposes of budgeting. Your main choice is to decide if you want to alert on usage or costs. Cost budgets work against the dollar (or appropriate billing currency) amount you will be charged. Usage budgets work against a selected unit of usage, for example, instance hours or data transfer for EC2. A usage budget can only track one type of usage unit, so you will need to create multiple budgets to track the various units that you might be charged for. This is one reason why we prefer a cost budget, as it takes into account multiple forms of usage.</p>
+<p>Specifying e-mail addresses to alert is the simplest way to send any alerts from the budget. For more advanced use cases, you can specify an SNS topic to receive notifications. An example might be if you wanted to receive budget alerts on your phone via an SMS message, or send the alert to a different system automatically (via HTTP/JSON).</p>
+<p>Once finished, you can view all your budgets in the dashboard. You can repeat the process to create multiple budgets. This means you can create budgets for forecast usage and actual usage, as well as different time periods.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Feeding log files into CloudWatch logs</h1>
+            </header>
+
+            <article>
+                
+<p><strong>CloudWatch logs</strong> is a managed, highly durable, log storage system in AWS. It's capable of ingesting logs from many sources. We're going to focus on what is probably the most common use case which is shipping logs off your EC2 instances into CloudWatch logs.</p>
+<p>This capability is particularly important in highly dynamic auto scaling environments. Since the lifetime of your EC2 instances can be quite short, any logs which are written only to a local disk will be lost upon instance termination. You'll inevitably find yourself wishing you had access to server logs after an instance has disappeared.</p>
+<p>The following pattern we're about to show you allows you to aggregate, search and filter log entries across a number of sources. You can then create custom metrics and trigger alarms based on log activity. Super handy!</p>
+<p>In this recipe we're going to:</p>
+<ul>
+<li>Launch an EC2 instance</li>
+<li>Configure it to send logs to CloudWatch logs</li>
+<li>Create a filter based on SSH logins to the instance</li>
+<li>Send ourselves an e-mail alert on filter matches</li>
+</ul>
+<div class="packt_tip">This might be something you'd consider doing on your bastion boxes since they will typically be the sole point of SSH access to your environments and it can be a good idea to make a lot of noise if people are logging in to production servers.</div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Getting ready</h1>
+            </header>
+
+            <article>
+                
+<p>We're going to do all of this in <kbd>us-east-1</kbd> with the AWS Linux AMI. If you wish to do this in a different region you'll simply need to provide a different AMI ID to the template we're going to create.</p>
+<p>Let's get in to it; you'll need the following:</p>
+<ul>
+<li>The VPC ID of your default VPC in <kbd>us-east-1</kbd>. You don't have to use the default VPC, you'll just need to make sure you choose a VPC which has a public subnet (which is configured to assign public IP addresses)</li>
+<li>The subnet ID of the public subnet</li>
+<li>An SSH key pair configured in <kbd>us-east-1</kbd></li>
+<li>An e-mail address we can send alerts to</li>
+</ul>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How to do it...</h1>
+            </header>
+
+            <article>
+                
+<ol>
+<li>Create a new CloudFormation template. Add the following <kbd>Parameters</kbd> to it:</li>
+</ol>
+<pre>
+      AmiId: <br/>        Type: AWS::EC2::Image::Id <br/>        Description: AMI ID to launch instances from <br/>        Default: ami-0b33d91d <br/>      VpcId: <br/>        Type: AWS::EC2::VPC::Id <br/>        Description: VPC where load balancer and instance will launch <br/>      SubnetIDs: <br/>        Type: List&lt;AWS::EC2::Subnet::Id&gt; <br/>        Description: Public subnet where the instance will launch<br/>          (pick at least 1) <br/>      KeyPair: <br/>        Type: AWS::EC2::KeyPair::KeyName <br/>        Description: Key to launch EC2 instance with <br/>      AlertEmail: <br/>        Type: String <br/>        Description: Email Address which alert emails will be sent to
+</pre>
+<ol start="2">
+<li>Now for the <kbd>Resources</kbd>, we need to define a <kbd>Role</kbd> and <kbd>InstanceProfile</kbd> for our EC2 instance. This will give our server the appropriate permissions to send logs to CloudWatch.</li>
+</ol>
+<pre>
+      ExampleRole: <br/>        Type: AWS::IAM::Role <br/>        Properties: <br/>          AssumeRolePolicyDocument: <br/>            Version: "2012-10-17" <br/>            Statement: <br/>              - <br/>                Effect: Allow <br/>                Principal: <br/>                  Service: <br/>                    - ec2.amazonaws.com <br/>                Action: <br/>                  - sts:AssumeRole <br/>          Path: / <br/>          Policies: <br/>            - <br/>             PolicyName: WriteToCloudWatchLogs <br/>             PolicyDocument: <br/>               Version: "2012-10-17" <br/>               Statement: <br/>                 - <br/>                  Effect: Allow <br/>                    Action: <br/>                      - logs:CreateLogGroup <br/>                      - logs:CreateLogStream <br/>                      - logs:PutLogEvents <br/>                      - logs:DescribeLogStreams <br/>                    Resource: "*" <br/>      ExampleInstanceProfile: <br/>        Type: AWS::IAM::InstanceProfile <br/>        Properties: <br/>          Roles: <br/>            - !Ref ExampleRole <br/>          Path: /
+</pre>
+<ol start="3">
+<li>Our instance will need to live in a security group which allows SSH access, so let's add that now:</li>
+</ol>
+<pre>
+      ExampleEC2InstanceSecurityGroup: <br/>        Type: AWS::EC2::SecurityGroup <br/>        Properties: <br/>          GroupDescription: Security Group for example Instance <br/>          SecurityGroupIngress: <br/>            - IpProtocol: tcp <br/>              CidrIp: "0.0.0.0/0" <br/>              FromPort: 22 <br/>              ToPort: 22 <br/>          VpcId: !Ref VpcId
+</pre>
+<ol start="4">
+<li>Next we can define our instance. We make sure to use the profile and security group we just created and we also add a small amount of user-data which does the following:
+<ol>
+<li>Install the <kbd>awslogs</kbd> package.</li>
+<li>Writes a configuration file which will ship <kbd>/var/log/secure</kbd> to CloudWatch logs.</li>
+<li>Starts the <kbd>awslogs</kbd> service.</li>
+<li>Make the <kbd>awslogs</kbd> service start on boot (in case of reboot).</li>
+</ol>
+</li>
+</ol>
+<pre>
+              ExampleEC2Instance: <br/>                Type: AWS::EC2::Instance <br/>                Properties: <br/>                  IamInstanceProfile: !Ref ExampleInstanceProfile <br/>                  InstanceType: t2.nano <br/>                  KeyName: !Ref KeyPair <br/>                  UserData: <br/>                    Fn::Base64: <br/>                      Fn::Sub: | <br/>                        #!/bin/bash -ex <br/>                        yum update -y <br/>                        yum install -y awslogs <br/>                        cat &lt;&lt; EOF &gt;<br/>                        /etc/awslogs/config/var-log-secure.conf <br/>                        [/var/log/secure] <br/>                        datetime_format = %b %d %H:%M:%S <br/>                        file = /var/log/secure <br/>                        buffer_duration = 5000 <br/>                        log_stream_name = {instance_id} <br/>                        initial_position = start_of_file <br/>                        log_group_name = /var/log/secure <br/>                        EOF <br/>                        service awslogs start <br/>                        chkconfig awslogs on <br/>                  ImageId: !Ref AmiId <br/>                  SecurityGroupIds: <br/>                    - Fn::GetAtt: ExampleEC2InstanceSecurityGroup.GroupId <br/>                  SubnetId: !Select [ 0, Ref: SubnetIDs ]
+</pre>
+<ol start="5">
+<li>We're now going to add an SNS topic. This topic will receive alerts and forward them to the e-mail address we're using for alerts:</li>
+</ol>
+<pre>
+      ExampleSNSTopic:  <br/>        Type: AWS::SNS::Topic <br/>        Properties:  <br/>            Subscription:  <br/>              -  <br/>                Endpoint: !Ref AlertEmail <br/>                Protocol: email
+</pre>
+<ol start="6">
+<li>Next, we need to filter our <kbd>/var/log/secure</kbd> logs for logins. A <kbd>MetricFilter</kbd> resource allows us to do this. CloudFormation will throw an error if we refer to a log group which doesn't yet exist, so we add that here too (with a <kbd>DependsOn</kbd> reference):</li>
+</ol>
+<pre>
+      ExampleLogGroup: <br/>        Type: AWS::Logs::LogGroup <br/>        Properties: <br/>          LogGroupName: /var/log/secure <br/>          RetentionInDays: 7 <br/>      ExampleLogsMetricFilter: <br/>        Type: AWS::Logs::MetricFilter <br/>        Properties:  <br/>          FilterPattern: '"Accepted publickey for ec2-user from"' <br/>          LogGroupName: /var/log/secure <br/>          MetricTransformations: <br/>            -  <br/>              MetricValue: "1" <br/>              MetricNamespace: SSH/Logins <br/>              MetricName: LoginCount <br/>        DependsOn: ExampleLogGroup
+</pre>
+<ol start="7">
+<li>The last <kbd>Resource</kbd> we need is the actual <kbd>Alarm</kbd>. Add it like so:</li>
+</ol>
+<pre>
+      ExampleLoginAlarm: <br/>        Type: AWS::CloudWatch::Alarm <br/>        Properties: <br/>          AlarmDescription: SSH Login Alarm <br/>          AlarmActions: <br/>          - Ref: ExampleSNSTopic <br/>          MetricName: LoginCount <br/>          Namespace: SSH/Logins <br/>          Statistic: Sum <br/>          Period: 60 <br/>          EvaluationPeriods: 1 <br/>          Threshold: 0 <br/>          ComparisonOperator: GreaterThanThreshold
+</pre>
+<ol start="8">
+<li>Lastly, we'll add the public IP address of our instance to the <kbd>Outputs</kbd> so we don't need to go to the EC2 web console to look it up:</li>
+</ol>
+<pre>
+      Outputs: <br/>        ExampleEC2InstancePublicIp: <br/>          Value: !GetAtt [ ExampleEC2Instance, PublicIp ]
+</pre>
+<ol start="9">
+<li>Go ahead and launch this CloudFormation stack. You can do it from the AWS CLI like this:</li>
+</ol>
+<pre>
+<strong>      aws cloudformation create-stack \ </strong><br/><strong>        --template-body \<br/>        file://05-feed-log-files-in-to-cloudwatch-logs.yaml \  </strong><br/><strong>        --stack-name example-cloudwatchlogs \ </strong><br/><strong>        --capabilities CAPABILITY_IAM \ </strong><br/><strong>        --parameters \ </strong><br/><strong>        ParameterKey=VpcId,ParameterValue=&lt;your-vpc-id&gt; \ </strong><br/><strong>        ParameterKey=SubnetIDs,ParameterValue='&lt;your-subnet-id&gt;' \ </strong><br/><strong>        ParameterKey=KeyPair,ParameterValue=&lt;your-ssh-key-name&gt; \ </strong><br/><strong>        ParameterKey=AlertEmail,ParameterValue=&lt;your-email-address&gt;</strong>
+</pre>
+<ol start="10">
+<li>Before proceeding you'll need to check your e-mail and confirm your subscription to the SNS topic. If you don't do this you won't receive any alerts from CloudWatch:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_32.png"/></div>
+<div style="padding-left: 90px">In the following screenshot, an example of confirmed subscription is illustrated:</div>
+<div class="CDPAlignCenter CDPAlign"><img class=" image-border" src="assets/image_05_033.png"/></div>
+<ol start="11">
+<li>Go ahead and SSH to your instance. If your login is successful, you'll see your alarm triggered in the CloudWatch web console:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_34.png"/></div>
+<p style="padding-left: 60px">An e-mail will land in your inbox as shown in the following screenshot:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" src="assets/B06236_05_35.png"/></div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How it works...</h1>
+            </header>
+
+            <article>
+                
+<p>It's important that you understand the difference between log streams and log groups.</p>
+<p><strong>Log streams</strong> are log sequences which come from a single source. This could be an EC2 instance, an application process, or another source within AWS. In our case the name of our log stream is the ID of our EC2 instance. In fact, the CloudWatch logs agent will set the <kbd>log_stream_name</kbd> to the instance ID by default.</p>
+<p><strong>Log groups</strong> are collections of log streams with the same properties. In our previous example, the log groups will correspond to <kbd>/var/log/secure</kbd>. So, we end up with a configuration which looks like:</p>
+<pre>
+      log_group_name = /var/log/secure <br/>      log_stream_name = {instance_id}
+</pre>
+<p>When you install the CloudWatch logs agent, it actually sets up <kbd>/var/log/messages</kbd> in exactly the same manner as we've just described:</p>
+<pre>
+      log_group_name = /var/log/messages <br/>      log_stream_name = {instance_id}
+</pre>
+<p>Once the agent has started, it will ship new log entries off the box to CloudWatch logs approximately every 5 seconds.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">There's more...</h1>
+            </header>
+
+            <article>
+                
+<ul>
+<li>CloudWatch logs supports ingestion of traditional text-based log entries as well as JSON formatted logs.</li>
+<li>Logs can be ingested from other sources including CloudTrail, IAM, Kinesis Streams and Lambda.</li>
+<li>By default, logs are stored indefinitely. You can customize this time period to suit your needs however.</li>
+<li>Metric filters, like the one we created previously, can be used to graph and chart in the CloudWatch console. Add them to your dashboards as well as your alerting system.</li>
+<li>The CloudWatch web console allows you to test metric filters before you add them. Using this feature will save you a lot of trial and error with CloudFormation. Don't rely on the web console completely however: you should move these metric filters to CloudFormation as soon as you get them right.</li>
+<li>There is a one-one relationship between a log stream and a log source. For example, you can't have multiple instances sending <kbd>/var/log/secure</kbd> to the same log stream.</li>
+<li>The non-alarm state for the alarm we've created, will be <span class="packt_screen">INSUFFICIENT_DATA</span>. This is because our metric filter outputs a value only if a login is detected.</li>
+</ul>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    </body></html>

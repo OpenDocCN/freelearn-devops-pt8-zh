@@ -1,0 +1,858 @@
+<html><head></head><body><div class="chapter" title="Chapter&#xA0;6.&#xA0;Clustering and Horizontal Scaling with LXC"><div class="titlepage"><div><div><h1 class="title"><a id="ch06"/>Chapter 6. Clustering and Horizontal Scaling with LXC</h1></div></div></div><p>Running applications inside LXC containers provides for a convenient way of allocating and limiting resources, as we saw in earlier chapters. LXC is also great for creating clusters of applications, for example, a web-server farm that can be scaled horizontally or vertically.</p><p>Horizontal scaling is a way of adding more computing power to a cluster or a group of resources performing a common task. This is usually accomplished by adding more servers, virtual machines, or in the case of LXC, more containers to run the applications. In contrast, vertical scaling is done by adding more hardware or virtual resources, such as CPU and memory, to physical servers, VMs, or containers.</p><p>In this chapter, we are going to put all the knowledge you've gained so far toward do the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Creating a simple Apache cluster, running LXC on a minimal root filesystem with libvirt</li><li class="listitem" style="list-style-type: disc">Implementing a multinode web cluster with Apache and HAProxy using Open vSwitch and a mesh of GRE tunnels</li><li class="listitem" style="list-style-type: disc">Demonstrating how to add more containers by reusing the filesystem of existing LXC instances</li></ul></div><div class="section" title="Scaling applications with LXC"><div class="titlepage"><div><div><h1 class="title"><a id="ch06lvl1sec32"/>Scaling applications with LXC</h1></div></div></div><p>LXC is pretty well-suited for virtual machine replacement in sense that it can contain a complete root filesystem for a Linux distribution, in which case, the only shared component with the host OS is the kernel. Applications can be installed in the container's root filesystem so that the host or other containers cannot share them. This isolation is useful if we want to run different versions of the same application and its dependencies, or different Linux distributions altogether.</p><p>On the other hand, libvirt LXC allows for the execution of a single process or a group of processes from a binary which is shared from the host OS by all containers. In this case, the containers share the host filesystem and only abstract certain directories. This helps in scenarios where the application might not need its own dedicated filesystem, if, for example, the Linux distribution in the container is the same as the host OS. Scaling such applications is a matter of ensuring that the service is installed on the host and the necessary config files are present on the minimal root filesystem in the container. We can then make a copy of the container's configuration file and the minimal root filesystem, and start it without many changes.</p><p>In the next two sections, we'll explore both scenarios. We'll start by building minimal root filesystem Apache containers with libvirt and load balancing them with HAProxy, and then move on to build an Apache cluster with LXC, and dedicated filesystems and network isolation with Open vSwitch with a mesh of GRE tunnels.</p><div class="section" title="Scaling Apache in minimal root filesystem with libvirt LXC"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec66"/>Scaling Apache in minimal root filesystem with libvirt LXC</h2></div></div></div><p>In this section, we'll demonstrate how to run multiple Apache servers on the same host using libvirt LXC and a minimal root filesystem for each container. The Apache binary and libraries will be shared among containers. Even though this approach may not be most suitable for Apache, but rather simpler single-threaded processes, it will help us demonstrate this concept in a more practical manner.</p><p>For this example, we'll use Ubuntu, but the same instructions apply to CentOS, as we demonstrated in <a class="link" href="ch02.html" title="Chapter 2. Installing and Running LXC on Linux Systems">Chapter 2</a>, <span class="emphasis"><em>Installing and Running LXC on Linux Systems</em></span>. Following are the steps for the example:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Let's begin by updating the OS and ensure it's running the latest kernel:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# apt-get update &amp;&amp; apt-get upgrade --yes &amp;&amp; reboot</strong></span>
+<span class="strong"><strong>root@lxc:~# lsb_release -a 2&gt;/dev/null</strong></span>
+<span class="strong"><strong>Distributor ID:   Ubuntu</strong></span>
+<span class="strong"><strong>Description:      Ubuntu 16.04.1 LTS</strong></span>
+<span class="strong"><strong>Release:    16.04</strong></span>
+<span class="strong"><strong>Codename:   xenial</strong></span>
+<span class="strong"><strong>root@ubuntu:~#&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# uname -r</strong></span>
+<span class="strong"><strong>4.4.0-38-generic</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">The latest libvirt package on Ubuntu Xenial as of this writing is shown here:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# apt-cache policy libvirt-bin</strong></span>
+<span class="strong"><strong>libvirt-bin:</strong></span>
+<span class="strong"><strong>  Installed: </strong></span>
+<span class="strong"><strong>  Candidate: 1.3.1-1ubuntu10.5</strong></span>
+<span class="strong"><strong>  Version table:</strong></span>
+<span class="strong"><strong>  *** 1.3.1-1ubuntu10.5 500</strong></span>
+<span class="strong"><strong>        500 http://rackspace.clouds.archive.ubuntu.com/ubuntu  &#13;
+            xenial-updates/main amd64 Packages</strong></span>
+<span class="strong"><strong>        100 /var/lib/dpkg/status</strong></span>
+<span class="strong"><strong>     1.3.1-1ubuntu10 500</strong></span>
+<span class="strong"><strong>        500 http://rackspace.clouds.archive.ubuntu.com/ubuntu &#13;
+            xenial/main amd64 Packages</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Next, install the libvirt packages:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# apt-get install libvirt-bin virtinst</strong></span>
+<span class="strong"><strong>root@ubuntu:~# dpkg --list | grep libvirt</strong></span>
+<span class="strong"><strong>ii  libvirt-bin      1.3.1-1ubuntu10.5       amd64         &#13;
+      programs for the libvirt library</strong></span>
+<span class="strong"><strong>ii  libvirt0:amd64     1.3.1-1ubuntu10.5     amd64        &#13;
+      library for interfacing with different virtualization systems</strong></span>
+<span class="strong"><strong>ii  python-libvirt      1.3.1-1ubuntu1       amd64        &#13;
+      libvirt Python bindings</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Conveniently, libvirt created the bridge for us:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# brctl show</strong></span>
+<span class="strong"><strong>bridge name      bridge id          STP enabled  interfaces</strong></span>
+<span class="strong"><strong>virbr0           8000.5254003d3c43  yes          virbr0-nic</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">We'll be using the <code class="literal">default</code> libvirt network; let's ensure it is present:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# export LIBVIRT_DEFAULT_URI=lxc:///</strong></span>
+<span class="strong"><strong>root@ubuntu:~# virsh net-list --all</strong></span>
+<span class="strong"><strong>  Name              State      Autostart     Persistent</strong></span>
+<span class="strong"><strong>----------------------------------------------------------</strong></span>
+<span class="strong"><strong>  default           active     yes           yes</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">To examine the <code class="literal">default</code> network and gateway that libvirt will use, run the following command:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# virsh net-dumpxml default</strong></span>
+<span class="strong"><strong>&lt;network&gt;</strong></span>
+<span class="strong"><strong>&lt;name&gt;default&lt;/name&gt;</strong></span>
+<span class="strong"><strong>&lt;uuid&gt;6585ac5b-3d81-4071-bb61-3aa22007834e&lt;/uuid&gt;</strong></span>
+<span class="strong"><strong>&lt;forward mode='nat'&gt;</strong></span>
+<span class="strong"><strong>&lt;nat&gt;</strong></span>
+<span class="strong"><strong>&lt;port start='1024' end='65535'/&gt;</strong></span>
+<span class="strong"><strong>&lt;/nat&gt;</strong></span>
+<span class="strong"><strong>&lt;/forward&gt;</strong></span>
+<span class="strong"><strong>&lt;bridge name='virbr0' stp='on' delay='0'/&gt;</strong></span>
+<span class="strong"><strong>&lt;mac address='52:54:00:3d:3c:43'/&gt;</strong></span>
+<span class="strong"><strong>&lt;ip address='192.168.122.1' netmask='255.255.255.0'&gt;</strong></span>
+<span class="strong"><strong>&lt;dhcp&gt;</strong></span>
+<span class="strong"><strong>&lt;range start='192.168.122.2' end='192.168.122.254'/&gt;</strong></span>
+<span class="strong"><strong>&lt;/dhcp&gt;</strong></span>
+<span class="strong"><strong>&lt;/ip&gt;</strong></span>
+<span class="strong"><strong>&lt;/network&gt;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">The libvirt toolkit also started <code class="literal">dnsmasq</code>, which will assign the network settings to the LXC containers if we configure them to use DHCP:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# ps axfww</strong></span>
+<span class="strong"><strong>5310 ?        Ssl    0:00 /usr/sbin/libvirtd</strong></span>
+<span class="strong"><strong>   5758 ?        S      0:00 /usr/sbin/dnsmasq &#13;
+      --conf-file=/var/lib/libvirt/dnsmasq/default.conf &#13;
+      --leasefile-ro &#13;
+      --dhcp-script=/usr/lib/libvirt/libvirt_leaseshelper</strong></span>
+<span class="strong"><strong>  5759 ?        S      0:00  \_ /usr/sbin/dnsmasq &#13;
+      --conf-file=/var/lib/libvirt/dnsmasq/default.conf &#13;
+      --leasefile-ro &#13;
+      --dhcp-script=/usr/lib/libvir/libvirt_leaseshelper</strong></span>
+</pre></li><li class="listitem">We'll be using the default <code class="literal">dnsmasq</code> config, but let's ensure the DHCP range matches what <code class="literal">libvirt-net</code> knows from the preceding output:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cat /var/lib/libvirt/dnsmasq/default.conf &#13;
+      | grep -vi "#"</strong></span>
+<span class="strong"><strong>strict-order</strong></span>
+<span class="strong"><strong>user=libvirt-dnsmasq</strong></span>
+<span class="strong"><strong>pid-file=/var/run/libvirt/network/default.pid</strong></span>
+<span class="strong"><strong>except-interface=lo</strong></span>
+<span class="strong"><strong>bind-dynamic</strong></span>
+<span class="strong"><strong>interface=virbr0</strong></span>
+<span class="strong"><strong>dhcp-range=192.168.122.2,192.168.122.254</strong></span>
+<span class="strong"><strong>dhcp-no-override</strong></span>
+<span class="strong"><strong>dhcp-lease-max=253</strong></span>
+<span class="strong"><strong>dhcp-hostsfile=/var/lib/libvirt/dnsmasq/default.hostsfile</strong></span>
+<span class="strong"><strong>addn-hosts=/var/lib/libvirt/dnsmasq/default.addnhosts</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></li></ol></div><div class="section" title="Creating the minimal root filesystem for the containers"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec6"/>Creating the minimal root filesystem for the containers</h3></div></div></div><p>For this example, we are not going to use the provided templates or use the <code class="literal">debootstrap</code> command to build a full-fledged filesystem for the container, but instead create a minimal directory structure to host the configuring files for Apache and the container. The rest will be in the same <code class="literal">mount</code> namespace as the host OS, with the exception of a few directories that we are going to bind to the container.</p><p>Follow these steps to create the minimal root filesystem for the containers:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Let's start by creating the directories; copy the necessary files and install Apache on the host:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cd /opt/</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt# mkdir -p containers/http1/etc</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt# mkdir -p containers/http1/var/www/html</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt# apt-get install --yes apache2</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt# cp -r /etc/apache2/ /opt/containers/http1/etc/</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt# cp -r /etc/passwd  /opt//containers/http1/etc/</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt# cp -r /etc/shadow  /opt//containers/http1/etc/</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt# cp -r /etc/group  /opt//containers/http1/etc/</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt# cp -r /etc/mime.types /opt//containers/http1/etc/</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt# cp -r /etc/init.d/ /opt//containers/http1/etc/</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt# cp -r /etc/resolv.conf /opt/containers/http1/etc/</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt# cp -r /etc/fstab /opt/containers/http1/etc/</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt# cp -r /etc/apache2/ /opt/containers/http1/etc/</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt# cp -r /etc/network/ /opt/containers/http1/etc/</strong></span>
+</pre></li><li class="listitem">Next, create the <code class="literal">index.html</code> page for Apache and configure the web server with its own unique PID file, which will later allow us to start multiple Apache processes:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/opt# echo "Apache in LXC http1" &gt; &#13;
+      /opt/containers/http1/var/www/html/index.html</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt# cd containers/</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt/containers# sed -i &#13;
+      's/\${APACHE_PID_FILE}/\/var\/run\/apache2\/apache2_http1.pid/g'    &#13;
+      http1/etc/apache2/apache2.conf</strong></span>
+</pre></li><li class="listitem">Configure the network interfaces file to use DHCP, so we can leverage the <code class="literal">dnsmasq</code> server that <code class="literal">libvirtd</code> started earlier:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/opt/containers# cat http1/etc/network/interfaces</strong></span>
+<span class="strong"><strong>auto lo</strong></span>
+<span class="strong"><strong>iface lo inet loopback</strong></span>
+<span class="strong"><strong>auto eth0</strong></span>
+<span class="strong"><strong>iface eth0 inet dhcp</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt/containers#</strong></span>
+</pre></li></ol></div></div><div class="section" title="Defining the Apache libvirt container"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec7"/>Defining the Apache libvirt container</h3></div></div></div><p>In order to build LXC containers with libvirt, we need to create the configuration file that contains the attributes of the containers. With the directory structure in place from the previous steps and Apache installed on the host, we can define the configuration file of the containers. We already saw a similar config when we talked about libvirt in <a class="link" href="ch03.html" title="Chapter 3. Command-Line Operations Using Native and Libvirt Tools">Chapter 3</a>, <span class="emphasis"><em>Command-Line Operations Using Native and Libvirt Tools</em></span>. To view the configuration, run the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/opt/containers# cat http1.xml</strong></span>
+<span class="strong"><strong>&lt;domain type='lxc'&gt;</strong></span>
+<span class="strong"><strong>&lt;name&gt;http1&lt;/name&gt;</strong></span>
+<span class="strong"><strong>&lt;memory&gt;102400&lt;/memory&gt;</strong></span>
+<span class="strong"><strong>&lt;os&gt;</strong></span>
+<span class="strong"><strong>&lt;type&gt;exe&lt;/type&gt;</strong></span>
+<span class="strong"><strong>&lt;init&gt;/opt/containers/startup.sh&lt;/init&gt;</strong></span>
+<span class="strong"><strong>&lt;/os&gt;</strong></span>
+<span class="strong"><strong>&lt;vcpu&gt;1&lt;/vcpu&gt;</strong></span>
+<span class="strong"><strong>&lt;on_poweroff&gt;destroy&lt;/on_poweroff&gt;</strong></span>
+<span class="strong"><strong>&lt;on_reboot&gt;restart&lt;/on_reboot&gt;</strong></span>
+<span class="strong"><strong>&lt;on_crash&gt;destroy&lt;/on_crash&gt;</strong></span>
+<span class="strong"><strong>&lt;devices&gt;</strong></span>
+<span class="strong"><strong>&lt;emulator&gt;/usr/lib/libvirt/libvirt_lxc&lt;/emulator&gt;</strong></span>
+<span class="strong"><strong>&lt;filesystem type='mount'&gt;</strong></span>
+<span class="strong"><strong>&lt;source dir='/opt/containers/http1/etc/apache2/'/&gt;</strong></span>
+<span class="strong"><strong>&lt;target dir='/etc/apache2'/&gt;</strong></span>
+<span class="strong"><strong>&lt;/filesystem&gt;</strong></span>
+<span class="strong"><strong>&lt;filesystem type='mount'&gt;</strong></span>
+<span class="strong"><strong>&lt;source dir='/opt/containers/http1/var/www/html/'/&gt;</strong></span>
+<span class="strong"><strong>&lt;target dir='/var/www/html'/&gt;</strong></span>
+<span class="strong"><strong>&lt;/filesystem&gt;</strong></span>
+<span class="strong"><strong>&lt;filesystem type='mount'&gt;</strong></span>
+<span class="strong"><strong>&lt;source dir='/opt/containers/http1/etc/'/&gt;</strong></span>
+<span class="strong"><strong>&lt;target dir='/etc'/&gt;</strong></span>
+<span class="strong"><strong>&lt;/filesystem&gt;</strong></span>
+<span class="strong"><strong>&lt;interface type='network'&gt;</strong></span>
+<span class="strong"><strong>&lt;source network='default'/&gt;</strong></span>
+<span class="strong"><strong>&lt;/interface&gt;</strong></span>
+<span class="strong"><strong>&lt;console type='pty'/&gt;</strong></span>
+<span class="strong"><strong>&lt;/devices&gt;</strong></span>
+<span class="strong"><strong>&lt;/domain&gt;</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt/containers#</strong></span>
+</pre><p>What is new in the preceding configuration is that, instead of specifying <code class="literal">/sbin/init</code> as the type of init system, we configure libvirt to use a custom script—<code class="literal">startup.sh</code>. The script can be anything we like; in this case, it will start the networking in the container, configure the shell, execute <code class="literal">dhclient</code> to obtain the network settings from <code class="literal">dnsmasq</code>, and then start Apache and bash:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/opt/containers# cat startup.sh</strong></span>
+<span class="strong"><strong>#!/bin/bash</strong></span>
+<span class="strong"><strong>export PATH=$PATH:/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin</strong></span>
+<span class="strong"><strong>export PS1="[\u@\h \W]\\$"</strong></span>
+<span class="strong"><strong>echo "Starting Networking" &gt;&gt; /var/log/messages</strong></span>
+<span class="strong"><strong>/etc/init.d/networking start</strong></span>
+<span class="strong"><strong>/sbin/dhclient eth0</strong></span>
+<span class="strong"><strong>echo "Starting httpd" &gt;&gt; /var/log/messages</strong></span>
+<span class="strong"><strong>/etc/init.d/apache2 start</strong></span>
+<span class="strong"><strong>/bin/bash</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt/containers#</strong></span>
+</pre><p>Next, make the script executable:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/opt/containers# chmod u+x startup.sh</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt/containers#</strong></span>
+</pre><p>The root directory of the container should look like the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/opt/containers# ls -la http1</strong></span>
+<span class="strong"><strong>total 16</strong></span>
+<span class="strong"><strong>drwxr-xr-x 4 root root 4096 Oct 31 17:25 .</strong></span>
+<span class="strong"><strong>drwxr-xr-x 3 root root 4096 Oct 31 17:32 ..</strong></span>
+<span class="strong"><strong>drwxr-xr-x 4 root root 4096 Oct 31 17:27 etc</strong></span>
+<span class="strong"><strong>drwxr-xr-x 3 root root 4096 Oct 31 17:25 var</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt/containers#</strong></span>
+</pre><p>Only two directories are present! We are now ready to define the container:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/opt/containers# virsh define http1.xml</strong></span>
+<span class="strong"><strong>Domain http1 defined from http1.xml</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt/containers#</strong></span>
+</pre></div><div class="section" title="Starting the Apache libvirt container"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec8"/>Starting the Apache libvirt container</h3></div></div></div><p>With all the necessary components in place, let's start the container and confirm that it's running:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/opt/containers# virsh start http1</strong></span>
+<span class="strong"><strong>Domain http1 started</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt/containers# virsh list --all</strong></span>
+<span class="strong"><strong>Id    Name                           State</strong></span>
+<span class="strong"><strong>----------------------------------------------------</strong></span>
+<span class="strong"><strong>19032 http1                          running</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt/containers# ps axfww</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>10592 ?      S     0:00 /usr/lib/libvirt/libvirt_lxc --name http1 &#13;
+--console 23 --security=apparmor --handshake 26 --veth vnet1</strong></span>
+<span class="strong"><strong>10594 ?      S     0:00  \_ /bin/bash /opt/containers/startup.sh</strong></span>
+<span class="strong"><strong>10668 ?      Ss    0:00      \_ /sbin/dhclient eth0</strong></span>
+<span class="strong"><strong>10694 ?      Ss    0:00      \_ /usr/sbin/apache2 -k start</strong></span>
+<span class="strong"><strong>10698 ?      Sl    0:00      |   \_ /usr/sbin/apache2 -k start</strong></span>
+<span class="strong"><strong>10699 ?      Sl    0:00      |   \_ /usr/sbin/apache2 -k start</strong></span>
+<span class="strong"><strong>10697 ?      S     0:00      \_ /bin/bash</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt/containers#</strong></span>
+</pre><p>When listing the processes on the host, notice how the container was started from the <code class="literal">libvirt_lxc</code> script, which is the parent process of the <code class="literal">startup.sh</code> script, which in turn launched Apache.</p><p>Connect to the container and ensure it was able to obtain an IP address and default gateway from <code class="literal">dnsmasq</code>:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/opt/containers# virsh console http1</strong></span>
+<span class="strong"><strong>[root@ubuntu /]#ip a s</strong></span>
+<span class="strong"><strong>1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1</strong></span>
+<span class="strong"><strong>    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</strong></span>
+<span class="strong"><strong>    inet 127.0.0.1/8 scope host lo</strong></span>
+<span class="strong"><strong>       valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>    inet6 ::1/128 scope host</strong></span>
+<span class="strong"><strong>       valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>14: eth0@if15: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP group default qlen 1000</strong></span>
+<span class="strong"><strong>    link/ether 52:54:00:92:cf:12 brd ff:ff:ff:ff:ff:ff link-netnsid 0</strong></span>
+<span class="strong"><strong>    inet 192.168.122.216/24 brd 192.168.122.255 scope global eth0</strong></span>
+<span class="strong"><strong>       valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>    inet6 fe80::5054:ff:fe92:cf12/64 scope link</strong></span>
+<span class="strong"><strong>       valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>[root@ubuntu /]#ip r s</strong></span>
+<span class="strong"><strong>default via 192.168.122.1 dev eth0</strong></span>
+<span class="strong"><strong>192.168.122.0/24 dev eth0  proto kernel  scope link  src 192.168.122.10</strong></span>
+<span class="strong"><strong>[root@ubuntu /]# Ctrl + ]</strong></span>
+</pre><p>Let's connect to Apache from the host OS:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/opt/containers# curl 192.168.122.216</strong></span>
+<span class="strong"><strong>Apache in LXC http1</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt/containers#</strong></span>
+</pre><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="note30"/>Note</h3><p>The <code class="literal">192.168.122.70</code> IP address is what <code class="literal">dnsmasq</code> assigned to the container; you might need to replace it with whatever is the correct address on your system.</p></div></div></div></div><div class="section" title="Scaling Apache with libvirt LXC and HAProxy"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec67"/>Scaling Apache with libvirt LXC and HAProxy</h2></div></div></div><p>For scaling Apache with libvirt LXC and HAProxy, follow these steps:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">With one Apache container running, let's quickly create a second one by copying the simple directory structure and libvirt config from the <code class="literal">http1</code> container:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/opt/containers# cp -r http1 http2</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt/containers# cp http1.xml http2.xml</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt/containers#</strong></span>
+</pre></li><li class="listitem">All we need to change is the name of the container, the PID file for Apache, and its index file:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/opt/containers# sed -i 's/http1/http2/g' &#13;
+      http2.xml&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt/containers# sed -i 's/http1/http2/g' &#13;
+      http2/etc/apache2/apache2.conf&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt/containers# echo "Apache in LXC http2" &gt;    &#13;
+      /opt/containers/http2/var/www/html/index.html</strong></span>
+</pre></li><li class="listitem">Define the new container and examine the directory structure that contains the root filesystem and the configuration files for both containers:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/opt/containers# virsh define http2.xml</strong></span>
+<span class="strong"><strong>Domain http2 defined from http2.xml&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt/containers# ls -la</strong></span>
+<span class="strong"><strong>total 28</strong></span>
+<span class="strong"><strong>drwxr-xr-x 4 root root 4096 Oct 31 19:57 .</strong></span>
+<span class="strong"><strong>drwxr-xr-x 3 root root 4096 Oct 31 17:32 ..</strong></span>
+<span class="strong"><strong>drwxr-xr-x 4 root root 4096 Oct 31 17:25 http1</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root  868 Oct 31 17:31 http1.xml</strong></span>
+<span class="strong"><strong>drwxr-xr-x 4 root root 4096 Oct 31 19:56 http2</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root  868 Oct 31 19:57 http2.xml</strong></span>
+<span class="strong"><strong>-rwxr--r-- 1 root root  418 Oct 31 19:44 startup.sh</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt/containers#</strong></span>
+</pre></li><li class="listitem">Let's start the new container and ensure both instances are running:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/opt/containers# virsh start http2</strong></span>
+<span class="strong"><strong>Domain http2 started&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt/containers# virsh list --all</strong></span>
+<span class="strong"><strong>Id    Name                           State</strong></span>
+<span class="strong"><strong>----------------------------------------------------</strong></span>
+<span class="strong"><strong>  10592 http1                          running</strong></span>
+<span class="strong"><strong>  11726 http2                          running</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">To obtain more information about the Apache containers, run the following command:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# virsh dominfo http1</strong></span>
+<span class="strong"><strong>Id:             15720</strong></span>
+<span class="strong"><strong>Name:           http1</strong></span>
+<span class="strong"><strong>UUID:           defd17d7-f220-4dca-9be9-bdf40b4d9164</strong></span>
+<span class="strong"><strong>OS Type:        exe</strong></span>
+<span class="strong"><strong>State:          running</strong></span>
+<span class="strong"><strong>CPU(s):         1</strong></span>
+<span class="strong"><strong>CPU time:       35.8s</strong></span>
+<span class="strong"><strong>Max memory:     102400 KiB</strong></span>
+<span class="strong"><strong>Used memory:    8312 KiB</strong></span>
+<span class="strong"><strong>Persistent:     yes</strong></span>
+<span class="strong"><strong>Autostart:      disable</strong></span>
+<span class="strong"><strong>Managed save:   no</strong></span>
+<span class="strong"><strong>Security model: apparmor</strong></span>
+<span class="strong"><strong>Security DOI:   0</strong></span>
+<span class="strong"><strong>Security label: libvirt-defd17d7-f220-4dca-9be9-bdf40b4d9164&#13;
+      (enforcing)&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# virsh dominfo http2</strong></span>
+<span class="strong"><strong>Id:             16126</strong></span>
+<span class="strong"><strong>Name:           http2</strong></span>
+<span class="strong"><strong>UUID:           a62f9e9d-4de3-415d-8f2d-358a1c8bc0bd</strong></span>
+<span class="strong"><strong>OS Type:        exe</strong></span>
+<span class="strong"><strong>State:          running</strong></span>
+<span class="strong"><strong>CPU(s):         1</strong></span>
+<span class="strong"><strong>CPU time:       36.5s</strong></span>
+<span class="strong"><strong>Max memory:     102400 KiB</strong></span>
+<span class="strong"><strong>Used memory:    8300 KiB</strong></span>
+<span class="strong"><strong>Persistent:     yes</strong></span>
+<span class="strong"><strong>Autostart:      disable</strong></span>
+<span class="strong"><strong>Managed save:   no</strong></span>
+<span class="strong"><strong>Security model: apparmor</strong></span>
+<span class="strong"><strong>Security DOI:   0</strong></span>
+<span class="strong"><strong>Security label: libvirt-a62f9e9d-4de3-415d-8f2d-358a1c8bc0bd &#13;
+      (enforcing)</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="note31"/>Note</h3><p>The <code class="literal">dominfo</code> output provides useful information about the container's memory and CPU utilization, which we can use for monitoring, alerting, and autoscaling, as we'll see in <a class="link" href="ch07.html" title="Chapter 7. Monitoring and Backups in a Containerized World"><span>Chapter 7</span></a>, <span class="emphasis"><em>Monitoring and Backups in a Containerized World.</em></span> Note that the <code class="literal">OS Type</code> is set to <code class="literal">exe</code>, because the container's init system is a script.</p></div></div></li><li class="listitem">Let's test connectivity to Apache in the new container; replace the IP of the instance as necessary:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/opt/containers# curl 192.168.122.242</strong></span>
+<span class="strong"><strong>Apache in LXC http2</strong></span>
+<span class="strong"><strong>root@ubuntu:/opt/containers#</strong></span>
+</pre></li><li class="listitem">Both Apache processes are accessible from the host OS because of the common bridge they are all connected to. In order to access them from outside the host OS, we can install HAProxy on the server, with the IP addresses of the containers as its backend servers:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# echo "nameserver 8.8.8.8" &gt; /etc/resolv.conf</strong></span>
+<span class="strong"><strong>root@ubuntu:~# apt-get install --yes haproxy</strong></span>
+<span class="strong"><strong>root@ubuntu:~# cat /etc/haproxy/haproxy.cfg</strong></span>
+<span class="strong"><strong>global</strong></span>
+<span class="strong"><strong>        log /dev/log  local0</strong></span>
+<span class="strong"><strong>        log /dev/log  local1 notice</strong></span>
+<span class="strong"><strong>        chroot /var/lib/haproxy</strong></span>
+<span class="strong"><strong>        stats socket /run/haproxy/admin.sock mode 660 level admin</strong></span>
+<span class="strong"><strong>        stats timeout 30s</strong></span>
+<span class="strong"><strong>        user haproxy</strong></span>
+<span class="strong"><strong>        group haproxy</strong></span>
+<span class="strong"><strong>        daemon</strong></span>
+<span class="strong"><strong>        ca-base /etc/ssl/certs</strong></span>
+<span class="strong"><strong>        crt-base /etc/ssl/private</strong></span>
+<span class="strong"><strong>        ssl-default-bind-ciphers &#13;
+            ECDH+AESGCM:DH+AESGCM:ECDH+AES256:DH+AES256:ECDH+AES128 &#13;
+            :DH+AES:ECDH+3DES:DH+3DES:RSA+AESGCM:RSA+AES&#13;
+            :RSA+3DES:!aNULL:!MD5:!DSS</strong></span>
+<span class="strong"><strong>        ssl-default-bind-options no-sslv3</strong></span>
+<span class="strong"><strong>defaults</strong></span>
+<span class="strong"><strong>        log  global</strong></span>
+<span class="strong"><strong>        mode  http</strong></span>
+<span class="strong"><strong>        option  httplog</strong></span>
+<span class="strong"><strong>        option  dontlognull</strong></span>
+<span class="strong"><strong>timeout connect 5000</strong></span>
+<span class="strong"><strong>        timeout client  50000</strong></span>
+<span class="strong"><strong>        timeout server  50000</strong></span>
+<span class="strong"><strong>frontend http</strong></span>
+<span class="strong"><strong>        bind :80</strong></span>
+<span class="strong"><strong>        reqadd X-Forwarded-Proto:\ http</strong></span>
+<span class="strong"><strong>        default_backend http_nodes</strong></span>
+<span class="strong"><strong>backend http_nodes</strong></span>
+<span class="strong"><strong>        mode http</strong></span>
+<span class="strong"><strong>        balance roundrobin</strong></span>
+<span class="strong"><strong>        option httpclose</strong></span>
+<span class="strong"><strong>        option forwardfor</strong></span>
+<span class="strong"><strong>        option redispatch</strong></span>
+<span class="strong"><strong>        option httpchk GET /</strong></span>
+<span class="strong"><strong>        cookie JSESSIONID prefix</strong></span>
+<span class="strong"><strong>        server http1 192.168.122.216:80 check inter 5000</strong></span>
+<span class="strong"><strong>        server http1 192.168.122.242:80 check inter 5000</strong></span>
+<span class="strong"><strong>root@ubuntu:~# </strong></span>
+</pre><p>The IP addresses specified in the server lines of the <code class="literal">backend</code> section of the HAProxy config are those of the libvirt LXC containers. Update the files as needed.</p><p>In the <code class="literal">frontend</code> section of the config, we tell HAProxy to listen on port <code class="literal">80</code> and bind to all interfaces. In the <code class="literal">backend</code> section, we specify the IPs of both LXC containers. You might need to replace the IPs of the containers with those that <code class="literal">dnsmasq</code> provided on your system.</p></li><li class="listitem">Restart HAProxy, since on Ubuntu, it starts automatically after package installation:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# service haproxy restart</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Then, ensure HAProxy is running and listening on port <code class="literal">80</code> on the host:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# pgrep -lfa haproxy</strong></span>
+<span class="strong"><strong>1957 /usr/sbin/haproxy-systemd-wrapper -f /etc/haproxy&#13;
+      /haproxy.cfg -p /run/haproxy.pid</strong></span>
+<span class="strong"><strong>1958 /usr/sbin/haproxy -f /etc/haproxy/haproxy.cfg -p   &#13;
+      /run/haproxy.pid -Ds</strong></span>
+<span class="strong"><strong>1960 /usr/sbin/haproxy -f /etc/haproxy/haproxy.cfg -p    &#13;
+      /run/haproxy.pid -Ds</strong></span>
+<span class="strong"><strong>root@ubuntu:~#&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# netstat -antup | grep -i listen | grep -w 80</strong></span>
+<span class="strong"><strong>tcp      0     0 0.0.0.0:80      0.0.0.0:*                  &#13;
+      LISTEN      1960/haproxy</strong></span>
+<span class="strong"><strong>tcp6       0      0 :::80        :::*                    &#13;
+      LISTEN      9693/apache2</strong></span>
+<span class="strong"><strong>root@ubuntu:~# </strong></span>
+</pre></li><li class="listitem">We configured HAProxy to use round robin for selecting backend nodes; let's connect to it a few times and confirm we connected to Apache in each LXC container:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# curl localhost</strong></span>
+<span class="strong"><strong>Apache in LXC http1&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# curl localhost</strong></span>
+<span class="strong"><strong>Apache in LXC http2</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Finally, we can stop one of the containers and ensure HAproxy will remove it from rotation:<pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# virsh destroy http2</strong></span>
+<span class="strong"><strong>Domain http2 destroyed</strong></span>
+<span class="strong"><strong>root@ubuntu:~# virsh list --all</strong></span>
+<span class="strong"><strong>  Id    Name                           State</strong></span>
+<span class="strong"><strong>----------------------------------------------------</strong></span>
+<span class="strong"><strong>  15720 http1                          running</strong></span>
+<span class="strong"><strong>  -     http2                          shut off</strong></span>
+<span class="strong"><strong>root@ubuntu:~# curl localhost</strong></span>
+<span class="strong"><strong>Apache in LXC http1</strong></span>
+<span class="strong"><strong>root@ubuntu:~# curl localhost</strong></span>
+<span class="strong"><strong>Apache in LXC http1</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></li></ol></div><p>Apache might not be the best application to run in multiple containers on the same host. Nevertheless, it helps to demonstrate how easy it is to scale applications running in minimal LXC containers with libvirt LXC, behind a proxy, or how to build a multitenant environment. The added benefit in using shared binaries from all containers is that upgrading them will not require changes in each LXC instance, but rather changes on the host OS that will be visible from all containers on that server. The preceding setup might seem simple, but it provides a powerful way to scale services in lightweight LXC containers that will not require much disk space.</p></div><div class="section" title="Scaling Apache with a full LXC root filesystem and OVS GRE tunnels"><div class="titlepage"><div><div><h2 class="title"><a id="ch06lvl2sec68"/>Scaling Apache with a full LXC root filesystem and OVS GRE tunnels</h2></div></div></div><p>Running multiple containers on the same host with a minimal filesystem for each is great in some scenarios, but let's focus on a more complex multiserver deployment example next. The following diagram shows the deployment we are going to build in this section:</p><div class="mediaobject"><img alt="Scaling Apache with a full LXC root filesystem and OVS GRE tunnels" src="graphics/image_06_001.jpg"/><div class="caption"><p>Multiserver LXC deployment with LXC and GRE tunnels</p></div></div><p>We are going to use three servers—<code class="literal">lxc-lb</code>, <code class="literal">lxc-node-01</code>, and <code class="literal">lxc-node-02</code>. Each one will have LXC and OVS installed. The <code class="literal">lxc-lb</code> host will host a container running HAProxy, and later, HAProxy on the server itself. The <code class="literal">lxc-node-01</code> and <code class="literal">lxc-node-02</code> servers will have containers running Apache. All LXC instances will communicate on a dedicated private network through a mesh of GRE tunnels connected to OVS. The OVS GRE mesh will create network isolation between the containers and the hosts, and potentially other containers and their networks. All containers will obtain their network configurations from <code class="literal">dnsmasq</code> running on the <code class="literal">lxc-lb</code> host.</p><p>For this deployment, we'll use three EC2 instances from AWS, running the latest Ubuntu Xenial release.</p><div class="section" title="Configuring the load-balancer host"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec9"/>Configuring the load-balancer host</h3></div></div></div><p>To configure the load balancer host, follow these steps:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Let's start with the <code class="literal">lxc-lb</code> server. Examine what LXC versions are available and install the latest:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# apt-get update &amp;&amp; apt-get upgrade --yes &amp;&amp; reboot</strong></span>
+<span class="strong"><strong>root@lxc-lb:~# apt-cache policy lxc</strong></span>
+<span class="strong"><strong>lxc:</strong></span>
+<span class="strong"><strong>    Installed: (none)</strong></span>
+<span class="strong"><strong>    Candidate: 2.0.5-0ubuntu1~ubuntu16.04.2</strong></span>
+<span class="strong"><strong>    Version table:</strong></span>
+<span class="strong"><strong>        2.0.5-0ubuntu1~ubuntu16.04.2 500</strong></span>
+<span class="strong"><strong>            500 http://us-east-1.ec2.archive.ubuntu.com/ubuntu &#13;
+                xenial-updates/main amd64 Packages</strong></span>
+<span class="strong"><strong>        2.0.0-0ubuntu2 500</strong></span>
+<span class="strong"><strong>            500 http://us-east-1.ec2.archive.ubuntu.com/ubuntu   &#13;
+                xenial/main amd64 Packages</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#&#13;</strong></span>
+<span class="strong"><strong>root@lxc-lb:~# apt-get install --yes lxc</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@lxc-lb:~# dpkg --list | grep lxc</strong></span>
+<span class="strong"><strong>ii          liblxc1      2.0.5-0ubuntu1~ubuntu16.04.2    &#13;
+      amd64       Linux Containers userspace tools (library)</strong></span>
+<span class="strong"><strong>ii          lxc          2.0.5-0ubuntu1~ubuntu16.04.2    &#13;
+      all         Transitional package for lxc1</strong></span>
+<span class="strong"><strong>ii          lxc-common   2.0.5-0ubuntu1~ubuntu16.04.2    &#13;
+      amd64       Linux Containers userspace tools (common tools)</strong></span>
+<span class="strong"><strong>ii          lxc-templates  2.0.5-0ubuntu1~ubuntu16.04.2    &#13;
+      amd64       Linux Containers userspace tools (templates)</strong></span>
+<span class="strong"><strong>ii          lxc1           2.0.5-0ubuntu1~ubuntu16.04.2    &#13;
+      amd64       Linux Containers userspace tools</strong></span>
+<span class="strong"><strong>ii          lxcfs          2.0.4-0ubuntu1~ubuntu16.04.1    &#13;
+      amd64       FUSE based filesystem for LXC</strong></span>
+<span class="strong"><strong>ii          python3-lxc    2.0.5-0ubuntu1~ubuntu16.04.2    &#13;
+&#13;
+      amd64         &#13;
+      Linux Containers userspace tools (Python 3.x bindings)</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#&#13;</strong></span>
+<span class="strong"><strong>root@lxc-lb:~# lxc-create --version</strong></span>
+<span class="strong"><strong>2.0.5</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#</strong></span>
+</pre></li><li class="listitem">After installing the LXC packages and templates, we ended up with the Linux bridge as well, however, we are not going to use it:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# brctl show</strong></span>
+<span class="strong"><strong>bridge name       bridge id           STP enabled interfaces</strong></span>
+<span class="strong"><strong>lxcbr0            8000.000000000000   no</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#</strong></span>
+</pre></li><li class="listitem">Next, install OVS and create a new bridge named <code class="literal">lxcovsbr0</code>:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# apt-get install --yes openvswitch-switch</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>root@lxc-lb:~# ovs-vsctl add-br lxcovsbr0</strong></span>
+<span class="strong"><strong>root@lxc-lb:~# ovs-vsctl show</strong></span>
+<span class="strong"><strong>482cf359-a59e-4482-8a71-02b0884d016d</strong></span>
+<span class="strong"><strong>      Bridge "lxcovsbr0"</strong></span>
+<span class="strong"><strong>          Port "lxcovsbr0"</strong></span>
+<span class="strong"><strong>              Interface "lxcovsbr0"</strong></span>
+<span class="strong"><strong>                  type: internal</strong></span>
+<span class="strong"><strong>      ovs_version: "2.5.0"</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#</strong></span>
+</pre></li><li class="listitem">The default LXC network uses the <code class="literal">10.0.3.0/24</code> subnet; we are going to replace it with <code class="literal">192.168.0.0/24</code>. This helps in cases where there's already an existing LXC network, and we would like to start a new one and isolate certain sets of containers, and also help demonstrate the concept:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# cat /etc/default/lxc-net | grep -vi "#"</strong></span>
+<span class="strong"><strong>USE_LXC_BRIDGE="true"</strong></span>
+<span class="strong"><strong>LXC_BRIDGE="lxcbr0"</strong></span>
+<span class="strong"><strong>LXC_ADDR="10.0.3.1"</strong></span>
+<span class="strong"><strong>LXC_NETMASK="255.255.255.0"</strong></span>
+<span class="strong"><strong>LXC_NETWORK="10.0.3.0/24"</strong></span>
+<span class="strong"><strong>LXC_DHCP_RANGE="10.0.3.2,10.0.3.254"</strong></span>
+<span class="strong"><strong>LXC_DHCP_MAX="253"&#13;</strong></span>
+<span class="strong"><strong>root@lxc-lb:~# cat /etc/lxc/default.conf</strong></span>
+<span class="strong"><strong>lxc.network.type = veth</strong></span>
+<span class="strong"><strong>lxc.network.link = lxcbr0</strong></span>
+<span class="strong"><strong>lxc.network.flags = up</strong></span>
+<span class="strong"><strong>lxc.network.hwaddr = 00:16:3e:xx:xx:xx</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#</strong></span>
+</pre></li><li class="listitem">Replace the name of the default Linux bridge with the OVS bridge we just created, and change the network:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# sed -i 's/lxcbr0/lxcovsbr0/g' /etc/default/lxc-net</strong></span>
+<span class="strong"><strong>root@lxc-lb:~# sed -i 's/10.0.3/192.168.0/g' /etc/default/lxc-net</strong></span>
+<span class="strong"><strong>root@lxc-lb:~# sed -i 's/lxcbr0/lxcovsbr0/g' /etc/lxc/default.conf</strong></span>
+</pre></li><li class="listitem">The <code class="literal">dnsmasq</code> service is configured for the <code class="literal">10.0.3.0/24</code> network, but after a restart, it should listen on the new subnet we specified earlier. Let's reboot the server to ensure the changes will persist:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# pgrep -lfa dnsmasq</strong></span>
+<span class="strong"><strong>10654 dnsmasq -u lxc-dnsmasq --strict-order --bind-interfaces&#13;
+      --pid-file=/run/lxc/dnsmasq.pid --listen-address 10.0.3.1 &#13;
+      --dhcp-range 10.0.3.2,10.0.3.254 --dhcp-lease-max=253 &#13;
+      --dhcp-no-override --except-interface=lo --interface=lxcbr0 &#13;
+      --dhcp-leasefile=/var/lib/misc/dnsmasq.lxcbr0.leases &#13;
+      --dhcp-authoritative</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#</strong></span>
+<span class="strong"><strong>root@lxc-lb:~# reboot</strong></span>
+</pre></li><li class="listitem">As expected, <code class="literal">dnsmasq</code> will now offer IPs from the <code class="literal">192.168.0.0/24</code> subnet:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# pgrep -lfa dnsmasq</strong></span>
+<span class="strong"><strong>1354 dnsmasq -u lxc-dnsmasq --strict-order --bind-interfaces &#13;
+      --pid-file=/run/lxc/dnsmasq.pid --listen-address 192.168.0.1 &#13;
+      --dhcp-range 192.168.0.2,192.168.0.254 --dhcp-lease-max=253 &#13;
+      --dhcp-no-override --except-interface=lo --interface=lxcovsbr0 &#13;
+      --dhcp-leasefile=/var/lib/misc/dnsmasq.lxcovsbr0.leases &#13;
+      --dhcp-authoritative</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#</strong></span>
+</pre></li><li class="listitem">Examine the OVS bridge; it should be up and configured with an IP:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# ip a s lxcovsbr0</strong></span>
+<span class="strong"><strong>4: lxcovsbr0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc &#13;
+      noqueue state UNKNOWN group default qlen 1</strong></span>
+<span class="strong"><strong>      link/ether ee:b0:a2:42:22:4e brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>      inet 192.168.0.1/24 scope global lxcovsbr0</strong></span>
+<span class="strong"><strong>         valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>      inet6 fe80::ecb0:a2ff:fe42:224e/64 scope link</strong></span>
+<span class="strong"><strong>         valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#</strong></span>
+</pre></li></ol></div></div><div class="section" title="Creating the load-balancer container"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec10"/>Creating the load-balancer container</h3></div></div></div><p>To create the load-balancer container, follow these steps:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">We are going to use the Ubuntu template to create the root filesystem of the HAProxy container:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# lxc-create --name haproxy --template ubuntu</strong></span>
+<span class="strong"><strong>root@lxc-lb:~# lxc-start --name haproxy</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#</strong></span>
+</pre></li><li class="listitem">The OVS bridge should now have the containers interfaces added as a port—the <code class="literal">vethUY97FY</code>, in this example:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# ovs-vsctl show</strong></span>
+<span class="strong"><strong>482cf359-a59e-4482-8a71-02b0884d016d</strong></span>
+<span class="strong"><strong>      Bridge "lxcovsbr0"</strong></span>
+<span class="strong"><strong>          Port "lxcovsbr0"</strong></span>
+<span class="strong"><strong>              Interface "lxcovsbr0"</strong></span>
+<span class="strong"><strong>                  type: internal</strong></span>
+<span class="strong"><strong>          Port "vethUY97FY"</strong></span>
+<span class="strong"><strong>              Interface "vethUY97FY"</strong></span>
+<span class="strong"><strong>      ovs_version: "2.5.0"</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#&#13;</strong></span>
+<span class="strong"><strong>root@lxc-lb:~# ip a s vethUY97FY</strong></span>
+<span class="strong"><strong>6: vethUY97FY@if5: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc &#13;
+      noqueue master ovs-system state UP group default qlen 1000</strong></span>
+<span class="strong"><strong>      link/ether fe:d1:f3:ca:9e:83 brd ff:ff:ff:ff:ff:ff link-netnsid 0</strong></span>
+<span class="strong"><strong>      inet6 fe80::fcd1:f3ff:feca:9e83/64 scope link</strong></span>
+<span class="strong"><strong>          valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#</strong></span>
+</pre></li><li class="listitem">Attach to the new container and make sure it received an IP address from the DHCP server running on the same host:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# lxc-attach --name haproxy</strong></span>
+<span class="strong"><strong>root@haproxy:~# ifconfig</strong></span>
+<span class="strong"><strong>eth0      Link encap:Ethernet  HWaddr 00:16:3e:76:92:0a</strong></span>
+<span class="strong"><strong>            inet addr:192.168.0.26  Bcast:192.168.0.255  &#13;
+                Mask:255.255.255.0</strong></span>
+<span class="strong"><strong>            inet6 addr: fe80::216:3eff:fe76:920a/64 Scope:Link</strong></span>
+<span class="strong"><strong>            UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1</strong></span>
+<span class="strong"><strong>            RX packets:16 errors:0 dropped:0 overruns:0 frame:0</strong></span>
+<span class="strong"><strong>            TX packets:12 errors:0 dropped:0 overruns:0 carrier:0</strong></span>
+<span class="strong"><strong>            collisions:0 txqueuelen:1000</strong></span>
+<span class="strong"><strong>            RX bytes:1905 (1.9 KB)  TX bytes:1716 (1.7 KB)</strong></span>
+<span class="strong"><strong>lo        Link encap:Local Loopback</strong></span>
+<span class="strong"><strong>            inet addr:127.0.0.1  Mask:255.0.0.0</strong></span>
+<span class="strong"><strong>            inet6 addr: ::1/128 Scope:Host</strong></span>
+<span class="strong"><strong>            UP LOOPBACK RUNNING  MTU:65536  Metric:1</strong></span>
+<span class="strong"><strong>            RX packets:0 errors:0 dropped:0 overruns:0 frame:0</strong></span>
+<span class="strong"><strong>            TX packets:0 errors:0 dropped:0 overruns:0 carrier:0</strong></span>
+<span class="strong"><strong>            collisions:0 txqueuelen:1</strong></span>
+<span class="strong"><strong>            RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)</strong></span>
+<span class="strong"><strong>root@haproxy:~# route -n</strong></span>
+<span class="strong"><strong>Kernel IP routing table</strong></span>
+<span class="strong"><strong>Destination   Gateway       Genmask       Flags Metric Ref  Use Iface</strong></span>
+<span class="strong"><strong>0.0.0.0       192.168.0.1   0.0.0.0       UG    0      0     0  eth0</strong></span>
+<span class="strong"><strong>192.168.0.0   0.0.0.0       255.255.255.0 U     0      0     0  eth0</strong></span>
+<span class="strong"><strong>root@haproxy:~#</strong></span>
+</pre></li><li class="listitem">The container should have connectivity to the host and the Internet. Let's test that before moving on:<pre class="programlisting">
+<span class="strong"><strong>root@haproxy:~# ping -c 3 192.168.0.1</strong></span>
+<span class="strong"><strong>PING 192.168.0.1 (192.168.0.1) 56(84) bytes of data.</strong></span>
+<span class="strong"><strong>64 bytes from 192.168.0.1: icmp_seq=1 ttl=64 time=0.218 ms</strong></span>
+<span class="strong"><strong>64 bytes from 192.168.0.1: icmp_seq=2 ttl=64 time=0.045 ms</strong></span>
+<span class="strong"><strong>64 bytes from 192.168.0.1: icmp_seq=3 ttl=64 time=0.046 ms</strong></span>
+<span class="strong"><strong>--- 192.168.0.1 ping statistics ---</strong></span>
+<span class="strong"><strong>3 packets transmitted, 3 received, 0% packet loss, time 2000ms</strong></span>
+<span class="strong"><strong>rtt min/avg/max/mdev = 0.045/0.103/0.218/0.081 ms</strong></span>
+<span class="strong"><strong>      root@haproxy:~# ping google.com -c 3</strong></span>
+<span class="strong"><strong>PING google.com (216.58.217.110) 56(84) bytes of data.</strong></span>
+<span class="strong"><strong>64 bytes from iad23s42-in-f14.1e100.net (216.58.217.110): icmp_seq=1 &#13;
+      ttl=48 time=2.55 ms</strong></span>
+<span class="strong"><strong>64 bytes from iad23s42-in-f14.1e100.net (216.58.217.110): icmp_seq=2 &#13;
+      ttl=48 time=2.11 ms</strong></span>
+<span class="strong"><strong>64 bytes from iad23s42-in-f14.1e100.net (216.58.217.110): icmp_seq=3 &#13;
+      ttl=48 time=2.39 ms</strong></span>
+<span class="strong"><strong>--- google.com ping statistics ---</strong></span>
+<span class="strong"><strong>3 packets transmitted, 3 received, 0% packet loss, time 2002ms</strong></span>
+<span class="strong"><strong>rtt min/avg/max/mdev = 2.113/2.354/2.555/0.191 ms</strong></span>
+<span class="strong"><strong>      root@haproxy:~# exit</strong></span>
+<span class="strong"><strong>exit</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#</strong></span>
+</pre></li></ol></div><p>If connectivity is not working, make sure the <code class="literal">dnsmasq</code> server properly assigned an IP address and that the container is connected to the OVS bridge, and the bridge interface is up with an IP address itself.</p></div><div class="section" title="Building the GRE tunnels"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec11"/>Building the GRE tunnels</h3></div></div></div><p><span class="strong"><strong>Generic Routing Encapsulation</strong></span> (<span class="strong"><strong>GRE</strong></span>) is a tunneling protocol that allows for building virtual point-to-point networks over the <span class="strong"><strong>Internet Protocol</strong></span> (<span class="strong"><strong>IP</strong></span>). We can use it to create a network mesh between the OVS switches on the three hosts, thus connecting the LXC containers to an isolated network. Each server (or EC2 instance in this example) will connect to each other. The OVS provides a convenient way for establishing the GRE tunnels.</p><p>While still on the load-balancer host, create two GRE tunnels to the other two servers, replacing the IPs as necessary:</p><pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# ovs-vsctl add-port lxcovsbr0 gre0 -- set interface gre0 type=gre options:remote_ip=10.1.34.124</strong></span>
+<span class="strong"><strong>root@lxc-lb:~# ovs-vsctl add-port lxcovsbr0 gre1 -- set interface gre1 type=gre options:remote_ip=10.1.34.57</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#</strong></span>
+</pre><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="note32"/>Note</h3><p>Notice that preceding IP addresses are those of the actual servers, not the containers.</p></div></div><p>Listing all ports on the bridge will now show the GRE ports as well:</p><pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# ovs-vsctl show</strong></span>
+<span class="strong"><strong>482cf359-a59e-4482-8a71-02b0884d016d</strong></span>
+<span class="strong"><strong>Bridge "lxcovsbr0"</strong></span>
+<span class="strong"><strong>    Port "gre1"</strong></span>
+<span class="strong"><strong>        Interface "gre1"</strong></span>
+<span class="strong"><strong>            type: gre</strong></span>
+<span class="strong"><strong>            options: {remote_ip="10.1.34.57"}</strong></span>
+<span class="strong"><strong>    Port "vethRIC2BJ"</strong></span>
+<span class="strong"><strong>        Interface "vethRIC2BJ"</strong></span>
+<span class="strong"><strong>    Port "lxcovsbr0"</strong></span>
+<span class="strong"><strong>        Interface "lxcovsbr0"</strong></span>
+<span class="strong"><strong>            type: internal</strong></span>
+<span class="strong"><strong>    Port "gre0"</strong></span>
+<span class="strong"><strong>        Interface "gre0"</strong></span>
+<span class="strong"><strong>            type: gre</strong></span>
+<span class="strong"><strong>            options: {remote_ip="10.1.34.124"}</strong></span>
+<span class="strong"><strong>ovs_version: "2.5.0"</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#</strong></span>
+</pre><p>Since we are creating a network mesh between OVS, packet loops may occur. To prevent topology loops, we need to enable the <span class="strong"><strong>Spanning Tree Protocol</strong></span> (<span class="strong"><strong>STP</strong></span>) on OVS. STP is a layer-2 protocol that prevents network loops when creating redundant and interconnected links between switches. To enable it on the OVS switch, execute the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# ovs-vsctl set bridge lxcovsbr0 stp_enable=true</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#</strong></span>
+</pre><p>With all of the preceding steps completed, the first host is now configured. In the next section, we are going to configure the rest of the servers in a similar way.</p></div><div class="section" title="Configuring the Apache nodes"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec12"/>Configuring the Apache nodes</h3></div></div></div><p>To configure the Apache nodes, follow these steps:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">On the first Apache node, install LXC and OVS, and create the bridge:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-node-01:~# apt-get update &amp;&amp; apt-get --yes upgrade &amp;&amp; reboot</strong></span>
+<span class="strong"><strong>root@lxc-node-01:~# apt-get install --yes lxc</strong></span>
+<span class="strong"><strong>root@lxc-node-01:~# apt-get install --yes openvswitch-switch</strong></span>
+<span class="strong"><strong>root@lxc-node-01:~# ovs-vsctl add-br lxcovsbr0</strong></span>
+<span class="strong"><strong>root@lxc-node-01:~# ifconfig lxcovsbr0 up</strong></span>
+</pre></li><li class="listitem">Replace the name of the bridge and change the subnet:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-node-01:~# sed -i 's/lxcbr0/lxcovsbr0/g' &#13;
+      /etc/lxc/default.conf</strong></span>
+<span class="strong"><strong>root@lxc-node-01:~# sed -i 's/lxcbr0/lxcovsbr0/g' &#13;
+      /etc/default/lxc-net</strong></span>
+<span class="strong"><strong>root@lxc-node-01:~# sed -i 's/10.0.3/192.168.0/g' &#13;
+      /etc/default/lxc-net</strong></span>
+</pre></li><li class="listitem">Create the GRE tunnels to the other two servers, replacing the IPs as needed:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-node-01:~# ovs-vsctl add-port lxcovsbr0 gre0 -- set &#13;
+      interface gre0 type=gre options:remote_ip=10.1.34.23</strong></span>
+<span class="strong"><strong>root@lxc-node-01:~# ovs-vsctl add-port lxcovsbr0 gre1 -- set &#13;
+      interface gre1 type=gre options:remote_ip=10.1.34.57</strong></span>
+<span class="strong"><strong>      root@lxc-node-01:~# ovs-vsctl show</strong></span>
+<span class="strong"><strong>625928b0-b57a-46b2-82fe-77d541473f29</strong></span>
+<span class="strong"><strong>    Bridge "lxcovsbr0"</strong></span>
+<span class="strong"><strong>          Port "gre0"</strong></span>
+<span class="strong"><strong>              Interface "gre0"</strong></span>
+<span class="strong"><strong>                  type: gre</strong></span>
+<span class="strong"><strong>                  options: {remote_ip="10.1.34.23"}</strong></span>
+<span class="strong"><strong>          Port "gre1"</strong></span>
+<span class="strong"><strong>              Interface "gre1"</strong></span>
+<span class="strong"><strong>                  type: gre</strong></span>
+<span class="strong"><strong>                  options: {remote_ip="10.1.34.57"}</strong></span>
+<span class="strong"><strong>          Port "lxcovsbr0"</strong></span>
+<span class="strong"><strong>              Interface "lxcovsbr0"</strong></span>
+<span class="strong"><strong>                  type: internal</strong></span>
+<span class="strong"><strong>      ovs_version: "2.5.0"</strong></span>
+<span class="strong"><strong>root@lxc-node-01:~#</strong></span>
+</pre></li><li class="listitem">Enable STP on the bridge:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-node-01:~# ovs-vsctl set bridge lxcovsbr0 stp_enable=true</strong></span>
+<span class="strong"><strong>root@lxc-node-01:~#</strong></span>
+</pre></li><li class="listitem">Next, let's create an Ubuntu container named <code class="literal">apache</code>:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-node-01:~# lxc-create --name apache --template ubuntu</strong></span>
+<span class="strong"><strong>root@lxc-node-01:~# lxc-start --name apache</strong></span>
+</pre></li><li class="listitem">Time to configure the last node in a similar fashion:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-node-02:~# apt-get update &amp;&amp; apt-get upgrade --yes &amp;&amp; reboot</strong></span>
+<span class="strong"><strong>root@lxc-node-02:~# apt-get install --yes lxc</strong></span>
+<span class="strong"><strong>root@lxc-node-02:~# apt-get install --yes openvswitch-switch</strong></span>
+<span class="strong"><strong>root@lxc-node-02:~# ovs-vsctl add-br lxcovsbr0</strong></span>
+<span class="strong"><strong>root@lxc-node-02:~# ifconfig lxcovsbr0 up</strong></span>
+<span class="strong"><strong>root@lxc-node-02:~# sed -i 's/lxcbr0/lxcovsbr0/g' &#13;
+      /etc/lxc/default.conf</strong></span>
+<span class="strong"><strong>root@lxc-node-02:~# sed -i 's/lxcbr0/lxcovsbr0/g' &#13;
+      /etc/default/lxc-net</strong></span>
+<span class="strong"><strong>root@lxc-node-02:~# sed -i 's/10.0.3/192.168.0/g' &#13;
+      /etc/default/lxc-net</strong></span>
+</pre></li><li class="listitem">Create the GRE tunnels:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-node-02:~# ovs-vsctl add-port lxcovsbr0 gre0 -- set &#13;
+      interface gre0 type=gre options:remote_ip=10.1.34.23</strong></span>
+<span class="strong"><strong>      root@lxc-node-02:~# ovs-vsctl add-port lxcovsbr0 gre1 -- set &#13;
+      interface gre1 type=gre options:remote_ip=10.1.34.124</strong></span>
+<span class="strong"><strong>      root@lxc-node-02:~# ovs-vsctl show</strong></span>
+<span class="strong"><strong>7b8574ce-ed52-443e-bcf2-6b1ddbedde4c</strong></span>
+<span class="strong"><strong>      Bridge "lxcovsbr0"</strong></span>
+<span class="strong"><strong>          Port "gre0"</strong></span>
+<span class="strong"><strong>              Interface "gre0"</strong></span>
+<span class="strong"><strong>                  type: gre</strong></span>
+<span class="strong"><strong>                  options: {remote_ip="10.1.34.23"}</strong></span>
+<span class="strong"><strong>          Port "gre1"</strong></span>
+<span class="strong"><strong>              Interface "gre1"</strong></span>
+<span class="strong"><strong>                  type: gre</strong></span>
+<span class="strong"><strong>                  options: {remote_ip="10.1.34.124"}</strong></span>
+<span class="strong"><strong>          Port "lxcovsbr0"</strong></span>
+<span class="strong"><strong>              Interface "lxcovsbr0"</strong></span>
+<span class="strong"><strong>                  type: internal</strong></span>
+<span class="strong"><strong>      ovs_version: "2.5.0"</strong></span>
+<span class="strong"><strong>root@lxc-node-02:~#</strong></span>
+</pre></li><li class="listitem">Also, enable STP on the switch:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-node-02:~# ovs-vsctl set bridge lxcovsbr0 stp_enable=true</strong></span>
+<span class="strong"><strong>root@lxc-node-02:~#</strong></span>
+</pre></li><li class="listitem">Finally, create and start the Apache container:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-node-02:~# lxc-create --name apache --template ubuntu</strong></span>
+<span class="strong"><strong>root@lxc-node-02:~# lxc-start --name apache</strong></span>
+</pre></li></ol></div></div><div class="section" title="Installing Apache and HAProxy, and testing connectivity"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec13"/>Installing Apache and HAProxy, and testing connectivity</h3></div></div></div><p>With all the servers configured, the containers started, and the GRE tunnels established, let's test the connectivity between each LXC instance. Since all containers are part of the same network, connected to each other through the OVS switches with the GRE tunnels, they should be able to communicate with each other. Most importantly, the Apache containers will obtain their network configuration through DHCP from the <code class="literal">dnsmasq</code> service running on the <code class="literal">lxc-lb</code> server.</p><p>To verify that each container received a lease, we can examine the <code class="literal">dnsmasq</code> lease file by executing the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# cat /var/lib/misc/dnsmasq.lxcovsbr0.leases</strong></span>
+<span class="strong"><strong>1478111141 00:16:3e:84:cc:f3 192.168.0.41 apache *</strong></span>
+<span class="strong"><strong>1478111044 00:16:3e:74:b3:8c 192.168.0.165 * *</strong></span>
+<span class="strong"><strong>1478110360 00:16:3e:76:92:0a 192.168.0.26 haproxy *</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#</strong></span>
+</pre><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Getting a lease might take a few seconds; you might need to check the file a few times before any IP is recorded. Once all containers have IPs, we should be able to see them when listing the containers on each server:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# lxc-ls -f</strong></span>
+<span class="strong"><strong>NAME    STATE   AUTOSTART GROUPS IPV4         IPV6</strong></span>
+<span class="strong"><strong>haproxy RUNNING 0         -      192.168.0.26 -</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#</strong></span>
+<span class="strong"><strong>root@lxc-node-01:~# lxc-ls -f</strong></span>
+<span class="strong"><strong>NAME   STATE   AUTOSTART GROUPS IPV4          IPV6</strong></span>
+<span class="strong"><strong>apache RUNNING 0         -      192.168.0.165 -</strong></span>
+<span class="strong"><strong>root@lxc-node-01:~#</strong></span>
+<span class="strong"><strong>root@lxc-node-02:~# lxc-ls -f</strong></span>
+<span class="strong"><strong>NAME   STATE   AUTOSTART GROUPS IPV4         IPV6</strong></span>
+<span class="strong"><strong>apache RUNNING 0         -      192.168.0.41 -</strong></span>
+<span class="strong"><strong>root@lxc-node-02:~#</strong></span>
+</pre></li><li class="listitem">Next, let's install HAProxy in the <code class="literal">haproxy</code> container on the node <code class="literal">lxc-lb</code> server and test connectivity between containers:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# lxc-attach --name haproxy</strong></span>
+<span class="strong"><strong>root@haproxy:~# ping -c3 192.168.0.165</strong></span>
+<span class="strong"><strong>PING 192.168.0.165 (192.168.0.165) 56(84) bytes of data.</strong></span>
+<span class="strong"><strong>64 bytes from 192.168.0.165: icmp_seq=1 ttl=64 time=0.840 ms</strong></span>
+<span class="strong"><strong>64 bytes from 192.168.0.165: icmp_seq=2 ttl=64 time=0.524 ms</strong></span>
+<span class="strong"><strong>64 bytes from 192.168.0.165: icmp_seq=3 ttl=64 time=0.446 ms</strong></span>
+<span class="strong"><strong>--- 192.168.0.165 ping statistics ---</strong></span>
+<span class="strong"><strong>3 packets transmitted, 3 received, 0% packet loss, time 1999ms</strong></span>
+<span class="strong"><strong>rtt min/avg/max/mdev = 0.446/0.603/0.840/0.171 ms</strong></span>
+<span class="strong"><strong>      root@haproxy:~# ping -c3 192.168.0.41</strong></span>
+<span class="strong"><strong>PING 192.168.0.41 (192.168.0.41) 56(84) bytes of data.</strong></span>
+<span class="strong"><strong>64 bytes from 192.168.0.41: icmp_seq=1 ttl=64 time=1.26 ms</strong></span>
+<span class="strong"><strong>64 bytes from 192.168.0.41: icmp_seq=2 ttl=64 time=0.939 ms</strong></span>
+<span class="strong"><strong>64 bytes from 192.168.0.41: icmp_seq=3 ttl=64 time=1.05 ms</strong></span>
+<span class="strong"><strong>--- 192.168.0.41 ping statistics ---</strong></span>
+<span class="strong"><strong>3 packets transmitted, 3 received, 0% packet loss, time 2001ms</strong></span>
+<span class="strong"><strong>rtt min/avg/max/mdev = 0.939/1.086/1.269/0.142 ms</strong></span>
+<span class="strong"><strong>root@haproxy:~#</strong></span>
+<span class="strong"><strong>root@haproxy:~# apt-get update &amp;&amp; apt-get install haproxy</strong></span>
+<span class="strong"><strong>...</strong></span>
+</pre><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="note33"/>Note</h3><p>If you are building this example deployment on a cloud provider and <code class="literal">apt-get update</code> hangs, try reducing the MTU setting of the <code class="literal">eth0</code> interface inside the LXC containers as follows: <code class="literal">ifconfig eth0 mtu 1400</code>.</p></div></div></li><li class="listitem">Let's view the <code class="literal">haproxy.cfg</code> configuration file:<pre class="programlisting">
+<span class="strong"><strong>      root@haproxy:~# cat /etc/haproxy/haproxy.cfg&#13;</strong></span>
+<span class="strong"><strong>      global&#13;</strong></span>
+<span class="strong"><strong>            log /dev/log local0&#13;</strong></span>
+<span class="strong"><strong>            log /dev/log local1 notice&#13;</strong></span>
+<span class="strong"><strong>            chroot /var/lib/haproxy&#13;</strong></span>
+<span class="strong"><strong>            stats socket /run/haproxy/admin.sock mode 660 level admin&#13;</strong></span>
+<span class="strong"><strong>            stats timeout 30s&#13;</strong></span>
+<span class="strong"><strong>            user haproxy&#13;</strong></span>
+<span class="strong"><strong>            group haproxy&#13;</strong></span>
+<span class="strong"><strong>            daemon&#13;
+&#13;</strong></span>
+<span class="strong"><strong>            ca-base /etc/ssl/certs&#13;
+&#13;</strong></span>
+<span class="strong"><strong>            crt-base /etc/ssl/private&#13;</strong></span>
+<span class="strong"><strong>            ssl-default-bind-ciphers&#13;
+            ECDH+AESGCM:DH+AESGCM:ECDH+AES256:DH+AES256:ECDH+&#13;
+            AES128:DH+AES:ECDH+3DES:DH+3DES:RSA+AESGCM:RSA+AES:&#13;
+            RSA+3DES:!aNULL:!MD5:!DSS&#13;</strong></span>
+<span class="strong"><strong>            ssl-default-bind-options no-sslv3&#13;</strong></span>
+<span class="strong"><strong>      defaults&#13;</strong></span>
+<span class="strong"><strong>            log global&#13;</strong></span>
+<span class="strong"><strong>            mode http&#13;</strong></span>
+<span class="strong"><strong>            option httplog&#13;</strong></span>
+<span class="strong"><strong>            option dontlognull&#13;</strong></span>
+<span class="strong"><strong>            timeout connect 5000&#13;</strong></span>
+<span class="strong"><strong>            timeout client 50000&#13;</strong></span>
+<span class="strong"><strong>            timeout server 50000&#13;</strong></span>
+<span class="strong"><strong>      frontend http&#13;</strong></span>
+<span class="strong"><strong>            bind :80&#13;</strong></span>
+<span class="strong"><strong>            reqadd X-Forwarded-Proto:\ http&#13;</strong></span>
+<span class="strong"><strong>            default_backend http_nodes&#13;</strong></span>
+<span class="strong"><strong>            backend http_nodes&#13;</strong></span>
+<span class="strong"><strong>            mode http&#13;</strong></span>
+<span class="strong"><strong>            balance roundrobin&#13;</strong></span>
+<span class="strong"><strong>            option httpclose&#13;</strong></span>
+<span class="strong"><strong>            option forwardfor&#13;</strong></span>
+<span class="strong"><strong>            option redispatch&#13;</strong></span>
+<span class="strong"><strong>            option httpchk GET /&#13;</strong></span>
+<span class="strong"><strong>            cookie JSESSIONID prefix&#13;</strong></span>
+<span class="strong"><strong>            server http1 192.168.0.165:80 check inter 5000&#13;</strong></span>
+<span class="strong"><strong>            server http1 192.168.0.41:80 check inter 5000&#13;</strong></span>
+<span class="strong"><strong>      root@haproxy:~#</strong></span>
+</pre><p>The HAProxy configuration is almost identical to the one we used earlier in this chapter.</p><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="note34"/>Note</h3><p>Note that the IP addresses in the <code class="literal">backend</code> section of the HAProxy configuration file are those of the Apache containers running on the <code class="literal">lxc-node-01/02</code> servers.</p></div></div></li><li class="listitem">Restart HAProxy and ensure it's running:<pre class="programlisting">
+<span class="strong"><strong>root@haproxy:~# service haproxy restart</strong></span>
+<span class="strong"><strong>root@haproxy:~# ps axfww</strong></span>
+<span class="strong"><strong>    PID TTY      STAT   TIME COMMAND</strong></span>
+<span class="strong"><strong>     1 ?         Ss     0:00 /sbin/init</strong></span>
+<span class="strong"><strong>     38 ?        Ss     0:00 /lib/systemd/systemd-journald</strong></span>
+<span class="strong"><strong>     59 ?        Ss     0:00 /usr/sbin/cron -f</strong></span>
+<span class="strong"><strong>     62 ?        Ssl    0:00 /usr/sbin/rsyslogd -n</strong></span>
+<span class="strong"><strong>    143 ?        Ss     0:00 /sbin/dhclient -1 -v -pf &#13;
+        /run/dhclient.eth0.pid &#13;
+        -lf /var/lib/dhcp/dhclient.eth0.leases -I -df   &#13;
+        /var/lib/dhcp/dhclient6.eth0.leases eth0</strong></span>
+<span class="strong"><strong>    167 ?        Ss     0:00 /usr/sbin/sshd -D</strong></span>
+<span class="strong"><strong>    168 pts/2    Ss+    0:00 /sbin/agetty --noclear &#13;
+        --keep-baud pts/2 115200 38400 9600 vt220</strong></span>
+<span class="strong"><strong>    169 lxc/console Ss+   0:00 /sbin/agetty --noclear &#13;
+        --keep-baud console 115200 38400 9600 vt220</strong></span>
+<span class="strong"><strong>    412 ?        Ss     0:00 /usr/sbin/haproxy-systemd-wrapper -f  &#13;
+        /etc/haproxy/haproxy.cfg -p /run/haproxy.pid</strong></span>
+<span class="strong"><strong>    413 ?        S      0:00  \_ /usr/sbin/haproxy -f &#13;
+        /etc/haproxy/haproxy.cfg -p /run/haproxy.pid -Ds</strong></span>
+<span class="strong"><strong>    414 ?        Ss     0:00      \_ /usr/sbin/haproxy -f &#13;
+        /etc/haproxy/haproxy.cfg -p /run/haproxy.pid -Ds</strong></span>
+<span class="strong"><strong>root@haproxy:~#</strong></span>
+</pre><p>Notice, from the preceding output how, unlike the previous example with libvirt LXC we saw earlier in the chapter, the init process is the parent process in the container now.</p></li><li class="listitem">Install Apache in the other two containers and create an <code class="literal">index.html</code> page for each:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-node-01:~# lxc-attach --name apache</strong></span>
+<span class="strong"><strong>root@apache:~# apt-get install --yes apache2</strong></span>
+<span class="strong"><strong>root@apache:~# echo "Apache on LXC container on host lxc-node-01" &gt; &#13;
+      /var/www/html/index.html</strong></span>
+<span class="strong"><strong>root@lxc-node-02:~# lxc-attach --name apache</strong></span>
+<span class="strong"><strong>root@apache:~# apt-get install --yes apache2</strong></span>
+<span class="strong"><strong>root@apache:~# echo "Apache on LXC container on host lxc-node-02" &gt; &#13;
+      /var/www/html/index.html</strong></span>
+</pre></li><li class="listitem">From within the <code class="literal">haproxy</code> container, connect to port <code class="literal">80</code> that HAProxy is listening on, and the load balancer should forward the requests to the Apache containers:<pre class="programlisting">
+<span class="strong"><strong>root@haproxy:~# apt-get install --yes curl</strong></span>
+<span class="strong"><strong>root@haproxy:~# curl localhost</strong></span>
+<span class="strong"><strong>Apache on LXC container on host lxc-node-01</strong></span>
+<span class="strong"><strong>root@haproxy:~# curl localhost</strong></span>
+<span class="strong"><strong>Apache on LXC container on host lxc-node-02</strong></span>
+<span class="strong"><strong>root@haproxy:~# exit</strong></span>
+<span class="strong"><strong>exit</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#</strong></span>
+</pre></li><li class="listitem">We should be able to connect to HAProxy from the <code class="literal">lxc-lb</code> host as well, since the host OS can talk to the containers through the OVS switch:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# apt-get install curl</strong></span>
+<span class="strong"><strong>root@lxc-lb:~# curl 192.168.0.26</strong></span>
+<span class="strong"><strong>Apache on LXC container on host lxc-node-01</strong></span>
+<span class="strong"><strong>root@lxc-lb:~# curl 192.168.0.26</strong></span>
+<span class="strong"><strong>Apache on LXC container on host lxc-node-02</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#</strong></span>
+</pre><p>The preceding <code class="literal">192.168.0.26</code> address is the IP of the <code class="literal">haproxy</code> container; replace it with whatever <code class="literal">dnsmasq</code> assigned on your system.</p></li><li class="listitem">Finally, we can install HAProxy on the <code class="literal">lxc-lb</code> server itself, which will allow us to connect to the Apache servers from the outside world, if, for example, the <code class="literal">lxc-lb</code> host has a public IP. In this case, we don't have to run HAProxy in the container at all, though we can reuse the same config:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# apt-get install haproxy</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#</strong></span>
+</pre><p>Copy the config from the container (listed earlier in this section) and restart HAProxy:</p><pre class="programlisting">
+<span class="strong"><strong>root@lxc-lb:~# service haproxy restart</strong></span>
+<span class="strong"><strong>root@lxc-lb:~# curl 10.1.34.23</strong></span>
+<span class="strong"><strong>Apache on LXC container on host lxc-node-01</strong></span>
+<span class="strong"><strong>root@lxc-lb:~# curl 10.1.34.23</strong></span>
+<span class="strong"><strong>Apache on LXC container on host lxc-node-02</strong></span>
+<span class="strong"><strong>root@lxc-lb:~#</strong></span>
+</pre><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="note35"/>Note</h3><p>Note that the <code class="literal">10.1.34.23</code> IP address is the address of the <code class="literal">lxc-lb</code> server in this example. If your server has more than one IP address or a public one, you can use any of them, since we configured HAProxy to bind to all interfaces.</p></div></div></li></ol></div><p>With this, we have a simple setup that can be used in production to create highly available services and scale them horizontally by adding more servers and containers, behind a load balancer such as HAProxy or Nginx.</p></div><div class="section" title="Scaling the Apache service"><div class="titlepage"><div><div><h3 class="title"><a id="ch06lvl3sec14"/>Scaling the Apache service</h3></div></div></div><p>Setups such as the preceding ones can be fully automated by creating snapshots of the container's filesystem and configuration files, with the services already installed; then use those copies to start new containers on demand.</p><p>To demonstrate how to manually scale Apache by adding more containers, follow these steps:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">First, stop one of the Apache instances:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-node-01:~# lxc-ls -f</strong></span>
+<span class="strong"><strong>NAME   STATE   AUTOSTART GROUPS IPV4 IPV6</strong></span>
+<span class="strong"><strong>apache RUNNING 0         -      -    -</strong></span>
+<span class="strong"><strong>root@lxc-node-01:~# lxc-stop --name apache</strong></span>
+</pre></li><li class="listitem">Next, copy its root filesystem and the LXC configuration file:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-node-01:~# cd /var/lib/lxc</strong></span>
+<span class="strong"><strong>root@lxc-node-01:/var/lib/lxc# ls -alh</strong></span>
+<span class="strong"><strong>total 12K</strong></span>
+<span class="strong"><strong>drwx------  3 root root 4.0K Nov  2 16:53 .</strong></span>
+<span class="strong"><strong>drwxr-xr-x 43 root root 4.0K Nov  2 15:02 ..</strong></span>
+<span class="strong"><strong>drwxrwx---  3 root root 4.0K Nov  2 16:53 apache</strong></span>
+<span class="strong"><strong>root@lxc-node-01:/var/lib/lxc# cp -rp apache/ apache_new</strong></span>
+<span class="strong"><strong>root@lxc-node-01:/var/lib/lxc#</strong></span>
+</pre></li><li class="listitem">Change the name of the new container and remove the MAC address from the configuration file. LXC will dynamically assign a new one when the container starts:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-node-01:/var/lib/lxc# sed -i 's/apache/apache_new/g' &#13;
+      apache_new/config</strong></span>
+<span class="strong"><strong>root@lxc-node-01:/var/lib/lxc# sed -i '/lxc.network.hwaddr/d' &#13;
+      apache_new/config</strong></span>
+<span class="strong"><strong>root@lxc-node-01:/var/lib/lxc#</strong></span>
+</pre></li><li class="listitem">We now have two containers on the host:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-node-01:/var/lib/lxc# lxc-ls -f</strong></span>
+<span class="strong"><strong>NAME       STATE   AUTOSTART GROUPS IPV4 IPV6</strong></span>
+<span class="strong"><strong>apache     STOPPED 0         -      -    -</strong></span>
+<span class="strong"><strong>apache_new STOPPED 0         -      -    -</strong></span>
+<span class="strong"><strong>root@lxc-node-01:/var/lib/lxc#</strong></span>
+</pre></li><li class="listitem">Let's start them both:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-node-01:/var/lib/lxc# lxc-start --name apache</strong></span>
+<span class="strong"><strong>root@lxc-node-01:/var/lib/lxc# lxc-start --name apache_new</strong></span>
+<span class="strong"><strong>root@lxc-node-01:/var/lib/lxc# lxc-ls -f</strong></span>
+<span class="strong"><strong>NAME       STATE   AUTOSTART GROUPS IPV4 IPV6</strong></span>
+<span class="strong"><strong>apache     RUNNING 0         -      -    -</strong></span>
+<span class="strong"><strong>apache_new RUNNING 0         -      -    -</strong></span>
+<span class="strong"><strong>root@lxc-node-01:/var/lib/lxc#</strong></span>
+</pre></li><li class="listitem">Since we copied the entire root filesystem from the original container, the Apache service is already installed in the new instance. Now, start it and ensure it's running:<pre class="programlisting">
+<span class="strong"><strong>root@lxc-node-01:/var/lib/lxc# lxc-attach --name apache_new</strong></span>
+<span class="strong"><strong>root@apache:/# /etc/init.d/apache2 start</strong></span>
+<span class="strong"><strong>[ ok ] Starting apache2 (via systemctl): apache2.service.</strong></span>
+<span class="strong"><strong>root@apache:/# ps ax</strong></span>
+<span class="strong"><strong>    PID TTY      STAT   TIME COMMAND</strong></span>
+<span class="strong"><strong>      1 ?        Ss     0:00 /sbin/init</strong></span>
+<span class="strong"><strong>     37 ?        Ss     0:00 /lib/systemd/systemd-journald</strong></span>
+<span class="strong"><strong>     50 ?        Ss     0:00 /sbin/ifup -a --read-environment</strong></span>
+<span class="strong"><strong>     60 ?        Ss     0:00 /usr/sbin/cron -f</strong></span>
+<span class="strong"><strong>     62 ?        Ssl    0:00 /usr/sbin/rsyslogd -n</strong></span>
+<span class="strong"><strong>     97 ?        S      0:00 /bin/sh -c /sbin/dhclient -1 -v -pf &#13;
+         /run/dhclient.eth0.pid -lf &#13;
+         /var/lib/dhcp/dhclient.eth0.leases -I &#13;
+         -df /var/lib/dhcp/dhclient6.eth0.leases eth0 ?</strong></span>
+<span class="strong"><strong>     98 ?        S      0:00 /sbin/dhclient -1 -v -pf &#13;
+         /run/dhclient.eth0.pid -lf /var/lib/dhcp/dhclient.eth0.leases &#13;
+         -I -df /var/lib/dhcp/dhclient6.eth0.leases eth0</strong></span>
+<span class="strong"><strong>     125 pts/3    Ss     0:00 /bin/bash</strong></span>
+<span class="strong"><strong>     168 ?        Ss     0:00 /usr/sbin/apache2 -k start</strong></span>
+<span class="strong"><strong>     171 ?        Sl     0:00 /usr/sbin/apache2 -k start</strong></span>
+<span class="strong"><strong>     172 ?        Sl     0:00 /usr/sbin/apache2 -k start</strong></span>
+<span class="strong"><strong>     246 pts/3    R+     0:00 ps ax</strong></span>
+<span class="strong"><strong>root@apache:/#</strong></span>
+</pre></li></ol></div><p>A similar process to this can be fully automated with services such as Jenkins and distributed between different servers to achieve a level of service autoscaling. We'll explore this setup in further detail in <a class="link" href="ch07.html" title="Chapter 7. Monitoring and Backups in a Containerized World"><span>Chapter 7</span></a>, <span class="emphasis"><em>Monitoring and Backups in a Containerized World</em></span>.</p></div></div></div></div>
+<div class="section" title="Summary"><div class="titlepage"><div><div><h1 class="title"><a id="ch06lvl1sec33"/>Summary</h1></div></div></div><p>Using LXC to scale various workloads requires a proxy service such as HAProxy or Nginx, and the actual service running in containers. Network connectivity and segmentation can be achieved using software-defined networks with OVS and GRE tunnels.</p><p>In this chapter, we looked at how to run Apache in simple libvirt-based LXC containers that do not require an entire root filesystem, but rather a minimal set of directories with the shared binaries and libraries from the host OS. We also created an Apache cluster behind a load balancer on multiple servers, and demonstrated a simple yet effective way of scaling it by duplicating an LXC container.</p><p>In the next chapter, we'll build on what you've learned so far, show how to monitor and back up LXC, and create an autoscaling service with Jenkins and Sensu.</p></div></body></html>

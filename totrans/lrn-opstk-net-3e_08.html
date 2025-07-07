@@ -1,0 +1,818 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Managing Security Groups</h1>
+                </header>
+            
+            <article>
+                
+<p>OpenStack Networking provides two different APIs that can be used to implement network traffic filters. The first API, known as the Security Group API, provides basic traffic filtering at an instance port level. Security group rules are implemented within iptables or as Open vSwitch flow rules on a compute node and filter traffic entering or leaving Neutron ports attached to instances. The second API, known as the Firewall as a Service API (FWaaS), also implements filtering rules at the port level, but extends filtering capabilities to router ports and other ports besides those belonging to traditional instances.</p>
+<p>In this chapter, we will focus on security groups and cover some fundamental security features of Neutron, including the following:</p>
+<ul>
+<li>A brief introduction to iptables</li>
+<li>Creating and managing security groups</li>
+<li>Demonstrating traffic flow through iptables</li>
+<li>Configuring port security</li>
+<li>Managing allowed address pairs</li>
+</ul>
+<div class="packt_infobox">Due to its experimental status as of the Pike and Queens releases of OpenStack, the <kbd>openvswitch</kbd> firewall driver will not be discussed in this book.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Security groups in OpenStack</h1>
+                </header>
+            
+            <article>
+                
+<p><span>A <strong><span class="KeyWordPACKT">security group</span></strong> is a collection of network access rules known as <strong><span class="KeyWordPACKT">security group rules</span></strong> that limit the types of traffic an instance can send or receive. When an iptables-based driver is used, security group rules are converted to iptables rules that are applied on the <kbd>compute</kbd> nodes hosting the instances. Each OpenStack project is provided with a default security group that can be modified by users within the project. OpenStack Networking provides an API for creating, modifying, applying, and deleting security groups and rules.</span></p>
+<p>There are multiple ways to apply security groups to instances. For example, one or more instances, usually of similar functionality or role, can be placed in a security group. Security group rules can reference IPv4 and IPv6 hosts and networks as well as other security groups. Referencing a particular security group in a rule, rather than a particular host or network, frees the user from having to specify individual network addresses. Neutron will construct the filtering rules applied to the host automatically based on information in the database.</p>
+<p>Rules within a security group are applied at a port level on the compute node, as demonstrated in the following diagram:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/5b5f4fd1-977e-436e-8886-0290eee0ba6e.png"/></p>
+<p>In the preceding diagram, ports within the virtual switch belong to one of three security groups: <span class="CodeInTextPACKT">WEB</span>, <span class="CodeInTextPACKT">DB</span>, or <span class="CodeInTextPACKT">APP</span>. When a change is made to a security group, such as adding or removing rules to the group, corresponding iptables rule changes are made automatically on the <kbd>compute</kbd> nodes.</p>
+<p>Some users may use security groups to describe certain types of rules that should be applied to a particular instance port. For example, a security group can be used to categorize multiple hosts or subnets that are allowed access to a port. Multiple security groups can be applied to a port, and all rules defined in those groups are applied to the port. Because all traffic is implicitly denied and security group rules define only allowed traffic through a port, there is no chance of a rule in one security group applied to a port counteracting a rule in another security group applied to the same port.</p>
+<p class="mce-root"/>
+<p>The following example demonstrates the use of security groups to categorize traffic that is allowed access through a port:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/53ad8a1f-cf17-478b-829c-d64f6bcb292a.png"/></div>
+<p><span>When a port is created in Neutron, it is associated with a default security group unless a specific security group is specified. The default security group <span class="ItalicsPACKT">drops all ingress</span> traffic and <span class="ItalicsPACKT">allows all egress</span> traffic from the associated port. Rules can be added to, or removed from, the default security group to change its behavior. In addition, baseline port security rules are applied to every port that prohibit IP, DHCP, and MAC address spoofing. This behavior can be changed and will be discussed later on in this chapter.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">An introduction to iptables</h1>
+                </header>
+            
+            <article>
+                
+<p>Iptables is a firewall built into Linux that allows a system administrator to define tables containing chains of rules that determine how network packets should be treated. Packets are processed by sequentially traversing rules in chains within the following tables:</p>
+<ul>
+<li><strong><span class="KeyWordPACKT">Raw</span></strong>: This is a default table that filters packets before any other table. It is mainly used for rules related to connection tracking.</li>
+<li><strong><span class="KeyWordPACKT">Filter</span></strong>: This is a default table for filtering packets.</li>
+<li><strong><span class="KeyWordPACKT">NAT</span></strong>: This is a default table used for network address translation.</li>
+<li><strong><span class="KeyWordPACKT">Mangle</span></strong>: This is a default table used for specialized packet alteration and is not used by the Security Group API.</li>
+</ul>
+<p>A rule in a chain can cause a jump to another chain, which, in turn, can jump to another chain, and so on. This behavior can be repeated to whatever level of nesting is desired. If the traffic does not match the rules of a subchain, the system recalls the point at which the jump occurred and returns to that point for further processing. When iptables is enabled, every network packet arriving at or leaving an interface traverses at least one chain.</p>
+<p>There are five default chains, and the origin of the packet determines which chain will be initially traversed. The five default chains include the following:</p>
+<ul>
+<li><strong><span class="CodeInTextPACKT">PREROUTING</span></strong>: Packets will enter this chain before a routing decision is made. The <span class="CodeInTextPACKT">PREROUTING</span> chain is used by the <span class="CodeInTextPACKT">raw</span>, <span class="CodeInTextPACKT">mangle</span>, and <span class="CodeInTextPACKT">NAT</span> tables.</li>
+<li><strong><span class="CodeInTextPACKT">INPUT</span></strong>: This is used when a packet is going to be locally delivered to the host machine. The <span class="CodeInTextPACKT">INPUT</span> chain is used by the <span class="CodeInTextPACKT">mangle</span> and <span class="CodeInTextPACKT">filter</span> tables.</li>
+<li><strong><span class="CodeInTextPACKT">FORWARD</span></strong>: All packets that have been routed and were not for local delivery will traverse this chain. The <span class="CodeInTextPACKT">FORWARD</span> chain is used by the <span class="CodeInTextPACKT">mangle</span> and <span class="CodeInTextPACKT">filter</span> tables.</li>
+<li><strong><span class="CodeInTextPACKT">OUTPUT</span></strong>: Packets sent from the host machine itself will traverse this chain. The <span class="CodeInTextPACKT">OUTPUT</span> chain is used by the <span class="CodeInTextPACKT">raw</span>, <span class="CodeInTextPACKT">mangle</span>, <span class="CodeInTextPACKT">NAT</span>, and <span class="CodeInTextPACKT">filter</span> tables.</li>
+<li><strong><span class="CodeInTextPACKT">POSTROUTING</span></strong>: Packets will enter this chain when a routing decision has been made. The <span class="CodeInTextPACKT">POSTROUTING</span> chain is used by the <span class="CodeInTextPACKT">mangle</span> and <span class="CodeInTextPACKT">NAT </span>tables.</li>
+</ul>
+<p>Each rule in a chain contains criteria that packets can be matched against. The rule may also contain a target, such as another chain, or a verdict, such as <span class="CodeInTextPACKT">DROP</span> or <span class="CodeInTextPACKT">ACCEPT</span>. As a packet traverses a chain, each rule is examined. If a rule does not match the packet, the packet is passed to the next rule. If a rule does match the packet, the rule takes the action indicated by the target or verdict.</p>
+<p>Possible verdicts include the following:</p>
+<ul>
+<li><strong><span class="CodeInTextPACKT">ACCEPT</span></strong>: The packet is accepted and sent to the application for processing</li>
+<li><strong><span class="CodeInTextPACKT">DROP</span></strong>: The packet is dropped silently</li>
+<li><strong><span class="CodeInTextPACKT">REJECT</span></strong>: The packet is dropped and an error message is sent to the sender</li>
+<li><strong><span class="CodeInTextPACKT">LOG</span></strong>: The packet details are logged</li>
+<li><strong><span class="CodeInTextPACKT">DNAT</span></strong>: This rewrites the destination IP of the packet</li>
+<li><strong><span class="CodeInTextPACKT">SNAT</span></strong>: This rewrites the source IP of the packet</li>
+<li><strong><span class="CodeInTextPACKT">RETURN</span></strong>: Processing returns to the calling chain</li>
+</ul>
+<p class="mce-root"/>
+<p>The <span class="CodeInTextPACKT">ACCEPT</span>, <span class="CodeInTextPACKT">DROP</span>, and <span class="CodeInTextPACKT">REJECT</span> verdicts are often used by the filter table. Common rule criteria include the following:</p>
+<ul>
+<li><kbd><span class="CodeInTextPACKT">-p &lt;protocol&gt;</span></kbd>: Matches protocols such as TCP, UDP, ICMP, and more</li>
+<li><kbd><span class="CodeInTextPACKT">-s &lt;ip_addr&gt;</span></kbd>: Matches source IP address</li>
+<li><kbd><span class="CodeInTextPACKT">-d &lt;ip_addr&gt;</span></kbd>: Matches destination IP address</li>
+<li><kbd><span class="CodeInTextPACKT">--sport</span></kbd>: Matches source port</li>
+<li><kbd><span class="CodeInTextPACKT">--dport</span></kbd>: Matches destination port</li>
+<li><kbd><span class="CodeInTextPACKT">-I &lt;interface&gt;</span></kbd>: Matches the interface from which the packet entered</li>
+<li><kbd><span class="CodeInTextPACKT">-o &lt;interface&gt;</span></kbd>: Matches the interface from which the packet exits</li>
+</ul>
+<p>Neutron abstracts the implementation of security group rules from users, but understanding how it works is important for operators tasked with troubleshooting connectivity. For more information on iptables, please visit the following resources:</p>
+<ul>
+<li><span><a href="https://www.booleanworld.com/depth-guide-iptables-linux-firewall/"><span class="URLPACKT">https://www.booleanworld.com/depth-guide-iptables-linux-firewall/</span></a></span></li>
+<li><a href="https://help.ubuntu.com/community/IptablesHowTo"><span class="URLPACKT">https://help.ubuntu.com/community/IptablesHowTo</span></a></li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using ipset</h1>
+                </header>
+            
+            <article>
+                
+<p>In OpenStack releases prior to Juno, for every security group referenced in a rule that was created, an exponential number of iptables rules were created that corresponded to each source and destination pair of addresses and ports. This behavior resulted in poor L2 agent performance as well as race conditions where virtual machine instances were connected to the virtual bridge but were unable to successfully connect to the network.</p>
+<p><span>Beginning with the Juno release, the <span class="KeyWordPACKT">ipset</span> extension to iptables is utilized in an attempt to reduce the number of iptables rules required by creating groups of addresses and ports that are stored efficiently for fast lookup.</span></p>
+<p>Without ipset, iptables rules that allow connections on port <kbd>80</kbd> to a set of web instances may resemble the following:</p>
+<pre>iptables -A INPUT -p tcp -d 1.1.1.1 --dport 80 -j RETURN<br/>iptables -A INPUT -p tcp -d 2.2.2.2 --dport 80 -j RETURN<br/>iptables -A INPUT -p tcp -d 3.3.3.3 --dport 80 -j RETURN<br/>iptables -A INPUT -p tcp -d 4.4.4.4 --dport 80 -j RETURN </pre>
+<p>The match syntax <kbd><span class="CodeInTextPACKT">-d x.x.x.x</span></kbd> in the preceding code means "match packets whose destination address is <kbd><span class="CodeInTextPACKT">x.x.x.x</span></kbd>". To allow all four addresses, four separate iptables rules with four separate match specifications must be defined.</p>
+<p class="mce-root"/>
+<p>Alternatively, a combination of <kbd>ipset</kbd> and <kbd>iptables</kbd> commands can be used to achieve the same result:</p>
+<pre>ipset -N webset iphash<br/>ipset -A webset 1.1.1.1<br/>ipset -A webset 2.2.2.2<br/>ipset -A webset 3.3.3.3<br/>ipset -A webset 4.4.4.4<br/>iptables -A INPUT -p tcp -m set --match-set webset dst --dport 80 -j RETURN </pre>
+<p>The <kbd>ipset</kbd> command creates a new set, a <span class="CodeInTextPACKT">webset</span>, with four addresses. The <kbd>iptables</kbd> command references the set with <kbd><span class="CodeInTextPACKT">--m set --match-set webset dst</span></kbd>, which means "match packets whose destination matches an entry within the set named <span class="CodeInTextPACKT">webset</span>".</p>
+<p>By using an ipset, only one rule is required to accomplish what previously took four rules. The savings are small in this example, but as instances are added to security groups and security group rules are configured, the reduction in rules has a noticeable impact on performance and reliability.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Working with security groups</h1>
+                </header>
+            
+            <article>
+                
+<p>Security groups can be managed using the Neutron ReST API, the OpenStack CLI, or the Horizon dashboard. Both methods offer a pretty complete experience and are discussed in the following sections.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Managing security groups in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>From within the <span class="CodeInTextPACKT">OpenStack</span> command-line client, a number of commands can be used to manage security groups. The primary commands associated with security group management that will be discussed in this chapter are listed in the following table:</p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr style="height: 3.56982px">
+<td style="width: 349px;height: 3.56982px">
+<p class="TableColumnHeadingPACKT"><strong>Security Group Commands</strong></p>
+</td>
+<td style="width: 439.514px;height: 3.56982px">
+<p class="TableColumnHeadingPACKT">Description</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 349px;height: 61px">
+<p class="TableColumnContentPACKT"><kbd>security group create</kbd></p>
+</td>
+<td style="width: 439.514px;height: 61px">
+<p class="TableColumnContentPACKT">Creates a new security group</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 349px;height: 61px">
+<p class="TableColumnContentPACKT"><kbd>security group delete</kbd></p>
+</td>
+<td style="width: 439.514px;height: 61px">
+<p class="TableColumnContentPACKT">Deletes security group(s)</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 349px;height: 61px">
+<p class="TableColumnContentPACKT"><kbd>security group list</kbd></p>
+</td>
+<td style="width: 439.514px;height: 61px">
+<p class="TableColumnContentPACKT">Lists security group(s)</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 349px;height: 61px">
+<p class="TableColumnContentPACKT"><kbd>security group rule create</kbd></p>
+</td>
+<td style="width: 439.514px;height: 61px">
+<p class="TableColumnContentPACKT">Creates a new security group rule</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 349px;height: 61px">
+<p class="TableColumnContentPACKT"><kbd>security group rule delete</kbd></p>
+</td>
+<td style="width: 439.514px;height: 61px">
+<p class="TableColumnContentPACKT">Deletes security group rule(s)</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 349px;height: 61px">
+<p class="TableColumnContentPACKT"><kbd>security group rule list</kbd></p>
+</td>
+<td style="width: 439.514px;height: 61px">
+<p class="TableColumnContentPACKT">Lists security group rules</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 349px;height: 61px">
+<p class="TableColumnContentPACKT"><kbd>security group rule show</kbd></p>
+</td>
+<td style="width: 439.514px;height: 61px">
+<p class="TableColumnContentPACKT">Displays security group rule details</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 349px;height: 61px">
+<p class="TableColumnContentPACKT"><kbd>security group set</kbd></p>
+</td>
+<td style="width: 439.514px;height: 61px">
+<p class="TableColumnContentPACKT">Sets security group properties</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 349px;height: 61px">
+<p class="TableColumnContentPACKT"><kbd>security group show</kbd></p>
+</td>
+<td style="width: 439.514px;height: 61px">
+<p class="TableColumnContentPACKT">Displays security group details</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 349px;height: 61px">
+<p class="TableColumnContentPACKT"><kbd>server add security group</kbd></p>
+</td>
+<td style="width: 439.514px;height: 61px">
+<p class="TableColumnContentPACKT">Adds a security group to a server</p>
+</td>
+</tr>
+<tr style="height: 61px">
+<td style="width: 349px;height: 61px">
+<p class="TableColumnContentPACKT"><kbd>server remove security group</kbd></p>
+</td>
+<td style="width: 439.514px;height: 61px">
+<p class="TableColumnContentPACKT">Removes a security group from a server</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating security groups in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>To create a security group, use the <span class="CodeInTextPACKT"><kbd>openstack security group create</kbd> </span>command as follows:</p>
+<pre>openstack security group create<br/>[--description &lt;description&gt;]<br/>[--project &lt;project&gt;]<br/>[--project-domain &lt;project-domain&gt;]<br/>&lt;name&gt; </pre>
+<div class="packt_infobox">By default, security groups in Neutron are pre-populated with two egress rules that allow all outbound traffic over IPv4 and IPv6. Inbound traffic is not permitted by default.</div>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Deleting security groups in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>To delete a security group, use the <kbd><span class="CodeInTextPACKT">openstack security group delete</span></kbd> command and specify the ID or name of the security group:</p>
+<pre>openstack security group delete &lt;group&gt; [&lt;group&gt; ...] </pre>
+<p>To delete a security group named <kbd><span class="CodeInTextPACKT">MySampleSecGrp</span></kbd>, you can enter the following command:</p>
+<pre>openstack security group delete MySampleSecGrp </pre>
+<p>Alternatively, you can use the group's ID:</p>
+<pre>openstack security group delete f8ch3db3-e25b-4760-972a-cb700d9a73dc </pre>
+<p>Multiple security groups can also be deleted simultaneously, as follows:</p>
+<pre>openstack security group delete MySampleSecGrp MyOtherSampleSecGrp </pre>
+<p>Neutron will successfully delete the security group(s) as long as ports utilizing the group(s) have been deleted prior to the request.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Listing security groups in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>To obtain a listing of security groups, use the <span class="CodeInTextPACKT"><kbd>openstack security group list</kbd></span> command as follows:</p>
+<pre>openstack security group list<br/>[--project &lt;project&gt;]<br/>[--project-domain &lt;project-domain&gt;] </pre>
+<p>The output returned includes the ID, name, and description of all security groups associated with the scoped or specified project. If run as a user with the <span class="CodeInTextPACKT">admin</span> role, all security groups across all projects will be listed.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Showing the details of a security group in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>To display the details of a security group, use the <kbd><span class="CodeInTextPACKT">openstack security group show</span></kbd> command, as shown here:</p>
+<pre>openstack security group show &lt;group&gt;</pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mceNonEditable"/>
+<p class="mceNonEditable"/>
+<p>Either the name or the ID of the security group can be specified. The output returned includes the description, ID, name, associated project ID, and the individual rules within the security group.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Updating security groups in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>To update the attributes of a security group, use the <span class="CodeInTextPACKT"><kbd>openstack security group set</kbd> </span>command as follows:</p>
+<pre>openstack security group set<br/>[--name &lt;new-name&gt;]<br/>[--description &lt;description&gt;]<br/>&lt;group&gt; </pre>
+<p>Attempting to modify the name of a default security group will result in an error.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating security group rules in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>To create a security group rule, use the <kbd><span class="CodeInTextPACKT">openstack security group rule create</span></kbd> command as follows:</p>
+<pre>openstack security group rule create<br/>[--remote-ip&lt;ip-address&gt; | --remote-group &lt;group&gt;]<br/>[--description &lt;description&gt;]<br/>[--dst-port &lt;port-range&gt;]<br/>[--icmp-type &lt;icmp-type&gt;]<br/>[--icmp-code &lt;icmp-code&gt;]<br/>[--protocol &lt;protocol&gt;]<br/>[--ingress | --egress]<br/>[--ethertype&lt;ethertype&gt;]<br/>[--project &lt;project&gt;]<br/>[--project-domain &lt;project-domain&gt;]<br/>&lt;group&gt; </pre>
+<p>The <kbd><span class="CodeInTextPACKT">--remote-ip</span></kbd> argument is optional and allows you to specify the source address or network the rule applies to. The address or network should be defined in CIDR format.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--remote-group</span></kbd> argument is optional and allows you to specify the name or ID of a security group the rule should apply to rather than individual IP addresses or networks. For example, when creating a rule to allow inbound SQL traffic to database servers, you can specify the ID of a security group that application servers are a member of without having to specify their individual IP addresses.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--description</span></kbd> argument applies a description to the security group rule.</p>
+<p class="mce-root"/>
+<p>The <kbd><span class="CodeInTextPACKT">--dst-port</span></kbd> argument is optional and allows you to specify a destination port or range of ports separated by a colon, as in 137:139. This option is required for TCP and UDP protocols.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--icmp-type</span></kbd> and <kbd><span class="CodeInTextPACKT">--icmp-code</span></kbd> arguments specify the ICMP type and code, respectively, for ICMP IP protocols. Allowing the entire ICMP protocol without specific types and codes satisfies most use cases.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--protocol</span></kbd> argument is optional and allows you to match traffic based on the IP protocol. Possible options include <span class="CodeInTextPACKT">ah</span>, <span class="CodeInTextPACKT">dccp</span>, <span class="CodeInTextPACKT">egp</span>, <span class="CodeInTextPACKT">esp</span>, <span class="CodeInTextPACKT">gre</span>, <span class="CodeInTextPACKT">icmp</span>, <span class="CodeInTextPACKT">igmp</span>, <span class="CodeInTextPACKT">ipv6-encap</span>, <span class="CodeInTextPACKT">ipv6-frag</span>, <span class="CodeInTextPACKT">ipv6-icmp</span>, <span class="CodeInTextPACKT">ipv6-nonxt</span>, <span class="CodeInTextPACKT">ipv6-opts</span>, <span class="CodeInTextPACKT">ipv6-route</span>, <span class="CodeInTextPACKT">ospf</span>, <span class="CodeInTextPACKT">pgm</span>, <span class="CodeInTextPACKT">rsvp</span>, <span class="CodeInTextPACKT">sctp</span>, <span class="CodeInTextPACKT">tcp</span>, <span class="CodeInTextPACKT">udp</span>, <span class="CodeInTextPACKT">udplite</span>, <span class="CodeInTextPACKT">vrrp</span> or an IP protocol number [0-255]. The default is <span class="CodeInTextPACKT">tcp</span>.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--ingress</span></kbd> argument means that the rule applies to incoming traffic, whereas the <kbd><span class="CodeInTextPACKT">--egress</span></kbd> argument means that the rule applies to outgoing traffic from the instance. These arguments are mutually exclusive, meaning only one can be used to describe the rule's direction. If left unspecified, the default direction is <span class="CodeInTextPACKT">ingress</span>.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--ethertype</span></kbd> argument is optional and allows you to specify whether the rule applies to IPv4 or IPv6 traffic.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--project</span></kbd> and <span class="CodeInTextPACKT"><kbd>--project-domain</kbd></span> arguments are optional and can be used to specify a project and domain other than the one associated with the user creating the rule.</p>
+<p>The <span class="CodeInTextPACKT">group</span> argument is used to specify the name or ID of the security group the rule should be associated with.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Deleting security group rules in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>To delete a security group rule, use the <kbd><span class="CodeInTextPACKT">openstack security group rule delete</span></kbd> command and specify the ID or name of the security group rule:</p>
+<pre>openstack security group rule delete &lt;group&gt; [&lt;group&gt; ...] </pre>
+<p>To delete a security group named <kbd><span class="CodeInTextPACKT">MySampleSecGrpRule80</span></kbd>, you can enter the following command:</p>
+<pre>openstack security group rule delete MySampleSecGrpRule80</pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Multiple security groups can also be deleted simultaneously, like so:</p>
+<pre>openstack security group delete MySampleSecGrpRuleTcp80 MySampleSecGrpRuleUDP123 </pre>
+<div class="packt_infobox">While it is possible to delete the rules within the default security group, it is not possible to delete the group itself.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Listing security group rules in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>To obtain a listing of security group rules and associated security groups, use the <kbd><span class="CodeInTextPACKT">openstack security group rule list</span></kbd> command, as follows:</p>
+<pre>openstack security group rule list<br/>[--protocol &lt;protocol&gt;]<br/>[--ingress | --egress] [--long]<br/>[&lt;group&gt;] </pre>
+<p>All arguments are optional but can be used to filter results. The output returned includes the ID, protocol, IP range, remote security group, and associated security group for all security group rules associated with the scoped project. Specifying <kbd><span class="CodeInTextPACKT">--long</span></kbd> will provide additional details not available in the standard output, including <span class="CodeInTextPACKT">direction</span> and <span class="CodeInTextPACKT">ether type</span>. If run as a user with the <span class="CodeInTextPACKT">admin</span> role, all security group rules across all projects will be listed.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Showing the details of a security group rule in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>To display the details of a security group rule, use the <span class="CodeInTextPACKT"><kbd>openstack security group rule show</kbd></span> command, as shown here:</p>
+<pre>openstack security group rule show &lt;group&gt; </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Applying security groups to instances and ports</h1>
+                </header>
+            
+            <article>
+                
+<p>Applying security groups to instances within the CLI is typically done at instance creation using the <kbd><span class="CodeInTextPACKT">openstack server create</span></kbd> command that's shown here:</p>
+<pre>openstack server create<br/>--flavor &lt;FLAVOR_ID&gt;<br/>--image &lt;IMAGE_ID&gt;<br/>--nic net-id=&lt;NETWORK_ID&gt;<br/>--security-group &lt;SECURITY_GROUP_ID&gt;<br/>INSTANCE_NAME </pre>
+<p>Security groups can also be applied to running instances by using either the <span class="CodeInTextPACKT"><kbd>openstack port set</kbd> </span>or the <kbd><span class="CodeInTextPACKT">openstack server add security group</span></kbd> commands. The following examples demonstrate the use of the <kbd><span class="CodeInTextPACKT">openstack port set</span></kbd> command to apply security groups to a port.</p>
+<p>In this example, the security group will be applied to the port, and the associated rules will be implemented immediately:</p>
+<pre>openstack port set &lt;PORT&gt; --security-group &lt;SECURITY_GROUP&gt; </pre>
+<p>Multiple security groups can be associated with a port simultaneously. To apply multiple security groups to a port, use the <kbd><span class="CodeInTextPACKT">--security-group</span></kbd> argument before each security group, as shown here:</p>
+<pre>openstack port set &lt;PORT&gt;<br/>--security-group &lt;SECURITY_GROUP_1&gt;<br/>--security-group &lt;SECURITY_GROUP_2&gt;<br/>--security-group &lt;SECURITY_GROUP_3&gt; </pre>
+<p>The following example demonstrates the use of the <kbd><span class="CodeInTextPACKT">openstack server add group</span></kbd> command to apply a security group to an instance:</p>
+<pre>openstack server add security group &lt;INSTANCE&gt; &lt;SECURITY_GROUP&gt; </pre>
+<p>Because a port cannot be specified as part of the command, the security group will be applied to all ports associated with the instance.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Removing security groups from instances and ports in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>To remove an individual security group, use the <kbd><span class="CodeInTextPACKT">openstack server remove security group</span></kbd> command, as shown in the following example:</p>
+<pre>openstack server remove security group &lt;INSTANCE&gt; &lt;SECURITY_GROUP&gt;</pre>
+<p>Alternatively, you can use the <kbd><span class="CodeInTextPACKT">openstack port unset</span> command</kbd> to remove the group from a port:</p>
+<pre>openstack port unset --security-group &lt;SECURITY GROUP&gt; &lt;PORT&gt;</pre>
+<p><span>To remove <span class="ItalicsPACKT">all</span> security groups from a port, including the default group, use the</span> <kbd><span class="CodeInTextPACKT">openstack port set</span></kbd> command with the <kbd><span class="CodeInTextPACKT">--no-security-group</span></kbd> argument, as shown in the following example:</p>
+<pre>openstack port set --no-security-group &lt;PORT&gt; </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Implementing security group rules</h1>
+                </header>
+            
+            <article>
+                
+<p>In the following example, an instance named <span class="CodeInTextPACKT">WEB1</span> has been created that acts as a web server running Apache on ports 80 and 443. Making a request to the web server at <span class="CodeInTextPACKT">192.168.206.6:80 </span>eventually times out:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/25a895c4-7704-419e-9e11-19b1a6e1e4cb.png"/></div>
+<p>To demonstrate how security group rules are implemented on a compute node, take note of the following <span class="CodeInTextPACKT">WEB_SERVERS</span> security group:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/5a3f7aa0-bf48-4f59-9685-440c9bfc52ec.png"/></div>
+<p class="mce-root"/>
+<p>The following screenshot demonstrates two security group rules being added to the <span class="CodeInTextPACKT">WEB_SERVERS</span> security group using the <kbd><span class="CodeInTextPACKT">openstack security group rule create</span></kbd> command. The rules allow inbound connections on ports 80 and 443 from any remote host, as defined by the CIDR 0.0.0.0/0:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/a62285ab-81b3-4c62-9334-974a74acf74a.png"/></div>
+<p>Using the <kbd><span class="CodeInTextPACKT">openstack server add security group</span></kbd> command, the <span class="CodeInTextPACKT">WEB_SERVERS</span> security group can be applied to the <span class="CodeInTextPACKT">WEB1</span> instance, as shown in the following screenshot:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/d340f90e-1db7-443e-9472-e4ec63190846.png" style="width:42.25em;height:33.50em;"/></div>
+<p>Once a security group has been applied to the corresponding port of an instance, a series of iptables rules and chains are implemented on the compute node hosting the instance. A quick connectivity check shows that the rule(s) work as expected:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/9a74f15b-9c85-4bf4-ba09-a95ba7148267.png"/></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Stepping through the chains</h1>
+                </header>
+            
+            <article>
+                
+<p>The implementation of security group rules using iptables is similar in both Linux bridge and Open vSwitch-based environments. On <kbd><span class="CodeInTextPACKT">compute01</span></kbd>, a compute node running the Linux bridge agent and hosting the instance in this example, shows that iptables rules applied by the Neutron agent can be observed using the <kbd><span class="CodeInTextPACKT">iptables-save</span></kbd> or <kbd><span class="CodeInTextPACKT">iptables -L</span></kbd> commands.</p>
+<p>For readability, only the <span class="CodeInTextPACKT">raw</span> and <span class="CodeInTextPACKT">filter</span> tables of rules related to the instance are shown in the following screenshot. Some comments have been removed or truncated to fit the page:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/cc6c710c-f8a2-4641-a1ae-e4192a0a5db6.png"/><br/></div>
+<p>First, the <span class="CodeInTextPACKT">PREROUTING</span> chain of the <span class="CodeInTextPACKT">raw</span> table is consulted. In the <span class="CodeInTextPACKT">PREROUTING</span> chain, we can find rules associating traffic traversing an instance's interface and/or related network to specific conntrack zone(s):</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/e8a06af4-d54b-4be7-aaae-41831a86a6ac.png" style="width:59.42em;height:10.50em;"/></div>
+<div class="packt_infobox">Each Neutron network corresponds to a conntrack zone, which further helps distinguish traffic in the case of overlapping address space between projects. Conntrack is one piece of the Connection Tracking System and is utilized by iptables when performing stateful packet inspection.</div>
+<p>Next, network traffic may traverse the <span class="CodeInTextPACKT">INPUT</span> chain of the <span class="CodeInTextPACKT">filter</span> table as follows:</p>
+<pre>-A INPUT -j neutron-linuxbri-INPUT </pre>
+<p>This rule jumps to a chain named <span class="CodeInTextPACKT">neutron-linuxbri-INPUT, as </span>shown here:</p>
+<pre>-A neutron-linuxbri-INPUT -m physdev <br/>--physdev-in tapadcc4b66-c1 <br/>--physdev-is-bridged -j neutron-linuxbri-oadcc4b66-c </pre>
+<p>The rule states that traffic leaving the instance through the <kbd><span class="CodeInTextPACKT">tapadcc4b66-c1</span></kbd> interface should be forwarded to the <kbd><span class="CodeInTextPACKT">neutron-linuxbri-oadcc4b66-c</span></kbd> chain, as shown here:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/0f8794a8-be34-44e6-8fdb-6bf64e98d4fb.png"/></div>
+<p>The rules of the <span class="CodeInTextPACKT"><kbd>neutron-linuxbri-oadcc4b66-c</kbd> </span>chain states that outgoing DHCP traffic should only be allowed when the client is attempting to obtain an address from a DHCP server. By default, instances are not allowed to act as DHCP servers and traffic will be dropped accordingly. The rules also state that traffic marked as <span class="CodeInTextPACKT">RETURN</span> or <span class="CodeInTextPACKT">ESTABLISHED</span> will be allowed, but <span class="CodeInTextPACKT">INVALID</span> packets will be dropped. Lastly, any traffic that does not match is dropped by a rule in the <span class="CodeInTextPACKT"><kbd>neutron-linuxbri-sg-fallback</kbd> chain</span>.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<div class="packt_infobox">Iptables may process traffic using the INPUT or FORWARD chains depending on the destination address and whether it is local to the node or not. In most cases, the FORWARD chains will be used instead.</div>
+<p>If traffic has survived the <span class="CodeInTextPACKT">INPUT</span> chains, it then moves on to the <span class="CodeInTextPACKT">FORWARD</span> chains seen here:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/e8419d27-1788-49cd-bf6a-1e27f2a1bfe1.png"/></div>
+<p>The first rule causes iptables to jump to the <span class="CodeInTextPACKT">neutron-filter-top</span> chain. From there, iptables jumps to the <kbd><span class="CodeInTextPACKT">neutron-linuxbri-local</span></kbd> chain for further processing. Because there are no rules defined in that chain, iptables returns to the calling chain, <span class="CodeInTextPACKT"><kbd>neutron-filter-top</kbd></span>. Once all rules have been processed, iptables returns to the previous calling chain, <span class="CodeInTextPACKT">FORWARD</span>.</p>
+<p>The next rule in the <span class="CodeInTextPACKT">FORWARD </span>chain that is processed is as follows:</p>
+<pre>-A FORWARD -j neutron-linuxbri-FORWARD </pre>
+<p>The mentioned rule causes iptables to jump to the <kbd><span class="CodeInTextPACKT">neutron-linuxbri-FORWARD</span></kbd> chain seen here:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/0441d2b5-9580-4b5b-8d36-4070be4f4e97.png"/></div>
+<p>The <kbd><span class="CodeInTextPACKT">-m</span></kbd> flag followed by <kbd><span class="CodeInTextPACKT">physdev</span></kbd> is a directive to iptables to use an extended <kbd>packet matching</kbd> module that supports devices enslaved to a bridge device.</p>
+<div class="packt_infobox">Remember: When the Linux bridge agent is used, tap interfaces for instances are connected to network bridges prefaced with <span class="CodeInTextPACKT">brq-*</span>. When the OVS agent is used, the tap interfaces are connected to their own Linux bridge prefaced with <span class="CodeInTextPACKT">qbr-*</span>.</div>
+<p class="mce-root"/>
+<p>The packet will match one of the two rules based on the direction the packet is headed through the interface. In either case, iptables jumps to the <kbd><span class="CodeInTextPACKT">neutron-linuxbri-sg-chain</span></kbd> chain, as shown here:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/aba61ace-b5f2-44da-b29d-7c1ea48bad73.png"/></div>
+<p><span>The direction of the packet will again dictate which rule is matched. Traffic c<span class="ItalicsPACKT">entering</span> the instance through the </span><span class="CodeInTextPACKT"><kbd>tapadcc4b66-c1</kbd> </span>interface will be processed by the <span class="CodeInTextPACKT"><kbd>neutron-linuxbri-iadcc4b66-c</kbd> </span>chain as follows:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/3f98afd1-0c5b-40e8-8e95-c613dd8a1371.png"/></div>
+<div class="packt_infobox">The name of a security group chain corresponds to the first 9 characters of the UUID of the Neutron port of which it is associated.</div>
+<p>In the mentioned rule, iptables uses the <span class="CodeInTextPACKT">state </span>module to determine the state of the packet. Combined with connection tracking, iptables is able to track the connection and determine the following states of the packet: <span class="CodeInTextPACKT">INVALID</span>, <span class="CodeInTextPACKT">NEW</span>, <span class="CodeInTextPACKT">RELATED</span>, or <span class="CodeInTextPACKT">ESTABLISHED</span>. The state of the packet results in an appropriate action being taken. Traffic not matched by any rule is dropped by the <kbd><span class="CodeInTextPACKT">neutron-linuxbri-sg-fallback</span></kbd> chain:</p>
+<pre>-A neutron-linuxbri-sg-fallback -j DROP</pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p><span>Traffic <span class="ItalicsPACKT">exiting</span> the instance through the</span> <kbd><span class="CodeInTextPACKT">tapadcc4b66-c1</span></kbd> interface is processed by the <kbd><span class="CodeInTextPACKT">neutron-linuxbri-oadcc4b66-c</span></kbd> chain as follows:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/ecde14dc-b778-4099-87ea-572404d5add8.png"/></div>
+<p>The first UDP rule allows the instance to send <kbd><span class="CodeInTextPACKT">DHCPDISCOVER</span></kbd> and <kbd><span class="CodeInTextPACKT">DHCPREQUEST</span></kbd> broadcast packets on UDP port 67. All other traffic is then processed by the <kbd><span class="CodeInTextPACKT">neutron-linuxbri-sadcc4b66-c</span></kbd> chain as follows:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/5df28e2e-ade4-4a72-92e6-8c93a0b386ef.png"/></div>
+<p>The preceding rule prevents an instance from performing IP and MAC address spoofing. Any traffic exiting the <span class="CodeInTextPACKT"><kbd>tapadcc4b66-c1</kbd> </span>interface must be sourced from IP address <span class="CodeInTextPACKT"><kbd>192.168.206.6/32</kbd> </span>and MAC address <kbd><span class="CodeInTextPACKT">FA:16:3E:DC:D2:AB</span></kbd>. To permit outbound traffic from additional IP or MAC addresses, use the Neutron <kbd><span class="CodeInTextPACKT">allowed-address-pairs </span></kbd>extension, which will be discussed later on in this chapter.</p>
+<p>Further processing includes preventing DHCP spoofing and verifying the state of the packet and performing the appropriate action. Traffic eventually returns to the <span class="CodeInTextPACKT"><kbd>neutron-linuxbri-sg-chain</kbd>,</span> calling chain where it is allowed through:</p>
+<pre>-A neutron-linuxbri-sg-chain -j ACCEPT </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Working with security groups in the dashboard</h1>
+                </header>
+            
+            <article>
+                
+<p><span>Within the Horizon dashboard, security groups are managed within the <span class="ScreenTextPACKT"><span class="packt_screen">Security Groups</span></span> section under the <span class="ScreenTextPACKT"><span class="packt_screen">Network</span></span> tab:</span></p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/76fe940b-3a37-4493-b60e-d923c9f8ba7b.png"/></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating a security group</h1>
+                </header>
+            
+            <article>
+                
+<p>To create a security group, perform the following steps.</p>
+<p><span>Click on the <span class="ScreenTextPACKT"><span class="packt_screen">Create Security Group</span></span> button in the upper right-hand corner of the screen. A window will appear that will allow you to create a security group:</span></p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/8621c7f9-81a8-4dd4-afaf-1c0976e1d521.png" style="width:44.83em;height:21.08em;"/></div>
+<p><span>The <span class="ScreenTextPACKT"><span class="packt_screen">Name</span></span> field is required. When you are ready to proceed, click on the blue <span class="ScreenTextPACKT"><span class="packt_screen">Create Security Group</span></span> button to create the security group.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Managing security group rules</h1>
+                </header>
+            
+            <article>
+                
+<p><span>Once created, you will be returned to the <span class="ScreenTextPACKT"><span class="packt_screen">Security Groups</span></span> section where you can add rules to the security group by clicking the <span class="ScreenTextPACKT"><span class="packt_screen">Manage Rules</span></span> button of the corresponding group:</span></p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/c24447b8-7283-4515-8085-89ed12eeccf9.png" style="width:45.92em;height:22.33em;"/></div>
+<p><span>To delete a rule, click the red <span class="ScreenTextPACKT"><span class="packt_screen">Delete Rule</span></span> button next to the corresponding security group rule. To add a rule, click on the <span class="ScreenTextPACKT"><span class="packt_screen">Add Rule</span></span> button in the upper right-hand corner:</span></p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/75971aea-b8de-4ee6-82f8-36e3460778b1.png" style="width:44.83em;height:19.50em;"/></div>
+<p>A window will appear that will allow you to create rules. Within the rule list, you can choose from a predefined list of protocols or create a custom rule as follows:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/3eef5604-6c1d-4070-a8d0-7d0b79705a6f.png" style="width:48.67em;height:43.08em;"/></div>
+<p><span>The wizard allows you to specify the direction, port or range of ports, and the remote network or group. To complete the rule creati</span><span>on process</span><span>, click on the blue</span> <span class="ScreenTextPACKT"><span class="packt_screen">Add</span></span> <span>button.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Applying security groups to instances</h1>
+                </header>
+            
+            <article>
+                
+<p><span>To apply a security group to an instance, return to the <span class="ScreenTextPACKT"><span class="packt_screen">Instances</span></span> section of the <span class="ScreenTextPACKT"><span class="packt_screen">Compute</span></span> panel. Click on the arrow under the <span class="ScreenTextPACKT"><span class="packt_screen">Actions</span></span> menu next to the instance and choose <span class="ScreenTextPACKT"><span class="packt_screen">Edit Security Groups</span></span>:</span></p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/d3eb7f7d-6c97-4dc0-b876-c41c17579249.png"/></div>
+<p><span>A window will appear that allows you to apply or remove security groups from an instance. Hit the blue <span class="ScreenTextPACKT">plus sign</span> next to the group to apply it to an instance:</span></p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/23ea1f07-7a34-456c-af12-c423a37a308e.png"/></div>
+<p><span>Once clicked, the group will move to the <span class="ScreenTextPACKT"><span class="packt_screen">Instance Security Groups</span></span> column, as shown in the following screenshot:</span></p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/51b1ef6a-9e33-4636-bd1f-852e466f9a4a.png" style="width:46.08em;height:27.00em;"/></div>
+<p><span>Click on the blue <span class="ScreenTextPACKT"><span class="packt_screen">Save</span></span> button to apply the changes to the instance.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Disabling port security</h1>
+                </header>
+            
+            <article>
+                
+<p>By default, Neutron applies anti-spoofing rules to all ports to ensure that unexpected or undesired traffic cannot originate from or pass through a port. This includes rules that prohibit instances from running DHCP servers or from acting as routers. To address the latter, the <kbd><span class="CodeInTextPACKT">allowed-address-pairs</span></kbd> extension can be used to allow additional IPs, subnets, and MAC addresses through the port. However, additional functionality may be required that cannot be addressed by the <kbd><span class="CodeInTextPACKT">allowed-address-pairs</span></kbd> extension.</p>
+<p>In the Kilo release of OpenStack, the <span class="CodeInTextPACKT">port security</span> <span>extension was introduced for the ML2 plugin, which allows <span class="ItalicsPACKT">all</span> packet filtering to be disabled on a port. This includes default rules that prevent IP and MAC spoofing as well as security group functionality. This extension is especially useful when deploying instances for use as a router or a load balancer. The</span> <span class="CodeInTextPACKT">port security</span> extension requires additional configuration that will be discussed in the following sections.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring Neutron</h1>
+                </header>
+            
+            <article>
+                
+<p>To enable the <span class="CodeInTextPACKT">port security</span> extension, edit the ML2 configuration file on the <kbd>controller01</kbd> node at <kbd><span class="CodeInTextPACKT">/etc/neutron/plugins/ml2/ml2_conf.ini</span></kbd> and add the following to the <span class="CodeInTextPACKT"><kbd>[ml2]</kbd> </span>section:</p>
+<pre>[ml2]<br/>...<br/>extension_drivers = port_security </pre>
+<p>Restart the <kbd><span class="CodeInTextPACKT">neutron-server</span></kbd> service for the changes to take effect:</p>
+<pre><strong># systemctl restart neutron-server</strong> </pre>
+<p>You can verify that the <span class="CodeInTextPACKT">port security</span> extension is enabled by verifying its name in the extension list that's provided by the <kbd><span class="CodeInTextPACKT">openstack extension list</span></kbd> command, as shown here:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/70567af4-1948-4ebe-9c9f-87332f6837f4.png"/></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Disabling port security for all ports on a network</h1>
+                </header>
+            
+            <article>
+                
+<p>Even without the <span class="CodeInTextPACKT">port security </span>extension in place, Neutron implements the default behavior of the extension by implementing DHCP, MAC address, and IP address spoofing rules on every port. The <span class="CodeInTextPACKT">port security</span> extension allows users with the <span class="CodeInTextPACKT">admin</span> role to disable port security on individual ports or network-wide. Port security can be disabled on all ports connected to a particular network by setting the <span class="CodeInTextPACKT"><kbd>--disable-port-security</kbd> </span>argument during network creation:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/2bfcb8f3-df3c-4b27-80a3-a07c35f365d0.png" style="width:52.00em;height:38.08em;"/></div>
+<p>When a port is created and attached to the network, its <kbd><span class="CodeInTextPACKT">port_security_enabled</span></kbd> attribute will be set to <kbd><span class="CodeInTextPACKT">False</span></kbd> automatically:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/56ac179e-ab5c-4359-b769-3f7a75c54987.png" style="width:46.83em;height:44.42em;"/></div>
+<p><span>It is important to know that when port security is disabled on a port, the API will not allow the port to be associated with any security groups. The lack of security group rules means <span class="ItalicsPACKT">all</span> traffic is allowed in <span class="ItalicsPACKT">and</span> out of a port. Disabling port security means any filtering must be implemented within the guest operating system.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Modifying port security on an individual port</h1>
+                </header>
+            
+            <article>
+                
+<p>When the <span class="CodeInTextPACKT">port security</span> extension is enabled, port security can be enabled or disabled on an individual port by setting the <kbd><span class="CodeInTextPACKT">port_security_enabled</span></kbd> attribute accordingly during the creation or update of a port.</p>
+<p>The following screenshot demonstrates updating a port to enable port security:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/5714ce0e-6cb3-4091-ad0e-7e2ea6462c58.png" style="width:35.92em;height:15.08em;"/></div>
+<p>By enabling port security, default anti-spoofing rules will be applied to the port, and security groups can be applied as needed. Disabling port security will remove the default anti-spoofing rules and security groups will not be allowed on the port.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Allowed address pairs</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd><span class="CodeInTextPACKT">allowed-address-pairs</span></kbd> extension can be used to allow additional IPs, subnets, and MAC addresses, other than the fixed IP and MAC address associated with the port, to act as source addresses for traffic leaving a port or virtual interface. This is useful when treating an instance as a routing device or VPN concentrator, or when implementing high-availability between multiple instances using addresses that need to "float" between them, such as an <kbd>haproxy</kbd> and/or <kbd>keepalived</kbd> implementation.</p>
+<p>Existing allowed address pairs can be found in the details of each port by using the <kbd><span class="CodeInTextPACKT">openstack port show</span></kbd> command. For every network and/or MAC address that should be allowed, the <kbd><span class="CodeInTextPACKT">openstack port set</span></kbd> command should be used with the <kbd><span class="CodeInTextPACKT">--allowed-address</span></kbd> argument, as shown here:</p>
+<pre>openstack port set &lt;port&gt;<br/>--allowed-address ip_address=&lt;IP_ADDR&gt;,mac-address=&lt;MAC_ADDR&gt;</pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mceNonEditable"/>
+<p class="mceNonEditable"/>
+<div class="packt_infobox">The MAC address value is optional. When a MAC address is not specified, the MAC address of the port is used.</div>
+<p>Multiple allowed address pairs can be associated with a Neutron port simultaneously. To apply multiple allowed address pairs to a port, simply specify multiple <span class="CodeInTextPACKT"><kbd>ip_address</kbd> </span>and <kbd><span class="CodeInTextPACKT">mac_address</span></kbd> key/value pairs, as shown here:</p>
+<pre>openstack port set &lt;PORT&gt;<br/>--allowed-address ip-address=&lt;IP_ADDR&gt;,mac-address=&lt;MAC_ADDR&gt;<br/>--allowed-address ip-address=&lt;IP_ADDR&gt;,mac-address=&lt;MAC_ADDR&gt;<br/>...<br/>--allowed-address ip-address=&lt;IP_ADDR&gt;,mac-address=&lt;MAC_ADDR&gt; 
+ </pre>
+<p>To remove all allowed address pairs from the port, use the <kbd><span class="CodeInTextPACKT">openstack port set</span></kbd> command with the <kbd><span class="CodeInTextPACKT">--no-allowed-address</span></kbd> argument.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>Security groups are fundamental for controlling access to instances by allowing users to create inbound and outbound rules that limit traffic to and from instances based on specific addresses, ports, protocols, and even other security groups. Default security groups are created by Neutron for every project that allows all outbound communication and restrict inbound communication to instances in the same default security group. Subsequent security groups are locked down even further, allowing only outbound communication and not allowing any inbound traffic at all unless modified by the user.</p>
+<p>Security group rules are implemented on the compute nodes and are triggered when traffic enters or leaves a virtual network interface belonging to an instance. Users are free to implement additional firewalls within the guest operating system, but may find managing rules in both places a bit cumbersome. Many organizations still utilize and rely on physical firewall devices to provide additional filtering at the edge of the network, which may mean coordination is required between users of the cloud and traditional security teams to ensure proper rules and actions are in place in all locations.</p>
+<p>In the next chapter, we will look at implementing Role-Based Access Control (RBAC) within Neutron as a method of controlling access to networks between projects from an API perspective.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

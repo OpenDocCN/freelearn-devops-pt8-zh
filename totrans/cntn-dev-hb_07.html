@@ -1,0 +1,501 @@
+<html><head></head><body>
+<div id="sbo-rt-content"><div id="_idContainer068">
+<h1 class="chapter-number" id="_idParaDest-130"><a id="_idTextAnchor147"/>7</h1>
+<h1 id="_idParaDest-131"><a id="_idTextAnchor148"/>Orchestrating with Swarm</h1>
+<p>As a developer, you can create your applications based on microservices. Using containers to distribute your applications into different components will allow you to provide them with different functionalities and capabilities, such as <strong class="bold">scalability</strong> or <strong class="bold">resilience</strong>. Working with a standalone environment is simple with tools such as Docker Compose, but things get difficult when containers can run cluster-wide on different hosts. In this chapter, we are going to learn how <strong class="bold">Docker Swarm</strong> will allow us to orchestrate our application containers with a full set of features for managing scalability, networking, and resilience. We will review how orchestration requirements are included in the Docker container engine and how to implement each of our application’s <span class="No-Break">specific needs.</span></p>
+<p>This chapter will cover the <span class="No-Break">following topics:</span></p>
+<ul>
+<li>Deploying a Docker <span class="No-Break">Swarm cluster</span></li>
+<li>Providing high availability with <span class="No-Break">Docker Swarm</span></li>
+<li>Creating tasks and services for <span class="No-Break">your applications</span></li>
+<li>A review of stacks and other Docker <span class="No-Break">Swarm resources</span></li>
+<li>Networking and exposing applications with <span class="No-Break">Docker Swarm</span></li>
+<li>Updating your <span class="No-Break">application’s services</span></li>
+</ul>
+<h1 id="_idParaDest-132"><a id="_idTextAnchor149"/>Technical requirements</h1>
+<p>We will use open source tools to build, share, and run a simple but functional Docker Swarm environment. The labs included in this chapter will help you to understand the content presented, and they are published at https://github.com/PacktPublishing/Containers-for-Developers-Handbook/tree/main/Chapter7. The <em class="italic">Code In Action</em> video for this chapter can be found <span class="No-Break">at </span><a href="https://packt.link/JdOIY"><span class="No-Break">https://packt.link/JdOIY</span></a><span class="No-Break">.</span></p>
+<h1 id="_idParaDest-133"><a id="_idTextAnchor150"/>Deploying a Docker Swarm cluster</h1>
+<p><strong class="bold">Docker Swarm</strong> is the<a id="_idIndexMarker749"/> orchestration platform developed by<a id="_idIndexMarker750"/> Docker Inc. It is probably the simplest orchestration solution for beginning to deploy your containerized applications. It is included inside the Docker container runtime and no additional software is required to deploy, manage, and provide a complete and secure Docker Swarm cluster solution. However, before we learn how to do this, let’s explore the architecture of <span class="No-Break">Docker Swarm.</span></p>
+<h2 id="_idParaDest-134"><a id="_idTextAnchor151"/>Understanding Docker Swarm’s architecture</h2>
+<p>Docker Swarm’s<a id="_idIndexMarker751"/> architecture is based on the concepts<a id="_idIndexMarker752"/> of a <strong class="bold">control plane</strong>, <strong class="bold">management plane</strong>, and <strong class="bold">data plane</strong> or <strong class="bold">workload plane</strong>. The<a id="_idIndexMarker753"/> control <a id="_idIndexMarker754"/>plane supervises the status of the cluster, the management plane provides all the platform management features, and finally, the data plane executes the user-defined tasks. These planes can be isolated from each other using multiple network interfaces (but this should be completely transparent to you as a developer). This model is also present in other orchestrators, such as Kubernetes (simplified<a id="_idIndexMarker755"/> into <strong class="bold">role nodes</strong>). Different roles will be used to define the work associated with the nodes within the cluster. The main difference between Docker Swarm and other orchestrators is that these roles are easily interchangeable within nodes; hence, a control/management plane node can be converted into a workload-ready node with just a command. Docker Swarm manages all the control plane communications securely by using <strong class="bold">Transport Layer Security</strong> (<strong class="bold">TLS</strong>)-encrypted <a id="_idIndexMarker756"/>networks. The<a id="_idIndexMarker757"/> internal <strong class="bold">certificate authority</strong> (<strong class="bold">CA</strong>) and its certificates will be completely managed by <span class="No-Break">Docker Swarm.</span></p>
+<p class="callout-heading">Important note</p>
+<p class="callout">Most container orchestration platforms<a id="_idIndexMarker758"/> will define <strong class="bold">master nodes</strong> as the nodes used to manage the platform, while <strong class="bold">worker nodes</strong> will <a id="_idIndexMarker759"/>finally execute all the workloads. These roles can also be shared and master nodes can execute some specific tasks. Docker Swarm allows us to completely change a node’s role with the command line without having to reinstall or recreate the node in <span class="No-Break">the cluster.</span></p>
+<p>We will use the concept of a <strong class="bold">service</strong> to define the workloads in our cluster. The services have different properties to modify and manage how traffic will be delivered to our applications’ workloads. We will define the number of <strong class="bold">replicas</strong> for a service to be considered alive. The orchestrator will be in charge of making sure this number of replicas is always running. With this in mind, to scale a service up or down, we will just modify the number of replicas required to be considered healthy. When a cluster node goes down, Docker Swarm will schedule its tasks on other <span class="No-Break">available hosts.</span></p>
+<p>Applications that use many different container-based components will require multiple services to run, which makes it important to define communications between them. Docker Swarm will manage both the workload states and the networking layer (<strong class="bold">overlay networks</strong>). Encryption <a id="_idIndexMarker760"/>can also be enabled for service communications. To ensure that all service replicas are reachable, Docker Swarm manages an internal DNS and load-balances service requests among all <span class="No-Break">healthy replicas.</span></p>
+<p>The cluster will also manage the application’s services’ rolling upgrades any time a change is made to any of the components. Docker Swarm provides different types of deployments for specific needs. This feature allows us to execute maintenance tasks such as updates by simply replacing or degrading a service, avoiding any <span class="No-Break">possible outages.</span></p>
+<p>We can summarize all of Docker Swarm features in the <span class="No-Break">following points:</span></p>
+<ul>
+<li>Docker Swarm is a built-in Docker container runtime and no additional software is required <a id="_idIndexMarker761"/>to deploy a container <span class="No-Break">orchestrator cluster.</span></li>
+<li>A control plane, a management plane, and a data plane are deployed to supervise cluster states, manage all tasks, and execute our applications’ <span class="No-Break">processes, respectively.</span></li>
+<li>Cluster nodes can be part <a id="_idIndexMarker762"/>of the <strong class="bold">control and management planes</strong> (with a manager role), simply execute assigned workloads (with a worker or compute role), or have both roles. We can easily change a node’s role from manager to worker with the Docker client <span class="No-Break">command line.</span></li>
+<li>An application’s workloads are defined as services, represented by a number of healthy replicas. The orchestrator will automatically oversee the execution of a reconciliation process when any replica fails to meet the <span class="No-Break">service’s requirements.</span></li>
+<li>All the cluster control plane and service communications (overlay networks) are managed by Docker Swarm, providing security by default with TLS in the control plane and with encryption features <span class="No-Break">for services.</span></li>
+<li>Docker Swarm provides internal service discovery and homogeneous load balancing between all service replicas. We define how service replicas will be updated when we change any content or workload features, and Docker Swarm manages <span class="No-Break">these updates.</span></li>
+</ul>
+<p>Now we can advance in this section and learn how to deploy a Docker Swarm cluster and its architecture. You<a id="_idIndexMarker763"/> as a developer can apply your own knowledge to decide which cluster features and resources will help you run your applications with supervision from <span class="No-Break">this orchestrator.</span></p>
+<h2 id="_idParaDest-135"><a id="_idTextAnchor152"/>Docker Swarm manager nodes</h2>
+<p>As mentioned <a id="_idIndexMarker764"/>earlier in this section, the control plane is provided by a set of hosts. These hosts<a id="_idIndexMarker765"/> are known as <strong class="bold">manager nodes</strong> in Swarm. These nodes in the cluster are critical for delivering all the control plane’s features. They all manage the Docker Swarm cluster environment. An internal key-value database is used to maintain the metadata of all the objects created and managed in <span class="No-Break">the cluster.</span></p>
+<p>To provide high availability to your cluster, we deploy more than one manager node and we will share this key-value store to prevent a failure if a manager goes down. One of the manager nodes acts as the leader and writes all the objects’ changes to its data store. The other managers will replicate this data into their own databases. The good thing here is that all this is managed internally by Docker Swarm. It implements the <strong class="bold">Raft consensus algorithm</strong> to <a id="_idIndexMarker766"/>manage and store all the cluster states. This ensures information distribution across multiple <span class="No-Break">managers equally.</span></p>
+<p>The first node created in a Docker Swarm cluster automatically becomes the cluster leader and an election process is always triggered when the leader fails. All healthy manager nodes vote for a new leader internally; hence, a consensus must be reached before electing a new one. This means that we need at least <em class="italic">N/2+1</em> healthy managers to elect a new leader. We need to deploy an odd number of manager nodes and they all maintain the cluster’s health, serve the Docker Swarm HTTP API, and schedule workloads on healthy, available <span class="No-Break">compute nodes.</span></p>
+<p>All the communications between manager and worker nodes are encrypted by using TLS (mutual TLS) by default. We don’t need to manage any of this encryption; an internal CA is deployed and servers’ certificates are <span class="No-Break">rotated automatically.</span></p>
+<p>Now that we understand how the cluster is managed, let’s review how applications are executed in the<a id="_idIndexMarker767"/> <span class="No-Break">compute nodes.</span></p>
+<h2 id="_idParaDest-136"><a id="_idTextAnchor153"/>Docker Swarm worker nodes</h2>
+<p>The leader of <a id="_idIndexMarker768"/>the manager nodes reviews the status of the platform and decides where to run a new task. All nodes report their statuses and loads to help the leader decide what the best location for executing the service replicas is. Worker nodes talk with manager nodes to inform them about the status of their running containers, and this information reaches the <span class="No-Break">leader node.</span></p>
+<p>Worker nodes will just execute containers; they never participate in any scheduling decisions and they are part of the data plane, where all services’ internal communications are managed. These communications (overlay networks) are based on UDP VXLAN tunneling and they can be encrypted, although this isn’t enabled by default since some overhead <span class="No-Break">is expected.</span></p>
+<p class="callout-heading">Important note</p>
+<p class="callout">It is important to know that Docker Swarm manager nodes also have the worker role. This means that by default, any workload can run either on a manager node or a worker node. We will use additional mechanisms, such as workload locations, to avoid the execution of an application’s containers on <span class="No-Break">manager nodes.</span></p>
+<p>We can continue now and learn how to create a <span class="No-Break">simple cluster.</span></p>
+<h2 id="_idParaDest-137"><a id="_idTextAnchor154"/>Creating a Docker Swarm cluster</h2>
+<p>Docker Swarm’s features<a id="_idIndexMarker769"/> are completely embedded into the Docker container runtime; hence, we don’t need any additional binaries to create <span class="No-Break">a cluster.</span></p>
+<p>To create a Docker Swarm cluster, we will start by initializing it. We can choose any host interface for creating the cluster, and by default, the first one available will be used if none is selected. We will execute <strong class="source-inline">docker swarm init</strong> in a cluster node and this will become the leader. It is important to understand that we can have a fully functional cluster with just one node (leader), although we will not be able to provide high availability to our applications in this case. By default, any manager node, including the leader, will be able to run any <span class="No-Break">application’s workloads.</span></p>
+<p>Once a Docker Swarm cluster is created, the Docker container runtime starts to work in <strong class="bold">swarm mode</strong>. At this <a id="_idIndexMarker770"/>point, some new Docker objects become available, which may make it interesting for you as a <a id="_idIndexMarker771"/>developer to deploy your <span class="No-Break">own cluster:</span></p>
+<ul>
+<li><strong class="bold">Swarm</strong>: This object represents the cluster itself, with its <span class="No-Break">own properties.</span></li>
+<li><strong class="bold">Nodes</strong>: Each node within the cluster is represented by a <strong class="bold">node object</strong>, no matter whether it’s a leader, manager, or worker node. It can be very useful to add some labels to each node to help the internal scheduler allocate workloads to specific nodes (remember that all nodes can run <span class="No-Break">any workload).</span></li>
+<li><strong class="bold">Services</strong>: The service represents the minimal workload scheduling unit. We will create a service for each application’s component, even if it just runs a single container. We will never run standalone containers in a Docker Swarm cluster, as these containers will not be managed by <span class="No-Break">the orchestrator.</span></li>
+<li><strong class="bold">Secrets</strong>: These objects allow us to securely store all kinds of sensitive data (up to a maximum of 500 KB). Secrets will be mounted and used inside service containers and the cluster will manage and store <span class="No-Break">their content.</span></li>
+<li><strong class="bold">Configs</strong>: Config objects will work like secrets, but they are stored in clear text. It is important to understand that configs and secrets are spread cluster-wide, which is critical, as containers will run in <span class="No-Break">different hosts.</span></li>
+<li><strong class="bold">Stacks</strong>: These are a new type of object used to deploy applications in Docker Swarm. We will use the Compose YAML file syntax to describe all the application’s components and their storage and <span class="No-Break">networking configurations.</span></li>
+</ul>
+<p class="callout-heading">Important note</p>
+<p class="callout">The Docker Swarm cluster platform does not require as many resources as Kubernetes; hence, it is possible to deploy a three-node cluster on your laptop for testing. You will be able to verify how your applications work and maintain the service level when some of the application’s components fail or a cluster node goes completely offline. We use a standalone Docker Swarm cluster in order to use<a id="_idIndexMarker772"/> special <a id="_idIndexMarker773"/>objects such as <strong class="bold">secrets</strong> <span class="No-Break">or </span><span class="No-Break"><strong class="bold">configs</strong></span><span class="No-Break">.</span></p>
+<p>As we mentioned before in this section, we can just create a Docker Swarm cluster by executing <strong class="source-inline">docker swarm init</strong>, but many arguments can modify the default behavior. We will review a few of the most important ones just to let you know how isolated and secure a cluster <span class="No-Break">can be:</span></p>
+<ul>
+<li><strong class="source-inline">--advertise-addr</strong>: We can define the interface that will be used to initiate the cluster with this. All other nodes will use this IP address to join the recently created cluster. By default, the first interface will be used. This option will allow us to set which interface will be used to announce the <span class="No-Break">control plane.</span></li>
+<li><strong class="source-inline">--data-path-addr</strong> and <strong class="source-inline">--data-path-port</strong>: We can isolate the data plane for the applications by setting a host’s specific interface IP address and port using these arguments. Traffic can be encrypted, and this will be completely transparent to your applications. Docker Swarm will manage this communication; some overhead may be expected due to the <span class="No-Break">encryption/decryption processes.</span></li>
+<li><strong class="source-inline">--listen-addr</strong>: By<a id="_idIndexMarker774"/> default, the Docker Swarm API will be listening on all host interfaces, but we can secure the API by answering on a <span class="No-Break">defined interface.</span></li>
+<li><strong class="source-inline">--autolock</strong>: Docker Swarm will store all its data under <strong class="source-inline">/var/lib/docker/swarm</strong> (by default, depending on your runtime root data path). This directory contains the CA, used for creating all the nodes’ certificates, and the snapshots automatically created by Docker Swarm to preserve the data in case of failure. This information must be secure, and the <strong class="source-inline">--autolock</strong> option allows us to lock the content until a passphrase <span class="No-Break">is provided.</span></li>
+</ul>
+<p class="callout-heading">Important note</p>
+<p class="callout">Locking Docker Swarm content may affect your cluster’s high availability. This is because every time the Docker runtime is restarted, you must use an unlock action to retrieve the directory’s content, and you will be asked for the autolock passphrase. Hence, an automatic restart of components is broken since manual intervention <span class="No-Break">is required.</span></p>
+<p>When a Docker swarm is initialized, a couple of cluster tokens are created. These tokens should be used to join additional nodes to the cluster. One token should be used to join new manager nodes and the other one should only be used to integrate worker nodes. Remember that the node’s roles can be changed later if a manager node fails, for example. The following code shows how the tokens <span class="No-Break">are presented:</span></p>
+<pre class="console">
+$ docker swarm init
+Swarm initialized: current node (s3jekhby2s0vn1qmbhm3ulxzh) is now a manager.</pre> <p>To add a worker to this swarm, you can run the <span class="No-Break">following command:</span></p>
+<pre class="console">
+     docker swarm join --token SWMTKN-1-17o42n70mys1l3qklmew87n82lrgymtrr65exmaga9jp57831g-4g2kzh4eoec2973l7hc561bte 192.168.65.4:2377</pre> <p>To add a manager to this swarm, run <strong class="source-inline">docker swarm join-token manager</strong> and follow <span class="No-Break">the instructions.</span></p>
+<p>We use <strong class="source-inline">docker swarm join</strong> followed by <strong class="source-inline">--token</strong> and the appropriate token for a new manager or worker node. This token will be shown at cluster initialization, but it can be retrieved whenever needed by simply using <strong class="source-inline">docker swarm join-token</strong>. This action can also be used to rotate the current token (automatic rotation will be triggered by default every <span class="No-Break">90 days).</span></p>
+<p>Docker Swarm nodes can leave the cluster whenever it is needed by executing <strong class="source-inline">docker swarm leave</strong>. It is important to understand that losing one manager may leave your cluster in danger. Be careful with the manager nodes, especially when you change their role to a worker <a id="_idIndexMarker775"/>node or when you remove them from <span class="No-Break">a cluster.</span></p>
+<p class="callout-heading">Important note</p>
+<p class="callout">Some Swarm object properties, such as autolock or certificate expiration, can be modified by using <strong class="source-inline">docker </strong><span class="No-Break"><strong class="source-inline">swarm update</strong></span><span class="No-Break">.</span></p>
+<p>In the next section, we will learn what is required to provide high availability to a Docker Swarm cluster and the requirements for <span class="No-Break">our applications.</span></p>
+<h1 id="_idParaDest-138"><a id="_idTextAnchor155"/>Providing high availability with Docker Swarm</h1>
+<p>The Docker Swarm <a id="_idIndexMarker776"/>orchestrator will provide<a id="_idIndexMarker777"/> out-of-the-box <strong class="bold">high availability</strong> if we use an odd number of manager nodes. The <strong class="bold">Raft protocol</strong> used to manage the internal database requires an odd number of nodes to maintain it healthily. Having said that, the minimum number of healthy managers for the cluster to be fully functional is <em class="italic">N/2+1</em>, as discussed earlier in this chapter. However, no matter how many managers are working, your application’s functionality may not be impacted. Worker nodes will continue working even when you don’t have the minimum number of required manager nodes. An application’s services will continue running unless a container fails. In this situation, if the managers aren’t functional, your containers will not be managed by the cluster and thus your application will be impacted. It is important to understand this because it is the key to preparing your clusters for <span class="No-Break">these situations.</span></p>
+<p>Although your cluster runs with fully high availability, you must prepare your applications. By default, resilience is provided. This means that if a running container fails, a new one will be created to replace it, but this will probably impact your application even if you run a fully <span class="No-Break">stateless service.</span></p>
+<p>Services integrate <strong class="bold">tasks</strong> or <strong class="bold">instances</strong>, which finally represent a container. Hence, we must set the number of replicas (or tasks) required for a service to be considered healthy. The Docker container runtime running the workload will check whether the container is healthy by executing the health checks included within the container image or the ones defined at execution time (written using the Compose YAML file format in which the service <span class="No-Break">is defined).</span></p>
+<p>Definitely, the number of <strong class="bold">replicas</strong> will impact the outage of your service when things go wrong. Therefore, you should prepare your applications for this situation by executing, for example, more than one replica for your services. Of course, this requires that you think of your application’s components’ logic from the very beginning. For example, even if your application is completely stateless and uses a stateful service, such as a database, you will probably have to think about how to provide high availability or at least fault tolerance to this component. Databases can run inside containers but their logic may need some tweaks. Sometimes, you can just replace your SQL database with a NoSQL database <span class="No-Break">distributed solution.</span></p>
+<p>In the previous application example, with a database component, we didn’t take into account the problem of managing the stateful data using volumes (even if using a distributed solution), but every stateful application should be able to move from one cluster node to another. This also affects the associated volumes that must be attached to containers wherever they run, no matter which node in the cluster receives a task. We can use remote storage filesystem solutions, such as NFS, or sync filesystems or folders between nodes. You as a developer don’t have to manage the infrastructure, but you must prepare your applications, for example, by verifying the existence of certain files. You should also ask yourself what will happen if more than one replica tries to access your data. This situation will definitely corrupt a database, for example. Other orchestrators, such as Kubernetes, provide more interesting solutions for these situations, as we will learn in <a href="B19845_08.xhtml#_idTextAnchor170"><span class="No-Break"><em class="italic">Chapter 8</em></span></a>, <em class="italic">Deploying Applications with the </em><span class="No-Break"><em class="italic">Kubernetes Orchestrator</em></span><span class="No-Break">.</span></p>
+<p>Docker Swarm nodes can be <strong class="bold">promoted</strong> from the worker role to the manager role, and vice versa, a manager can be <strong class="bold">demoted</strong> to a worker. We can also <strong class="bold">drain</strong> and <strong class="bold">pause</strong> nodes, which allows us to completely move all containers from a node to another available worker, and disable scheduling in the nodes defined, respectively. All these actions are part of infrastructure management. You should at least verify how your application will behave when a drain action is triggered and your containers stop on one node and start on another. How will your application’s components manage such circumstances? How will this affect component containers that consumed some of the affected services? This is <a id="_idIndexMarker778"/>something<a id="_idIndexMarker779"/> you have to solve in your application’s logic and code as <span class="No-Break">a developer.</span></p>
+<p>Next, let’s learn how to schedule our applications in <span class="No-Break">Docker Swarm.</span></p>
+<h1 id="_idParaDest-139"><a id="_idTextAnchor156"/>Creating tasks and services for your applications</h1>
+<p>The first thing you<a id="_idIndexMarker780"/> should know is that we will never <a id="_idIndexMarker781"/>schedule containers on a Docker Swarm <a id="_idIndexMarker782"/>cluster. We will always run <strong class="bold">services</strong>, which are the minimal deployment units in a Docker <span class="No-Break">Swarm cluster.</span></p>
+<p>Each service is defined by a number of replicas, known in Docker Swarm as <strong class="bold">tasks</strong>. And finally, each task will run <span class="No-Break">one container.</span></p>
+<p class="callout-heading">Important note</p>
+<p class="callout">Docker Swarm is based on <a id="_idIndexMarker783"/>Moby’s <strong class="bold">SwarmKit</strong> project, which was designed to run any kind of task cluster-wide (virtual machines, for example). Docker created Docker Swarm by implementing SwarmKit in the orchestrator, but specifically for <span class="No-Break">running containers.</span></p>
+<p>We will use a <strong class="bold">declarative model</strong> to<a id="_idIndexMarker784"/> schedule services in our Docker Swarm cluster by setting the desired state for our services. Docker Swarm will take care of their state continuously and take corrective measures in case of any failure to reconcile its state. For example, if the number of running replicas is not correct because one container has failed, Docker Swarm will create a new one to correct the <span class="No-Break">service’s state.</span></p>
+<p>Let’s continue by creating a simple <strong class="source-inline">webserver</strong> service using an <strong class="source-inline">nginx:alpine</strong> <span class="No-Break">container image:</span></p>
+<pre class="console">
+$ docker service create --name webserver nginx:alpine
+k40w64wkmr5v582m4whfplca5
+overall progress: 1 out of 1 tasks
+1/1: running   [==================================================&gt;]
+verify: Service converged</pre> <p>We have just defined <a id="_idIndexMarker785"/>a service’s name and the image to<a id="_idIndexMarker786"/> be <a id="_idIndexMarker787"/>used for the associated containers. By default, services will be created with <span class="No-Break">one replica.</span></p>
+<p>We can verify the service’s state by simply executing <strong class="source-inline">docker service ls</strong> to list all the Docker <span class="No-Break">Swarm services:</span></p>
+<pre class="console">
+$ docker service ls
+ID             NAME        MODE         REPLICAS   IMAGE          PORTS
+k40w64wkmr5v   webserver   replicated   1/1        nginx:alpine</pre> <p>As you may have noticed, a service ID is created (object ID) and we can use any of the actions learned about in <a href="B19845_02.xhtml#_idTextAnchor036"><span class="No-Break"><em class="italic">Chapter 2</em></span></a> and <a href="B19845_04.xhtml#_idTextAnchor096"><span class="No-Break"><em class="italic">Chapter 4</em></span></a> for listing, inspecting, and removing <span class="No-Break">Docker objects.</span></p>
+<p>We can verify in which node the service’s containers are running by using <strong class="source-inline">docker node ps</strong>. This will list all the containers running in the cluster that are associated <span class="No-Break">with services:</span></p>
+<pre class="console">
+$ docker node ps
+ID             NAME          IMAGE          NODE             DESIRED STATE   CURRENT STATE           ERROR     PORTS
+og3zh7h7ht9q   webserver.1   nginx:alpine   docker-desktop   Running         Running 7 minutes ago</pre> <p>In this example, one container is running in the <strong class="source-inline">docker-desktop</strong> host (Docker Desktop environment). We didn’t specify a port for publishing our web server; hence, it will work completely internally and will be unreachable to users. Only one replica was deployed because the default value was used when we didn’t set anything else. Therefore, to create a real service, we will usually need to specify the <span class="No-Break">following information:</span></p>
+<ul>
+<li>The repository from which the image should <span class="No-Break">be downloaded</span></li>
+<li>The number of healthy replicas/containers required by our service to be <span class="No-Break">considered alive</span></li>
+<li>The published port, if the service must be <span class="No-Break">reachable externally</span></li>
+</ul>
+<p>It is also important<a id="_idIndexMarker788"/> to mention that Docker <a id="_idIndexMarker789"/>Swarm <a id="_idIndexMarker790"/>services can be either replicated (by default, as we have seen in the previous example) or global (run on all <span class="No-Break">cluster nodes).</span></p>
+<p>A <strong class="bold">replicated service</strong> will create<a id="_idIndexMarker791"/> a number of replicas, known as <strong class="bold">tasks</strong>, and each will create one container. You as a developer can prepare your application’s logic to run more than one replica per service to provide simple but useful high availability (this will help you lose half of your service in case of failure). This will reduce the impact in case of failure and really help with the upgrade processes when changes need to <span class="No-Break">be introduced.</span></p>
+<p>On the other hand, a <strong class="bold">global service</strong> will<a id="_idIndexMarker792"/> run one replica of your service in each cluster node. This is very powerful but may reduce the overall performance of your cluster if you can distribute your application’s load into different processes. This type of service is used to deploy monitoring and logging applications, and they work as agents, automatically distributed in all nodes at once. It is important to notice that Docker Swarm will schedule a task for each service on any node joined to the cluster. You may use global services when you need to run agent-like applications on <span class="No-Break">your cluster.</span></p>
+<p>You as a developer should think about which service type suits your application best and use the <strong class="source-inline">--mode</strong> argument to create an appropriate Docker <span class="No-Break">Swarm service.</span></p>
+<p class="callout-heading">Important note</p>
+<p class="callout">You may think that it’s a good idea to run a distributed database (MongoDB or any simpler key-value store) or a queue management solution (such as RabbitMQ or Apache Kafka) as a global service to ensure its availability, but you have to take care of the final number of running containers. Global services do not guarantee an odd number of containers/processes and may break your application if you join new nodes to the cluster. Every time you join a new node, a new container is created as part of the <span class="No-Break">global service.</span></p>
+<p>We can use labels to define locations for certain services. They will affect all the replicas at the same time. For example, we can create a global service that should only run on nodes labeled <span class="No-Break">as </span><span class="No-Break"><strong class="source-inline">web</strong></span><span class="No-Break">:</span></p>
+<pre class="console">
+$ docker service create --detach \
+--name global-webserver --mode global \
+--constraint node.labels.web=="true" nginx:alpine
+n9e24dh4s5731q37oboo8i7ig</pre> <p>The <a id="_idIndexMarker793"/>Docker <a id="_idIndexMarker794"/>Desktop<a id="_idIndexMarker795"/> environment works like a one-node Docker Swarm cluster; hence, the global service should be running if the appropriate label, <strong class="source-inline">web</strong>, <span class="No-Break">is present:</span></p>
+<pre class="console">
+$ docker service ls
+ID             NAME               MODE         REPLICAS   IMAGE          PORTS
+n9e24dh4s573   global-webserver   global       0/0        nginx:alpine
+k40w64wkmr5v   webserver          replicated   1/1        nginx:alpine</pre> <p>Let’s add the label to the only cluster node <span class="No-Break">we have:</span></p>
+<pre class="console">
+$ docker node update --label-add web="true" docker-desktop
+docker-desktop
+$ docker node inspect docker-desktop \
+--format="{{.Spec.Labels}}"
+map[web:true]</pre> <p>Automatically, Docker Swarm detected the node label change and scheduled the global service container <span class="No-Break">for us:</span></p>
+<pre class="console">
+$ docker service ls
+ID             NAME               MODE         REPLICAS   IMAGE          PORTS
+n9e24dh4s573   global-webserver   global       1/1        nginx:alpine
+k40w64wkmr5v   webserver          replicated   1/1        nginx:alpine</pre> <p>As you can see, Docker Swarm allows us to change the default location of any service. Let’s review some of <a id="_idIndexMarker796"/>the options available to place<a id="_idIndexMarker797"/> our <a id="_idIndexMarker798"/>application’s tasks in specific nodes or pools <span class="No-Break">of nodes:</span></p>
+<ul>
+<li><strong class="source-inline">--constraint</strong>: This option fixes where to run our service’s containers. It uses labels, as we saw in the previous example. We can verify the placement requirements of a service by using <strong class="source-inline">docker </strong><span class="No-Break"><strong class="source-inline">service inspect</strong></span><span class="No-Break">:</span><pre class="source-code">
+<strong class="bold">$ docker service inspect global-webserver \</strong>
+<strong class="bold">--format="{{.Spec.TaskTemplate.Placement}}"</strong>
+<strong class="bold">{[node.labels.web==true] [] 0 [{amd64 linux} { linux} { linux} {arm64 linux} {386 linux} {ppc64le linux} {s390x linux}]}</strong></pre></li> <li><strong class="source-inline">--placement-pref</strong>: Sometimes, we are looking for a preferred location, but we need to ensure that the application will execute even if this doesn’t exist. We will use a placement preference in <span class="No-Break">such situations.</span></li>
+<li><strong class="source-inline">--replicas-max-per-node</strong>: Another way of setting the location under certain circumstances will be to avoid more than a specific number of replicas per cluster node. This will ensure, for example, that replicas will not compete for resources in the <span class="No-Break">same host.</span></li>
+</ul>
+<p>By using placement constraints or preferred locations, you can ensure, for example, that your application will run in certain nodes with GPUs or <span class="No-Break">faster disks.</span></p>
+<p class="callout-heading">Important note</p>
+<p class="callout">You as a developer should design your application to run almost anywhere. You will need to ask your Docker Swarm administrators for any location labeling or preferences and use them in your deployments. These kinds of infrastructure features may impact how your applications run and you must be aware <span class="No-Break">of them.</span></p>
+<p>We can also execute <strong class="bold">jobs</strong> in Docker Swarm. A job may be considered a type of service that should only run once. In these cases, the service’s tasks run a container that exists. If this execution is correct, the task is marked as <strong class="source-inline">Completed</strong> and no other container will be executed. Docker Swarm allows the execution of both global or replicated jobs, the <strong class="source-inline">global-job</strong> and <strong class="source-inline">replicated-job</strong> service <span class="No-Break">types, respectively.</span></p>
+<p>Docker Swarm services can be updated at any time, for example, to change the container image or other properties, such as their scheduling location within the <span class="No-Break">cluster nodes.</span></p>
+<p>To update<a id="_idIndexMarker799"/> any <a id="_idIndexMarker800"/>available <a id="_idIndexMarker801"/>service’s property, we will use <strong class="source-inline">docker service update</strong>. In the following example, we will just update the number of replicas of <span class="No-Break">the service:</span></p>
+<pre class="console">
+$ docker service update webserver --replicas=2
+webserver
+overall progress: 2 out of 2 tasks
+1/2: running   [==================================================&gt;]
+2/2: running   [==================================================&gt;]
+verify: Service converged
+$ docker service ls
+ID             NAME               MODE         REPLICAS   IMAGE          PORTS
+n9e24dh4s573   global-webserver   global       1/1        nginx:alpine
+k40w64wkmr5v   webserver          replicated   2/2        nginx:alpine</pre> <p>Now that we have two replicas or instances running for the <strong class="source-inline">webservice</strong> service, we can verify how Docker Swarm will check and manage <span class="No-Break">any failure:</span></p>
+<pre class="console">
+$ docker node ps
+ID             NAME                                         IMAGE          NODE             DESIRED STATE   CURRENT STATE           ERROR     PORTS
+g72t1n2myffy   global-webserver.s3jekhby2s0vn1qmbhm3ulxzh   nginx:alpine   docker-desktop   Running         Running 3 hours ago
+og3zh7h7ht9q   webserver.1                                  nginx:alpine   docker-desktop   Running         Running 16 hours ago
+x2u85bbcrxip   webserver.2                                  nginx:alpine   docker-desktop   Running         Running 2 minutes ago</pre> <p>Using the <strong class="source-inline">docker</strong> runtime <a id="_idIndexMarker802"/>client, we can list all the<a id="_idIndexMarker803"/> containers<a id="_idIndexMarker804"/> running (this works because we are using just one node cluster, the <span class="No-Break"><strong class="source-inline">docker-desktop</strong></span><span class="No-Break"> host):</span></p>
+<pre class="console">
+$ docker ps
+CONTAINER ID   IMAGE          COMMAND                  CREATED         STATUS         PORTS     NAMES
+cfd1b37cca93   nginx:alpine   "/docker-entrypoint.…"   9 minutes ago   Up 9 minutes   80/tcp    webserver.2.x2u85bbcrxiplsvtmj08x69z5
+9bc7a5df593e   nginx:alpine   "/docker-entrypoint.…"   3 hours ago     Up 3 hours     80/tcp    global-webserver.s3jekhby2s0vn1qmbhm3ulxzh.g72t1n2myffy0abl1bj57m6es
+3d784315a0af   nginx:alpine   "/docker-entrypoint.…"   16 hours ago    Up 16 hours    80/tcp    webserver.1.og3zh7h7ht9qpv1xkip84a9gb</pre> <p>We can kill one of the <strong class="source-inline">webserver</strong> service’s containers and verify that Docker Swarm will create a new container to reconcile the <span class="No-Break">service’s status:</span></p>
+<pre class="console">
+$ docker kill webserver.2.x2u85bbcrxiplsvtmj08x69z5
+webserver.2.x2u85bbcrxiplsvtmj08x69z5</pre> <p>A second after the failure is detected, a new <span class="No-Break">container runs:</span></p>
+<pre class="console">
+$ docker service ls
+ID             NAME               MODE         REPLICAS   IMAGE          PORTS
+n9e24dh4s573   global-webserver   global       1/1        nginx:alpine
+k40w64wkmr5v   webserver          replicated   2/2        nginx:alpine</pre> <p>We can verify that Docker Swarm managed the <span class="No-Break">container issue:</span></p>
+<pre class="console">
+$ docker service ps webserver
+ID             NAME              IMAGE          NODE             DESIRED STATE   CURRENT STATE           ERROR                         PORTS
+og3zh7h7ht9q   webserver.1       nginx:alpine   docker-desktop   Running         Running 16 hours ago
+x02zcj86krq7   webserver.2       nginx:alpine   docker-desktop   Running         Running 4 minutes ago
+x2u85bbcrxip    \_ webserver.2   nginx:alpine   docker-desktop   Shutdown        Failed 4 minutes ago    "task: non-zero exit (137)"</pre> <p>The preceding<a id="_idIndexMarker805"/> snippet shows a short history with the <a id="_idIndexMarker806"/>failed <a id="_idIndexMarker807"/>container ID and the new one created to maintain the health of <span class="No-Break">the service.</span></p>
+<p>As you may have noticed, the containers created within Docker Swarm have the prefix of the service associated, followed by the instance number. These help us identify which services may be impacted when we have to execute maintenance tasks on a node. We can list current containers to view how services’ tasks <span class="No-Break">are executed:</span></p>
+<pre class="console">
+$ docker container ls
+CONTAINER ID   IMAGE          COMMAND                  CREATED          STATUS          PORTS     NAMES
+52779dbe389e   nginx:alpine   "/docker-entrypoint.…"   13 minutes ago   Up 13 minutes   80/tcp    webserver.2.x02zcj86krq7im2irwivwzvww
+9bc7a5df593e   nginx:alpine   "/docker-entrypoint.…"   4 hours ago      Up 4 hours      80/tcp    global-webserver.s3jekhby2s0vn1qmbhm3ulxzh.g72t1n2myffy0abl1bj57m6es
+3d784315a0af   nginx:alpine   "/docker-entrypoint.…"   16 hours ago     Up 16 hours     80/tcp    webserver.1.og3zh7h7ht9qpv1xkip84a9gb</pre> <p>You must remember that we are running containers; hence, services can inherit all the arguments we used with containers (see <a href="B19845_04.xhtml#_idTextAnchor096"><span class="No-Break"><em class="italic">Chapter 4</em></span></a>, <em class="italic">Running Docker Containers</em>). One interesting point is that we can include some Docker Swarm internal keys using the Go template format as<a id="_idIndexMarker808"/> variables for our <span class="No-Break">application deployments:</span></p>
+<ul>
+<li><strong class="bold">Service</strong>: This object provides the <strong class="source-inline">.Service.ID</strong>, <strong class="source-inline">.Service.Name</strong>, and <strong class="source-inline">.Service.Labels</strong> keys. Using these service labels may be interesting for identifying or including some information in <span class="No-Break">your application.</span></li>
+<li><strong class="bold">Node</strong>: The node object allows us to use its hostname within containers, which may be very interesting when you need to identify a node within your application (for example, for monitoring). If you use a host network, this is not required, as the hostname will be included as part of the network namespace, but for security reasons, your environment may not allow you to use the host’s namespaces. This object provides <strong class="source-inline">.Node.ID</strong> <span class="No-Break">and </span><span class="No-Break"><strong class="source-inline">.Node.Hostname</strong></span><span class="No-Break">.</span></li>
+<li><strong class="bold">Task</strong>: This object provides <strong class="source-inline">.Task.ID</strong>, <strong class="source-inline">.Task.Name</strong>, and <strong class="source-inline">.Task.Slot</strong>, which may be interesting if you want to manage the behavior of your container within some <span class="No-Break">application’s components.</span></li>
+</ul>
+<p>Let’s see a quick example of how we can use <span class="No-Break">such variables:</span></p>
+<pre class="console">
+$ docker exec webserver.2.x02zcj86krq7im2irwivwzvww hostname
+52779dbe389e
+$ docker exec webserver.1.og3zh7h7ht9qpv1xkip84a9gb hostname
+3d784315a0af</pre> <p>Now we update our service with a <span class="No-Break">new hostname:</span></p>
+<pre class="console">
+$ docker service update --hostname="{{.Node.Hostname}}" webserver
+webserver
+overall progress: 2 out of 2 tasks
+1/2: running   [==================================================&gt;]
+2/2: running   [==================================================&gt;]
+verify: Service converged</pre> <p>We can now verify that the container’s hostname <span class="No-Break">has changed.</span></p>
+<p>Let’s<a id="_idIndexMarker809"/> continue<a id="_idIndexMarker810"/> with <a id="_idIndexMarker811"/>the definition of a complete application, as we already did with Compose in standalone environments, but this time <span class="No-Break">running cluster-wide.</span></p>
+<h1 id="_idParaDest-140"><a id="_idTextAnchor157"/>A review of stacks and other Docker Swarm resources</h1>
+<p>Docker Swarm allows <a id="_idIndexMarker812"/>us to deploy applications with multiple services by running stacks. This new object defines, in a Compose YAML file, the structure, components, communications, and interactions with external resources of your applications. Therefore, we will use <strong class="bold">infrastructure as code</strong> (<strong class="bold">IaC</strong>) to <a id="_idIndexMarker813"/>deploy our applications on top of the Docker <span class="No-Break">Swarm orchestrator.</span></p>
+<p class="callout-heading">Important note</p>
+<p class="callout">Although we use a Compose YAML file, not all the <strong class="source-inline">docker-compose</strong> keys are available. For example, the <strong class="source-inline">depends_on</strong> key is not available for stacks because they don’t include any dependency declarations. That’s why it is so important to prepare your application’s logic in your code. Health checks will let you decide how to break some circuits when some components fail, but you should include status verifications on dependent components when, for example, they need some time to start. Docker Compose runs applications’ containers on standalone servers while Docker Swarm stacks deploy applications’ services (<span class="No-Break">containers) cluster-wide.</span></p>
+<p>In a stack YAML file, we will declare our application’s network, volumes, and configurations. We can use any Compose file with a few modifications. In fact, the Docker container runtime in swarm mode will inform you and fail if you use a forbidden key. Other keys, such as <strong class="source-inline">depends_on</strong>, are simply omitted when we use a <strong class="source-inline">docker-compose</strong> file with Docker Swarm. Here is an example using the Compose YAML file found in <a href="B19845_05.xhtml#_idTextAnchor118"><span class="No-Break"><em class="italic">Chapter 5</em></span></a>, <em class="italic">Creating Multi-Container Applications</em>. We will use <strong class="source-inline">docker </strong><span class="No-Break"><strong class="source-inline">stack deploy</strong></span><span class="No-Break">:</span></p>
+<pre class="console">
+$ docker stack deploy --compose-file  docker-compose.yaml test
+Ignoring unsupported options: build
+Creating network test_simplestlab
+Creating service test_lb
+Creating service test_db
+Creating service test_app</pre> <p>As you can see, the container runtime informed us of an unsupported key, <strong class="source-inline">Ignoring unsupported options: build</strong>. You can use a Compose YAML file to build, push, and then use the container images within your application, but you must use a registry for your images. By using a registry, we can ensure that all container runtimes will get the image. You can download the images, save them as files, and copy them to all nodes, but this is not a reproducible process and it may cost some time and effort to synchronize all changes. It seems quite logical to use a registry to maintain all the images available to <span class="No-Break">your clusters.</span></p>
+<p>We can now review the deployed stack and <span class="No-Break">its services:</span></p>
+<pre class="console">
+$ docker stack ls
+NAME      SERVICES   ORCHESTRATOR
+test      3          Swarm
+$ docker service ls
+ID             NAME               MODE         REPLICAS   IMAGE                                 PORTS
+4qmfnmibqqxf   test_app           replicated   0/1        myregistry/simplest-lab:simplestapp   *:3000-&gt;3000/tcp
+asr3kwfd6b8u   test_db            replicated   0/1        myregistry/simplest-lab:simplestdb    *:5432-&gt;5432/tcp
+jk603a8gmny6   test_lb            replicated   0/1        myregistry/simplest-lab:simplestlb    *:8080-&gt;80/tcp</pre> <p>Notice that <a id="_idIndexMarker814"/>the <strong class="source-inline">REPLICAS</strong> column shows <strong class="source-inline">0/1</strong> for all the services; this is because we are using a fake registry and repository. The container runtime will not pull images in this example because we are using an internal registry that doesn’t exist, but this still shows how to deploy a complete application. Working with registries may require the use of <strong class="source-inline">--with-registry-auth</strong> to apply certain authentications to our services. Credentials should be used to pull the images associated with each of your services if you are using <span class="No-Break">private registries.</span></p>
+<p>You will probably have also realized that all services have the stack’s name as a prefix, as we already learned about for projects and their services in <a href="B19845_05.xhtml#_idTextAnchor118"><span class="No-Break"><em class="italic">Chapter 5</em></span></a>, <em class="italic">Creating </em><span class="No-Break"><em class="italic">Multi-Container Applications</em></span><span class="No-Break">.</span></p>
+<p>Let’s now quickly review how configurations are managed cluster-wide. As we’d expect, running applications cluster-wide may require a lot of synchronization effort. Every time we create a service with some configuration or persistent data, we will need to ensure its availability on any host. Docker Swarm helps us by managing the synchronization of all configurations within the cluster. Docker Swarm provides us with two types of objects for managing configurations: secrets and configs. As we have already learned how secrets and configs <a id="_idIndexMarker815"/>work with Compose, we will just have a quick review since we will use them in this <span class="No-Break">chapter’s labs.</span></p>
+<h2 id="_idParaDest-141"><a id="_idTextAnchor158"/>Secrets</h2>
+<p><strong class="bold">Secrets</strong> allow<a id="_idIndexMarker816"/> us to store and manage sensitive data such as tokens, passwords, or<a id="_idIndexMarker817"/> certificates inside a Docker Swarm cluster and containers deployed in a standalone environment. To use secrets and configs, we need to enable swarm mode in our container runtime because it is needed to provide a store in which information is encrypted. This data is stored in the Raft log database managed by the cluster (an embedded key-value store). When we run a container that needs to use a stored secret, the host who runs that container will ask the managers via an API for the information and it will be mounted inside the container using a temporal filesystem (in-memory <strong class="source-inline">tmpfs</strong> on Linux hosts). This ensures that the information will be removed when the container dies. It may be considered volatile and therefore it is only available on running containers. By default, secrets are mounted as files in the form <strong class="source-inline">/run/secrets/&lt;SECRET_NAME&gt;</strong>, and they include the secret object’s content. This path can be changed, as well as the file permissions <span class="No-Break">and ownership.</span></p>
+<p>We can use secrets inside environment variables, which is fine because they are only visible inside containers. However, you can also use secrets to store a complete configuration file, even if not all its content must be secured. Secrets can only contain 500 KB of data; thus, you may need to split your configuration into different secrets if you think it may not <span class="No-Break">be enough.</span></p>
+<p>Secrets can be created, listed, removed, inspected, and so on like any other Docker container object, but they can’t <span class="No-Break">be updated.</span></p>
+<p class="callout-heading">Important note</p>
+<p class="callout">As secrets are encrypted, <strong class="source-inline">docker secret inspect</strong> will show you their labels and other relevant information, but the data itself will not be visible. It is important to also understand that secrets can’t be updated, so they should be recreated if need be (removed and <span class="No-Break">created again).</span></p>
+<h2 id="_idParaDest-142"><a id="_idTextAnchor159"/>Configs</h2>
+<p><strong class="bold">Configs</strong> are similar<a id="_idIndexMarker818"/> to secret objects, but they are not encrypted and <a id="_idIndexMarker819"/>can be updated. This makes them the perfect combination for easily reconfiguring your applications, but remember to always remove any sensitive information, such as connection strings where passwords are visible, tokens, and so on, that could be used by an attacker to exploit your application. Config objects are also stored in the Docker Swarm Raft Log database in clear text; therefore, an attacker with access to the Docker Swarm information can view them (remember that this information can be locked with a passphrase). These files can contain a maximum of 500 KB, but you can include even <span class="No-Break">binary files.</span></p>
+<p>Config objects will be mounted inside containers as if they were bind-mounted files, owned by the main process user and with read-all permissions. As with secrets, config-mounted file permissions and ownership can be changed depending on your <span class="No-Break">own needs.</span></p>
+<p>In both cases, Docker Swarm takes care of syncing these objects cluster-wide without any additional action on <span class="No-Break">our end.</span></p>
+<p class="callout-heading">Important note</p>
+<p class="callout">In both cases, you can decide the path at which secret or config files will be mounted and its owner and permissions. Please take care of the permissions you give to your files and ensure that only the minimum necessary permissions for reading the file <span class="No-Break">are granted.</span></p>
+<p>We will now learn<a id="_idIndexMarker820"/> how our applications will be published internally<a id="_idIndexMarker821"/> and externally and how the application’s services will be <span class="No-Break">announced cluster-wide.</span></p>
+<h1 id="_idParaDest-143"><a id="_idTextAnchor160"/>Networking and exposing applications with Docker Swarm</h1>
+<p>We already <a id="_idIndexMarker822"/>learned how container <a id="_idIndexMarker823"/>runtimes provide network capabilities to our containers by setting network namespaces and virtual interfaces attached to the host’s bridge network interfaces. All these features and processes will also work with Docker Swarm but communication between hosts is <a id="_idIndexMarker824"/>also <a id="_idIndexMarker825"/>required, and this is where overlay networks <span class="No-Break">come in.</span></p>
+<h2 id="_idParaDest-144"><a id="_idTextAnchor161"/>Understanding the Docker Swarm overlay network</h2>
+<p>To manage all<a id="_idIndexMarker826"/> communications cluster-wide, a new network<a id="_idIndexMarker827"/> driver, <strong class="bold">overlay</strong>, will be available. The overlay network works by setting <a id="_idIndexMarker828"/>UDP VXLAN tunnels between all the cluster’s hosts. These communications can be encrypted with some overhead and Docker Swarm sets the routing layer for all containers. Docker Swarm only takes care of overlay networks while the container runtime will manage all other local <span class="No-Break">scope networks.</span></p>
+<p>Once we have initialized a Docker Swarm cluster, two new networks will appear, <strong class="source-inline">docker_gwbridge</strong> (bridge) and <strong class="source-inline">ingress</strong> (overlay), with two different functions. The first one is used to interconnect all container runtimes, while the second one is used to manage all service traffic. By default, all services will be attached to the <strong class="source-inline">ingress</strong> network if no additional network is provided during <span class="No-Break">their creation.</span></p>
+<p class="callout-heading">Important note</p>
+<p class="callout">If you find issues with Docker Swarm, check whether your firewall blocks your overlay networking; <strong class="source-inline">2377</strong>/TCP (cluster management traffic), <strong class="source-inline">7946</strong>/TCP-UDP (node intercommunication), and <strong class="source-inline">4789</strong>/UDP (overlay networking) traffic should <span class="No-Break">be permitted.</span></p>
+<p>All services attached to the same overlay network will be reachable by other services also connected to the same overlay network. We can also run containers attached to these networks, but remember that standalone containers will not be managed by Docker Swarm. By default, all overlay networks will be unencrypted and non-attachable (standalone containers can’t connect); hence, we need to pass <strong class="source-inline">--opt encrypted --attachable</strong> arguments along with <strong class="source-inline">--driver overlay</strong> (required to create overlay networks) to encrypt them and make <span class="No-Break">them attachable.</span></p>
+<p>We can create different overlay networks to isolate our applications, as containers attached to one network will not see those attached to a different one. It is recommended to isolate your applications in production and define any allowed communication by connecting your services to more than one network if required. Configurations such as the subnet or IP address range within a subnet can be used to create your custom network, but remember to specify the <strong class="source-inline">--driver</strong> argument<a id="_idIndexMarker829"/> to ensure you create an <span class="No-Break">overlay</span><span class="No-Break"><a id="_idIndexMarker830"/></span><span class="No-Break"> network.</span></p>
+<p>Let’s see now how we can access our services and <span class="No-Break">publish them.</span></p>
+<h2 id="_idParaDest-145"><a id="_idTextAnchor162"/>Using service discovery and internal load balancing</h2>
+<p>Docker Swarm<a id="_idIndexMarker831"/> provides its own internal<a id="_idIndexMarker832"/> IPAM and DNS. Each<a id="_idIndexMarker833"/> service<a id="_idIndexMarker834"/> receives an IP address from the attached network range and a DNS entry will be created for it. An internal load-balancing feature is also available to distribute requests across service replicas. Therefore, when we access our service’s name, available replicas will receive our traffic. However, you as a developer don’t have to manage anything – Docker Swarm will do it all for you – but you must ensure that your application’s components are attached to appropriate networks and that you use the appropriate service’s names. The internal load balancer receives the traffic and routes your requests to your service’s task containers. Never use a container’s IP address in your applications as it will probably change (containers die and new ones are created), but a service’s IP addresses will stay as they are unless you recreate your service (as in, remove and create a new one again). A service’s IP addresses are assigned by an internal IPAM from a <span class="No-Break">specific set.</span></p>
+<h2 id="_idParaDest-146"><a id="_idTextAnchor163"/>Publishing your applications</h2>
+<p>You may be asking <a id="_idIndexMarker835"/>yourself, what about the overlay <strong class="source-inline">ingress</strong> network created by default? Well, this network will be used to publish our applications. As we already learned for standalone environments, containers can run attached to a network and expose their processes’ ports internally, but we can also expose them externally by using <strong class="source-inline">–publish</strong> options. In Docker Swarm, we have the same behavior. If no port is exposed, the ports declared in the image will be published internally (you can override the ports’ definitions, but your application may not be reached). However, we can also publish our service’s containers externally, exposing its processes either in a random port within the <strong class="source-inline">30000-32767</strong> range or in a specifically defined port (as usual, more than one port can be published <span class="No-Break">per container).</span></p>
+<p>All nodes participate in the overlay <strong class="source-inline">ingress</strong> network, and the published container ports will be attached using the port NAT, in all available hosts. Docker Swarm provides internal OSI Layer 3 routing using a mesh to guide requests to all available services’ tasks. Therefore, we can access our services on the defined published port on any cluster host, even if they don’t have a running <span class="No-Break">service container.</span></p>
+<p>An external load balancer can be used to assign an IP address and forward the clients’ requests to certain cluster hosts (enough to provide high availability to <span class="No-Break">our service).</span></p>
+<p>Let’s see a quick example by creating a new service and publishing the container port, <strong class="source-inline">80</strong>, on the host <span class="No-Break">port, </span><span class="No-Break"><strong class="source-inline">1080</strong></span><span class="No-Break">:</span></p>
+<pre class="console">
+$ docker service create --name webserver-published \
+--publish published=1080,target=80,protocol=tcp \
+--quiet nginx:alpine
+gws9iqphhswujnbqpvncimj5f</pre> <p>Now, we can verify <span class="No-Break">its status:</span></p>
+<pre class="console">
+$ docker service ls
+ID             NAME                  MODE         REPLICAS   IMAGE                                 PORTS
+gws9iqphhswu   webserver-published   replicated   1/1        nginx:alpine                          *:1080-&gt;80/tcp</pre> <p>We can test port <strong class="source-inline">1080</strong> on<a id="_idIndexMarker836"/> any cluster host (we only have one host on <span class="No-Break">Docker Desktop):</span></p>
+<pre class="console">
+$ curl 0.0.0.0:1080 -I
+HTTP/1.1 200 OK
+Server: nginx/1.23.4
+Date: Fri, 12 May 2023 19:05:43 GMT
+Content-Type: text/html
+Content-Length: 615
+Last-Modified: Tue, 28 Mar 2023 17:09:24 GMT
+Connection: keep-alive
+ETag: "64231f44-267"
+Accept-Ranges: bytes</pre> <p>As we have seen, containers are available on a host’s port. In fact, in a cluster with multiple hosts, this port is available on all hosts, and this is the default mechanism for publishing applications in Docker Swarm. However, there are other methods for publishing applications in <span class="No-Break">this orchestrator:</span></p>
+<ul>
+<li>The <strong class="source-inline">host</strong> mode allows us to set the port only on those nodes actually running a service’s container. Using this mode, we can specify a set of cluster hosts where service instances will run by setting labels and then forward the clients’ traffic to these hosts using an external <span class="No-Break">load balancer.</span></li>
+<li>The <strong class="source-inline">dnsrr</strong> mode allows us to avoid a service’s virtual IP address; hence, no IP address from the IPAM will be set and a service’s name will be associated directly with a container’s IP address. We can use the <strong class="source-inline">--endpoint-mode</strong> argument to manage the publishing mode when we create a service. In <strong class="source-inline">dnsrr</strong> mode, the internal DNS will <a id="_idIndexMarker837"/>use <strong class="bold">round-robin resolution</strong>. Cluster-internal client processes will resolve a different container IP address every time they ask the DNS for the <span class="No-Break">service’s name.</span></li>
+</ul>
+<p>Now that we have<a id="_idIndexMarker838"/> learned how to publish applications running inside a Docker Swarm cluster to be consumed by applications inside and outside the cluster itself, let’s move on to review how service containers and other properties can be <span class="No-Break">updated automatically.</span></p>
+<h1 id="_idParaDest-147"><a id="_idTextAnchor164"/>Updating your application’s services</h1>
+<p>In this section, we <a id="_idIndexMarker839"/>are going to review how<a id="_idIndexMarker840"/> Docker Swarm will help our applications’ stability and availability when we push changes to them. It is important to understand that whatever platform we are using to run our containers, we need to be able to modify our application content to fix issues or add new functionality. In production, this will probably be more restricted but automation should be able to do this too, ensuring a secure <span class="No-Break">supply chain.</span></p>
+<p>Docker Swarm provides a rolling update feature that deploys new changes without interrupting current replicas and automatically switches to an older configuration when the update goes wrong (<span class="No-Break">rolls back).</span></p>
+<p>You as a developer must think about which update method fits your application best. Remember to deploy multiple replicas if you want to avoid any outages. This way, by setting the update parallelism (<strong class="source-inline">--update-parallelism</strong>), the delay in seconds between container updates (<strong class="source-inline">--update-delay</strong>), and the order in which to deploy the change (<strong class="source-inline">--update-order</strong>) – which allows us to stop the previous container before starting a new one (default), or do the reverse – we can ensure our service health when we apply changes. It is very important to understand that your application must allow you to run more than one container replica at a time because this may be needed to access a volume at the same time. Remember, this may break your application data if your processes don’t allow it (for example, a database may <span class="No-Break">get corrupted).</span></p>
+<p>When our service deploys many replicas, for example, a stateless frontend service, it is very important to decide what to do when issues arise during the <span class="No-Break">upgrade process.</span></p>
+<p>By default, Docker Swarm will wait five seconds to start monitoring the status of each task update. If your application requires more time to be considered healthy, you may need to set up an appropriate value by using the <strong class="source-inline">--</strong><span class="No-Break"><strong class="source-inline">update-monitor</strong></span><span class="No-Break"> argument.</span></p>
+<p>The update<a id="_idIndexMarker841"/> process<a id="_idIndexMarker842"/> works by default <span class="No-Break">as follows:</span></p>
+<ol>
+<li>Docker Swarm stops the first service’s container (the first replica/task; the container’s suffix shows the <span class="No-Break">task number).</span></li>
+<li>Then, the update is triggered for this <span class="No-Break">stopped task.</span></li>
+<li>A new container starts to update <span class="No-Break">the task.</span></li>
+<li>Then, two situations <span class="No-Break">may occur:</span><ul><li>If the process goes fine, the update of a task returns <strong class="source-inline">RUNNING</strong>. Then, Docker Swarm waits for the defined delay time between updates and triggers the update process again for the next <span class="No-Break">service task.</span></li><li>If the process fails, for example, the container doesn’t start correctly, the updated task returns <strong class="source-inline">FAILED</strong> and the current service update process <span class="No-Break">is paused.</span></li></ul></li>
+<li>When the service update process is paused, we have to decide whether we have to manually roll back to a previous version (configurations, container images, and so on – in fact, any change deployed since the latest correct update) or execute a new <span class="No-Break">update again.</span></li>
+<li>We will use the <strong class="source-inline">--update-failure-action</strong> argument to automate the process when something goes wrong during the updates. This option allows us to either <em class="italic">continue</em> with the update, even if some containers fail, <em class="italic">pause</em> the update process (default), or automatically trigger a <em class="italic">rollback</em> in case of <span class="No-Break">any error.</span></li>
+</ol>
+<p>It is really recommended to test your deployments and updates to have a clear idea of how your application can be compromised in case <span class="No-Break">of failure.</span></p>
+<p>All the options described to define the update process are also available for the rollback procedure; hence, we have a lot of options for managing our application stability even when we trigger <a id="_idIndexMarker843"/><span class="No-Break">service </span><span class="No-Break"><a id="_idIndexMarker844"/></span><span class="No-Break">changes.</span></p>
+<p>In the following section, we will prepare an application for Docker Swarm and review some of the features learned about in <span class="No-Break">this chapter.</span></p>
+<h1 id="_idParaDest-148"><a id="_idTextAnchor165"/>Labs</h1>
+<p>The following labs will help you deploy a simple demo application on top of a Docker Swarm cluster to review the most important features provided by this container orchestrator. The code for the labs is available in this book’s GitHub repository at <a href="https://github.com/PacktPublishing/Containers-for-Developers-Handbook.git">https://github.com/PacktPublishing/Containers-for-Developers-Handbook.git</a>. Ensure you have the latest revision available by simply executing <strong class="source-inline">git clone https://github.com/PacktPublishing/Containers-for-Developers-Handbook.git</strong> to download all its content or <strong class="source-inline">git pull</strong> if you have already downloaded the repository before. Additional labs are included in GitHub. All commands and content used in these labs will be located inside the <span class="No-Break"><strong class="source-inline">Containers-for-Developers-Handbook/Chapter7</strong></span><span class="No-Break"> directory.</span></p>
+<p>We will start by deploying our own Docker <span class="No-Break">Swarm cluster.</span></p>
+<h2 id="_idParaDest-149"><a id="_idTextAnchor166"/>Deploying a single-node Docker Swarm cluster</h2>
+<p>In this lab, we will <a id="_idIndexMarker845"/>create a one-node Docker Swarm cluster using the Docker <span class="No-Break">Desktop environment.</span></p>
+<p class="callout-heading">Important note</p>
+<p class="callout">Deploying a single-node cluster is enough to review the most important features learned about in this chapter but, of course, we wouldn’t be able to move service tasks to another node. If you are interested in a situation like that and want to review advanced container scheduling scenarios, you can deploy multiple-node clusters following any of the methods described in the specific <strong class="source-inline">multiple-nodes-cluster.md</strong> Markdown file located in this <span class="No-Break">chapter’s folder.</span></p>
+<p>To create a single-node Docker Swarm cluster, we will follow <span class="No-Break">these steps:</span></p>
+<ol>
+<li>Use the <strong class="source-inline">docker</strong> CLI with the <strong class="source-inline">swarm</strong> object. In this example, we will use default IP address values to initialize a Docker <span class="No-Break">Swarm cluster:</span><pre class="source-code">
+<strong class="bold">$ docker swarm init</strong>
+<strong class="bold">Swarm initialized: current node (pyczfubvyyih2kmeth8xz9yd7) is now a manager.</strong></pre><p class="list-inset">To add a worker to this swarm, run the <span class="No-Break">following command:</span></p><pre class="source-code"><strong class="bold">    docker swarm join --token SWMTKN-1-3dtlnakr275se9lp7b5gj8rpk97n66jdm7o1tn5cwsrf3g55yu-5ky1xrr61mdx1gr2bywi5v0o8 192.168.65.4:2377</strong></pre><p class="list-inset">To add a manager<a id="_idIndexMarker846"/> to this swarm, run <strong class="source-inline">docker swarm join-token manager</strong> and follow <span class="No-Break">the instructions.</span></p></li> <li>We can now verify the current Docker <span class="No-Break">Swarm nodes:</span><pre class="source-code">
+<strong class="bold">$ docker node ls</strong>
+<strong class="bold">ID                            HOSTNAME         STATUS    AVAILABILITY   MANAGER STATUS   ENGINE VERSION</strong>
+<strong class="bold">pyczfubvyyih2kmeth8xz9yd7 *   docker-desktop   Ready     Active         Leader           20.10.22</strong></pre></li> <li>Overlay and specific bridge networks were created, as we can easily verify by listing the <span class="No-Break">available networks:</span><pre class="source-code">
+<strong class="bold">$ docker network ls</strong>
+<strong class="bold">NETWORK ID     NAME              DRIVER    SCOPE</strong>
+<strong class="bold">75aa7ed7603b   bridge            bridge    local</strong>
+<strong class="bold">9f1d6d85cb3c   docker_gwbridge   bridge    local</strong>
+<strong class="bold">07ed8a3c602e   host              host      local</strong>
+<strong class="bold">7977xslkr9ps   ingress           overlay   swarm</strong>
+<strong class="bold">cc46fa305d96   none              null      local</strong></pre></li> <li>This cluster has one node; hence, this node is the manager (leader) and also acts as a worker (<span class="No-Break">by default):</span><pre class="source-code">
+<strong class="bold">$ docker node inspect docker-desktop \</strong>
+<strong class="bold">--format="{{ .Status }}"</strong>
+<strong class="bold">{ready  192.168.65.4}</strong>
+<strong class="bold">$ docker node inspect docker-desktop \</strong>
+<strong class="bold">--format="{{ .ManagerStatus }}"</strong>
+<strong class="bold">{true reachable 192.168.65.4:2377}</strong></pre></li> </ol>
+<p>This cluster is now<a id="_idIndexMarker847"/> ready to run Docker <span class="No-Break">Swarm services.</span></p>
+<h2 id="_idParaDest-150"><a id="_idTextAnchor167"/>Reviewing the main features of Docker Swarm services</h2>
+<p>In this lab, we are<a id="_idIndexMarker848"/> going to review some of the features of the most important services by running a replicated and <span class="No-Break">global service:</span></p>
+<ol>
+<li>We will start by creating a simple <strong class="source-inline">webserver</strong> service using Docker Hub’s <strong class="source-inline">nginx:alpine</strong> <span class="No-Break">container image:</span><pre class="source-code">
+<strong class="bold">$ docker service create --name webserver nginx:alpine</strong>
+<strong class="bold">m93gsvuin5vly5bn4ikmi69sq</strong>
+<strong class="bold">overall progress: 1 out of 1 tasks</strong>
+<strong class="bold">1/1: running   [==================================================&gt;]</strong>
+<strong class="bold">verify: Service converged</strong></pre></li> <li>After a few seconds, the service’s task is running and we can list the services and the tasks associated with them using <strong class="source-inline">docker </strong><span class="No-Break"><strong class="source-inline">service ls</strong></span><span class="No-Break">:</span><pre class="source-code">
+<strong class="bold">$ docker service ls</strong>
+<strong class="bold">ID             NAME        MODE         REPLICAS   IMAGE          PORTS</strong>
+<strong class="bold">m93gsvuin5vl   webserver   replicated   1/1        nginx:alpine</strong>
+<strong class="bold">$ docker service ps webserver</strong>
+<strong class="bold">ID             NAME          IMAGE          NODE             DESIRED STATE   CURRENT STATE                ERROR     PORTS</strong>
+<strong class="bold">l38u6vpyq5zo   webserver.1   nginx:alpine   docker-desktop   Running         Running about a minute ago</strong></pre><p class="list-inset">Notice that by<a id="_idIndexMarker849"/> default, the service runs in replicated mode and deploys just one replica. The task is identified as <strong class="source-inline">webserver.1</strong> and it runs on the <strong class="source-inline">docker-desktop</strong> node; we can verify the associated container by listing the containers on <span class="No-Break">that node:</span></p><pre class="source-code"><strong class="bold">$ docker container ls</strong>
+<strong class="bold">CONTAINER ID   IMAGE          COMMAND                  CREATED         STATUS         PORTS     NAMES</strong>
+<strong class="bold">63f1dfa649d8   nginx:alpine   "/docker-entrypoint.…"   3 minutes ago   Up 3 minutes   80/tcp    webserver.1.l38u6vpyq5zo9qfyc70g2411x</strong></pre><p class="list-inset">It is easy to track the containers associated with services. We can still run containers directly using the container runtime, but those will not be managed by <span class="No-Break">Docker Swarm.</span></p></li> <li>Let’s now replicate this service by adding a <span class="No-Break">new task:</span><pre class="source-code">
+<strong class="bold">$ docker service update --replicas 3 webserver</strong>
+<strong class="bold">webserver</strong>
+<strong class="bold">overall progress: 3 out of 3 tasks</strong>
+<strong class="bold">1/3: running   [==================================================&gt;]</strong>
+<strong class="bold">2/3: running   [==================================================&gt;]</strong>
+<strong class="bold">3/3: running   [==================================================&gt;]</strong>
+<strong class="bold">verify: Service converged</strong></pre></li> <li>We can verify its status by using <strong class="source-inline">docker service ps </strong><span class="No-Break"><strong class="source-inline">webserver</strong></span><span class="No-Break"> again:</span><pre class="source-code">
+<strong class="bold">$ docker service ps webserver</strong>
+<strong class="bold">ID             NAME          IMAGE          NODE             DESIRED STATE   CURRENT STATE               ERROR     PORTS</strong>
+<strong class="bold">l38u6vpyq5zo   webserver.1   nginx:alpine   docker-desktop   Running         Running about an hour ago</strong>
+<strong class="bold">j0at9tnwc3tx   webserver.2   nginx:alpine   docker-desktop   Running         Running 4 minutes ago</strong>
+<strong class="bold">vj6k8cuf0rix   webserver.3   nginx:alpine   docker-desktop   Running         Running 4 minutes ago</strong></pre></li> <li>Each container<a id="_idIndexMarker850"/> gets its own IP address and we will reach each one when we publish the service. We verify that all containers started correctly by reviewing the <span class="No-Break">service’s logs:</span><pre class="source-code">
+<strong class="bold">$ docker service logs webserver --tail 2</strong>
+<strong class="bold">webserver.1.l38u6vpyq5zo@docker-desktop    | 2023/05/14 09:06:44 [notice] 1#1: start worker process 31</strong>
+<strong class="bold">webserver.1.l38u6vpyq5zo@docker-desktop    | 2023/05/14 09:06:44 [notice] 1#1: start worker process 32</strong>
+<strong class="bold">webserver.2.j0at9tnwc3tx@docker-desktop    | 2023/05/14 09:28:02 [notice] 1#1: start worker process 33</strong>
+<strong class="bold">webserver.2.j0at9tnwc3tx@docker-desktop    | 2023/05/14 09:28:02 [notice] 1#1: start worker process 34</strong>
+<strong class="bold">webserver.3.vj6k8cuf0rix@docker-desktop    | 2023/05/14 09:28:02 [notice] 1#1: start worker process 32</strong>
+<strong class="bold">webserver.3.vj6k8cuf0rix@docker-desktop    | 2023/05/14 09:28:02 [notice] 1#1: start worker process 33</strong></pre></li> <li>Let’s publish<a id="_idIndexMarker851"/> the service and verify how clients will reach the <span class="No-Break"><strong class="source-inline">webserver</strong></span><span class="No-Break"> service:</span><pre class="source-code">
+<strong class="bold">$ docker service update \</strong>
+<strong class="bold">--publish-add published=8080,target=80 webserver</strong>
+<strong class="bold">webserver</strong>
+<strong class="bold">overall progress: 3 out of 3 tasks</strong>
+<strong class="bold">1/3: running   [==================================================&gt;]</strong>
+<strong class="bold">2/3: running   [==================================================&gt;]</strong>
+<strong class="bold">3/3: running   [==================================================&gt;]</strong></pre><p class="list-inset">We can review the service’s status again and see that the instances <span class="No-Break">were recreated:</span></p><pre class="source-code"><strong class="bold">$ docker service ps webserver</strong>
+<strong class="bold">ID             NAME              IMAGE          NODE             DESIRED STATE   CURRENT STATE             ERROR     PORTS</strong>
+<strong class="bold">u7i2t7u60wzt   webserver.1       nginx:alpine   docker-desktop   Running         Running 26 seconds ago</strong>
+<strong class="bold">l38u6vpyq5zo    \_ webserver.1   nginx:alpine   docker-desktop   Shutdown        Shutdown 29 seconds ago</strong>
+<strong class="bold">i9ia5qjtgz96   webserver.2       nginx:alpine   docker-desktop   Running         Running 31 seconds ago</strong>
+<strong class="bold">j0at9tnwc3tx    \_ webserver.2   nginx:alpine   docker-desktop   Shutdown        Shutdown 33 seconds ago</strong>
+<strong class="bold">9duwbwjt6oow   webserver.3       nginx:alpine   docker-desktop   Running         Running 35 seconds ago</strong>
+<strong class="bold">vj6k8cuf0rix    \_ webserver.3   nginx:alpine   docker-desktop   Shutdown        Shutdown 38 seconds ago</strong></pre></li> <li>We list which port <a id="_idIndexMarker852"/>was chosen (we didn’t specify any port for the service; hence, port <strong class="source-inline">80</strong> was assigned to a random <span class="No-Break">host port):</span><pre class="source-code">
+<strong class="bold">$ docker service ls</strong>
+<strong class="bold">ID             NAME        MODE         REPLICAS   IMAGE          PORTS</strong>
+<strong class="bold">m93gsvuin5vl   webserver   replicated   3/3        nginx:alpine   *:8080-&gt;80/tcp</strong></pre></li> <li>And now we can test the service <span class="No-Break">with </span><span class="No-Break"><strong class="source-inline">curl</strong></span><span class="No-Break">:</span><pre class="source-code">
+<strong class="bold">$ curl localhost:8080 -I</strong>
+<strong class="bold">HTTP/1.1 200 OK</strong>
+<strong class="bold">Server: nginx/1.23.4</strong>
+<strong class="bold">...</strong>
+<strong class="bold">Accept-Ranges: bytes</strong></pre><p class="list-inset">Repeat this <strong class="source-inline">curl</strong> command a few times to access more than one <span class="No-Break">service’s replica.</span></p></li> <li>Now we can check the <span class="No-Break">logs again:</span><pre class="source-code">
+<strong class="bold">$ docker service logs webserver --tail 2</strong>
+<strong class="bold">...</strong>
+<strong class="bold">webserver.2.afp6z72y7y1p@docker-desktop    | 10.0.0.2 - - [14/May/2023:10:36:11 +0000] "HEAD / HTTP/1.1" 200 0 "-" "curl/7.81.0" "-"</strong>
+<strong class="bold">...</strong>
+<strong class="bold">webserver.3.ub28rsqbo8zq@docker-desktop    | 10.0.0.2 - - [14/May/2023:10:38:11 +0000] "HEAD / HTTP/1.1" 200 0 "-" "curl/7.81.0" "-"</strong>
+<strong class="bold">...</strong></pre><p class="list-inset">As you may have noticed, multiple replicas were reached; hence, internal load balancing worked <span class="No-Break">as expected.</span></p></li> <li>We end this lab by removing the <span class="No-Break">created service:</span><pre class="source-code">
+<strong class="bold">$ docker service rm webserver</strong>
+<strong class="bold">webserver</strong></pre></li> </ol>
+<p>This lab showed how to deploy and modify a simple replicated service. It may be interesting for you to<a id="_idIndexMarker853"/> deploy your own global service and review the differences <span class="No-Break">between them.</span></p>
+<p>We will now run a simple application using a Compose <span class="No-Break">YAML file.</span></p>
+<h2 id="_idParaDest-151"><a id="_idTextAnchor168"/>Deploying a complete application with Docker</h2>
+<p>In this lab, we will run <a id="_idIndexMarker854"/>a complete application using a stack object. Take a good look at the YAML file that we will use to deploy <span class="No-Break">our application:</span></p>
+<ol>
+<li>We first create a couple of secret objects that we will use in <span class="No-Break">the stack:</span><pre class="source-code">
+<strong class="bold">$ echo demo|docker secret create dbpasswd.env -</strong>
+<strong class="bold">2tmqj06igbkjt4cot95enyj53</strong>
+<strong class="bold">$ docker secret create dbconfig.json dbconfig.json</strong>
+<strong class="bold">xx0pesu1tl9bvexk6dfs8xspx</strong></pre><p class="list-inset">We used <strong class="source-inline">echo</strong> to create the secret and included only the <strong class="source-inline">demo</strong> string inside the <strong class="source-inline">dbpasswd.env</strong> secret, while we included a complete JSON file in the <strong class="source-inline">dbconfig.json</strong> secret. These secret names can be changed because we will use the full format to reference them in the <span class="No-Break">Compose file.</span></p></li> <li>To create an initial database with our own data structure, we add a new config, <strong class="source-inline">init-demo.sh</strong>, to overwrite the file included in <span class="No-Break">the image:</span><pre class="source-code">
+<strong class="bold">$ docker config create init-demo.sh init-demo.sh</strong>
+<strong class="bold">zevf3fg2x1a6syze2i54r2ovd</strong></pre></li> <li>Let’s take a look at our final Compose YAML file before deploying the demo stack. There is a<a id="_idIndexMarker855"/> header defining the version to use and then the <strong class="source-inline">services</strong> section will contain all the services to create. First, we have the <span class="No-Break"><strong class="source-inline">lb</strong></span><span class="No-Break"> service:</span><pre class="source-code">
+version: "3.9"
+services:
+  lb:
+    image: frjaraur/simplestlab:simplestlb
+    environment: # This environment definitions are in clear-text as they don't manange any sensitive data
+      - APPLICATION_ALIAS=app # We use the service's names
+      - APPLICATION_PORT=3000
+    networks:
+      simplestlab:
+    ports:
+    - target: 80
+      published: 8080
+      protocol: tcp</pre><p class="list-inset">After the <strong class="source-inline">lb</strong> service, we have the definition for the database. Each service’s section includes the container image, the environment variables, and the networking features of <span class="No-Break">the service:</span></p><pre class="source-code">  db:
+    image: frjaraur/simplestlab:simplestdb
+    environment: # Postgres images allows the use of a password file.
+      - POSTGRES_PASSWORD_FILE=/run/secrets/dbpasswd.env
+    networks:
+       simplestlab:
+    secrets:
+    - dbpasswd.env
+    configs: # We load a initdb script to initialize our demo database.
+    - source: init-demo.sh
+      target: /docker-entrypoint-initdb.d/init-demo.sh
+      mode: 0770
+    volumes:
+    - pgdata:/var/lib/postgresql/data</pre><p class="list-inset">Notice that this<a id="_idIndexMarker856"/> component includes <strong class="source-inline">secrets</strong>, <strong class="source-inline">configs</strong>, and <strong class="source-inline">volumes</strong> sections. They allow us to include data inside the application’s containers. Let’s continue with the <span class="No-Break"><strong class="source-inline">app</strong></span><span class="No-Break"> service:</span></p><pre class="source-code">  app:
+    image: frjaraur/simplestlab:simplestapp
+    secrets: # A secret is used to integrate de database connection into our application.
+    - source: dbconfig.json
+      target: /APP/dbconfig.json
+      mode: 0555
+    networks:
+       simplestlab:volumes:
+  pgdata: # This volume should be mounted from a network resource available to other hosts or the content should be synced between nodes</pre><p class="list-inset">At the end of the file, we have the definitions for <strong class="source-inline">networks</strong>, <strong class="source-inline">configs</strong>, and <strong class="source-inline">secrets</strong> included<a id="_idIndexMarker857"/> in each <span class="No-Break">service definition:</span></p><pre class="source-code">networks:
+  simplestlab:
+configs:
+  init-demo.sh:
+    external: true
+secrets:
+  dbpasswd.env:
+    external: true
+  dbconfig.json:
+    external: true</pre><p class="list-inset">You may notice that all secrets and configs are defined as external resources. This allows us to create them outside of the stack. It is not a good idea to include the sensitive content of secrets in cleartext in your Compose <span class="No-Break">YAML files.</span></p></li> </ol>
+<p class="callout-heading">Important note</p>
+<p class="callout">We haven’t used a network volume because we are using a single-node cluster, so it isn’t needed. But if you plan to deploy more nodes in your cluster, you must prepare either a network storage or a cluster-wide synchronization solution to ensure the data is available wherever the database component is running. Otherwise, your database server won’t be able to <span class="No-Break">start correctly.</span></p>
+<ol>
+<li value="4">Now we can deploy the Compose YAML file as a <span class="No-Break">Docker stack:</span><pre class="source-code">
+<strong class="bold">$ docker stack deploy -c docker-compose.yaml chapter7</strong>
+<strong class="bold">Creating network chapter7_simplestlab</strong>
+<strong class="bold">Creating service chapter7_db</strong>
+<strong class="bold">Creating service chapter7_app</strong>
+<strong class="bold">Creating service chapter7_lb</strong></pre></li> <li>We verify the<a id="_idIndexMarker858"/> status of the <span class="No-Break">deployed stack:</span><pre class="source-code">
+<strong class="bold">$ docker stack ps chapter7</strong>
+<strong class="bold">ID             NAME             IMAGE                              NODE             DESIRED STATE   CURRENT STATE           ERROR     PORTS</strong>
+<strong class="bold">zaxo9aprs42w   chapter7_app.1   frjaraur/simplestlab:simplestapp   docker-desktop   Running         Running 2 minutes ago</strong>
+<strong class="bold">gvjyiqrudi5h   chapter7_db.1    frjaraur/simplestlab:simplestdb    docker-desktop   Running         Running 2 minutes ago</strong>
+<strong class="bold">tyixkplpfy6x   chapter7_lb.1    frjaraur/simplestlab:simplestlb    docker-desktop   Running         Running 2 minutes ago</strong></pre></li> <li>We now review which ports are available for accessing <span class="No-Break">our application:</span><pre class="source-code">
+<strong class="bold">$ docker stack services chapter7</strong>
+<strong class="bold">ID             NAME           MODE         REPLICAS   IMAGE                              PORTS</strong>
+<strong class="bold">dmub9x0tis1w   chapter7_app   replicated   1/1        frjaraur/simplestlab:simplestapp</strong>
+<strong class="bold">g0gha8n57i7n   chapter7_db    replicated   1/1        frjaraur/simplestlab:simplestdb</strong>
+<strong class="bold">y2f8iw6vcr5w   chapter7_lb    replicated   1/1        frjaraur/simplestlab:simplestlb    *:8080-&gt;80/tcp</strong></pre></li> <li>We can test the <strong class="source-inline">chapter7</strong> application stack using our <span class="No-Break">browser (</span><span class="No-Break"><strong class="source-inline">http://localhost:8080</strong></span><span class="No-Break">):</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer067">
+<img alt="Figure 7.1 – Application is accessible at http://localhost:8080" height="679" src="image/B19845_07_01.jpg" width="1172"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 7.1 – Application is accessible at http://localhost:8080</p>
+<p>Before removing the<a id="_idIndexMarker859"/> application using <strong class="source-inline">docker stack rm chapter7</strong>, it may be interesting for you to experiment with scaling up and down the app component and changing some content (you have the code, configurations, and secrets deployed). This will help you experiment with how rolling updates and rollbacks are managed by <span class="No-Break">Docker Swarm.</span></p>
+<p>This lab helped you<a id="_idIndexMarker860"/> understand how you can parametrize a Docker Compose file to deploy a complete application into a Docker <span class="No-Break">Swarm cluster.</span></p>
+<h1 id="_idParaDest-152"><a id="_idTextAnchor169"/>Summary</h1>
+<p>In this chapter, we covered the basic usage of Docker Swarm. We learned how to deploy a simple cluster and how to run our applications by taking advantage of Docker Swarm’s features. We learned how to use Compose YAML files to deploy stacks and define an application completely using services and tasks to finally execute its containers. Docker Swarm manages complicated networking communication cluster-wide, helping us to publish our applications for users or other applications to access. It also provides mechanisms to ensure the availability of our applications even when we trigger component updates, such as a change to a <span class="No-Break">container image.</span></p>
+<p>In the next chapter, we will learn the basics of Kubernetes, the most popular and advanced container orchestrator <span class="No-Break">currently available.</span></p>
+</div>
+</div></body></html>

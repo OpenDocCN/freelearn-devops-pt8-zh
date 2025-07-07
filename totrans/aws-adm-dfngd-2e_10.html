@@ -1,0 +1,666 @@
+<html><head></head><body><div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Orchestrating Data using AWS Data Pipeline</h1>
+                </header>
+            
+            <article>
+                
+<p>In the previous chapter, we explored the AWS analytics suite of services by deep diving into Amazon EMR and Amazon Redshift services.</p>
+<p>In this chapter, we will be continuing the trend and learning about an extremely versatile and powerful data orchestration and transformation service called AWS Data Pipeline.</p>
+<p>Let's have a quick look at the various topics that we will be covering in this chapter:</p>
+<ul>
+<li>Introducing AWS Data Pipeline along with a quick look at some of its concepts and terminologies</li>
+<li>Getting started with Data Pipeline using a simple Hello World example</li>
+<li>Working with the Data Pipeline definition file</li>
+<li>Executing scripts and commands on remote EC2 instances using a data pipeline</li>
+<li>Backing up data from one S3 bucket to another using a simple, parameterized data pipeline</li>
+<li>Building pipelines using the AWS CLI</li>
+</ul>
+<p>So without any further ado, let's get started right away!</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Introducing AWS Data Pipeline</h1>
+                </header>
+            
+            <article>
+                
+<p>AWS Data Pipeline is an extremely versatile web service that allows you to move data back and forth between various AWS services, as well as on-premise data sources. The service is designed specifically to provide you with an in-built fault tolerance and highly available platform, using which you can define and build your very own custom data migration workflows. AWS Data Pipeline also provides add-on features such as scheduling, dependency tracking, and error handling, so that you do not have to waste extra time and effort in writing them on your own. This easy-to-use and flexible service, accompanied by its low operating costs, make the AWS Data Pipeline service ideal for use cases such as:</p>
+<ul>
+<li>Migrating data on a periodic basis from an Amazon EMR cluster over to Amazon Redshift for data warehousing</li>
+<li>Incrementally loading data from files stored in Amazon S3 directly into an Amazon RDS database</li>
+<li>Copying data from an Amazon MySQL database into an Amazon Redshift cluster</li>
+<li>Backing up data from an Amazon DynamoDB table to Amazon S3</li>
+<li>Backing up files stored in an Amazon S3 bucket on a periodic basis, and much more</li>
+</ul>
+<p>In this section, we will be understanding and learning a bit more about AWS Data Pipeline by first getting to know some of its internal components, concepts and terminologies.</p>
+<p>The core foundation of AWS Data Pipeline is, as the name suggests, a pipeline. You can create pipelines to schedule and run your data migration or transformation tasks. Each pipeline relies on a pipeline definition that essentially contains the business logic required to drive the data migration activities. We will be learning more about the data pipeline definition in the upcoming sections. For now, let's dive a bit into a few essential pipeline concepts and components:</p>
+<ul>
+<li><strong>Pipeline components</strong>: A single pipeline can comprise of multiple sections, each having its own specific place in the overall functioning of the pipeline. For example, a pipeline can contain sections for specifying the input data source from where the data has to be collected, the activity that needs to be performed on this data along with a few necessary conditions, the time at which the activity has to be triggered, and so on. Each of these sections, individually, are called the pipeline's components and are used together to build a pipeline definition.</li>
+<li><strong>Task runners</strong>: Task runners are special applications or agents that carry out the task assigned in a pipeline. The task runners poll AWS Data Pipeline for any active tasks available. If found, the task is assigned to a task runner and executed. Once the execution completes, the task runner will report the status (either success or failure) back to AWS Data Pipeline. By default, AWS provides a default task runner for resources that are launched and managed by AWS Data Pipeline. You can also install the task runner on instances or on-premise servers that you manage:
+<div class="CDPAlignCenter CDPAlign"><img style="font-size: 1em" height="837" width="1076" src="Images/d75df4f2-8dfb-4f52-9416-473092ea08f6.png"/></div>
+</li>
+<li><strong>Data nodes</strong>: Data nodes are used to define the location and the type of input as well as output data for the pipeline. As of now, the following data nodes are provided by AWS Data Pipeline:
+<ul>
+<li><kbd>S3DataNode</kbd>: Used to define an Amazon S3 location as an input or output for storing data</li>
+<li><kbd>SqlDataNode</kbd>: Defines a SQL table or a database query for use in the pipeline</li>
+<li><kbd>RedshiftDataNode</kbd>: Used to define an Amazon Redshift table as input or output for the pipeline</li>
+<li><kbd>DynamoDBDataNode</kbd>: Used to specify a DynamoDB table as input or output for the pipeline</li>
+</ul>
+</li>
+</ul>
+<ul>
+<li><strong>Activities</strong>: With the data's location and type selected using the data nodes, the next component left to define is the type of activity to be performed on that data. AWS Data Pipeline provides the following set of pre-packaged activities that you can use and extend as per your requirements:
+<ul>
+<li><kbd>CopyActivity</kbd>: Used to copy data from one data node to another</li>
+<li><kbd>ShellCommandActivity</kbd>: Used to run a shell command as an activity</li>
+<li><kbd>SqlActivity</kbd>: Executes a SQL query on a data node such as <kbd>SqlDataNode</kbd> or <kbd>RedhsiftDataNode</kbd></li>
+<li><kbd>RedshiftCopyActivity</kbd>: A specific activity that leverages the <kbd>COPY</kbd> command to copy data between Redshift tables</li>
+<li><kbd>EmrActivity</kbd>: Used to run an EMR cluster</li>
+<li><kbd>PigActivity</kbd>: Used to run a custom Pig script on an EMR cluster</li>
+<li><kbd>HiveActivity</kbd>: Runs a Hive query on an EMR cluster</li>
+<li><kbd>HiveCopyActivity</kbd>: Used to run a Hive <kbd>COPY</kbd> query for copying the data from the EMR cluster to an Amazon S3 bucket or an Amazon DynamoDB table</li>
+</ul>
+</li>
+<li><strong>Resources</strong>: With the data nodes and activities selected, the next step in configuring a pipeline is selecting the right resource for executing the activity. AWS Data Pipeline supports two types of resources:
+<ul>
+<li><kbd>Ec2Resource</kbd>: An EC2 instance is leveraged to execute the activity selected in the pipeline. This resource type is common for activities, such as <kbd>CopyActivity</kbd>, <kbd>ShellCommandActivity</kbd>, and so on.</li>
+<li><kbd>EmrCluster</kbd>: An Amazon EMR cluster is used to execute the activity selected in the pipeline. This resource is best suited for activities such as <kbd>EmrActivity</kbd>, <kbd>PigActivity</kbd>, <kbd>HiveActivity</kbd>, and so on.</li>
+</ul>
+</li>
+<li><strong>Actions</strong>: Actions are certain steps that a pipeline takes whenever a <em>success</em>, <em>failure</em> or <em>late activity</em> event occurs. You can use actions as a way to monitor and notify the execution status of your pipeline; for example, send an SNS notification in case a <kbd>CopyActivity</kbd> fails, and so on.</li>
+</ul>
+<p>With these concepts and terms done and dusted, let's move on to some hands-on action where we will be creating our very first simple and minimalistic pipeline.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Getting started with AWS Data Pipeline</h1>
+                </header>
+            
+            <article>
+                
+<p>Creating your own pipeline is a fairly simple process, once you get to know the intricacies of working with the pipeline dashboard. In this section, we will be exploring the AWS Data Pipeline dashboard, its various functions, and editor to create a simple Hello World example pipeline. To start off, here are a few necessary prerequisite steps that you need to complete first, starting with a simple Amazon S3 bucket for storing all our data pipeline logs.</p>
+<div class="packt_infobox">AWS Data Pipeline is only available in the EU (Ireland), Asia Pacific (Sydney), Asia Pacific (Tokyo), US East (N. Virginia), and the US West (Oregon) regions. For the purpose of the scenarios in this chapter, we will be using the US East (N. Virginia) region only.</div>
+<p>From the AWS Management Console, launch the Amazon S3 console by either filtering the service name from the <span class="packt_screen">Filter</span> option or navigating to this URL: <a href="https://s3.console.aws.amazon.com/s3/home?region=us-east-1">https://s3.console.aws.amazon.com/s3/home?region=us-east-1</a>. </p>
+<p class="mce-root">Next, select the <span class="packt_screen">Create bucket</span> option and provide a suitable value in the <span class="packt_screen">Bucket name</span> field. Leave the rest of the fields to their default values and select <span class="packt_screen">Create</span> to complete the process.</p>
+<p>With the log bucket created, the next prerequisite step involves the creation of a couple of IAM Roles that are required by AWS Data Pipeline for accessing resources, as well as what particular action it can perform over them. Since we are going to use the AWS Data Pipeline console for our first pipeline build, Data Pipeline provides two default IAM Roles that you can leverage out of the box:</p>
+<ul>
+<li><kbd>DataPipelineDefaultRole</kbd>: An IAM Role that grants AWS Data Pipeline access to all your AWS resources, including EC2, IAM, Redshift, S3, SNS, SQS and EMR. You can customize it to restrict the AWS services that Data Pipeline can access. Here is a snippet of the policy that is created:</li>
+</ul>
+<pre style="padding-left: 60px">{ 
+    "Version": "2012-10-17", 
+    "Statement": [ 
+        { 
+            "Effect": "Allow", 
+            "Action": [ 
+                "cloudwatch:*", 
+                "datapipeline:DescribeObjects", 
+                "datapipeline:EvaluateExpression", 
+                "dynamodb:BatchGetItem", 
+                "dynamodb:DescribeTable", 
+                "dynamodb:GetItem", 
+                ... 
+                "ec2:RunInstances", 
+                "ec2:StartInstances", 
+                "ec2:StopInstances", 
+                ... 
+                "elasticmapreduce:*", 
+                "iam:GetInstanceProfile", 
+                "iam:GetRole", 
+                "iam:GetRolePolicy", 
+                ...   
+                "rds:DescribeDBInstances", 
+                "rds:DescribeDBSecurityGroups", 
+                "redshift:DescribeClusters", 
+                "redshift:DescribeClusterSecurityGroups", 
+                "s3:CreateBucket", 
+                "s3:DeleteObject", 
+                "s3:Get*", 
+                "s3:List*", 
+                "s3:Put*", 
+                ... 
+                "sns:ListTopics", 
+                "sns:Publish", 
+                "sns:Subscribe", 
+                ... 
+                "sqs:GetQueue*", 
+                "sqs:PurgeQueue", 
+                "sqs:ReceiveMessage" 
+            ], 
+            "Resource": [ 
+                "*" 
+            ] 
+        }, 
+        { 
+            "Effect": "Allow", 
+            "Action": "iam:CreateServiceLinkedRole", 
+            "Resource": "*", 
+            "Condition": { 
+                "StringLike": { 
+                    "iam:AWSServiceName": [ 
+                        "elasticmapreduce.amazonaws.com", 
+                        "spot.amazonaws.com" 
+                    ] 
+                } 
+            } 
+        } 
+    ] 
+}</pre>
+<ul>
+<li><kbd>DataPipelineDefaultResourceRole</kbd>: This Role allows applications, scripts, or code executed on the Data Pipeline resources' (EC2/EMR instances) access to your AWS resources:</li>
+</ul>
+<pre style="padding-left: 60px">{ 
+    "Version": "2012-10-17", 
+    "Statement": [ 
+        { 
+            "Effect": "Allow", 
+            "Action": [ 
+                "cloudwatch:*", 
+                "datapipeline:*", 
+                "dynamodb:*", 
+                "ec2:Describe*", 
+                "elasticmapreduce:AddJobFlowSteps", 
+                "elasticmapreduce:Describe*", 
+                "elasticmapreduce:ListInstance*", 
+                "elasticmapreduce:ModifyInstanceGroups", 
+                "rds:Describe*", 
+                "redshift:DescribeClusters", 
+                "redshift:DescribeClusterSecurityGroups", 
+                "s3:*", 
+                "sdb:*", 
+                "sns:*", 
+                "sqs:*" 
+            ], 
+            "Resource": [ 
+                "*" 
+            ] 
+        } 
+    ] 
+} </pre>
+<p>With the prerequisites out of the way, let's now move on to creating our very first pipeline:</p>
+<ol>
+<li>From the AWS Management Console, filter out <span class="packt_screen">Data Pipeline</span> using the <span class="packt_screen">Filter</span> option or alternatively, selecting this URL provided here <a href="https://console.aws.amazon.com/datapipeline/home?region=us-east-1">https://console.aws.amazon.com/datapipeline/home?region=us-east-1</a>. Select the <span class="packt_screen">Get started now</span> option.</li>
+<li>This will bring up the <span class="packt_screen">Create Pipeline</span> wizard as displayed. Start by providing a suitable name for the pipeline using the <span class="packt_screen">Name</span> field followed by an optional <span class="packt_screen">Description</span>.</li>
+</ol>
+<ol start="3">
+<li>Next, select the <span class="packt_screen">Build using Architect</span> option from the <span class="packt_screen">Source</span> field.</li>
+</ol>
+<p style="padding-left: 90px">AWS Data Pipeline provides different ways for creating pipelines. You can leverage either one of the several pre-built templates using the <span class="packt_screen">Build using a template</span> option, or opt for a more customized approach by selecting the <span class="packt_screen">Import a definition</span> option, where you can create and upload your own data pipeline definitions. Finally, you can use the data pipeline architect mode to drag-drop and customize your pipeline using a simple intuitive dashboard, which is what we are going to do in this use case:</p>
+<div class="CDPAlignCenter CDPAlign"><img height="232" width="640" src="Images/e3c7a76f-81bd-4ead-9a72-b8d59c77cfc5.png"/></div>
+<ol start="4">
+<li>Moving on, you can also schedule the run of your pipeline by selecting the correct option, provided under the <span class="packt_screen">Schedule</span> section. For now, select the <span class="packt_screen">On pipeline activation</span> option, as we want our pipeline to start its execution only when it is first activated.</li>
+<li>Next, browse and select the correct <em>S3 bucket</em> for logging the data pipelines' logs using the <span class="packt_screen">S3 location for logs</span> option. This should be the same bucket that was created during the prerequisite section of this scenario.</li>
+<li>Optionally, you can also provide your custom IAM Roles for Data Pipeline by selecting the <span class="packt_screen">Custom</span> option provided under the <span class="packt_screen">Security/Access</span> section. In this case, we have gone ahead and selected the <span class="packt_screen">Default</span> IAM Roles themselves.</li>
+<li>Once all the required fields are populated, select the <span class="packt_screen">Edit in Architect</span> option to continue.</li>
+</ol>
+<p style="padding-left: 90px">With this step completed, you should see the <em>architect</em> view of your current pipeline as depicted. By default, you will only have a single box called <span class="packt_screen">Configuration</span> displayed.</p>
+<ol start="8">
+<li>Select the <span class="packt_screen">Configuration</span> box to view the various configuration options required by your pipeline to run. This information should be visible on the right-hand side navigation pane under the <span class="packt_screen">Others</span> section, as shown in the following screenshot:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img height="466" width="773" src="Images/ccd00977-34f2-4d55-8629-601c4a4faebe.png"/></div>
+<p style="padding-left: 90px">You can use this <span class="packt_screen">Configuration</span> to edit your pipeline's <span class="packt_screen">Resource Role</span>, <span class="packt_screen">Pipeline Log Uri</span>, <span class="packt_screen">Schedule Type,</span> and many other such settings as well.</p>
+<ol start="9">
+<li>To add <span class="packt_screen">Resources</span> and <span class="packt_screen">Activities</span> to your pipeline, select the <span class="packt_screen">Add</span> drop-down list as shown. Here, select <kbd>ShellCommandActivity</kbd> to get started. We will use this activity to echo a simple Hello World message for starters.</li>
+<li>Once the <kbd>ShellCommandActivity</kbd> option is selected, you should be able to see its corresponding configuration items in the adjoining navigation pane under the <span class="packt_screen">Activities</span> tab.</li>
+<li>Type in a suitable <span class="packt_screen">Name</span> for your activity. Next, from the <span class="packt_screen">Type</span> section, select the <span class="packt_screen">Add an optional field</span> drop-down list and select the <span class="packt_screen">Command</span> option as shown. In the new <span class="packt_screen">Command</span> field, type <kbd>echo "This is just a Hello World message!"</kbd>.</li>
+</ol>
+<ol start="12">
+<li>With the activity in place, the final step left is to provide and associate a resource to the pipeline. The resource will execute the <kbd>ShellCommandActivity</kbd> on either an EC2 instance or an EMR instance.</li>
+<li>To create and associate a resource, from the <span class="packt_screen">Activities</span> section, select the <span class="packt_screen">Add an optional field</span> option once again and from the drop-down list, select the <span class="packt_screen">Runs On</span> option. Using the <span class="packt_screen">Runs On</span> option, you can create and select <span class="packt_screen">Resources</span> for executing the task for your pipeline.</li>
+<li>Select the <span class="packt_screen">Create new: Resource</span> option to get started. This will create a new resource named <kbd>DefaultResource1,</kbd> as depicted in the following screenshot:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img height="429" width="850" src="Images/64117e3f-7ddc-421c-a197-4cfe985937e0.png"/></div>
+<ol start="15">
+<li>Select the newly created resource or alternatively, select the <span class="packt_screen">Resources</span> option from the navigation pane to view and add resource specific configurations.</li>
+<li>Fill in the following information as depicted in the previous screenshot in the <span class="packt_screen">Resources</span> section of your pipeline:
+<ul>
+<li><span class="packt_screen">Name</span>: Provide a suitable name for your new resource.</li>
+<li><span class="packt_screen">Type</span>: Select the <span class="packt_screen">Ec2Resource</span> option from the drop-down list.</li>
+<li><span class="packt_screen">Role</span>/<span class="packt_screen">Resource Role</span>: You can choose to provide different IAM Roles, however I have opted to go for the default pipeline roles itself.</li>
+<li><span class="packt_screen">Instance Type</span>: Type in <kbd>t1.micro</kbd> in the adjoining field. If you do not provide or select the instance type field, the resource will launch a <strong>m1.medium</strong> instance by default.</li>
+<li><span class="packt_screen">Terminate After</span>: Select the appropriate time after which the instance should be terminated. In this case, I have selected to terminate after <kbd>10</kbd> minutes.</li>
+</ul>
+</li>
+</ol>
+<p style="padding-left: 90px">Here's a screenshot of what the final pipeline would look like once the <span class="packt_screen">Resources</span> section is filled out:</p>
+<div class="CDPAlignCenter CDPAlign"><img height="424" width="756" src="Images/61a83fb0-3221-45c2-95c6-ae3fe57d605d.png"/></div>
+<ol start="17">
+<li>Once the pipeline is ready, click on <span class="packt_screen">Save</span> to save the changes made. Selecting the <span class="packt_screen">Save</span> option automatically compiles your pipeline and checks for any errors as well. If any errors are found, they will be displayed in the <span class="packt_screen">Errors/Warnings</span> section. If no errors are reported, click on <span class="packt_screen">Activate</span> to finally activate your pipeline.</li>
+</ol>
+<p>The pipeline takes a few minutes to transition from <span class="packt_screen">WAITING_FOR_RUNNER</span> state to a <span class="packt_screen">FINISHED</span> state. This process involves first spinning up the EC2 instance or resource, which we defined in the pipeline. Once the resource is up and running, Data Pipeline will automatically install the <em>task runner</em> on this particular resource, as Data Pipeline itself manages it. With the task runner installed, it starts polling the data pipeline for pending activities and executes them.</p>
+<p>Once the pipeline's status turns to <span class="packt_screen">FINISHED</span>, expand the pipeline's component name and select the <span class="packt_screen">Attempts</span> tab, as shown. If not specified, Data Pipeline will try and execute your pipeline for a default three attempts before it finally stops the execution.</p>
+<p>For each attempt, you can view the corresponding <span class="packt_screen">Activity Logs</span>, <span class="packt_screen">Stdout</span> as well as the <span class="packt_screen">Stderr</span> messages:</p>
+<div class="CDPAlignCenter CDPAlign"><img height="143" width="1000" src="Images/cc482e00-5aad-413c-83fb-61841a2ed776.png"/></div>
+<p>Select the <span class="packt_screen">Stdout</span> option to view your Hello World message! Et voila! Your first pipeline is up and running!</p>
+<p>Feel free to try out a few other options for your pipeline by simply selecting the pipeline name and click on the <span class="packt_screen">Edit Pipeline</span> option. You can also export your pipeline's definition by selecting the pipeline name and from the <span class="packt_screen">Actions</span> tab, opting for the <span class="packt_screen">Export</span> option.</p>
+<p>Pipeline definitions are a far better and easier way of creating pipelines if you are a fan of working with JSON and CLI interfaces. They offer better flexibility and usability as compared to the standard pipeline dashboard which can take time to get used to for beginners. With this in mind, in the next section we will be exploring a few basics on how you can get started by creating your very own pipeline definition file.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Working with data pipeline definition Files</h1>
+                </header>
+            
+            <article>
+                
+<p>The AWS Data Pipeline console provides us with three different options to get started with creating a new pipeline. You could use the architect mode, which is exactly what we ended up working with in the earlier section, or alternatively, use any one of the pre-defined templates as a boilerplate and build your pipeline fro them. Last but not the least, the console also provides you with an ability to upload your very own pipeline definition file, which is basically a collection of various pipeline objects and conditions written in a JSON format. In this section, we will be learning how to write our very own pipeline definitions and later, use the same for building a custom pipeline as well.</p>
+<p>To start, you will need two components to build up a pipeline definition file: objects and fields:</p>
+<ul>
+<li><strong>Objects</strong>: An object is an individual component required to build a pipeline. These can be data nodes, conditions, activities, resources, schedules, and so on.</li>
+<li><strong>Fields</strong>: Each object is described by one or more fields. The fields are made up of key-value pairs that are enclosed in double quotes and separated by a colon.</li>
+</ul>
+<p>Here is a skeleton structure of a pipeline definition file:</p>
+<pre>{ 
+  "objects" : [ 
+    { 
+       "key1" : "value1", 
+       "key2" : "value2" 
+    }, 
+    { 
+       "key3" : "value3" 
+    } 
+  ] 
+} </pre>
+<p>Here is a look at the pipeline definition file obtained by exporting the <span class="packt_screen">Hello World</span> pipeline example that we performed a while back:</p>
+<pre>{ 
+  "objects": [ 
+    { 
+      "failureAndRerunMode": "CASCADE", 
+      "resourceRole": "DataPipelineDefaultResourceRole", 
+      "role": "DataPipelineDefaultRole", 
+      "pipelineLogUri": "s3://us-east-datapipeline-logs-01/logs/", 
+      "scheduleType": "ONDEMAND", 
+      "name": "Default", 
+      "id": "Default" 
+    }, 
+    { 
+      "name": "myActivity", 
+      "id": "ShellCommandActivityId_2viZe", 
+      "runsOn": { 
+        "ref": "ResourceId_EhxAF" 
+      }, 
+      "type": "ShellCommandActivity", 
+      "command": "echo "This is just a Hello World message!"" 
+    }, 
+    { 
+      "resourceRole": "DataPipelineDefaultResourceRole", 
+      "role": "DataPipelineDefaultRole", 
+      "name": "myEC2Resource", 
+      "id": "ResourceId_EhxAF", 
+      "type": "Ec2Resource", 
+      "terminateAfter": "10 Minutes" 
+    } 
+  ], 
+  "parameters": [] 
+} </pre>
+<div class="packt_infobox">You can find the complete copy of code at <a href="https://github.com/yoyoclouds/Administering-AWS-Volume2">https://github.com/yoyoclouds/Administering-AWS-Volume2</a>.</div>
+<p>Each object generally contains an <kbd>id</kbd>, <kbd>name</kbd>, and <kbd>type</kbd> fields that are used to describe it and its functionality. For example, the <kbd>Resource</kbd> object in the Hello World scenario contains the following values:</p>
+<pre>{ 
+      "name": "myEC2Resource", 
+      "id": "ResourceId_EhxAF", 
+      "type": "Ec2Resource", 
+       ... 
+} </pre>
+<p>You can also find the same fields in both the <kbd>ShellCommandActivity,</kbd> as well as the default configurations objects.</p>
+<p>A pipeline object can refer to other objects within the same pipeline using the <kbd>"ref" : "ID_of_referred_resource"</kbd> field. Here is an example of the <kbd>ShellCommandActivity</kbd> referencing to the EC2 resource, using the resource ID:</p>
+<pre>{ 
+      "name": "myActivity", 
+      "id": "ShellCommandActivityId_2viZe", 
+      "runsOn": { 
+        "ref": "ResourceId_EhxAF" 
+      }, 
+      "type": "ShellCommandActivity", 
+      "command": "echo "This is just a Hello World message!"" 
+    }, 
+    { 
+      "resourceRole": "DataPipelineDefaultResourceRole", 
+      "role": "DataPipelineDefaultRole", 
+      "name": "myEC2Resource", 
+      "id": "ResourceId_EhxAF", 
+      "type": "Ec2Resource", 
+      "terminateAfter": "10 Minutes" 
+    } </pre>
+<p>You can additionally create custom or user-defined fields and refer them to other pipeline components, using the same syntax as described in the previous code:</p>
+<pre>{ 
+  "id": " ResourceId_EhxAF", 
+  "type": "Ec2Resource", 
+  "myCustomField": "This is a custom field.", 
+  "myCustomReference": {"ref":" ShellCommandActivityId_2vi"} 
+  }, </pre>
+<div class="packt_infobox">You can find the detailed references for data nodes, resources, activities, and other objects at <a href="https://docs.aws.amazon.com/datapipeline/latest/DeveloperGuide/dp-pipeline-objects.html">https://docs.aws.amazon.com/datapipeline/latest/DeveloperGuide/dp-pipeline-objects.html</a>.</div>
+<p>Last but not the least; you can also leverage a parameterized template to customize the pipeline definition. Using this method, you can basically have one common pipeline definition and pass different values to it at the time of pipeline creation.</p>
+<p>To parametrize a pipeline definition you need to specify a variable using the following syntax:</p>
+<pre> "#{VARIABLE_NAME}"</pre>
+<p>With the variable created, you can define its value in a separate <kbd>parameters</kbd> object which can be stored in the same pipeline definition file, or in a separate JSON file altogether as well. Consider the following example where we pass the same Hello World message in the <kbd>ShellCommandActivity</kbd> however, this time using a variable definition:</p>
+<pre>{ 
+      "name": "myActivity", 
+      "id": "ShellCommandActivityId_2viZe", 
+      "runsOn": { 
+        "ref": "ResourceId_EhxAF" 
+      }, 
+      "type": "ShellCommandActivity", 
+      "command": "#{myVariable}" <br/>}</pre>
+<p>Once the variable is defined, we pass its corresponding values and expression in a separate <kbd>parameters</kbd> object, as shown in the following code:</p>
+<pre>{ 
+  "parameters": [ 
+    { 
+      "id": "myVariable", 
+      "description": "Shell command to run", 
+      "type": "String", 
+      "default": "echo "Default message!"" 
+    } 
+  ] 
+} </pre>
+<p>In this case, the variable <kbd>myVariable</kbd> is a simple string type and we have also provided it with a default value, in case a value is not provided to this variable at the time of the pipeline's creation.</p>
+<div class="packt_infobox">To know more about how to leverage and use variable and parameters in your pipeline definitions, visit <a href="https://docs.aws.amazon.com/datapipeline/latest/DeveloperGuide/dp-custom-templates.html">https://docs.aws.amazon.com/datapipeline/latest/DeveloperGuide/dp-custom-templates.html</a>.</div>
+<p>With this, we come towards the end of this section. In the next section, we will look at how you can leverage the AWS Data Pipeline to execute scripts and commands on remote EC2 instances using a parameterized pipeline definition.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Executing remote commands using AWS Data Pipeline</h1>
+                </header>
+            
+            <article>
+                
+<p>One of the best parts of working with Data Pipeline is that versatility of tasks that you can achieve by just using this one tool. In this section, we will be looking at a relatively simple pipeline definition using which you can execute remote scripts and commands on EC2 instances.</p>
+<p>How does this setup work? Well, to start with, we will be requiring one S3 bucket (can be present in any AWS region) to be created that will store and act as a repository for all our shell scripts. Once the bucket is created, simply create and upload the following shell script to the bucket. Note however that in this case, the shell script is named <kbd>simplescript.sh</kbd> and the same name is used in the following pipeline definition, as well:</p>
+<pre>#!/bin/bash 
+echo "----------------------------------" 
+echo "Your username is: $(echo $USER)" 
+echo "----------------------------------" 
+echo "The current date and time : $(date)" 
+echo "----------------------------------" 
+echo "Users currently logged on this system: " 
+echo "$(who)" 
+echo "----------------------------------" 
+echo "AWS CLI installed at: " 
+echo "$(aws --version)" 
+echo "----------------------------------" </pre>
+<p>The script is pretty self-explanatory. It will print out a series of messages based on the EC2 instance it is launched from. You can substitute this script with any other shell script that can either be used to take backups of particular files, or archive existing files into a <kbd>tar.gz</kbd> and push it over to an awaiting S3 bucket for archiving, and so on.</p>
+<p>With the script file uploaded to the correct S3 bucket, the final step is to copy and paste the following pipeline definition in a file and upload it to Data Pipeline for execution:</p>
+<pre>{ 
+  "objects": [ 
+    { 
+      "failureAndRerunMode": "CASCADE", 
+      "resourceRole": "DataPipelineDefaultResourceRole", 
+      "role": "DataPipelineDefaultRole", 
+      "pipelineLogUri": "s3://&lt;DATAPIPELINE_LOG_BUCKET&gt;", 
+      "scheduleType": "ONDEMAND", 
+      "name": "Default", 
+      "id": "Default" 
+    }, 
+    { 
+      "name": "CliActivity", 
+      "id": "CliActivity", 
+      "runsOn": { 
+        "ref": "Ec2Instance" 
+      }, 
+      "type": "ShellCommandActivity", 
+      "command": "(sudo yum -y update aws-cli) &amp;&amp; (#{myCustomScriptCmd})" 
+    }, 
+    { 
+      "instanceType": "t1.micro", 
+      "name": "Ec2Instance", 
+      "id": "Ec2Instance", 
+      "type": "Ec2Resource", 
+      "terminateAfter": "15 Minutes" 
+    } 
+  ], 
+  "parameters": [ 
+    { 
+      "watermark": "aws [options] &lt;command&gt; &lt;subcommand&gt; [parameters]", 
+      "description": "AWS CLI command", 
+      "id": "myCustomScriptCmd", 
+      "type": "String" 
+    } 
+  ], 
+  "values": { 
+    "myCustomScriptCmd": "aws s3 cp s3://&lt;S3_BUCKET_SCRIPT_LOCATION&gt;/simplescript.sh . &amp;&amp; sh simplescript.sh" 
+  } 
+} </pre>
+<p>Remember to swap out the values for <kbd>&lt;DATAPIPELINE_LOG_BUCKET&gt;</kbd> and <kbd>&lt;S3_BUCKET_SCRIPT_LOCATION&gt;</kbd> with their corresponding actual values, and to save the file with a JSON extension.</p>
+<p>This particular pipeline definition relies on the <kbd>ShellCommandActivity</kbd> to first install the AWS CLI on the remote EC2 instance and then execute the shell script by copying it locally from the S3 bucket.</p>
+<p>To upload the pipeline definition, use the AWS Data Pipeline console to create a new pipeline. In the <span class="packt_screen">Create Pipeline</span> wizard, provide a suitable <span class="packt_screen">Name</span> and <span class="packt_screen">Description</span> for the new pipeline. Once done, select the <span class="packt_screen">Import a definition</span> option from the <span class="packt_screen">Source</span> field, as shown in the following screenshot:</p>
+<div class="CDPAlignCenter CDPAlign"><img height="242" width="642" src="Images/d70473cc-a32e-44fe-80cb-00934f1f21b0.png"/></div>
+<p>Once the script loads, you should see the custom AWS CLI command in the <span class="packt_screen">Parameters</span> section. With the pipeline definition successfully loaded, you can now choose to run the pipeline, either on a schedule or on activation. In my case, I have select to run the pipeline on activation itself, as this is for demo purposes.</p>
+<p>Ensure that the <em>logging</em> is enabled for the new pipeline and the correct S3 bucket for storing the pipeline's logs is mentioned. With all necessary fields filled, click on <span class="packt_screen">Activate</span> to start up the pipeline.</p>
+<p>Once again, the pipeline will transition from <span class="packt_screen">WAITING_FOR_RUNNER</span> state to the <span class="packt_screen">FINISHED</span> state. This usually takes a good minute or two to complete.</p>
+<p>From the Data Pipeline console, expand on the existing pipeline and select the <span class="packt_screen">Attempts</span> tab as shown in the following screenshot. Here, click on <span class="packt_screen">Stdout</span> to view the output of the script's execution:</p>
+<div class="CDPAlignCenter CDPAlign"><img height="345" width="884" src="Images/9197ccab-74f1-480a-b8ea-1fc1352168be.png"/></div>
+<p>Once the output is viewed, you can optionally select the pipeline and click on <span class="packt_screen">Mark Finished</span> option, as well. This will stop the pipeline from undertaking any further attempts on executions.</p>
+<p>Simple, isn't it! You can use a similar method and approach to back up your files and execute some commands over managed instances. In the next section, we will be looking at one last pipeline definition example as well, that essentially helps us take periodic backups of content stored in one Amazon S3 bucket to another using both the Data Pipeline console, as well as the AWS CLI!</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Backing up data using AWS Data Pipeline</h1>
+                </header>
+            
+            <article>
+                
+<p>One of the most widely used use cases for AWS Data Pipeline is its ability to synchronize and schedule backup jobs. You can use Data Pipeline to take backups of data stored within EC2 instances, EBS volumes, databases and even S3 buckets. In this section, we will walk through a simple, parameterized pipeline definition using which you can effectively schedule and perform backups of files stored within an Amazon S3 bucket.</p>
+<p>First up, let's have a look at the pipeline definition file itself:</p>
+<div class="packt_infobox">
+<p>You can find the complete copy of code at <a href="https://github.com/yoyoclouds/Administering-AWS-Volume2">https://github.com/yoyoclouds/Administering-AWS-Volume2</a>.</p>
+</div>
+<p>To start with, we once again provide a list of <em>objects</em> that describe the pipeline components starting with a pipeline configuration object, as highlighted in the following code:</p>
+<pre>  "objects": [<br/>    {<br/>      "failureAndRerunMode": "CASCADE",<br/>      "resourceRole": "DataPipelineDefaultResourceRole",<br/>      "role": "DataPipelineDefaultRole",<br/>      "pipelineLogUri": "<strong>#{myDataPipelineLogs}</strong>",<br/>      "scheduleType": "ONDEMAND",<br/>      "name": "Default",<br/>      "id": "Default"<br/>    },</pre>
+<p>Next, we provide the definition for other pipeline objects, including the data nodes:</p>
+<pre>    {<br/>      "filePath": "<strong>#{myInputS3FilePath}</strong>",<br/>      "name": "inputS3Bucket",<br/>      "id": "InputS3FilePath",<br/>      "type": "S3DataNode"<br/>    },<br/>    {<br/>      "filePath": "<strong>#{myOutputS3FilePath}</strong>/#{format(@scheduledStartTime, 'YYYY-MM-dd-HH-mm-ss')}.bak",<br/>      "name": "outputS3Bucket",<br/>      "id": "OutputS3FilePath",<br/>      "type": "S3DataNode"<br/>    },</pre>
+<p>In this case, we are using the <kbd>#{VARIABLE_NAMES}</kbd> to declare a set of variables to make the pipeline definition more reusable. Once the data nodes are configured, we also have to define a set of actions that will trigger SNS alerts based on the pipeline's success or failure. Here is a snippet of the same:  </p>
+<pre>{<br/>    "role": "DataPipelineDefaultRole",<br/>    "subject": "Failure",<br/>    "name": "SNSAlertonFailure",<br/>    "id": "OnFailSNSAlert",<br/>    "message": "File was not copied over successfully. Pls check with Data Pipeline Logs",<br/>    "type": "SnsAlarm",<br/>    "topicArn": "<strong>#{mySNSTopicARN}</strong>"<br/>},</pre>
+<p>With the objects defined, the second section requires the <kbd>parameters</kbd> to be set up, where each of the variables declared in the objects section are detailed and defined:</p>
+<pre>  "parameters": [<br/>    {<br/>      "watermark": "s3://mysourcebucket/filename",<br/>      "description": "Source File Path:",<br/>      "id": "<strong>myInputS3FilePath</strong>",<br/>      "type": "AWS::S3::ObjectKey",<br/>      "myComment": "The File path from the Input S3 Bucket"<br/>    },<br/>    {<br/>      "watermark": "s3://mydestinationbucket/filename",<br/>      "description": "Destination (Backup) File Path:",<br/>      "id": "<strong>myOutputS3FilePath</strong>",<br/>      "myComment": "The File path for the Output S3 Bucket",<br/>      "type": "AWS::S3::ObjectKey"<br/>    },<br/>    {<br/>      "watermark": "arn:aws:sns:us-east-1:28619EXAMPLE:ExampleTopic",<br/>      "description": "SNS Topic ARN:",<br/>      "id": "<strong>mySNSTopicARN</strong>",<br/>      "type": "string",<br/>      "myComment": "The SNS Topic's ARN for notifications"<br/>    },<br/>. . . .<br/>  ]<br/>}</pre>
+<p>With this in mind, let us first look at uploading this definition to AWS Data Pipeline using the web console:</p>
+<ol>
+<li>Log in to the AWS Data Pipeline console by navigating to this URL: <a href="https://console.aws.amazon.com/datapipeline/home?region=us-east-1">https://console.aws.amazon.com/datapipeline/home?region=us-east-1</a>.<a href="https://console.aws.amazon.com/datapipeline/home?region=us-east-1"/></li>
+</ol>
+<div style="padding-left: 60px" class="packt_infobox">We have deployed all of our pipelines so far in the US East (N. Virginia) region itself. You can opt to change the region, as per your requirements.</div>
+<ol start="2">
+<li>Once done, select the <span class="packt_screen">Create Pipeline</span> option to get started. In the <span class="packt_screen">Create Pipeline</span> page, fill in a suitable <span class="packt_screen">Name</span> and <span class="packt_screen">Description</span> for the new pipeline:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img height="263" width="646" src="Images/85c9a9cb-c6cc-4882-bc75-c59cfb461042.png"/></div>
+<ol start="3">
+<li>Next, select the <span class="packt_screen">Import a definition</span> option and click on the <span class="packt_screen">Load local file</span> as shown. Copy and upload the JSON file definition here.</li>
+<li>With the file uploaded, fill out the <span class="packt_screen">Parameters</span> section as explained here:
+<ul>
+<li><strong>S3 bucket path to data pipeline logs</strong>: Browse and provide the bucket path for storing the pipeline's logs.</li>
+<li><strong>Source file path</strong>: Browse and select a file that you wish to backup from an Amazon S3 bucket.</li>
+<li><strong>Destination (backup) file path</strong>: Browse and select an Amazon S3 bucket path where you store the backed up file. You can optionally provide a backup folder name as well. Each file backed up to this location will follow a standard naming convention: <kbd>YYYY-MM-dd-HH-mm-ss.bak</kbd>.</li>
+<li><strong>SNS Topic ARN</strong>: Provide a valid SNS Topic ARN here. This ARN will be used to notify the user whether the pipeline's execution was a success or a failure.</li>
+<li><strong>EC2 instance type</strong>: You can optionally provide a different EC2 instance type as a resource here. By default, it will take the <span class="packt_screen">t1.micro</span> instance type.</li>
+<li><strong>EC2 instance termination:</strong> Once again, you can provide a different instance termination value here. By default, it is set to 20 minutes. The termination time should be changed based on the approximate time taken to back up a file. The larger the file, the more time required to copy it and vice versa.</li>
+</ul>
+</li>
+</ol>
+<ol start="5">
+<li>Once the parameter fields are populated, select the Edit in Architect option to view the overall components of the pipeline definition. You should see the following depiction:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img src="Images/a55e9e11-4fca-48b0-b2cd-4b412bb2de0b.png" width="481" height="426"/></div>
+<ol start="6">
+<li>Click on <span class="packt_screen">Save</span> to validate the pipeline for any errors. Once done, select <span class="packt_screen">Activate</span> to start the pipeline's execution process.</li>
+<li>The pipeline takes a few minutes to transition from the <span class="packt_screen">WAITING_FOR_RUNNER</span> state to the <span class="packt_screen">FINISHED</span> state. Once done, check for the backed up file in your destination S3 folder.</li>
+</ol>
+<p>You can further tweak this particular pipeline definition to include entire S3 folder paths rather than just an individual file as performed now. Additionally, you can also change the start of the pipeline's execution by changing the <kbd>scheduleType</kbd> from <kbd>ONDEMAND</kbd> to <kbd>Schedule,</kbd> as depicted in the following code snippet:</p>
+<pre>{ 
+  "id" : "Default", 
+  "type" : "Schedule", 
+  "period" : "1 hours", 
+  "startDateTime" : "2018-03-01T00:00:00", 
+  "endDateTime" : "2018-04-01T00:00:00" 
+} </pre>
+<p>The following snippet will execute the pipeline every hour starting from March 1, 2018 at 00:00:00 until April 1, 2018 00:00:00.</p>
+<div class="packt_infobox">To know more on how you can use the <kbd>Schedule</kbd> object, visit <a href="https://docs.aws.amazon.com/datapipeline/latest/DeveloperGuide/dp-object-schedule.html">https://docs.aws.amazon.com/datapipeline/latest/DeveloperGuide/dp-object-schedule.html</a>.</div>
+<p>Now that the pipeline is up and running using the console, let us also have a look at a few simple AWS CLI commands using which you can achieve the same results:</p>
+<ol>
+<li>To start with, create a blank pipeline using the following command:</li>
+</ol>
+<pre style="padding-left: 60px"><strong># aws datapipeline create-pipeline  
+--name &lt;NAME_OF_PIPELINE&gt;  
+--unique-id &lt;UNIQUE_TOKEN&gt;</strong> </pre>
+<p style="padding-left: 90px">The <kbd>&lt;UNIQUE_TOKEN&gt;</kbd> can be any string of characters and is used to ensure idempotency during repeated calls to the <kbd>create-pipeline</kbd> command.</p>
+<ol start="2">
+<li>Once the pipeline is created, you will be presented with the pipeline's ID, as depicted in the following screenshot. Make a note of this ID as it will be required in the next steps:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img src="Images/1df71e67-b390-4ef5-bebb-e5111b4de6c6.png" width="868" height="127"/></div>
+<ol start="3">
+<li>Next, we need to create three separate JSON files with the following content in them:
+<ul>
+<li><kbd>pipeline.json</kbd>: Copy and paste only the object definitions in this file.</li>
+<li><kbd>parameters.json</kbd>: Copy and paste the parameter definitions here.</li>
+<li><kbd>values.json</kbd>: Create a new file that contains the values for the parameters ,as shown in the following code snippet. Remember to substitute the values in <kbd>&lt;&gt;</kbd> with those of your own:</li>
+</ul>
+</li>
+</ol>
+<pre style="padding-left: 120px">{ 
+  "values": 
+    { 
+      "myDataPipelineLogs": "s3://&lt;BUCKET_NAME&gt;", 
+      "myOutputS3FilePath": "s3://&lt;BUCKET_NAME&gt;/&lt;FOLDER&gt;", 
+      "myInputS3FilePath": "s3://&lt;BUCKET_NAME&gt;/&lt;FILE_NAME&gt;", 
+      "mySNSTopicARN": "&lt;SNS_ARN_FOR_NOTIFICATIONS&gt;", 
+      "myEC2InstanceType": "t1.micro", 
+      "myEC2InstanceTermination": "20" 
+    } 
+} </pre>
+<ol start="4">
+<li>Once done, save all three files and type in the following command to attach the pipeline definition to the newly created pipeline:</li>
+</ol>
+<pre style="padding-left: 60px"><strong># aws datapipeline put-pipeline-definition  
+--pipeline-id &lt;PIPELINE_ID&gt;  
+--pipeline-definition file://pipeline.json  
+--parameter-objects file://parameters.json  
+--parameter-values-uri file://values.json</strong> </pre>
+<p style="padding-left: 90px">Here is a screenshot of the command's output for your reference:</p>
+<div class="CDPAlignCenter CDPAlign"><img height="257" width="652" src="Images/aa4b8433-202c-4685-b60c-4849910f2c9d.png"/></div>
+<ol start="5">
+<li>With the pipeline definition uploaded, the final step left is to activate the pipeline using the following command:</li>
+</ol>
+<pre style="padding-left: 60px"><strong># aws datapipeline activate-pipeline  
+--pipeline-id &lt;PIPELINE_ID&gt;</strong> </pre>
+<ol start="6">
+<li>Once the pipeline is activated, you can view its status and last runtimes, using the following command:</li>
+</ol>
+<pre style="padding-left: 60px"><strong># aws datapipeline list-runs<br/>--pipeline-id &lt;PIPELINE_ID&gt;</strong></pre>
+<ol start="7">
+<li>Once the pipeline's execution completes, you can deactivate and delete the pipeline using the following set of commands:</li>
+</ol>
+<pre style="padding-left: 60px"><strong># aws datapipeline deactivate-pipeline  
+--pipeline-id &lt;PIPELINE_ID&gt; 
+# aws datapipeline delete-pipeline  
+--pipeline-id &lt;PIPELINE_ID&gt;</strong> </pre>
+<p style="padding-left: 90px">Here is a screenshot of the command's output for your reference:</p>
+<div class="CDPAlignCenter CDPAlign"><img height="148" width="623" src="Images/1b933193-a3ec-4217-8eb6-055fbd02d9e7.png"/></div>
+<p>With this, we come towards the end of yet another interesting chapter, but before we wind things up, here is a quick look at some important next steps that you should try out on your own.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Planning your next steps</h1>
+                </header>
+            
+            <article>
+                
+<p>Although we have covered quite a lot in this chapter, there is still a lot to be covered with Data Pipeline. One of the fastest and easiest ways to get started with Data Pipeline is by using one of the ready made pipeline definition templates.</p>
+<p>As of date, Data Pipeline provides the following list of ready-to-use templates, using which you can get started with your own pipeline in a matter of minutes:</p>
+<div class="CDPAlignCenter CDPAlign"><img height="283" width="368" src="Images/62db5de5-3e07-4e1b-9f54-8e42ca233832.png"/></div>
+<p>You can additionally use these definitions as templates for further customizing and enhancing your own as well. Simply create a pipeline using one of the previously depicted templates, however do not activate them. Edit the pipeline in the architect mode and simple export the pipeline definition locally. Once the template's pipeline definition is saved locally, you can make further changes and enhancements to it or simply reuse components within it to make your own pipeline, as well. The possibilities are endless!</p>
+<p>Another cool feature provided by pipelines is the use of <em>spot instances</em> as task nodes. By default, pipelines provide only on-demand instances as resources for your task nodes. You can optionally switch to spot instances by simply selecting the <span class="packt_screen">Task instance Bid Price</span> option from the <span class="packt_screen">Resources</span> pane of your pipeline. Provide a suitable amount in the adjoining field (between 0 and 20.00) and there you have it! The next time the pipeline activates and a task is run, it will be performed based on the availability of spot instances.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>Well, that brings us to the end of yet another amazing chapter. Let's quickly summarize the things we have learnt so far!</p>
+<p>First up, we started with a brief understanding of AWS Data Pipeline along with its concepts and terminologies. We later also learnt a bit about pipeline definitions and how easy it is to compose and use them. We even built our very first simple <span class="packt_screen">Hello World</span> pipeline using a pipeline definition, followed by a series of examples that you can tweak and use, according to your own use cases. Towards the end, we also explored a few simple AWS CLI commands required to work with pipelines and topped it all off with a handy guide to some next steps as well.</p>
+<p>In the next and final chapter, we will be learning and exploring AWS's versatile and powerful IoT services, so stick around!</p>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  </body></html>

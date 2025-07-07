@@ -1,0 +1,1156 @@
+<html><head></head><body><div class="chapter" title="Chapter&#xA0;3.&#xA0;Command-Line Operations Using Native and Libvirt Tools"><div class="titlepage"><div><div><h1 class="title"><a id="ch03"/>Chapter 3. Command-Line Operations Using Native and Libvirt Tools</h1></div></div></div><p>LXC supports a variety of backing stores for its root filesystem. In <a class="link" href="ch02.html" title="Chapter 2. Installing and Running LXC on Linux Systems"><span>Chapter 2</span>,</a> <span class="emphasis"><em>Installing and Running LXC on Linux Systems</em></span> we used the default <code class="literal">dir</code> type, which creates a directory under <code class="literal">/var/lib/lxc/containername/rootfs</code>. Using the default store might be sufficient in some cases, however, to take advantage of more advanced features, such as container snapshots and backups, other types such as the LVM, Btrfs, and ZFS are available.</p><p>In addition to container snapshots, LXC provides tools for controlling resource usage through cgroups, the ability to execute programs before, during, and after the container starts, and to freeze/suspend the state of a running LXC instance.</p><p>As an alternative to the LXC tools, we will also look at a different set of userspace tools and libraries for creating and managing containers, particularly the one provided by libvirt.</p><p>In this chapter, we'll cover the following topics:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Building containers using the LVM as the backing store</li><li class="listitem" style="list-style-type: disc">LXC on Btrfs</li><li class="listitem" style="list-style-type: disc">Using the ZFS backing store</li><li class="listitem" style="list-style-type: disc">Autostarting containers</li><li class="listitem" style="list-style-type: disc">Adding container hooks</li><li class="listitem" style="list-style-type: disc">Accessing files from the host and exploring the running filesystem of an instance</li><li class="listitem" style="list-style-type: disc">Freezing running containers</li><li class="listitem" style="list-style-type: disc">Limiting container resource usage</li><li class="listitem" style="list-style-type: disc">Building containers using the libvirt library and tools</li></ul></div><div class="section" title="Using the LVM backing store"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec14"/>Using the LVM backing store</h1></div></div></div><p>The <span class="strong"><strong>Logical Volume Manager</strong></span> (<span class="strong"><strong>LVM</strong></span>) uses the device mapper framework in the Linux kernel that allows for mapping physical block devices onto more abstract virtual block devices. This abstraction allows for aggregating various block devices into logical volumes for better resource control. With the LVM, one can extend the size of a filesystem by adding more block devices to a pool of resources called <span class="strong"><strong>Physical Volumes</strong></span> (<span class="strong"><strong>PVs</strong></span>). The PVs contain block devices. From the PVs one can then carve out <span class="strong"><strong>Volume Groups</strong></span> (<span class="strong"><strong>VGs</strong></span>). The VGs can then be split, merged, or moved between PVs and can be resized online if enough blocks are available from the PVs. The VGs can have one or more <span class="strong"><strong>Logical Volumes</strong></span> (<span class="strong"><strong>LVs</strong></span>). The LVs can span across multiple disks, and hold the filesystem. If more disk space is to be added, one can just add a new block device to the PVs, then extend the VG and the LV.</p><p>The LVM allows for creating snapshots, a feature that LXC takes advantage of, which creates an LV to act as a clone of the original LV. Using this feature, we can clone containers pretty quickly as, we'll see next.</p><p>The following diagram shows the LVM layout and the userspace tools that are used to manage the volumes:</p><div class="mediaobject"><img alt="Using the LVM backing store" src="graphics/image_03_001.jpg"/></div><p>Let's start by first installing the LVM package. On Ubuntu, this can be done with the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# apt-get install lvm2</strong></span>
+</pre><p>On CentOS similarly run:</p><pre class="programlisting">
+<span class="strong"><strong>[root@centos ~]# yum install lvm2</strong></span>
+</pre><p>Next, let's examine the block device we are going to use, in this example, <code class="literal">xvdb</code>:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# fdisk -l /dev/xvdb&#13;</strong></span>
+<span class="strong"><strong>Disk /dev/xvdb: 80.5 GB, 80530636800 bytes</strong></span>
+<span class="strong"><strong>255 heads, 63 sectors/track, 9790 cylinders, total 157286400 sectors</strong></span>
+<span class="strong"><strong>Units = sectors of 1 * 512 = 512 bytes</strong></span>
+<span class="strong"><strong>Sector size (logical/physical): 512 bytes / 512 bytes</strong></span>
+<span class="strong"><strong>I/O size (minimum/optimal): 512 bytes / 512 bytes</strong></span>
+<span class="strong"><strong>Disk identifier: 0x00000000</strong></span>
+<span class="strong"><strong>Disk /dev/xvdb doesn't contain a valid partition table</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>To create a partition of type LVM, we will use the <code class="literal">fdisk</code> utility, following the steps outlined here:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Press <code class="literal">n</code> for creating a new partition.</li><li class="listitem">Then choose <code class="literal">p</code> for primary partition.</li><li class="listitem">Next, choose the partition number <code class="literal">1</code>.</li><li class="listitem">Use the default value by just pressing the <span class="emphasis"><em>Enter</em></span> key two times.</li><li class="listitem">Next, press <code class="literal">p</code> to print the defined partition.</li><li class="listitem">Press <code class="literal">L</code> to list all available types.</li><li class="listitem">Type <code class="literal">t</code> to choose the partitions.</li><li class="listitem">Choose <code class="literal">8e</code> for the Linux LVM and press <span class="emphasis"><em>Enter</em></span> to apply.</li><li class="listitem">Again use <code class="literal">p</code> to print the changes.</li><li class="listitem">Finally, use <code class="literal">w</code> to save the changes:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# fdisk /dev/xvdb&#13;
+      </strong></span>
+<span class="strong"><strong>Device contains neither a valid DOS partition table, nor &#13;
+      Sun, SGI or OSF disklabel&#13;
+      </strong></span>
+<span class="strong"><strong>Building a new DOS disklabel with disk identifier    &#13;
+      0x115573cb.&#13;
+      </strong></span>
+<span class="strong"><strong>Changes will remain in memory only, until you decide to &#13;
+      write them.&#13;
+      </strong></span>
+<span class="strong"><strong>After that, of course, the previous content won't be &#13;
+      recoverable.&#13;
+      </strong></span>
+<span class="strong"><strong>Warning: invalid flag 0x0000 of partition table 4 will be  &#13;
+      corrected by w(rite)&#13;
+      </strong></span>
+<span class="strong"><strong>Command (m for help): p&#13;
+      </strong></span>
+<span class="strong"><strong>Disk /dev/xvdb: 80.5 GB, 80530636800 bytes&#13;
+      </strong></span>
+<span class="strong"><strong>255 heads, 63 sectors/track, 9790 cylinders, total &#13;
+      157286400 sectors&#13;
+      </strong></span>
+<span class="strong"><strong>Units = sectors of 1 * 512 = 512 bytes&#13;
+      </strong></span>
+<span class="strong"><strong>Sector size (logical/physical): 512 bytes / 512 bytes&#13;
+      </strong></span>
+<span class="strong"><strong>I/O size (minimum/optimal): 512 bytes / 512 bytes&#13;
+      </strong></span>
+<span class="strong"><strong>Disk identifier: 0x115573cb&#13;
+      </strong></span>
+<span class="strong"><strong>Device Boot Start End Blocks Id System&#13;
+      </strong></span>
+<span class="strong"><strong>Command (m for help): n&#13;
+      </strong></span>
+<span class="strong"><strong>Partition type:&#13;
+        </strong></span>
+<span class="strong"><strong>p primary (0 primary, 0 extended, 4 free)&#13;
+        </strong></span>
+<span class="strong"><strong>e extended&#13;
+      </strong></span>
+<span class="strong"><strong>Select (default p): p&#13;
+      </strong></span>
+<span class="strong"><strong>Partition number (1-4, default 1): 1&#13;
+      </strong></span>
+<span class="strong"><strong>First sector (2048-157286399, default 2048):&#13;
+      </strong></span>
+<span class="strong"><strong>Using default value 2048&#13;
+      </strong></span>
+<span class="strong"><strong>Last sector, +sectors or +size{K,M,G} (2048-157286399,    &#13;
+      default 157286399):&#13;
+      </strong></span>
+<span class="strong"><strong>Using default value 157286399&#13;
+      </strong></span>
+<span class="strong"><strong>Command (m for help): t&#13;
+      </strong></span>
+<span class="strong"><strong>Selected partition 1&#13;
+      </strong></span>
+<span class="strong"><strong>Hex code (type L to list codes): 8e&#13;
+      </strong></span>
+<span class="strong"><strong>Changed system type of partition 1 to 8e (Linux LVM)&#13;
+      </strong></span>
+<span class="strong"><strong>Command (m for help): p&#13;
+      </strong></span>
+<span class="strong"><strong>Disk /dev/xvdb: 80.5 GB, 80530636800 bytes&#13;
+      </strong></span>
+<span class="strong"><strong>255 heads, 63 sectors/track, 9790 cylinders, total &#13;
+      157286400 sectors&#13;
+      </strong></span>
+<span class="strong"><strong>Units = sectors of 1 * 512 = 512 bytes&#13;
+      </strong></span>
+<span class="strong"><strong>Sector size (logical/physical): 512 bytes / 512 bytes&#13;
+      </strong></span>
+<span class="strong"><strong>I/O size (minimum/optimal): 512 bytes / 512 bytes&#13;
+      </strong></span>
+<span class="strong"><strong>Disk identifier: 0x115573cb&#13;
+      </strong></span>
+<span class="strong"><strong>Device Boot Start  End      Blocks    Id  System&#13;
+      </strong></span>
+<span class="strong"><strong>/dev/xvdb1  2048  157286399 78642176  8e  Linux LVM&#13;
+      </strong></span>
+<span class="strong"><strong>Command (m for help): w&#13;
+      </strong></span>
+<span class="strong"><strong>The partition table has been altered!&#13;
+      </strong></span>
+<span class="strong"><strong>Calling ioctl() to re-read partition table.&#13;
+      </strong></span>
+<span class="strong"><strong>Syncing disks.&#13;
+      </strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></li></ol></div><p>With the LVM partition defined, let's create the PV:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# pvcreate /dev/xvdb1&#13;</strong></span>
+<span class="strong"><strong>Physical volume "/dev/xvdb1" successfully created&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>With this, the <code class="literal">xvdb1</code> partition is now part of the LVM. It's time to create the VG; we'll name it <code class="literal">lxc</code> as this is the default VG that LXC uses:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# vgcreate lxc /dev/xvdb1&#13;</strong></span>
+<span class="strong"><strong>Volume group "lxc" successfully created&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><div class="section" title="Creating LXC containers using the LVM backing store"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec21"/>Creating LXC containers using the LVM backing store</h2></div></div></div><p>To create a container using the LVM backing store, we need to specify it on the command line, along with the desired root filesystem size:</p><pre class="programlisting"><span class="strong"><strong>root@ubuntu:~# lxc-create --bdev lvm --fssize 10G --name lvm_container --template ubuntu&#13;</strong></span>
+<span class="strong"><strong>Logical volume "lvm_container" created&#13;</strong></span>
+<span class="strong"><strong>Checking cache download in /var/cache/lxc/trusty/rootfs-amd64 ...&#13;</strong></span>
+<span class="strong"><strong>Installing packages in template: apt-transport-https,ssh,vim,language-pack-en&#13;</strong></span>
+<span class="strong"><strong>Downloading ubuntu trusty minimal ...&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>[root@centos ~]# lxc-create --bdev lvm --fssize 3G --name lvm_container --template centos&#13;</strong></span>
+<span class="strong"><strong>...</strong></span>
+</pre><p>As you can see from the preceding truncated output, the <code class="literal">lxc-create</code> command made a new LV named <code class="literal">lvm_container</code> and built the container filesystem on it.</p><p>Let's list the container and the LVM volumes that were created with the <code class="literal">pvs</code>, <code class="literal">vgs</code>, and <code class="literal">lvs</code> commands:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>NAME STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>lvm_container STOPPED 0 - - -&#13;
+&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# pvs&#13;</strong></span>
+<span class="strong"><strong>PV VG Fmt Attr PSize PFree&#13;</strong></span>
+<span class="strong"><strong>/dev/xvdb1 lxc lvm2 a-- 75.00g 65.00g&#13;
+&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# vgs&#13;</strong></span>
+<span class="strong"><strong>VG #PV #LV #SN Attr VSize VFree&#13;</strong></span>
+<span class="strong"><strong>lxc 1 1 0 wz--n- 75.00g 65.00g&#13;
+&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lvs&#13;</strong></span>
+<span class="strong"><strong>LV VG Attr LSize Pool Origin Data% Move Log Copy% Convert&#13;</strong></span>
+<span class="strong"><strong>lvm_container lxc -wi-a---- 10.00g&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>As expected, we can see the PV and the VG that we created earlier, along with the LV that LXC added.</p><p>Let's start the container and make sure it is running:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-start -n lvm_container&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>NAME          STATE  AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>lvm_container RUNNING 0 - - -&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Upon examination of the container configuration file we can see that the backend store for the root filesystem is set to <code class="literal">lvm</code>:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cat /var/lib/lxc/lvm_container/config | grep -vi ^# | grep lxc&#13;</strong></span>
+<span class="strong"><strong>lxc.include = /usr/share/lxc/config/ubuntu.common.conf&#13;</strong></span>
+<span class="strong"><strong>lxc.rootfs = /dev/lxc/lvm_container&#13;</strong></span>
+<span class="strong"><strong>lxc.rootfs.backend = lvm&#13;</strong></span>
+<span class="strong"><strong>lxc.utsname = lvm_container&#13;</strong></span>
+<span class="strong"><strong>lxc.arch = amd64&#13;</strong></span>
+<span class="strong"><strong>lxc.network.type = veth&#13;</strong></span>
+<span class="strong"><strong>lxc.network.link = lxcbr0&#13;</strong></span>
+<span class="strong"><strong>lxc.network.flags = up&#13;</strong></span>
+<span class="strong"><strong>lxc.network.hwaddr = 00:16:3e:60:96:a2&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Have a look at the new block devices that the device mapper has created in <code class="literal">/dev/lxc</code> and <code class="literal">/dev/mapper</code>, which are links to <code class="literal">/dev/dm-0</code>:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# ls -la /dev/lxc/&#13;</strong></span>
+<span class="strong"><strong>total 0&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 2 root root 60 Sep 13 18:14 .&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 15 root root 4020 Sep 13 18:25 ..&#13;</strong></span>
+<span class="strong"><strong>lrwxrwxrwx 1 root root 7 Sep 13 18:14 lvm_container -&gt; ../dm-0&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# ls -la /dev/mapper/&#13;</strong></span>
+<span class="strong"><strong>total 0&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 2 root root 100 Sep 13 18:35 .&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 15 root root 4040 Sep 13 18:35 ..&#13;</strong></span>
+<span class="strong"><strong>crw------- 1 root root 10, 236 Aug 30 15:17 control&#13;</strong></span>
+<span class="strong"><strong>lrwxrwxrwx 1 root root 7 Sep 13 18:14 lxc-lvm_container -&gt; ../dm-0&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# ls -la /dev/mapper/lxc-lvm_container&#13;</strong></span>
+<span class="strong"><strong>lrwxrwxrwx 1 root root 7 Sep 13 18:14 /dev/mapper/lxc-lvm_container -&gt; ../dm-0&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Let's create a second, smaller container and observe the effect of the device mapper again:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-create --bdev lvm --fssize 5G --name lvm_container_2 --template debian&#13;</strong></span>
+<span class="strong"><strong>Logical volume "lvm_container_2" created&#13;</strong></span>
+<span class="strong"><strong>debootstrap is /usr/sbin/debootstrap&#13;</strong></span>
+<span class="strong"><strong>Checking cache download in /var/cache/lxc/debian/rootfs-jessie-amd64 ...&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lvs&#13;</strong></span>
+<span class="strong"><strong>LV VG Attr LSize Pool Origin Data% Move Log Copy% Convert&#13;</strong></span>
+<span class="strong"><strong>lvm_container lxc -wi-ao--- 10.00g&#13;</strong></span>
+<span class="strong"><strong>lvm_container_2 lxc -wi-a---- 5.00g&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# ls -la /dev/lxc/&#13;</strong></span>
+<span class="strong"><strong>total 0&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 2 root root 80 Sep 13 18:35 .&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 15 root root 4040 Sep 13 18:35 ..&#13;</strong></span>
+<span class="strong"><strong>lrwxrwxrwx 1 root root 7 Sep 13 18:14 lvm_container -&gt; ../dm-0&#13;</strong></span>
+<span class="strong"><strong>lrwxrwxrwx 1 root root 7 Sep 13 18:35 lvm_container_2 -&gt; ../dm-1&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# ls -la /dev/mapper/&#13;</strong></span>
+<span class="strong"><strong>total 0&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 2 root root 100 Sep 13 18:35 .&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 15 root root 4040 Sep 13 18:35 ..&#13;</strong></span>
+<span class="strong"><strong>crw------- 1 root root 10, 236 Aug 30 15:17 control&#13;</strong></span>
+<span class="strong"><strong>lrwxrwxrwx 1 root root 7 Sep 13 18:14 lxc-lvm_container -&gt; ../dm-0&#13;</strong></span>
+<span class="strong"><strong>lrwxrwxrwx 1 root root 7 Sep 13 18:35 lxc-lvm_container_2 -&gt; ../dm-1&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Notice how this time the container build was much faster because the root filesystem was cached on disk from the earlier build and the presence of two block devices <code class="literal">dm-0</code> and <code class="literal">dm-1</code>.</p><p>Let's get more information about the LV the LXC created for the two containers:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lvdisplay&#13;</strong></span>
+<span class="strong"><strong>--- Logical volume ---&#13;</strong></span>
+<span class="strong"><strong>LV Path             /dev/lxc/lvm_container&#13;</strong></span>
+<span class="strong"><strong>LV Name             lvm_container&#13;</strong></span>
+<span class="strong"><strong>VG Name             lxc&#13;</strong></span>
+<span class="strong"><strong>LV UUID             oBiCEC-mHE7-FHGY-ikUI-tg10-rouD-NBWHVt&#13;</strong></span>
+<span class="strong"><strong>LV Write Access     read/write&#13;</strong></span>
+<span class="strong"><strong>LV Creation host, time ubuntu, 2016-09-13 18:14:42 +0000&#13;</strong></span>
+<span class="strong"><strong>LV Status            available&#13;</strong></span>
+<span class="strong"><strong># open               1&#13;</strong></span>
+<span class="strong"><strong>LV Size              10.00 GiB&#13;</strong></span>
+<span class="strong"><strong>Current LE           2560&#13;</strong></span>
+<span class="strong"><strong>Segments             1&#13;</strong></span>
+<span class="strong"><strong>Allocation           inherit&#13;</strong></span>
+<span class="strong"><strong>Read ahead sectors   auto&#13;</strong></span>
+<span class="strong"><strong>- currently set to   256&#13;</strong></span>
+<span class="strong"><strong>Block device         252:0&#13;</strong></span>
+<span class="strong"><strong>--- Logical volume ---&#13;</strong></span>
+<span class="strong"><strong>LV Path              /dev/lxc/lvm_container_2&#13;</strong></span>
+<span class="strong"><strong>LV Name              lvm_container_2&#13;</strong></span>
+<span class="strong"><strong>VG Name              lxc&#13;</strong></span>
+<span class="strong"><strong>LV UUID              ED06VK-xzWv-lGPL-Myff-gN3P-AD2l-8zTRko&#13;</strong></span>
+<span class="strong"><strong>LV Write Access      read/write&#13;</strong></span>
+<span class="strong"><strong>LV Creation host, time ubuntu, 2016-09-13 18:35:52 +0000&#13;</strong></span>
+<span class="strong"><strong>LV Status            available&#13;</strong></span>
+<span class="strong"><strong># open               0&#13;</strong></span>
+<span class="strong"><strong>LV Size              5.00 GiB&#13;</strong></span>
+<span class="strong"><strong>Current LE           1280&#13;</strong></span>
+<span class="strong"><strong>Segments             1&#13;</strong></span>
+<span class="strong"><strong>Allocation           inherit&#13;</strong></span>
+<span class="strong"><strong>Read ahead sectors   auto&#13;</strong></span>
+<span class="strong"><strong>- currently set to   256&#13;</strong></span>
+<span class="strong"><strong>Block device         252:1&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Notice the presence of two LVs and their respective properties.</p></div><div class="section" title="Creating container snapshots on the LVM backing store"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec22"/>Creating container snapshots on the LVM backing store</h2></div></div></div><p>Now that we have containers on a backing store that supports snapshots, let's experiment with the <code class="literal">lxc-copy</code> utility. The <code class="literal">lxc-copy</code> utility creates copies of existing containers that can be either complete clones of the original container, meaning the entire root filesystem is copied to the new container, or snapshots, using <span class="strong"><strong>Copy-on-write</strong></span> (<span class="strong"><strong>COW</strong></span>).</p><p>Let's start by creating a snapshot of the second container and observe the effect on the LVs:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-copy --snapshot --name lvm_container_2 --newname container_2_copy</strong></span>
+<span class="strong"><strong>Logical volume "container_2_copy" created</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-ls -f</strong></span>
+<span class="strong"><strong>NAME             STATE AUTOSTART GROUPS IPV4 IPV6</strong></span>
+<span class="strong"><strong>container_2_copy STOPPED 0 - - -</strong></span>
+<span class="strong"><strong>lvm_container    RUNNING 0 - 10.0.3.129 -</strong></span>
+<span class="strong"><strong>lvm_container_2  STOPPED 0 - - -</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lvs</strong></span>
+<span class="strong"><strong>LV               VG Attr LSize Pool Origin Data% Move Log Copy% Convert</strong></span>
+<span class="strong"><strong>container_2_copy lxc swi-a-s-- 5.00g lvm_container_2 0.00</strong></span>
+<span class="strong"><strong>lvm_container    lxc -wi-ao--- 10.00g</strong></span>
+<span class="strong"><strong>lvm_container_2  lxc owi-a-s-- 5.00g</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Notice from the preceding output the presence of the <code class="literal">s</code> attribute, indicating that this container is a snapshot, and the <code class="literal">Origin</code> column listing <code class="literal">lvm_container_2</code>, from which we cloned. COW is a great way for quickly creating snapshots of containers that will use less disk space, recording only the new changes that occur after the snapshot.</p><p>In contrast, we can create a full copy of the original container filesystem, if we don't specify the <code class="literal">--snapshot</code> attribute to <code class="literal">lxc-copy</code>:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-copy --name lvm_container_2 --newname container_2_hard&#13;</strong></span>
+<span class="strong"><strong>Logical volume "container_2_hard" created&#13;
+&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lvs&#13;</strong></span>
+<span class="strong"><strong>LV               VG  Attr LSize Pool Origin Data% Move Log Copy% Convert&#13;</strong></span>
+<span class="strong"><strong>container_2_copy lxc swi-a-s-- 5.00g lvm_container_2 0.11&#13;</strong></span>
+<span class="strong"><strong>container_2_hard lxc -wi-a---- 5.00g&#13;</strong></span>
+<span class="strong"><strong>lvm_container    lxc -wi-ao--- 10.00g&#13;</strong></span>
+<span class="strong"><strong>lvm_container_2  lxc owi-a-s-- 5.00g&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Observe how the new clone does not have the <code class="literal">s</code> attribute and the <code class="literal">Origin</code> column is now blank, indicating a full copy instead of a snapshot.</p></div><div class="section" title="Creating block devices using truncate, dd, and losetup"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec23"/>Creating block devices using truncate, dd, and losetup</h2></div></div></div><p>For the examples in this chapter, it's best to use a cloud provider such as Rackspace or Amazon, because of their free tiers and the ability to add or block devices on demand. However, if you are unable to use block devices for testing, you can create logical block devices with the help of a few tools and use that instead. It goes without saying that this is just for testing and should not be implemented in production due to the inherited overhead of such abstractions.</p><p>Let's demonstrate how we can make a block device and create a PV on it for use with the LVM:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">First, let's create a file that we'll use as a base for the new software block device, using either the <code class="literal">truncate</code> or <code class="literal">dd</code> commands, and specify a size of 5 GB:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# truncate --size 5G xvdz.img&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre><p>The preceding command created a regular 5 GB file on disk:</p><pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# ls -la xvdz.img&#13;</strong></span>
+<span class="strong"><strong>      -rw-r--r-- 1 root root 5368709120 Sep 13 19:01 xvdz.img&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Next, we'll use the <code class="literal">loop</code> kernel module and the <code class="literal">losetup</code> tool to create a new block device by associating the loop device with the regular file we created earlier.<p>Let's load the kernel module first:</p><pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# modprobe loop</strong></span>
+</pre></li><li class="listitem">Then find the first available loop device that is not in use:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# losetup --find&#13;</strong></span>
+<span class="strong"><strong>      /dev/loop0&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Associate the loop device with the image file:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# losetup /dev/loop0 xvdz.img&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# losetup --all&#13;</strong></span>
+<span class="strong"><strong>      /dev/loop0: [ca01]:30352 (/root/xvdz.img)&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Now, we can use <code class="literal">/dev/loop0</code> as a regular block device. Let's create the LVM PV on it:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# pvcreate /dev/loop0&#13;</strong></span>
+<span class="strong"><strong>      Physical volume "/dev/loop0" successfully created&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Alternatively, we can use the <code class="literal">dd</code> command:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# dd if=/dev/zero of=/block_device bs=1k &#13;
+      count=500000&#13;</strong></span>
+<span class="strong"><strong>      500000+0 records in&#13;</strong></span>
+<span class="strong"><strong>      500000+0 records out&#13;</strong></span>
+<span class="strong"><strong>      512000000 bytes (512 MB) copied, 2.33792 s, 219 MB/s&#13;</strong></span>
+<span class="strong"><strong>     &#13;
+      root@ubuntu:~# losetup --find&#13;</strong></span>
+<span class="strong"><strong>      /dev/loop1&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre><p>Notice how <code class="literal">loop1</code> is now the next available loop device to use:</p><pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# losetup /dev/loop1 /block_device&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# pvcreate /dev/loop1&#13;</strong></span>
+<span class="strong"><strong>      Physical volume "/dev/loop1" successfully created&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Listing the loop devices now, show two of them associated with the regular files we created with <code class="literal">truncate</code> and <code class="literal">dd</code>:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# losetup --all&#13;</strong></span>
+<span class="strong"><strong>      /dev/loop0: [ca01]:30352 (/root/xvdz.img)&#13;</strong></span>
+<span class="strong"><strong>      /dev/loop1: [ca01]:38291 (/block_device)&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Finally, to remove the loop devices, run the following:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# losetup -d /dev/loop1</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# losetup -d /dev/loop0</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# losetup --all</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li></ol></div></div></div></div>
+<div class="section" title="Using the Btrfs backing store"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec15"/>Using the Btrfs backing store</h1></div></div></div><p>The <span class="strong"><strong>B-tree filesystem</strong></span> (<span class="strong"><strong>Btrfs</strong></span>) is a COW filesystem that provides modern features such as dynamic inode allocation, compression, and online filesystem defragmentation - and most importantly for the purposes of this book, writable and read-only snapshots.</p><p>Without going into much detail about the design of Btrfs, the following diagram shows the main components of the filesystem:</p><div class="mediaobject"><img alt="Using the Btrfs backing store" src="graphics/image_03_002.jpg"/></div><p>Each Btrfs filesystem consists of a <span class="strong"><strong>Btrfs Root Tree</strong></span>, which records the root block for the <span class="strong"><strong>Extent Tree</strong></span> and <span class="strong"><strong>Subvolume Tree</strong></span>. The root block pointers are updated with each transaction, to point to the new roots created by the transaction. The <span class="strong"><strong>Extent Tree</strong></span> shown in the preceding diagram manages disk space and contains information about the blocks on the device. The <span class="strong"><strong>Subvolume Tree</strong></span> record snapshots, which are subvolumes.</p><p>Note that subvolumes are different than the LVs in the LVM, in the sense that the Btrfs subvolume is not an actual block device.</p><p>Let's look at a few examples on how to use the Btrfs backing store with LXC:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">First, let's install the Btrfs support tools.<p>On Ubuntu, run the following:</p><pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# apt-get -y install btrfs-tools</strong></span>
+</pre><p>On CentOS, install using:</p><pre class="programlisting">
+<span class="strong"><strong>      [root@centos ~]# yum install -y btrfs-progs</strong></span>
+</pre></li><li class="listitem">Load the kernel module if not already loaded:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# modprobe btrfs&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# lsmod | grep btrfs&#13;</strong></span>
+<span class="strong"><strong>      btrfs       840205  0&#13;</strong></span>
+<span class="strong"><strong>      raid6_pq    97812   1     btrfs&#13;</strong></span>
+<span class="strong"><strong>      xor         21411   1     btrfs&#13;</strong></span>
+<span class="strong"><strong>      libcrc32c   12644   2     xfs,btrfs&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">With Btrfs, we don't need to have a partition on the block device, so let's go ahead and create the filesystem:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# mkfs -t btrfs /dev/xvdd&#13;</strong></span>
+<span class="strong"><strong>      fs created label (null) on /dev/xvdd&#13;</strong></span>
+<span class="strong"><strong>      nodesize 16384 leafsize 16384 sectorsize 4096 size 75.00GiB&#13;</strong></span>
+<span class="strong"><strong>      Btrfs v3.12&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre><p>Notice the filesystem type on the <code class="literal">xvdd</code> block device:</p><pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# file -s /dev/xvdd&#13;</strong></span>
+<span class="strong"><strong>      /dev/xvdd: BTRFS Filesystem sectorsize 4096, nodesize 16384, &#13;
+      leafsize 16384,   &#13;
+      UUID=58ef810a-c009-4302-9579-a2a9ed7f7ced, 114688/80530636800 &#13;
+      bytes used, &#13;
+      1 devices&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">To get more information about the filesystem we can use the <code class="literal">btrfs</code> tool:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# btrfs filesystem show&#13;</strong></span>
+<span class="strong"><strong>      Label: none uuid: 9c84a092-4791-4031-ad16-2cb8488c5633&#13;</strong></span>
+<span class="strong"><strong>      Total devices 1 FS bytes used 331.25MiB&#13;</strong></span>
+<span class="strong"><strong>      devid 1 size 75.00GiB used 3.04GiB path /dev/xvdb&#13;</strong></span>
+<span class="strong"><strong>      Btrfs v3.12&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Let's mount the block device so we can actually use it:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# mkdir btrfs_c1&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# mount /dev/xvdd btrfs_c1&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# cat /proc/mounts | grep btrfs&#13;</strong></span>
+<span class="strong"><strong>      /dev/xvdd /root/btrfs_c1 btrfs rw,relatime,ssd,space_cache 0 0&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">With the device mounted, let's show the subvolumes and disk space utilization:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# btrfs subvolume show /root/btrfs_c1/&#13;</strong></span>
+<span class="strong"><strong>      /root/btrfs_c1 is btrfs root&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# btrfs filesystem df /root/btrfs_c1&#13;</strong></span>
+<span class="strong"><strong>      Data, single: total=1.01GiB, used=309.14MiB&#13;</strong></span>
+<span class="strong"><strong>      System, DUP: total=8.00MiB, used=16.00KiB&#13;</strong></span>
+<span class="strong"><strong>      System, single: total=4.00MiB, used=0.00&#13;</strong></span>
+<span class="strong"><strong>      Metadata, DUP: total=1.00GiB, used=22.09MiB&#13;</strong></span>
+<span class="strong"><strong>      Metadata, single: total=8.00MiB, used=0.00&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li></ol></div><div class="section" title="Creating LXC containers using the Btrfs backing store"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec24"/>Creating LXC containers using the Btrfs backing store</h2></div></div></div><p>Now that we have the backing store ready, let's create a new LXC container by specifying the Btrfs backing store and the location for the root filesystem:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-create --bdev btrfs --lxcpath=btrfs_c1 --name btrfs_container --template ubuntu&#13;</strong></span>
+<span class="strong"><strong>Checking cache download in /var/cache/lxc/trusty/rootfs-amd64 ...&#13;</strong></span>
+<span class="strong"><strong>Copy /var/cache/lxc/trusty/rootfs-amd64 to btrfs_c1/btrfs_container/rootfs ...&#13;</strong></span>
+<span class="strong"><strong>Copying rootfs to btrfs_c1/btrfs_container/rootfs ...&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-ls --lxcpath=/root/btrfs_c1 -f&#13;</strong></span>
+<span class="strong"><strong>NAME STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>btrfs_container STOPPED 0 - - -&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Note that we are using a different path for the root filesystem of the container than the default one in <code class="literal">/var/lib/lxc</code>. We specified it with the <code class="literal">--lxcpath</code> parameter to point to the Btrfs volume. We need to pass the same path each time we run LXC commands, or we can update the default path for the container with the <code class="literal">lxc-config</code> command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-config lxc.lxcpath&#13;</strong></span>
+<span class="strong"><strong>/var/lib/lxc&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# echo "lxc.lxcpath = /root/btrfs_c1" &gt;&gt; /etc/lxc/lxc.conf&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-config lxc.lxcpath&#13;</strong></span>
+<span class="strong"><strong>/root/btrfs_c1&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Now we can list all running Btrfs containers without explicitly specifying the path:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>NAME STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>btrfs_container STOPPED 0 - - -&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>The container root filesystem and configuration file reside on the Btrfs volume:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# ls -la btrfs_c1/btrfs_container/&#13;</strong></span>
+<span class="strong"><strong>total 20&#13;</strong></span>
+<span class="strong"><strong>drwxrwx--- 1 root root 24 Sep 13 20:08 .&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 1 root root 30 Sep 13 20:07 ..&#13;</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 714 Sep 13 20:08 config&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 1 root root 132 Sep 13 18:18 rootfs&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>To make sure that the container's root resides on the Btrfs filesystem, let's list all subvolumes:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# btrfs subvolume list /root/btrfs_c1/&#13;</strong></span>
+<span class="strong"><strong>ID 257 gen 9 top level 5 path btrfs_container/rootfs&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></div><div class="section" title="Creating container snapshots on the Btrfs backing store"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec25"/>Creating container snapshots on the Btrfs backing store</h2></div></div></div><p>Creating a COW snapshot with Btrfs is similar to that of the LVM: we specify the backend store, the location of the container's root filesystem, and the name for the new container:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-copy --lxcpath=/root/btrfs_c1 -s -n btrfs_container -N btrfs_cow_clone&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-ls --lxcpath=/root/btrfs_c1 -f&#13;</strong></span>
+<span class="strong"><strong>NAME            STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>btrfs_container STOPPED 0 - - -&#13;</strong></span>
+<span class="strong"><strong>btrfs_cow_clone STOPPED 0 - - -&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Let's see what the effect on the Brtfs filesystem is after the cloning:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# btrfs subvolume list /root/btrfs_c1/&#13;</strong></span>
+<span class="strong"><strong>ID 257 gen 12 top level 5 path btrfs_container/rootfs&#13;</strong></span>
+<span class="strong"><strong>ID 259 gen 12 top level 5 path btrfs_cow_clone/rootfs&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# ls -la btrfs_c1/&#13;</strong></span>
+<span class="strong"><strong>total 20&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 1 root root 60 Sep 13 20:23 .&#13;</strong></span>
+<span class="strong"><strong>drwx------ 6 root root 4096 Sep 13 19:58 ..&#13;</strong></span>
+<span class="strong"><strong>drwxrwx--- 1 root root 24 Sep 13 20:08 btrfs_container&#13;</strong></span>
+<span class="strong"><strong>drwxrwx--- 1 root root 24 Sep 13 20:23 btrfs_cow_clone&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>As we can see from the preceding output, we now have two subvolumes and directories on the Btrfs filesystem.</p><p>Before we can start the containers, make sure that the <code class="literal">lxc.rootfs</code> config option points to the correct root filesystem:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cat btrfs_c1/btrfs_container/config | grep -vi ^# | grep lxc&#13;</strong></span>
+<span class="strong"><strong>lxc.include = /usr/share/lxc/config/ubuntu.common.conf&#13;</strong></span>
+<span class="strong"><strong>lxc.rootfs = /root/btrfs_c1/btrfs_container/rootfs&#13;</strong></span>
+<span class="strong"><strong>lxc.rootfs.backend = btrfs&#13;</strong></span>
+<span class="strong"><strong>lxc.utsname = btrfs_container&#13;</strong></span>
+<span class="strong"><strong>lxc.arch = amd64&#13;</strong></span>
+<span class="strong"><strong>lxc.network.type = veth&#13;</strong></span>
+<span class="strong"><strong>lxc.network.link = lxcbr0&#13;</strong></span>
+<span class="strong"><strong>lxc.network.flags = up&#13;</strong></span>
+<span class="strong"><strong>lxc.network.hwaddr = 00:16:3e:f2:a9:04&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="tip14"/>Tip</h3><p>On some Linux distributions and LXC versions, the <code class="literal">lxc.rootfs</code> might not point to the correct location of the container's filesystem, resulting in failure during the start. If this is the case, change the path and start the container again.</p></div></div><p>If all looks good, let's start the containers and make sure they are running:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-start --lxcpath=/root/btrfs_c1 -n btrfs_cow_clone&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-start --lxcpath=/root/btrfs_c1 -n btrfs_container&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>NAME            STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>btrfs_container RUNNING 0 - 10.0.3.137 -&#13;</strong></span>
+<span class="strong"><strong>btrfs_cow_clone RUNNING 0 - 10.0.3.136 -&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>To cleanup, let's first stop the containers, unmount the Btrfs block device, and restore the LXC default path:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-stop --lxcpath=/root/btrfs_c1 -n btrfs_cow_clone&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-stop --lxcpath=/root/btrfs_c1 -n btrfs_container&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# umount /root/btrfs_c1&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# echo "lxc.lxcpath = /var/lib/lxc" &gt; /etc/lxc/lxc.conf&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-config lxc.lxcpath&#13;</strong></span>
+<span class="strong"><strong>/var/lib/lxc&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></div></div>
+<div class="section" title="Using the ZFS backing store"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec16"/>Using the ZFS backing store</h1></div></div></div><p>ZFS is both a filesystem and LVM. It consists of a storage pool that manages multiple block devices and provides a virtual storage interface to the filesystem that can then easily be extended on the go. The following diagram shows the general structure of ZFS and its components:</p><div class="mediaobject"><img alt="Using the ZFS backing store" src="graphics/image_03_003.jpg"/></div><p>Similar to the LVM, multiple block devices can be aggregated into a <span class="strong"><strong>Storage pool</strong></span>, from which different directories can be carved.</p><p>The main features ZFS provides are data reliability due to the implementation of transparent checksums, automatic compression and deduplication of data, parallel constant time directory operations and, most importantly in the context of LXC, COW snapshots and clones.</p><p>Let's install the userspace tools on Ubuntu:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# apt-add-repository ppa:zfs-native/daily&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# apt-get update&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# apt-get install ubuntu-zfs</strong></span>
+</pre><p>The package names are different on CentOS:</p><pre class="programlisting">
+<span class="strong"><strong>[root@centos ~]# yum update&#13;</strong></span>
+<span class="strong"><strong>[root@centos ~]# reboot&#13;</strong></span>
+<span class="strong"><strong>[root@centos ~]# yum localinstall --nogpgcheck http://archive.zfsonlinux.org/epel/zfs-release.el7.noarch.rpm&#13;</strong></span>
+<span class="strong"><strong>[root@centos ~]# yum install kernel-devel&#13;</strong></span>
+<span class="strong"><strong>[root@centos ~]# yum install zfs</strong></span>
+</pre><p>Next, load the kernel module and ensure it's being used:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# modprobe zfs&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lsmod | grep zfs&#13;</strong></span>
+<span class="strong"><strong>zfs      3089200 0&#13;</strong></span>
+<span class="strong"><strong>zunicode 331170  1 zfs&#13;</strong></span>
+<span class="strong"><strong>zcommon  66797   1 zfs&#13;</strong></span>
+<span class="strong"><strong>znvpair  89131   2 zfs,zcommon&#13;</strong></span>
+<span class="strong"><strong>spl      106271  3 zfs,zcommon,znvpair&#13;</strong></span>
+<span class="strong"><strong>zavl     15236   1 zfs&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Let's create a pool named <code class="literal">lxc</code> as this is the default name that LXC uses for the ZFS backend when creating the container root filesystem:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# zpool create -f lxc xvdb</strong></span>
+</pre><p>Substitute <code class="literal">xvdb</code> with the name of the block device you would like to use.</p><p>Let's list the newly created pool and check its status:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# zpool list&#13;</strong></span>
+<span class="strong"><strong>NAME SIZE ALLOC FREE EXPANDSZ FRAG CAP DEDUP HEALTH ALTROOT&#13;</strong></span>
+<span class="strong"><strong>lxc 74.5G 51.5K 74.5G - 0% 0% 1.00x ONLINE -&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# zpool status&#13;</strong></span>
+<span class="strong"><strong>pool: lxc&#13;</strong></span>
+<span class="strong"><strong>state: ONLINE&#13;</strong></span>
+<span class="strong"><strong>scan: none requested&#13;</strong></span>
+<span class="strong"><strong>config:&#13;</strong></span>
+<span class="strong"><strong>NAME STATE READ WRITE CKSUM&#13;</strong></span>
+<span class="strong"><strong>lxc ONLINE 0 0 0&#13;</strong></span>
+<span class="strong"><strong>xvdb ONLINE 0 0 0&#13;</strong></span>
+<span class="strong"><strong>errors: No known data errors&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Everything looks good; let's see the mount point:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# zfs list&#13;</strong></span>
+<span class="strong"><strong>NAME USED AVAIL REFER MOUNTPOINT&#13;</strong></span>
+<span class="strong"><strong>lxc 56.5K 72.2G 19K /lxc&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# df -h | grep -w lxc&#13;</strong></span>
+<span class="strong"><strong>lxc 73G 0 73G 0% /lxc&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>With this, we are ready to use ZFS as a backing store for LXC.</p><div class="section" title="Creating LXC containers using the ZFS backing store"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec26"/>Creating LXC containers using the ZFS backing store</h2></div></div></div><p>Let's create a new LXC container by specifying the backing store and the root filesystem path in the same way we did with the LVM and Btrfs:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-create --bdev zfs --lxcpath=/lxc --name zfs_container --template ubuntu</strong></span>
+<span class="strong"><strong>Checking cache download in /var/cache/lxc/trusty/rootfs-amd64 ...</strong></span>
+<span class="strong"><strong>Installing packages in template: apt-transport-https,ssh,vim,language-pack-en</strong></span>
+<span class="strong"><strong>Downloading ubuntu trusty minimal ...</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-ls --lxcpath=/lxc -f</strong></span>
+<span class="strong"><strong>NAME          STATE AUTOSTART GROUPS IPV4 IPV6</strong></span>
+<span class="strong"><strong>zfs_container STOPPED 0 - - -</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="note15"/>Note</h3><p>Note that since we are using a custom path for the root filesystem of the container, each LXC command will need to be passed the <code class="literal">--lxcpath</code> parameter. This can be avoided by specifying the new path with the <code class="literal">lxc.lxcpath</code> variable in the system wide LXC config file, as we saw in the Btrfs section earlier in this chapter.</p></div></div><p>Note that the root filesystem resides on the ZFS volume:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# ls -la /lxc/</strong></span>
+<span class="strong"><strong>total 5</strong></span>
+<span class="strong"><strong>drwxr-xr-x 3 root root 3 Sep 14 13:57 </strong></span>
+<span class="strong"><strong>drwxr-xr-x 23 root root 4096 Sep 14 13:54 ..</strong></span>
+<span class="strong"><strong>drwxrwx--- 3 root root 4 Sep 14 14:02 zfs_container</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></div><div class="section" title="Creating container snapshots on the ZFS backing store"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec27"/>Creating container snapshots on the ZFS backing store</h2></div></div></div><p>Let's make a snapshot based on the container we just built. Make sure the original container is stopped and the location of the root filesystem is specified:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-copy --lxcpath=/lxc -s -n zfs_container -N zfs_cow_clone&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-ls --lxcpath=/lxc -f&#13;</strong></span>
+<span class="strong"><strong>NAME STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>zfs_container STOPPED 0 - - -&#13;</strong></span>
+<span class="strong"><strong>zfs_cow_clone STOPPED 0 - - -&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">The clone directory resides on the ZFS filesystem:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# ls -la /lxc&#13;</strong></span>
+<span class="strong"><strong>      total 6&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 4 root root 4 Sep 14 14:03 .&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 23 root root 4096 Sep 14 13:54 ..&#13;</strong></span>
+<span class="strong"><strong>      drwxrwx--- 3 root root 4 Sep 14 14:02 zfs_container&#13;</strong></span>
+<span class="strong"><strong>      drwxrwx--- 3 root root 4 Sep 14 14:03 zfs_cow_clone&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Next, start both containers and ensure they are in a running state:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# lxc-start --lxcpath=/lxc --name zfs_container&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# lxc-start --lxcpath=/lxc --name zfs_cow_clone&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# lxc-ls --lxcpath=/lxc -f &#13;</strong></span>
+<span class="strong"><strong>      NAME STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>      zfs_container RUNNING 0 - 10.0.3.238 -&#13;</strong></span>
+<span class="strong"><strong>      zfs_cow_clone RUNNING 0 - 10.0.3.152 -&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Finally let's clean up. First, stop the containers:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# lxc-stop --lxcpath=/lxc --name zfs_cow_clone&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# lxc-stop --lxcpath=/lxc --name zfs_container&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Next, try to destroy both the containers:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# lxc-destroy --lxcpath=/lxc --name zfs_cow_clone&#13;</strong></span>
+<span class="strong"><strong>      Destroyed container zfs_cow_clone&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# lxc-destroy --lxcpath=/lxc --name zfs_container&#13;</strong></span>
+<span class="strong"><strong>      cannot destroy 'lxc/zfs_container': filesystem has children&#13;</strong></span>
+<span class="strong"><strong>      use '-r' to destroy the following datasets:&#13;</strong></span>
+<span class="strong"><strong>      lxc/zfs_container@zfs_cow_clone&#13;</strong></span>
+<span class="strong"><strong>      lxc-destroy: lxccontainer.c: container_destroy: 2376 Error destroying &#13;
+      rootfs for    &#13;
+      zfs_container&#13;</strong></span>
+<span class="strong"><strong>      Destroying zfs_container failed&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">The clone got destroyed but the original container failed. This is because we first need to clean up the child ZFS dataset that was created when snapshotting the original container:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# zfs destroy lxc/zfs_container@zfs_cow_clone&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# lxc-destroy --lxcpath=/lxc --name zfs_container&#13;</strong></span>
+<span class="strong"><strong>      Destroyed container zfs_container&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# lxc-ls --lxcpath=/lxc -f&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Finally, delete the ZFS pool:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# zpool destroy lxc&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# zpool status&#13;</strong></span>
+<span class="strong"><strong>      no pools available&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# zfs list&#13;</strong></span>
+<span class="strong"><strong>      no datasets available&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li></ol></div><p>With this, ZFS does not contain any datasets or pools.</p></div></div>
+<div class="section" title="Autostarting LXC containers"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec17"/>Autostarting LXC containers</h1></div></div></div><p>By default, LXC containers do not start after a server reboot. To change that, we can use the <code class="literal">lxc-autostart</code> tool and the containers configuration file:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">To demonstrate this, let's create a new container first:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# lxc-create --name autostart_container --template &#13;
+      ubuntu&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>      NAME STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>      autostart_container STOPPED 0 - - -&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Next, add the <code class="literal">lxc.start.auto</code> stanza to its config file:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# echo "lxc.start.auto = 1" &gt;&gt; &#13;
+      /var/lib/lxc/autostart_container/config&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">List all containers that are configured to start automatically:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# lxc-autostart --list&#13;</strong></span>
+<span class="strong"><strong>      autostart_container&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Now we can use the <code class="literal">lxc-autostart</code> command again to start all containers configured to autostart, in this case just one:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# lxc-autostart --all</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# lxc-ls -f</strong></span>
+<span class="strong"><strong>      NAME                STATE AUTOSTART GROUPS IPV4 IPV6</strong></span>
+<span class="strong"><strong>      autostart_container RUNNING 1 - 10.0.3.98 -</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Two other useful autostart configuration parameters are adding a delay to the start, and defining a group in which multiple containers can start as a single unit. Stop the container and add the following to configuration options:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# lxc-stop --name autostart_container&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# echo "lxc.start.delay = 5" &gt;&gt; &#13;
+      /var/lib/lxc/autostart_container/config&#13;
+&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# echo "lxc.group = high_priority" &gt;&gt; &#13;
+      /var/lib/lxc/autostart_container/config&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Next, let's list the containers configured to autostart again:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# lxc-autostart --list&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre><p>Notice that no containers showed from the preceding output. This is because our container now belongs to an autostart group. Let's specify it:</p><pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# lxc-autostart --list --group high_priority</strong></span>
+<span class="strong"><strong>      autostart_container 5</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Similarly, start all containers belonging to a given autostart group:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# lxc-autostart --group high_priority&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>      NAME                STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>      autostart_container RUNNING 1 high_priority 10.0.3.98 -&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre><p>For <code class="literal">lxc-autostart</code> to automatically start containers after a server reboot, it first needs to be started. This can be achieved by either adding the preceding command in <code class="literal">crontab</code>, or creating an init script.</p></li><li class="listitem">Finally, in order to clean up, run the following:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# lxc-destroy --name autostart_container&#13;</strong></span>
+<span class="strong"><strong>      Destroyed container autostart_container&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li></ol></div></div>
+<div class="section" title="LXC container hooks"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec18"/>LXC container hooks</h1></div></div></div><p>LXC provides a convenient way to execute programs during the life cycle of containers. The following table summarizes the various configuration options available to allow this feature:</p><div class="informaltable"><table border="1"><colgroup><col/><col/></colgroup><tbody><tr><td>
+<p><span class="strong"><strong>Option</strong></span></p>
+</td><td>
+<p><span class="strong"><strong>Description</strong></span></p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.hook.pre-start</code></p>
+</td><td>
+<p>A hook to be run in the host namespace before the container ttys, consoles, or mounts are loaded</p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.hook.pre-mount</code></p>
+</td><td>
+<p>A hook to be run in the container's filesystem namespace, but before the <code class="literal">rootfs</code> has been set up</p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.hook.mount</code></p>
+</td><td>
+<p>A hook to be run in the container after mounting has been done, but before the <code class="literal">pivot_root</code></p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.hook.autodev</code></p>
+</td><td>
+<p>A hook to be run in the container after mounting has been done and after any mount hooks have run, but before the <code class="literal">pivot_root</code></p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.hook.start</code></p>
+</td><td>
+<p>A hook to be run in the container right before executing the container's init</p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.hook.stop</code></p>
+</td><td>
+<p>A hook to be run in the host's namespace after the container has been shut down</p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.hook.post-stop</code></p>
+</td><td>
+<p>A hook to be run in the host's namespace after the container has been shut down</p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.hook.clone</code></p>
+</td><td>
+<p>A hook to be run when the container is cloned</p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.hook.destroy</code></p>
+</td><td>
+<p>A hook to be run when the container is destroyed</p>
+</td></tr></tbody></table></div><p>To demonstrate this, let's create a new container and write a simple script that will output the values of four LXC variables to a file, when the container starts:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">First, create the container and add the <code class="literal">lxc.hook.pre-start</code> option to its configuration file:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# lxc-create --name hooks_container --template &#13;
+      ubuntu&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# echo "lxc.hook.pre-start =   &#13;
+      /var/lib/lxc/hooks_container/pre_start.sh" &gt;&gt; /var/lib&#13;
+      /lxc/hooks_container/config&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Next, create a simple bash script and make it executable:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# vi /var/lib/lxc/hooks_container/pre_start.sh&#13;</strong></span>
+<span class="strong"><strong>      #!/bin/bash&#13;</strong></span>
+<span class="strong"><strong>      LOG_FILE=/tmp/container.log&#13;</strong></span>
+<span class="strong"><strong>      echo "Container name: $LXC_NAME" | tee -a $LOG_FILE&#13;</strong></span>
+<span class="strong"><strong>      echo "Container mounted rootfs: $LXC_ROOTFS_MOUNT" | tee -a &#13;
+      $LOG_FILE&#13;</strong></span>
+<span class="strong"><strong>      echo "Container config file $LXC_CONFIG_FILE" | tee -a $LOG_FILE&#13;</strong></span>
+<span class="strong"><strong>      echo "Container rootfs: $LXC_ROOTFS_PATH" | tee -a $LOG_FILE&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#&#13;
+&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# chmod u+x /var/lib/lxc/hooks_container&#13;
+      /pre_start.sh&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Start the container and check the contents of the file that the bash script should have written to, ensuring the script got triggered:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# lxc-start --name hooks_container&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>      NAME            STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>      hooks_container RUNNING 0 - 10.0.3.237 -&#13;</strong></span>
+<span class="strong"><strong>     &#13;
+      root@ubuntu:~# cat /tmp/container.log&#13;</strong></span>
+<span class="strong"><strong>      Container name: hooks_container&#13;</strong></span>
+<span class="strong"><strong>      Container mounted rootfs: /usr/lib/x86_64-linux-gnu/lxc&#13;</strong></span>
+<span class="strong"><strong>      Container config file /var/lib/lxc/hooks_container/config&#13;</strong></span>
+<span class="strong"><strong>      Container rootfs: /var/lib/lxc/hooks_container/rootfs&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li></ol></div><p>From the preceding output, we can see that the script got triggered when we started the container, and the value of the LXC variables got written to the temp file.</p></div>
+<div class="section" title="Attaching directories from the host OS and exploring the running filesystem of a container"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec19"/>Attaching directories from the host OS and exploring the running filesystem of a container</h1></div></div></div><p>The root filesystem of LXC containers is visible from the host OS as a regular directory tree. We can directly manipulate files in a running container by just making changes in that directory. LXC also allows for attaching directories from the host OS inside the container using bind mount. A bind mount is a different view of the directory tree. It achieves this by replicating the existing directory tree under a different mount point.</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">To demonstrate this, let's create a new container, directory, and a file on the host:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# mkdir /tmp/export_to_container&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# hostname -f &gt; /tmp/export_to_container/file&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# lxc-create --name mount_container --template &#13;
+      ubuntu&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Next, we are going to use the <code class="literal">lxc.mount.entry</code> option in the configuration file of the container, telling LXC what directory to bind mount from the host, and the mount point inside the container to bind to:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# echo "lxc.mount.entry = /tmp/export_to_container/   &#13;
+      /var/lib/lxc/mount_container/rootfs/mnt none ro,bind 0 0" &gt;&gt;    &#13;
+      /var/lib/lxc/mount_container/config&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Once the container is started, we can see that the <code class="literal">/mnt</code> inside it now contains the file that we created in the <code class="literal">/tmp/export_to_container</code> directory on the host OS earlier:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# lxc-start --name mount_container</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# lxc-attach --name mount_container</strong></span>
+<span class="strong"><strong>      root@mount_container:~# cat /mnt/file</strong></span>
+<span class="strong"><strong>      ubuntu</strong></span>
+<span class="strong"><strong>      root@mount_containerr:~# exit</strong></span>
+<span class="strong"><strong>      exit</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">When an LXC container is in a running state, some files are only visible from <code class="literal">/proc</code> on the host OS. To examine the running directory of a container, first grab its PID:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# lxc-info --name mount_container&#13;</strong></span>
+<span class="strong"><strong>      Name:        mount_container&#13;</strong></span>
+<span class="strong"><strong>      State:       RUNNING&#13;</strong></span>
+<span class="strong"><strong>      PID:         8594&#13;</strong></span>
+<span class="strong"><strong>      IP:          10.0.3.237&#13;</strong></span>
+<span class="strong"><strong>      CPU use:     1.96 seconds&#13;</strong></span>
+<span class="strong"><strong>      BlkIO use:   212.00 KiB&#13;</strong></span>
+<span class="strong"><strong>      Memory use:  8.50 MiB&#13;</strong></span>
+<span class="strong"><strong>      KMem use:    0 bytes&#13;</strong></span>
+<span class="strong"><strong>      Link:        vethBXR2HO&#13;</strong></span>
+<span class="strong"><strong>      TX bytes:    4.74 KiB&#13;</strong></span>
+<span class="strong"><strong>      RX bytes:    4.73 KiB&#13;</strong></span>
+<span class="strong"><strong>      Total bytes: 9.46 KiB&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre><p>With the PID in hand, we can examine the running directory of the container:</p><pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# ls -la /proc/8594/root/run/&#13;</strong></span>
+<span class="strong"><strong>      total 44&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 10 root root 420 Sep 14 23:28 .&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 21 root root 4096 Sep 14 23:28 ..&#13;</strong></span>
+<span class="strong"><strong>      -rw-r--r-- 1 root root 4 Sep 14 23:28 container_type&#13;</strong></span>
+<span class="strong"><strong>      -rw-r--r-- 1 root root 5 Sep 14 23:28 crond.pid&#13;</strong></span>
+<span class="strong"><strong>      ---------- 1 root root 0 Sep 14 23:28 crond.reboot&#13;</strong></span>
+<span class="strong"><strong>      -rw-r--r-- 1 root root 5 Sep 14 23:28 dhclient.eth0.pid&#13;</strong></span>
+<span class="strong"><strong>      drwxrwxrwt 2 root root 40 Sep 14 23:28 lock&#13;</strong></span>
+<span class="strong"><strong>      -rw-r--r-- 1 root root 112 Sep 14 23:28 motd.dynamic&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 3 root root 180 Sep 14 23:28 network&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 3 root root 100 Sep 14 23:28 resolvconf&#13;</strong></span>
+<span class="strong"><strong>      -rw-r--r-- 1 root root 5 Sep 14 23:28 rsyslogd.pid&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 2 root root 40 Sep 14 23:28 sendsigs.omit.d&#13;</strong></span>
+<span class="strong"><strong>      drwxrwxrwt 2 root root 40 Sep 14 23:28 shm&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 2 root root 40 Sep 14 23:28 sshd&#13;</strong></span>
+<span class="strong"><strong>      -rw-r--r-- 1 root root 5 Sep 14 23:28 sshd.pid&#13;</strong></span>
+<span class="strong"><strong>       drwxr-xr-x 2 root root 80 Sep 14 23:28 udev&#13;</strong></span>
+<span class="strong"><strong>      -rw-r--r-- 1 root root 5 Sep 14 23:28 upstart-file-bridge.pid&#13;</strong></span>
+<span class="strong"><strong>      -rw-r--r-- 1 root root 4 Sep 14 23:28 upstart-socket-bridge.pid&#13;</strong></span>
+<span class="strong"><strong>      -rw-r--r-- 1 root root 5 Sep 14 23:28 upstart-udev-bridge.pid&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 2 root root 40 Sep 14 23:28 user&#13;</strong></span>
+<span class="strong"><strong>      -rw-rw-r-- 1 root utmp 2688 Sep 14 23:28 utmp&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="tip16"/>Tip</h3><p>Make sure you replace the PID with the output of <code class="literal">lxc-info</code> from your host, as it will differ from the preceding example.</p></div></div></li></ol></div><p>In order to make persistent changes in the root filesystem of a container, modify the files in <code class="literal">/var/lib/lxc/mount_container/rootfs/</code> instead.</p></div>
+<div class="section" title="Freezing a running container"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec20"/>Freezing a running container</h1></div></div></div><p>LXC takes advantage of the <code class="literal">freezer</code> cgroup to freeze all the processes running inside a container. The processes will be in a blocked state until thawed. Freezing a container can be useful in cases where the system load is high and you want to free some resources without actually stopping the container and preserving its running state.</p><p>Ensure you have a running container and check its state from the <code class="literal">freezer</code> cgroup:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>NAME            STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>hooks_container RUNNING 0 - 10.0.3&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# cat /sys/fs/cgroup/freezer/lxc/hooks_container/freezer.state&#13;</strong></span>
+<span class="strong"><strong>THAWED&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Notice how a currently running container shows as thawed. Let's freeze it:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-freeze -n hooks_container&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>NAME            STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>hooks_container FROZEN 0 - 10.0.3.237 -&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>The container state shows as frozen, let's check the cgroup file:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cat /sys/fs/cgroup/freezer/lxc/hooks_container/freezer.state&#13;</strong></span>
+<span class="strong"><strong>FROZEN&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>To unfreeze it, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-unfreeze --name hooks_container&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>NAME            STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>hooks_container RUNNING 0 - 10.0.3.237 -&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# cat /sys/fs/cgroup/freezer/lxc/hooks_container/freezer.state&#13;</strong></span>
+<span class="strong"><strong>THAWED&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>We can monitor the state change by running the <code class="literal">lxc-monitor</code> command on a separate console while freezing and unfreezing a container. The change of the container's state will show as the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-monitor --name hooks_container&#13;</strong></span>
+<span class="strong"><strong>'hooks_container' changed state to [FREEZING]&#13;</strong></span>
+<span class="strong"><strong>'hooks_container' changed state to [FROZEN]&#13;</strong></span>
+<span class="strong"><strong>'hooks_container' changed state to [THAWED]</strong></span>
+</pre></div>
+<div class="section" title="Limiting container resource usage"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec21"/>Limiting container resource usage</h1></div></div></div><p>In <a class="link" href="ch01.html" title="Chapter 1. Introduction to Linux Containers">Chapter 1</a>, <span class="emphasis"><em>Introduction to Linux Containers</em></span> we saw how easy it is to limit process resources by either directly manipulating files in the cgroup hierarchy or using the userspace tools.</p><p>Similarly, LXC comes with tools that are just as straightforward and easy to use.</p><p>Let's start by setting up the available memory for a container to 512 MB:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-cgroup -n hooks_container memory.limit_in_bytes 536870912&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>We can verify that the new setting has been applied by directly inspecting the <code class="literal">memory</code> cgroup for the container:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cat /sys/fs/cgroup/memory/lxc/hooks_container/memory.limit_in_bytes</strong></span>
+<span class="strong"><strong>536870912</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Changing the value only requires running the same command again. Let's change the available memory to 256 MB and inspect the container by attaching to it and running the free utility:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-cgroup -n hooks_container memory.limit_in_bytes 268435456&#13;
+&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# cat /sys/fs/cgroup/memory/lxc/hooks_container/memory.limit_in_bytes&#13;</strong></span>
+<span class="strong"><strong>268435456&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-attach --name hooks_container&#13;</strong></span>
+<span class="strong"><strong>root@hooks_container:~# free -m&#13;</strong></span>
+<span class="strong"><strong>     total used free shared buffers cached&#13;</strong></span>
+<span class="strong"><strong>Mem: 256   63   192  0      0       54&#13;</strong></span>
+<span class="strong"><strong>-/+ buffers/cache: 9 246&#13;</strong></span>
+<span class="strong"><strong>Swap: 0 0 0&#13;</strong></span>
+<span class="strong"><strong>root@hooks_container:~# exit&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>As the preceding output shows, the container only has a total available memory of 256 MB.</p><p>We can also pin a CPU core to a container. In the next example, our test server has two cores. Let's allow the container to only run on core 0:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cat /proc/cpuinfo | grep processor&#13;</strong></span>
+<span class="strong"><strong>processor : 0&#13;</strong></span>
+<span class="strong"><strong>processor : 1&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-cgroup -n hooks_container cpuset.cpus 0&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# cat /sys/fs/cgroup/cpuset/lxc/hooks_container/cpuset.cpus&#13;</strong></span>
+<span class="strong"><strong>0&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-attach --name hooks_container&#13;</strong></span>
+<span class="strong"><strong>root@hooks_container:~# cat /proc/cpuinfo | grep processor&#13;</strong></span>
+<span class="strong"><strong>processor : 0&#13;</strong></span>
+<span class="strong"><strong>root@hooks_container:~# exit&#13;</strong></span>
+<span class="strong"><strong>exit&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>By attaching to the container and checking the available CPUs, we see that only one is presented, as expected.</p><p>To make changes to persist server reboots, we need to add them to the configuration file of the container:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# echo "lxc.cgroup.memory.limit_in_bytes = 536870912" &gt;&gt; /var/lib/lxc/hooks_container/config&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Setting various other cgroup parameters is done in a similar way. For example, let's see the cpu shares and the block IO on a container:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-cgroup -n hooks_container cpu.shares 512&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-cgroup -n hooks_container blkio.weight 500&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-cgroup -n hooks_container blkio.weight&#13;</strong></span>
+<span class="strong"><strong>500&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>For a full list of all available cgroup options refer to <a class="link" href="ch01.html" title="Chapter 1. Introduction to Linux Containers">Chapter 1</a>, <span class="emphasis"><em>Introduction to Linux Containers,</em></span> or explore the mounted cgroup hierarchy.</p></div>
+<div class="section" title="Building and running LXC containers with libvirt"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec22"/>Building and running LXC containers with libvirt</h1></div></div></div><p>Libvirt is a set of libraries and language bindings used to interact with various virtualization technologies in a standard and uniform way. These include KVM, XEN, QEMU, OpenVZ, and of course LXC. Libvirt uses XML files to define virtualized entities such as LXC containers, and describe their properties, such as available memory, block devices, networking, the init system, and other metadata. It supports multiple storage drivers such as the LVM, local and network filesystems, iSCSI, and others.</p><p>Libvirt provides a completely independent way of working with Linux containers from the mainstream LXC project and the toolset we've seen and used so far. It implements the kernel feature set that constitutes LXC, and exposes its own tools and libraries to work with containers without the need to install other packages. In <a class="link" href="ch04.html" title="Chapter 4. LXC Code Integration with Python">Chapter 4</a>, <span class="emphasis"><em>LXC Code Integration with Python,</em></span> we'll see how to write Python programs using the libvirt API, but for now let's explore the toolkit that it provides.</p><div class="section" title="Installing libvirt from packages on Debian and CentOS"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec28"/>Installing libvirt from packages on Debian and CentOS</h2></div></div></div><p>Both Ubuntu and CentOS package libvirt, though the versions are lagging behind from the upstream trunk. For the latest version, we'll compile it from source in the next section.</p><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="tip17"/>Tip</h3><p>To get the most out of the examples in this chapter and avoid conflicts and errors, I recommend that you use a fresh VM or a new cloud instance.</p></div></div><p>To install the packages on Ubuntu run the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# apt-get update &amp;&amp; apt-get -y install libvirt-bin python-libvirt virtinst cgmanager cgroup-lite&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Once installed, make sure the libvirt daemon is running:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# /etc/init.d/libvirt-bin status&#13;</strong></span>
+<span class="strong"><strong>libvirt-bin start/running, process 15987&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>On CentOS, the package name is different:</p><pre class="programlisting">
+<span class="strong"><strong>[root@centos ~]# yum install libvirt&#13;</strong></span>
+<span class="strong"><strong>[root@centos ~]#&#13;</strong></span>
+</pre><p>Once package install is complete, start the libvirt service and ensure it's running:</p><pre class="programlisting">
+<span class="strong"><strong>[root@centos ~]# service libvirtd start&#13;
+Redirecting to /bin/systemctl start libvirtd.service&#13;
+[root@centos ~]# systemctl status libvirtd&#13;
+  libvirtd.service - Virtualization daemon&#13;
+Loaded: loaded (/usr/lib/systemd/system/libvirtd.service; enabled; vendor preset: enabled)&#13;
+Active: active (running) since Thu 2016-09-15 19:42:50 UTC; 59s ago&#13;
+Docs: man:libvirtd(8)&#13;
+http://libvirt.org&#13;
+Main PID: 10578 (libvirtd)&#13;
+CGroup: /system.slice/libvirtd.service&#13;
+|-10578 /usr/sbin/libvirtd&#13;
+|-10641 /sbin/dnsmasq --conf-file=/var/lib/libvirt/dnsmasq/default.conf --leasefile-ro --dhcp-script=/usr/libexec/libvi...&#13;
+|-10642 /sbin/dnsmasq --conf-file=/var/lib/libvirt/dnsmasq/default.conf --leasefile-ro --dhcp-script=/usr/libexec/libvi...&#13;
+Sep 15 19:42:50 centos systemd[1]: Started Virtualization daemon.&#13;
+Sep 15 19:42:51 centos dnsmasq[10641]: started, version 2.66 cachesize 150&#13;
+Sep 15 19:42:51 centos dnsmasq[10641]: compile time options: IPv6 GNU-getopt DBus no-i18n IDN DHCP DHCPv6 no-Lua TFTP no-co...et auth&#13;
+Sep 15 19:42:51 centos dnsmasq-dhcp[10641]: DHCP, IP range 192.168.122.2 -- 192.168.122.254, lease time 1h&#13;
+Sep 15 19:42:51 centos dnsmasq[10641]: reading /etc/resolv.conf&#13;
+Sep 15 19:42:51 centos dnsmasq[10641]: using nameserver 173.203.4.8#53&#13;
+Sep 15 19:42:51 centos dnsmasq[10641]: using nameserver 173.203.4.9#53&#13;
+Sep 15 19:42:51 centos dnsmasq[10641]: read /etc/hosts - 5 addresses&#13;
+Sep 15 19:42:51 centos dnsmasq[10641]: read /var/lib/libvirt/dnsmasq/default.addnhosts - 0 addresses&#13;
+Sep 15 19:42:51 centos dnsmasq-dhcp[10641]: read /var/lib/libvirt/dnsmasq/default.hostsfile&#13;
+Hint: Some lines were ellipsized, use -l to show in full.&#13;
+[root@centos ~]#</strong></span>
+</pre><p>For the rest of the examples in this chapter we'll be using the latest version of libvirt compiled from source on Ubuntu.</p></div><div class="section" title="Installing libvirt from source"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec29"/>Installing libvirt from source</h2></div></div></div><p>On Ubuntu, make sure your system is up to date:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# apt-get update &amp;&amp; apt-get upgrade &amp;&amp; reboo</strong></span>t</pre><p>Next, install the prerequisite packages that will enable us to obtain the source from <code class="literal">git</code> and build it:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# apt-get install build-essential automake pkg-config git bridge-utils libcap-dev libcgmanager-dev cgmanager git cgmanager cgroup-lite</strong></span>
+<span class="strong"><strong>root@ubuntu:~# apt-get install libtool libxml2 libxml2-dev libxml2-utils autopoint xsltproc libyajl-dev libpciaccess-dev libdevmapper-dev libnl-dev gettext libgettextpo-dev ebtables dnsmasq dnsmasq-utils</strong></span>
+</pre><p>With all the packages installed, let's clone the source from the master <code class="literal">git</code> branch:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cd /usr/src/&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src# git clone git://libvirt.org/libvirt.git&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src# cd libvirt/&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/libvirt#</strong></span>
+</pre><p>Generate the config file, compile and install the binaries:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/usr/src/libvirt# ./autogen.sh&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/libvirt# make&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/libvirt# make install&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/libvirt#&#13;</strong></span>
+</pre><p>Update the necessary links and cache to the most recent shared libraries:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/usr/src/libvirt# ldconfig&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/libvirt#&#13;</strong></span>
+</pre><p>Start the libvirt daemon and check its version:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# libvirtd -d&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# libvirtd --version&#13;</strong></span>
+<span class="strong"><strong>libvirtd (libvirt) 2.3.0&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></div><div class="section" title="Defining LXC containers with libvirt"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec30"/>Defining LXC containers with libvirt</h2></div></div></div><p>To build a container, we need to define its properties in an XML file that Libvirt will use. Once defined, libvirt starts a helper process called <code class="literal">libvirt_lxc</code>, responsible for creating the actual container, spawning the first process and handling I/O. Depending on the installation type, version, and distribution, its location may differ, so let's find it.</p><p>On Ubuntu, run:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# find / -name libvirt_lxc&#13;</strong></span>
+<span class="strong"><strong>/usr/lib/libvirt/libvirt_lxc&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>On CentOS, the location will be different:</p><pre class="programlisting">
+<span class="strong"><strong>[root@centos ~]# find / -name libvirt_lxc</strong></span>
+<span class="strong"><strong>/usr/libexec/libvirt_lxc</strong></span>
+<span class="strong"><strong>[root@centos ~]#</strong></span>
+</pre><p>As pointed out earlier, libvirt supports many different hypervisors and to accommodate working with all of them it uses hypervisor canonical URIs. The URI points to the hypervisor that libvirt will communicate with. To list the currently configured URI, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# virsh uri&#13;</strong></span>
+<span class="strong"><strong>qemu:///system&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>From the preceding output, we can see that the default URI is QEMU. To work with LXC we'll need to change it. To do that, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# export LIBVIRT_DEFAULT_URI=lxc:///&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# virsh uri&#13;</strong></span>
+<span class="strong"><strong>lxc:///&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>For the life of your session, the default hypervisor will now be LXC. You can explicitly tell libvirt what to use by passing it as a command-line option. For example, to list all LXC containers you can run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# virsh --connect lxc:/// list -all&#13;</strong></span>
+<span class="strong"><strong>Id Name State&#13;</strong></span>
+<span class="strong"><strong>----------------------------------------------------&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Before we can define and build a container, we'll need a root filesystem for it. Let's build one using <code class="literal">debootstrap</code>:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# apt-get install debootstrap&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# debootstrap --arch=amd64 --include="openssh-server vim" stable /root/container http://httpredir.debian.org/debian/&#13;</strong></span>
+<span class="strong"><strong>I: Retrieving Release&#13;</strong></span>
+<span class="strong"><strong>I: Retrieving Packages&#13;</strong></span>
+<span class="strong"><strong>I: Validating Packages&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>I: Configuring systemd...&#13;</strong></span>
+<span class="strong"><strong>I: Base system installed successfully.&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>With the root filesystem in place, let's define the container properties:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# vim libvirt_container1.xml&#13;</strong></span>
+<span class="strong"><strong>&lt;domain type='lxc'&gt;&#13;  </strong></span>
+<span class="strong"><strong>  &lt;name&gt;libvirt_container1&lt;/name&gt;&#13;  </strong></span>
+<span class="strong"><strong>  &lt;uuid&gt;902b56ed-969c-458e-8b55-58daf5ae97b3&lt;/uuid&gt;&#13;  </strong></span>
+<span class="strong"><strong>  &lt;memory unit='KiB'&gt;524288&lt;/memory&gt;&#13;  </strong></span>
+<span class="strong"><strong>  &lt;currentMemory unit='KiB'&gt;524288&lt;/currentMemory&gt;&#13;  </strong></span>
+<span class="strong"><strong>  &lt;vcpu placement='static'&gt;1&lt;/vcpu&gt;&#13;  </strong></span>
+<span class="strong"><strong>  &lt;os&gt;&#13;    </strong></span>
+<span class="strong"><strong>    &lt;type arch='x86_64'&gt;exe&lt;/type&gt;&#13;    </strong></span>
+<span class="strong"><strong>    &lt;init&gt;/sbin/init&lt;/init&gt;&#13;  </strong></span>
+<span class="strong"><strong>  &lt;/os&gt;&#13;  </strong></span>
+<span class="strong"><strong>  &lt;features&gt;&#13;    </strong></span>
+<span class="strong"><strong>    &lt;capabilities policy='allow'&gt;&#13;    </strong></span>
+<span class="strong"><strong>    &lt;/capabilities&gt;&#13;  </strong></span>
+<span class="strong"><strong>  &lt;/features&gt;&#13;  </strong></span>
+<span class="strong"><strong>  &lt;clock offset='utc'/&gt;&#13;  </strong></span>
+<span class="strong"><strong>  &lt;on_poweroff&gt;destroy&lt;/on_poweroff&gt;&#13;  </strong></span>
+<span class="strong"><strong>  &lt;on_reboot&gt;restart&lt;/on_reboot&gt;&#13;  </strong></span>
+<span class="strong"><strong>  &lt;on_crash&gt;destroy&lt;/on_crash&gt;&#13;  </strong></span>
+<span class="strong"><strong>  &lt;devices&gt;&#13;    </strong></span>
+<span class="strong"><strong>    &lt;emulator&gt;/usr/local/libexec/libvirt_lxc&lt;/emulator&gt;&#13;    </strong></span>
+<span class="strong"><strong>    &lt;filesystem type='mount' accessmode='passthrough'&gt;&#13;      </strong></span>
+<span class="strong"><strong>      &lt;source dir='/root/container'/&gt;&#13;      </strong></span>
+<span class="strong"><strong>      &lt;target dir='/'/&gt;&#13;    </strong></span>
+<span class="strong"><strong>    &lt;/filesystem&gt;&#13;    </strong></span>
+<span class="strong"><strong>    &lt;interface type='bridge'&gt;&#13;      </strong></span>
+<span class="strong"><strong>      &lt;mac address='00:17:4e:9f:36:f8'/&gt;&#13;      </strong></span>
+<span class="strong"><strong>      &lt;source bridge='lxcbr0'/&gt;&#13;      </strong></span>
+<span class="strong"><strong>      &lt;link state='up'/&gt;&#13;    </strong></span>
+<span class="strong"><strong>    &lt;/interface&gt;&#13;    </strong></span>
+<span class="strong"><strong>    &lt;console type='pty' /&gt;&#13;  </strong></span>
+<span class="strong"><strong>  &lt;/devices&gt;&#13;</strong></span>
+<span class="strong"><strong>&lt;/domain&gt;</strong></span>
+</pre><p>The file is mostly self-explanatory and well documented. We define the domain type to be <code class="literal">lxc</code>, memory and CPU properties, the location of the root filesystem, and most importantly, the location of the <code class="literal">libvirt_lxc</code> helper process. In the networking section, we define a MAC address and the name of the host bridge. Not all options need to be specified, and if omitted, libvirt will create sane defaults. Later in this chapter, I'll demonstrate how we can generate this file from an LXC container that was built with the LXC tools instead.</p><p>With the file in place let's define the container:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# virsh define libvirt_container1.xml&#13;</strong></span>
+<span class="strong"><strong>Domain libvirt_container1 defined from libvirt_container1.xml&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# virsh list --all&#13;</strong></span>
+<span class="strong"><strong>Id Name State&#13;</strong></span>
+<span class="strong"><strong>----------------------------------------------------&#13;</strong></span>
+<span class="strong"><strong>- libvirt_container1 shut off&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>We see that the container is now defined but in a shut-off state.</p></div><div class="section" title="Starting and connecting to LXC containers with libvirt"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec31"/>Starting and connecting to LXC containers with libvirt</h2></div></div></div><p>The container we defined earlier specifies the <code class="literal">lxcbr0</code> bridge. We need to create it before we can start the container:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# brctl addbr lxcbr0 &amp;&amp; ifconfig lxcbr0 up</strong></span>
+</pre><p>Now that we have a defined container and a bridge to connect it to, let's go ahead and start it:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# virsh start libvirt_container1&#13;</strong></span>
+<span class="strong"><strong>Domain libvirt_container1 started&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# virsh list --all&#13;</strong></span>
+<span class="strong"><strong>Id Name State&#13;</strong></span>
+<span class="strong"><strong>----------------------------------------------------&#13;</strong></span>
+<span class="strong"><strong>2618 libvirt_container1 running&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Before we can connect to the container's console, we need to add it to the allowed terminals. To do this, we can <code class="literal">chroot</code> to the filesystem of the container and edit the <code class="literal">securetty</code> file:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# chroot container</strong></span>
+<span class="strong"><strong>root@ubuntu:/# echo "pts/0" &gt;&gt; /etc/securetty</strong></span>
+<span class="strong"><strong>root@ubuntu:/# exit</strong></span>
+<span class="strong"><strong>exit</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Let's connect to the console:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# virsh console libvirt_container1&#13;</strong></span>
+<span class="strong"><strong>Connected to domain libvirt_container1&#13;</strong></span>
+<span class="strong"><strong>Escape character is ^]&#13;</strong></span>
+<span class="strong"><strong>systemd 215 running in system mode. (+PAM +AUDIT +SELINUX +IMA +SYSVINIT +LIBCRYPTSETUP +GCRYPT +ACL +XZ -SECCOMP -APPARMOR)&#13;</strong></span>
+<span class="strong"><strong>Detected virtualization 'lxc-libvirt'.&#13;</strong></span>
+<span class="strong"><strong>Detected architecture 'x86-64'.&#13;</strong></span>
+<span class="strong"><strong>Welcome to Debian GNU/Linux 8 (jessie)!&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>[ OK ] Reached target Graphical Interface.&#13;</strong></span>
+<span class="strong"><strong>Starting Update UTMP about System Runlevel Changes...&#13;</strong></span>
+<span class="strong"><strong>[ OK ] Started Update UTMP about System Runlevel Changes.&#13;</strong></span>
+<span class="strong"><strong>Debian GNU/Linux 8 server-33 console&#13;</strong></span>
+<span class="strong"><strong>ubuntu login:</strong></span>
+</pre></div><div class="section" title="Attaching block devices to running containers with libvirt"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec32"/>Attaching block devices to running containers with libvirt</h2></div></div></div><p>Libvirt provides a convenient way of attaching block devices to an already running container. To demonstrate this, let's create a block device from a regular file, as demonstrated earlier in this chapter using the <code class="literal">truncate</code> and <code class="literal">losetup</code> commands:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# truncate --size 5G xvdz.img&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# modprobe loop&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# losetup --find&#13;</strong></span>
+<span class="strong"><strong>/dev/loop0&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# losetup /dev/loop0 xvdz.img&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# losetup --all&#13;</strong></span>
+<span class="strong"><strong>/dev/loop0: [ca01]:1457 (/root/xvdz.img)&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Our new block device is now <code class="literal">/dev/loop0</code>. Let's create a filesystem on it, mount it, and create a test file:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# mkfs.ext4 /dev/loop0&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# mount /dev/loop0 /mnt/&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# echo test &gt; /mnt/file&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# umount /mnt&#13;</strong></span>
+</pre><p>Time to define the block device:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# vim new_disk.xml&#13;</strong></span>
+<span class="strong"><strong>&lt;disk type='block' device='disk'&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;driver name='lxc' cache='none'/&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;source dev='/dev/loop0'/&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;target dev='vdb' bus='virtio'/&gt;&#13;</strong></span>
+<span class="strong"><strong>&lt;/disk&gt;</strong></span>
+</pre><p>In the preceding config file, we define the driver to be <code class="literal">lxc</code>, the path to the block device we just created, and the name of the device that will be presented inside the container, in this case <code class="literal">vdb</code>. It's time to attach the device:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# virsh attach-device libvirt_container1 new_disk.xml&#13;</strong></span>
+<span class="strong"><strong>Device attached successfully&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Let's connect to the container and make sure the block device is there:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# virsh console libvirt_container1&#13;</strong></span>
+<span class="strong"><strong>Connected to domain libvirt_container1&#13;</strong></span>
+<span class="strong"><strong>Escape character is ^]&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# ls -la /dev/vdb&#13;</strong></span>
+<span class="strong"><strong>brwx------ 1 root root 7, 0 Sep 22 15:13 /dev/vdb&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# mount /dev/vdb /mnt&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# cat /mnt/file&#13;</strong></span>
+<span class="strong"><strong>test&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# exit&#13;</strong></span>
+<span class="strong"><strong>exit&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>To detach the block device we can similarly run the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# virsh detach-device libvirt_container1 new_disk.xml --live&#13;</strong></span>
+<span class="strong"><strong>Device detached successfully&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></div><div class="section" title="Networking with libvirt LXC"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec33"/>Networking with libvirt LXC</h2></div></div></div><p>Libvirt comes with a default network that uses <code class="literal">dnsmasq</code> and is configured to start automatically. To list all networks, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# virsh net-list --all&#13;</strong></span>
+<span class="strong"><strong>Name State Autostart Persistent&#13;</strong></span>
+<span class="strong"><strong>----------------------------------------------------------&#13;</strong></span>
+<span class="strong"><strong>default active yes yes&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>To examine the configuration of the default network let's dump it to XML:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# virsh net-dumpxml default&#13;</strong></span>
+<span class="strong"><strong>&lt;network&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;name&gt;default&lt;/name&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;uuid&gt;9995bf85-a6d8-4eb9-887d-656b7d44de6d&lt;/uuid&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;forward mode='nat'&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;nat&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;port start='1024' end='65535'/&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;/nat&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;/forward&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;bridge name='virbr0' stp='on' delay='0'/&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;mac address='52:54:00:9b:72:83'/&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;ip address='192.168.122.1' netmask='255.255.255.0'&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;dhcp&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;range start='192.168.122.2' end='192.168.122.254'/&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;/dhcp&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;/ip&gt;&#13;</strong></span>
+<span class="strong"><strong>&lt;/network&gt;&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>From the output, it's apparent that the default networks will create a bridge named <code class="literal">virbr0</code>, and what the network ranges configured in <code class="literal">dnsmasq</code> are. If we'd rather use our own network, we can describe its properties in a new XML file:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# vim lxc_net.xml&#13;</strong></span>
+<span class="strong"><strong>&lt;network&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;name&gt;lxc&lt;/name&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;bridge name="br0"/&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;forward/&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;ip address="192.168.0.1" netmask="255.255.255.0"&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;dhcp&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;range start="192.168.0.2" end="192.168.0.254"/&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;/dhcp&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;/ip&gt;&#13;</strong></span>
+<span class="strong"><strong>&lt;/network&gt;&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>In this example, the name of the bridge will be <code class="literal">br0</code> and it will use a different subnet. Let's define it and list the networks:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# virsh net-define lxc_net.xml&#13;</strong></span>
+<span class="strong"><strong>Network lxc defined from lxc_net.xml:&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# virsh net-list --all&#13;</strong></span>
+<span class="strong"><strong>Name State Autostart Persistent&#13;</strong></span>
+<span class="strong"><strong>----------------------------------------------------------&#13;</strong></span>
+<span class="strong"><strong>default active yes yes&#13;</strong></span>
+<span class="strong"><strong>lxc active no no&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>We can confirm that the two networks created the bridges by running the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# brctl show&#13;</strong></span>
+<span class="strong"><strong>bridge name bridge id STP enabled interfaces&#13;</strong></span>
+<span class="strong"><strong>br0 8000.525400628c5e yes br0-nic&#13;</strong></span>
+<span class="strong"><strong>lxcbr0 8000.76ccc8474468 no vnet0&#13;</strong></span>
+<span class="strong"><strong>virbr0 8000.5254009b7283 yes virbr0-nic&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Notice that the <code class="literal">lxcbr0</code> is the one we created manually earlier. Each network will start a <code class="literal">dnsmasq</code> process:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# pgrep -lfa dnsmasq&#13;</strong></span>
+<span class="strong"><strong>22521 /sbin/dnsmasq --conf-file=/usr/local/var/lib/libvirt/dnsmasq/default.conf --leasefile-ro --dhcp-script=/usr/local/libexec/libvirt_leaseshelper&#13;</strong></span>
+<span class="strong"><strong>22522 /sbin/dnsmasq --conf-file=/usr/local/var/lib/libvirt/dnsmasq/default.conf --leasefile-ro --dhcp-script=/usr/local/libexec/libvirt_leaseshelper&#13;</strong></span>
+<span class="strong"><strong>22654 /sbin/dnsmasq --conf-file=/usr/local/var/lib/libvirt/dnsmasq/lxc.conf --leasefile-ro --dhcp-script=/usr/local/libexec/libvirt_leaseshelper&#13;</strong></span>
+<span class="strong"><strong>22655 /sbin/dnsmasq --conf-file=/usr/local/var/lib/libvirt/dnsmasq/lxc.conf --leasefile-ro --dhcp-script=/usr/local/libexec/libvirt_leaseshelper&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>To build a container that will be part of one of the defined networks, we need to change the name of the bridge in the XML file, log in the container, and configure the network interface.</p></div><div class="section" title="Generating config from an existing LXC container with libvirt"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec34"/>Generating config from an existing LXC container with libvirt</h2></div></div></div><p>Libvirt provides a way to convert the config file of an existing LXC container that was built with the LXC tools we used in the beginning of this chapter to a format that libvirt can use.</p><p>To demonstrate this, let's create a new LXC container with <code class="literal">lxc-create</code>:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# apt-get install -y lxc=2.0.3-0ubuntu1~ubuntu14.04.1 lxc1=2.0.3-0ubuntu1~ubuntu14.04.1 liblxc1=2.0.3-0ubuntu1~ubuntu14.04.1 python3-lxc=2.0.3-0ubuntu1~ubuntu14.04.1 cgroup-lite=1.11~ubuntu14.04.2 lxc-templates=2.0.3-0ubuntu1~ubuntu14.04.1 bridge-utils debootstrap&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-create --name lxc-container --template ubuntu&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>NAME STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>lxc-container STOPPED 0 - - -&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>With the new container ready, let's convert its configuration file to the XML specification that libvirt supports:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# virsh domxml-from-native lxc-tools /var/lib/lxc/lxc-container/config | tee -a lxc-container.xml&#13;</strong></span>
+<span class="strong"><strong>&lt;domain type='lxc'&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;name&gt;lxc-container&lt;/name&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;uuid&gt;1ec0c47d-0399-4f8c-b2a4-924834e369e7&lt;/uuid&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;memory unit='KiB'&gt;65536&lt;/memory&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;currentMemory unit='KiB'&gt;65536&lt;/currentMemory&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;vcpu placement='static'&gt;1&lt;/vcpu&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;os&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;type arch='x86_64'&gt;exe&lt;/type&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;init&gt;/sbin/init&lt;/init&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;/os&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;features&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;capabilities policy='allow'&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;/capabilities&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;/features&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;clock offset='utc'/&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;on_poweroff&gt;destroy&lt;/on_poweroff&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;on_reboot&gt;restart&lt;/on_reboot&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;on_crash&gt;destroy&lt;/on_crash&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;devices&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;emulator&gt;/usr/local/libexec/libvirt_lxc&lt;/emulator&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;filesystem type='mount' accessmode='passthrough'&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;source dir='/var/lib/lxc/lxc-container/rootfs'/&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;target dir='/'/&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;/filesystem&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;interface type='bridge'&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;mac address='00:16:3e:0f:dc:ed'/&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;source bridge='lxcbr0'/&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;link state='up'/&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;/interface&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;/devices&gt;&#13;</strong></span>
+<span class="strong"><strong>&lt;/domain&gt;&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>The output of the command is the new configuration file for the container in XML format saved in the <code class="literal">lxc-container.xml</code> file. We can use this file to start the container with <code class="literal">virsh</code> instead of <code class="literal">lxc-start</code>. Before we can do this, we need to specify a console type first:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# sed -i "/&lt;\/devices&gt;/i &lt;console type='pty' \/&gt;" lxc-container.xml&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Define the new container:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# virsh define lxc-container.xml&#13;</strong></span>
+<span class="strong"><strong>Domain lxc-container defined from lxc-container.xml&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>And start it:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# virsh start lxc-container&#13;</strong></span>
+<span class="strong"><strong>Domain lxc-container started&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# virsh list --all&#13;</strong></span>
+<span class="strong"><strong>Id Name State&#13;</strong></span>
+<span class="strong"><strong>----------------------------------------------------&#13;</strong></span>
+<span class="strong"><strong>18062 lxc-container running&#13;</strong></span>
+<span class="strong"><strong>22958 libvirt_container1 running&#13;</strong></span>
+<span class="strong"><strong>24893 libvirt_container2 running&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></div><div class="section" title="Stopping and removing LXC containers with libvirt"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec35"/>Stopping and removing LXC containers with libvirt</h2></div></div></div><p>Let's stop all the running libvirt containers:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# virsh destroy lxc-container&#13;</strong></span>
+<span class="strong"><strong>Domain lxc-container destroyed&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# virsh destroy libvirt_container1&#13;</strong></span>
+<span class="strong"><strong>Domain libvirt_container1 destroyed&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# virsh destroy libvirt_container2&#13;</strong></span>
+<span class="strong"><strong>Domain libvirt_container2 destroyed&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# virsh list --all&#13;</strong></span>
+<span class="strong"><strong>Id Name State&#13;</strong></span>
+<span class="strong"><strong>----------------------------------------------------&#13;</strong></span>
+<span class="strong"><strong>- libvirt_container1 shut off&#13;</strong></span>
+<span class="strong"><strong>- libvirt_container2 shut off&#13;</strong></span>
+<span class="strong"><strong>- lxc-container shut off&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>To completely remove the containers, we need to undefine them:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# virsh undefine lxc-container&#13;</strong></span>
+<span class="strong"><strong>Domain lxc-container has been undefined&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# virsh undefine libvirt_container1&#13;</strong></span>
+<span class="strong"><strong>Domain libvirt_container1 has been undefined&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# virsh undefine libvirt_container2&#13;</strong></span>
+<span class="strong"><strong>Domain libvirt_container2 has been undefined&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# virsh list --all&#13;</strong></span>
+<span class="strong"><strong>Id Name State&#13;</strong></span>
+<span class="strong"><strong>----------------------------------------------------&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></div></div>
+<div class="section" title="Summary"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec23"/>Summary</h1></div></div></div><p>LXC supports various backing stores for its filesystem. In this chapter, we explored how to use the LVM, Btrfs, and ZFS backing stores to create COW snapshots. We also looked into how to create block devices from regular files for testing purposes.</p><p>We demonstrated how to autostart containers, create hooks that will execute programs during the life cycle of the instance, and how to expose directories and files from the host OS to LXC.</p><p>LXC uses the cgroup mechanism for controlling and allocating resources to containers. Changes to these resources are stored in the config file and can be persisted if the need arises. We explored ways of doing that with the provided toolset.</p><p>Finally, we introduced a different way of creating and managing LXC with libvirt and the <code class="literal">virsh</code> command.</p><p>In the next chapter, you'll have a look at how to create and manage containers using the LXC APIs and libvirt bindings for Python.</p></div></body></html>

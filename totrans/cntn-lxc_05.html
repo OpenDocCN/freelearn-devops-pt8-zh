@@ -1,0 +1,904 @@
+<html><head></head><body><div class="chapter" title="Chapter&#xA0;5.&#xA0;Networking in LXC with the Linux Bridge and Open vSwitch"><div class="titlepage"><div><div><h1 class="title"><a id="ch05"/>Chapter 5. Networking in LXC with the Linux Bridge and Open vSwitch</h1></div></div></div><p>To enable network connectivity for a newly built container we need a way to connect the virtual network interfaces from the container's network namespace to the host and provide routing to either other containers or the Internet, if needed. Linux provides a software bridge that allows us to <span class="emphasis"><em>wire</em></span> LXC containers together in a variety of ways, as we'll explore in this chapter.</p><p>There are two popular software bridge implementations – the Linux bridge provided by the <code class="literal">bridge-utils</code> package and the Open vSwitch project. These extend the basic functionality of the Linux bridge even further, by separating the control and management planes of the switch, allowing for the control of the traffic flow and providing for hardware integration among other things.</p><p>By default, when we build a container from the provided templates, the template script sets up networking by configuring a software bridge on the host OS using <span class="strong"><strong>Network Address Translation</strong></span> (<span class="strong"><strong>NAT</strong></span>) rules in <code class="literal">iptables</code>. In this mode, the container gets its IP address from a <code class="literal">dnsmasq</code> server that LXC starts. However, we have full control on what bridge, mode, or routing we would like to use, by means of the container's configuration file.</p><p>In this chapter, we'll explore the following topics:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Installing and configuring the Linux bridge</li><li class="listitem" style="list-style-type: disc">Installing and creating an Open vSwitch switch</li><li class="listitem" style="list-style-type: disc">Configuring networking in LXC using NAT, direct connect, VLAN, and other modes</li></ul></div><div class="section" title="Software bridging in Linux"><div class="titlepage"><div><div><h1 class="title"><a id="ch05lvl1sec29"/>Software bridging in Linux</h1></div></div></div><p>Connecting LXC or any other type of virtual machine such as KVM or Xen, the hypervisor layer, or in the case of LXC, the host OS, requires the ability to bridge traffic between the containers/VMs and the outside world. Software bridging in Linux has been supported since the kernel version 2.4. To take advantage of this functionality, bridging needs to be enabled in the kernel by setting <span class="strong"><strong>Networking support</strong></span> | <span class="strong"><strong>Networking options</strong></span> | <span class="strong"><strong>802.1d Ethernet Bridging</strong></span> to yes, or as a kernel module when configuring the kernel.</p><p>To check what bridging options are compiled in the kernel, or available as modules, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@host:~# cat /boot/config-`uname -r` | grep -ibridge</strong></span>
+<span class="strong"><strong># PC-card bridges</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_NETFILTER=y</strong></span>
+<span class="strong"><strong>CONFIG_NF_TABLES_BRIDGE=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_NF_EBTABLES=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_BROUTE=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_T_FILTER=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_T_NAT=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_802_3=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_AMONG=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_ARP=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_IP=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_IP6=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_LIMIT=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_MARK=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_PKTTYPE=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_STP=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_VLAN=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_ARPREPLY=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_DNAT=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_MARK_T=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_REDIRECT=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_SNAT=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_LOG=m</strong></span>
+<span class="strong"><strong># CONFIG_BRIDGE_EBT_ULOG is not set</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_EBT_NFLOG=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE=m</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_IGMP_SNOOPING=y</strong></span>
+<span class="strong"><strong>CONFIG_BRIDGE_VLAN_FILTERING=y</strong></span>
+<span class="strong"><strong>CONFIG_SSB_B43_PCI_BRIDGE=y</strong></span>
+<span class="strong"><strong>CONFIG_DVB_DDBRIDGE=m</strong></span>
+<span class="strong"><strong>CONFIG_EDAC_SBRIDGE=m</strong></span>
+<span class="strong"><strong># VME Bridge Drivers</strong></span>
+<span class="strong"><strong>root@host:~#</strong></span>
+</pre><p>On Ubuntu and CentOS systems, the bridging is available as kernel modules. To verify that they are loaded, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lsmod | grep bridge</strong></span>
+<span class="strong"><strong>bridge                110925  0</strong></span>
+<span class="strong"><strong>stp                    12976  1 bridge</strong></span>
+<span class="strong"><strong>llc                    14552  2 stp,bridge</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>To obtain more information about the <code class="literal">bridge</code> kernel module, execute the following command:</p><pre class="programlisting">
+<span class="strong"><strong>[root@centos ~]# modinfo bridge</strong></span>
+<span class="strong"><strong>filename:       /lib/modules/3.10.0-327.28.3.el7.x86_64/kernel/net/bridge/bridge.ko</strong></span>
+<span class="strong"><strong>alias:          rtnl-link-bridge</strong></span>
+<span class="strong"><strong>version:        2.3</strong></span>
+<span class="strong"><strong>license:        GPL</strong></span>
+<span class="strong"><strong>rhelversion:    7.2</strong></span>
+<span class="strong"><strong>srcversion:     905847C53FF43DEFAA0EB3C</strong></span>
+<span class="strong"><strong>depends:        stp,llc</strong></span>
+<span class="strong"><strong>intree:         Y</strong></span>
+<span class="strong"><strong>vermagic:       3.10.0-327.28.3.el7.x86_64 SMP mod_unloadmodversions</strong></span>
+<span class="strong"><strong>signer:         CentOS Linux kernel signing key</strong></span>
+<span class="strong"><strong>sig_key:        15:64:6F:1E:11:B7:3F:8C:2A:ED:8A:E2:91:65:5D:52:58:05:6E:E9</strong></span>
+<span class="strong"><strong>sig_hashalgo:   sha256</strong></span>
+<span class="strong"><strong>[rootcentos ~]# </strong></span>
+</pre><p>If you are using a distribution that does not have the bridge compiled in the kernel, or available as a module, or if you would like to experiment with different kernel options, you'll need the kernel source first.</p><p>To install it on Ubuntu, you can do this by running the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cd /usr/src/</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src# apt-get install linux-source ncurses-dev</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src# cd linux-source-3.13.0/</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/linux-source-3.13.0# tar jxfv linux-source-3.13.0.tar.bz2</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/linux-source-3.13.0# cd linux-source-3.13.0/</strong></span>
+</pre><p>On CentOS, install the kernel source with <code class="literal">yum</code>:</p><pre class="programlisting">
+<span class="strong"><strong>[root@bridge ~]# yum install kernel-devel ncurses-devel</strong></span>
+</pre><p>To use the <code class="literal">ncurses</code> menu for configuring the kernel, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/usr/src/linux-source-3.13.0/linux-source-3.13.0# make menuconfig</strong></span>
+</pre><p>Navigate to <span class="strong"><strong>Networking support</strong></span> | <span class="strong"><strong>Networking options</strong></span> | <span class="strong"><strong>802.1d Ethernet Bridging</strong></span> and select either <span class="strong"><strong>Y</strong></span> to compile the bridging functionality in the kernel, or <span class="strong"><strong>M</strong></span> to compile it as a module.</p><p>The  kernel configuration menu looks like this:</p><div class="mediaobject"><img alt="Software bridging in Linux" src="graphics/image_05_001.jpg"/></div><p>Once you make the selections, build the new kernel package and install it:</p><pre class="programlisting">
+<span class="strong"><strong>root@bridge:/usr/src/linux-source-3.13.0/linux-source-3.13.0# make deb-pkg</strong></span>
+<span class="strong"><strong>  CHK     include/config/kernel.release</strong></span>
+<span class="strong"><strong>make KBUILD_SRC=</strong></span>
+<span class="strong"><strong>SYSHDR  arch/x86/syscalls/../include/generated/uapi/asm/unistd_32.h</strong></span>
+<span class="strong"><strong>SYSHDR  arch/x86/syscalls/../include/generated/uapi/asm/unistd_64.h</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>dpkg-deb: building package `linux-firmware-image-3.13.11-ckt39' &#13;
+in `../linux-firmware-image-3.13.11-ckt39_3.13.11-ckt39-1_amd64.deb'.</strong></span>
+<span class="strong"><strong>dpkg-deb: building package `linux-headers-3.13.11-ckt39' &#13;
+in `../linux-headers-3.13.11-ckt39_3.13.11-ckt39-1_amd64.deb'.</strong></span>
+<span class="strong"><strong>dpkg-deb: building package `linux-libc-dev' &#13;
+in `../linux-libc-dev_3.13.11-ckt39-1_amd64.deb'.</strong></span>
+<span class="strong"><strong>dpkg-deb: building package `linux-image-3.13.11-ckt39' &#13;
+in `../linux-image-3.13.11-ckt39_3.13.11-ckt39-1_amd64.deb'.</strong></span>
+<span class="strong"><strong>dpkg-deb: building package `linux-image-3.13.11-ckt39-dbg' &#13;
+in `../linux-image-3.13.11-ckt39-dbg_3.13.11-ckt39-1_amd64.deb'.</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/linux-source-3.13.0/linux-source-3.13.0# ls -la ../*.deb</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root    803530 Oct 19 18:04 ../linux-firmware-image-3.13.11-ckt39_3.13.11-ckt39-1_amd64.deb</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root   6435516 Oct 19 18:04 ../linux-headers-3.13.11-ckt39_3.13.11-ckt39-1_amd64.deb</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root  39640242 Oct 19 18:07 ../linux-image-3.13.11-ckt39_3.13.11-ckt39-1_amd64.deb</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 363727500 Oct 19 18:37 ../linux-image-3.13.11-ckt39-dbg_3.13.11-ckt39-1_amd64.deb</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root    768606 Oct 19 18:04 ../linux-libc-dev_3.13.11-ckt39-1_amd64.deb</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/linux-source-3.13.0/linux-source-3.13.0#</strong></span>
+</pre><p>To use the new kernel, install the packages and reboot.</p><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="note26"/>Note</h3><p>For more information on how to compile and install the Linux kernel from source, refer to your distribution's documentation.</p></div></div><div class="section" title="The Linux bridge"><div class="titlepage"><div><div><h2 class="title"><a id="ch05lvl2sec52"/>The Linux bridge</h2></div></div></div><p>The built-in Linux bridge is a software layer 2 device. OSI layer 2 devices provide a way of connecting multiple Ethernet segments together and forward traffic based on MAC addresses, effectively creating separate broadcast domains.</p><p>Let's start by installing the latest version from source on Ubuntu:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cd /usr/src/</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src# apt-get update &amp;&amp; apt-get install build-essential automakepkg-config git</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src# git clone git://git.kernel.org/pub/scm/linux/kernel/git/shemminger/bridge-utils.git</strong></span>
+<span class="strong"><strong>Cloning into 'bridge-utils'...</strong></span>
+<span class="strong"><strong>remote: Counting objects: 654, done.</strong></span>
+<span class="strong"><strong>remote: Total 654 (delta 0), reused 0 (delta 0)</strong></span>
+<span class="strong"><strong>Receiving objects: 100% (654/654), 131.72 KiB | 198.00 KiB/s, done.</strong></span>
+<span class="strong"><strong>Resolving deltas: 100% (425/425), done.</strong></span>
+
+<span class="strong"><strong>Checking connectivity... done.&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src# cd bridge-utils/</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/bridge-utils# autoconf</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/bridge-utils# ./configure &amp;&amp; make &amp;&amp; make install</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/bridge-utils# brctl --version</strong></span>
+<span class="strong"><strong>bridge-utils, 1.5</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/bridge-utils#</strong></span>
+</pre><p>From the preceding output, we can see that we first cloned the <code class="literal">git</code> repository for the <code class="literal">bridge-utils</code> project and then compiled the source code.</p><p>To compile the bridging software on CentOS, the process is similar to what we did in the previous section; first we install the prerequisite packages, then configure and compile, as follows:</p><pre class="programlisting">
+<span class="strong"><strong>[root@centos ~]# cd /usr/src/</strong></span>
+<span class="strong"><strong>[root@centossrc]#</strong></span>
+<span class="strong"><strong>[root@centossrc]# yum groupinstall "Development tools"</strong></span>
+<span class="strong"><strong>[root@centossrc]# git clone git://git.kernel.org/pub/scm/linux/kernel/git/shemminger/bridge-utils.git</strong></span>
+<span class="strong"><strong>Cloning into 'bridge-utils'...</strong></span>
+<span class="strong"><strong>remote: Counting objects: 654, done.</strong></span>
+<span class="strong"><strong>remote: Total 654 (delta 0), reused 0 (delta 0)</strong></span>
+<span class="strong"><strong>Receiving objects: 100% (654/654), 131.72 KiB | 198.00 KiB/s, done.</strong></span>
+<span class="strong"><strong>Resolving deltas: 100% (425/425), done.</strong></span>
+<span class="strong"><strong>Checking connectivity... done.&#13;</strong></span>
+
+<span class="strong"><strong>[root@centossrc]# cd bridge-utils</strong></span>
+<span class="strong"><strong>[root@centos bridge-utils]# autoconf</strong></span>
+<span class="strong"><strong>[root@centos bridge-utils]# ./configure &amp;&amp; make &amp;&amp; make install</strong></span>
+<span class="strong"><strong>[root@centos bridge-utils]# brctl --version</strong></span>
+<span class="strong"><strong>bridge-utils, 1.5</strong></span>
+<span class="strong"><strong>[root@centos bridge-utils]#</strong></span>
+</pre><p>Invoking the <code class="literal">brctl</code> command without any parameters shows what operations are available:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/usr/src/bridge-utils# brctl</strong></span>
+<span class="strong"><strong>Usage: brctl [commands]</strong></span>
+<span class="strong"><strong>commands:</strong></span>
+<span class="strong"><strong>  addbr  &lt;bridge&gt;    add bridge</strong></span>
+<span class="strong"><strong>  delbr  &lt;bridge&gt;    delete bridge</strong></span>
+<span class="strong"><strong>  addif  &lt;bridge&gt;&lt;device&gt;  add interface to bridge</strong></span>
+<span class="strong"><strong>  delif  &lt;bridge&gt;&lt;device&gt;  delete interface from bridge</strong></span>
+<span class="strong"><strong>  hairpin     &lt;bridge&gt;&lt;port&gt; {on|off}  turn hairpin on/off</strong></span>
+<span class="strong"><strong>  setageing  &lt;bridge&gt;&lt;time&gt;    set ageing time</strong></span>
+<span class="strong"><strong>  setbridgeprio  &lt;bridge&gt;&lt;prio&gt;    set bridge priority</strong></span>
+<span class="strong"><strong>  setfd  &lt;bridge&gt;&lt;time&gt;    set bridge forward delay</strong></span>
+<span class="strong"><strong>  sethello  &lt;bridge&gt;&lt;time&gt;    set hello time</strong></span>
+<span class="strong"><strong>  setmaxage  &lt;bridge&gt;&lt;time&gt;    set max message age</strong></span>
+<span class="strong"><strong>  setpathcost  &lt;bridge&gt;&lt;port&gt;&lt;cost&gt;  set path cost</strong></span>
+<span class="strong"><strong>  setportprio  &lt;bridge&gt;&lt;port&gt;&lt;prio&gt;  set port priority</strong></span>
+<span class="strong"><strong>  show  [ &lt;bridge&gt; ]    show a list of bridges</strong></span>
+<span class="strong"><strong>  showmacs  &lt;bridge&gt;    show a list of mac addrs</strong></span>
+<span class="strong"><strong>  showstp  &lt;bridge&gt;    show bridge stp info</strong></span>
+<span class="strong"><strong>  stp  &lt;bridge&gt; {on|off}  turn stp on/off</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/bridge-utils#</strong></span>
+</pre></div><div class="section" title="The Linux bridge and the LXC package on Ubuntu"><div class="titlepage"><div><div><h2 class="title"><a id="ch05lvl2sec53"/>The Linux bridge and the LXC package on Ubuntu</h2></div></div></div><p>Let's install the LXC package and dependencies. To check the latest available package version from the repositories you have configured on your system, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# apt-cache madison lxc</strong></span>
+<span class="strong"><strong>    lxc | 2.0.4-0ubuntu1~ubuntu14.04.1 | http://us-east-1.ec2.archive.ubuntu.com/ubuntu/ trusty-backports/main amd64 Packages</strong></span>
+<span class="strong"><strong>lxc | 1.0.8-0ubuntu0.3 | http://us-east-1.ec2.archive.ubuntu.com/ubuntu/ trusty-updates/main amd64 Packages</strong></span>
+<span class="strong"><strong>lxc | 1.0.7-0ubuntu0.7 | http://security.ubuntu.com/ubuntu/ trusty-security/main amd64 Packages</strong></span>
+<span class="strong"><strong>lxc | 1.0.3-0ubuntu3 | http://us-east-1.ec2.archive.ubuntu.com/ubuntu/ trusty/main amd64 Packages</strong></span>
+<span class="strong"><strong>lxc | 1.0.3-0ubuntu3 | http://us-east-1.ec2.archive.ubuntu.com/ubuntu/ trusty/main Sources</strong></span>
+<span class="strong"><strong>lxc | 1.0.8-0ubuntu0.3 | http://us-east-1.ec2.archive.ubuntu.com/ubuntu/ trusty-updates/main Sources</strong></span>
+<span class="strong"><strong>lxc | 2.0.4-0ubuntu1~ubuntu14.04.1 | http://us-east-1.ec2.archive.ubuntu.com/ubuntu/ trusty-backports/main Sources</strong></span>
+<span class="strong"><strong>lxc | 1.0.7-0ubuntu0.7 | http://security.ubuntu.com/ubuntu/ trusty-security/main Sources</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>The output is from an Amazon EC2 instance, showing that the latest LXC version is <code class="literal">2.0.4-0ubuntu1~ubuntu14.04.1</code>. Let's install it and observe the output:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/usr/src/bridge-utils# apt-get install -y lxc=2.0.4-0ubuntu1~ubuntu14.04.1 lxc1=2.0.4-0ubuntu1~ubuntu14.04.1 liblxc1=2.0.4-0ubuntu1~ubuntu14.04.1 python3-lxc=2.0.4-0ubuntu1~ubuntu14.04.1 cgroup-lite=1.11~ubuntu14.04.2 lxc-templates=2.0.4-0ubuntu1~ubuntu14.04.1</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>Setting up lxc1 (2.0.4-0ubuntu1~ubuntu14.04.1) ...</strong></span>
+<span class="strong"><strong>lxc-net start/running</strong></span>
+<span class="strong"><strong>Setting up lxc dnsmasq configuration.</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/bridge-utils#</strong></span>
+</pre><p>Notice how the package installs and configures the <code class="literal">dnsmasq</code> service, due to package dependencies in the <code class="literal">lxc1.postinst</code> script part of the <code class="literal">lxc</code> package. This is quite convenient on Ubuntu, but if the distribution you are running does not support that, or you are compiling LXC from source, you can always install that manually. You only need to do this if you prefer <code class="literal">dnsmasq</code> to assign IP addresses to your containers dynamically. You can always configure the LXC containers with static IP addresses.</p><p>From the preceding output, we can also observe that the package started the <code class="literal">lxc-net</code> service. Let's look into that by checking its status:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/usr/src/bridge-utils# service lxc-net status</strong></span>
+<span class="strong"><strong>lxc-net start/running</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/bridge-utils#</strong></span>
+</pre><p>Also, take a look at the <code class="literal">init</code> configuration file:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/usr/src/bridge-utils# cat /etc/init/lxc-net.conf</strong></span>
+<span class="strong"><strong>description "lxc network"</strong></span>
+<span class="strong"><strong>author "Serge Hallyn&lt;serge.hallyn@canonical.com&gt;"</strong></span>
+<span class="strong"><strong>start on starting lxc</strong></span>
+<span class="strong"><strong>stop on stopped lxc</strong></span>
+<span class="strong"><strong>pre-start exec /usr/lib/x86_64-linux-gnu/lxc/lxc-net start</strong></span>
+<span class="strong"><strong>post-stop exec /usr/lib/x86_64-linux-gnu/lxc/lxc-net stop</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/bridge-utils#</strong></span>
+</pre><p>We can see that the <code class="literal">init</code> script starts the <code class="literal">lxc-net</code> service. Let's see what this provides:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/usr/src/bridge-utils# head -24 /usr/lib/x86_64-linux-gnu/lxc/lxc-net</strong></span>
+<span class="strong"><strong>#!/bin/sh -</strong></span>
+<span class="strong"><strong>distrosysconfdir="/etc/default"</strong></span>
+<span class="strong"><strong>varrun="/run/lxc"</strong></span>
+<span class="strong"><strong>varlib="/var/lib"</strong></span>
+<span class="strong"><strong># These can be overridden in /etc/default/lxc</strong></span>
+<span class="strong"><strong>#   or in /etc/default/lxc-net</strong></span>
+<span class="strong"><strong>USE_LXC_BRIDGE="true"</strong></span>
+<span class="strong"><strong>LXC_BRIDGE="lxcbr0"</strong></span>
+<span class="strong"><strong>LXC_ADDR="10.0.3.1"</strong></span>
+<span class="strong"><strong>LXC_NETMASK="255.255.255.0"</strong></span>
+<span class="strong"><strong>LXC_NETWORK="10.0.3.0/24"</strong></span>
+<span class="strong"><strong>LXC_DHCP_RANGE="10.0.3.2,10.0.3.254"</strong></span>
+<span class="strong"><strong>LXC_DHCP_MAX="253"</strong></span>
+<span class="strong"><strong>LXC_DHCP_CONFILE=""</strong></span>
+<span class="strong"><strong>LXC_DOMAIN=""</strong></span>
+<span class="strong"><strong>LXC_IPV6_ADDR=""</strong></span>
+<span class="strong"><strong>LXC_IPV6_MASK=""</strong></span>
+<span class="strong"><strong>LXC_IPV6_NETWORK=""</strong></span>
+<span class="strong"><strong>LXC_IPV6_NAT="false"</strong></span>
+<span class="strong"><strong>root@bridge:/usr/src/bridge-utils#</strong></span>
+</pre><p>From the first few lines of the preceding script we can see that it sets up LXC networking defaults, such as the name of the Linux bridge and the subnet that will be assigned by the <code class="literal">dnsmasq</code> service. It also points us to the default LXC network file that we can use to override those options.</p><p>Let's take a look at the default <code class="literal">lxc-net</code> file:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/usr/src/bridge-utils# cat /etc/default/lxc-net  | grep -vi ^#</strong></span>
+<span class="strong"><strong>USE_LXC_BRIDGE="true"</strong></span>
+<span class="strong"><strong>LXC_BRIDGE="lxcbr0"</strong></span>
+<span class="strong"><strong>LXC_ADDR="10.0.3.1"</strong></span>
+<span class="strong"><strong>LXC_NETMASK="255.255.255.0"</strong></span>
+<span class="strong"><strong>LXC_NETWORK="10.0.3.0/24"</strong></span>
+<span class="strong"><strong>LXC_DHCP_RANGE="10.0.3.2,10.0.3.254"</strong></span>
+<span class="strong"><strong>LXC_DHCP_MAX="253"</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/bridge-utils#</strong></span>
+</pre><p>LXC on Ubuntu is packaged in such a way that it also creates the bridge for us:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/usr/src/bridge-utils# brctl show</strong></span>
+<span class="strong"><strong>bridge name  bridge id           STP enabled  interfaces</strong></span>
+<span class="strong"><strong>lxcbr0       8000.000000000000   no</strong></span>
+<span class="strong"><strong>root@ubuntu:/usr/src/bridge-utils#</strong></span>
+</pre><p>Notice the name of the bridge—<code class="literal">lxcbr0</code>—is the one specified in the <code class="literal">/etc/default/lxc-net</code> file and the <code class="literal">/usr/lib/x86_64-linux-gnu/lxc/lxc-net</code> script.</p></div><div class="section" title="The Linux bridge and the LXC package on CentOS"><div class="titlepage"><div><div><h2 class="title"><a id="ch05lvl2sec54"/>The Linux bridge and the LXC package on CentOS</h2></div></div></div><p>Unfortunately, not all Linux distributions package LXC with the extra functionality of building the bridge, and configuring and starting <code class="literal">dnsmasq</code>, as we saw in the earlier section with Ubuntu. Building LXC from source, as described in <a class="link" href="ch02.html" title="Chapter 2. Installing and Running LXC on Linux Systems"><span>Chapter 2</span></a>, <span class="emphasis"><em>Installing and Running LXC on Linux Systems</em></span>, or using the CentOS packages, will not automatically create the Linux bridge, or configure and start the <code class="literal">dnsmasq</code> service.</p><p>Let's explore this in more detail on CentOS, by building an LXC container named <code class="literal">bridge</code>, using the <code class="literal">centos</code> template:</p><pre class="programlisting">
+<span class="strong"><strong>[root@centos ~]# yum install lxc lxc-templates</strong></span>
+<span class="strong"><strong>[root@centos ~]# lxc-create --name bridge -t centos</strong></span>
+<span class="strong"><strong>Host CPE ID from /etc/os-release: cpe:/o:centos:centos:7</strong></span>
+<span class="strong"><strong>Checking cache download in /var/cache/lxc/centos/x86_64/7/rootfs ...</strong></span>
+<span class="strong"><strong>Downloading centos minimal ...</strong></span>
+<span class="strong"><strong>Loaded plugins: fastestmirror, langpacks</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>Container rootfs and config have been created.</strong></span>
+<span class="strong"><strong>Edit the config file to check/enable networking setup.</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>[root@centos ~]#</strong></span>
+</pre><p>Let's check if a bridge was created after the <code class="literal">lxc</code> package was installed and the container was built:</p><pre class="programlisting">
+<span class="strong"><strong>[root@centos ~]# brctl show</strong></span>
+<span class="strong"><strong>[root@centos ~]#</strong></span>
+</pre><p>If we try to start the container, we'll get the following errors:</p><pre class="programlisting">
+<span class="strong"><strong>[root@centos ~]# lxc-ls -f</strong></span>
+<span class="strong"><strong>bridge&#13;</strong></span>
+<span class="strong"><strong>[root@centos ~]# lxc-start --name bridge</strong></span>
+<span class="strong"><strong>lxc-start: conf.c: instantiate_veth: 3105 failed to attach 'veth5TVOEO' to the bridge 'virbr0': No such device</strong></span>
+<span class="strong"><strong>lxc-start: conf.c: lxc_create_network: 3388 failed to create netdev</strong></span>
+<span class="strong"><strong>lxc-start: start.c: lxc_spawn: 841 failed to create the network</strong></span>
+<span class="strong"><strong>lxc-start: start.c: __lxc_start: 1100 failed to spawn 'bridge'</strong></span>
+<span class="strong"><strong>lxc-start: lxc_start.c: main: 341 The container failed to start.</strong></span>
+<span class="strong"><strong>lxc-start: lxc_start.c: main: 345 Additional information can be obtained by setting the --logfile and --logpriority options.</strong></span>
+<span class="strong"><strong>[root@centos ~]#</strong></span>
+</pre><p>The preceding output shows that the container is trying to connect to a bridge named <code class="literal">virbr0</code>, which does not exist. The name is defined in the following file and then assigned to the container's configuration:</p><pre class="programlisting">
+<span class="strong"><strong>[root@centos ~]# cat /etc/lxc/default.conf</strong></span>
+<span class="strong"><strong>lxc.network.type = veth</strong></span>
+<span class="strong"><strong>lxc.network.link = virbr0</strong></span>
+<span class="strong"><strong>lxc.network.flags = up&#13;</strong></span>
+<span class="strong"><strong>[root@centos ~]# cat /var/lib/lxc/bridge/config  | grep -vi "#" | sed '/^$/d' | grep network</strong></span>
+<span class="strong"><strong>lxc.network.type = veth</strong></span>
+<span class="strong"><strong>lxc.network.flags = up</strong></span>
+<span class="strong"><strong>lxc.network.link = virbr0</strong></span>
+<span class="strong"><strong>lxc.network.hwaddr = fe:6e:b6:af:24:2b </strong></span>
+<span class="strong"><strong>[root@centos ~]#</strong></span>
+</pre><p>In order to successfully start the container, we'll have to first create the bridge that LXC expects:</p><pre class="programlisting">
+<span class="strong"><strong>[root@centos ~]# brctl addbr virbr0</strong></span>
+</pre><p>Then start the container again and check the bridge:</p><pre class="programlisting">
+<span class="strong"><strong>[root@centos~]# lxc-start --name bridge</strong></span>
+<span class="strong"><strong>[root@centos~]# brctl show</strong></span>
+<span class="strong"><strong>bridge name    bridge id             STP enabled   interfaces</strong></span>
+<span class="strong"><strong>virbr0         8000.fe1af1cb0b2e     no            vethB6CRLW</strong></span>
+<span class="strong"><strong>[root@centos ~]#</strong></span>
+</pre><p>The <code class="literal">vethB6CRLW</code> interface is the virtual interface that the LXC container presents to the host and connects to the <code class="literal">virbr0</code> bridge port:</p><pre class="programlisting">
+<span class="strong"><strong>[root@centos ~]# ifconfig vethB6CRLW</strong></span>
+<span class="strong"><strong>vethB6CRLW: flags=4163&lt;UP,BROADCAST,RUNNING,MULTICAST&gt;mtu 1500</strong></span>
+<span class="strong"><strong>inet6 fe80::fc1a:f1ff:fecb:b2e  prefixlen 64  scopeid 0x20&lt;link&gt;</strong></span>
+<span class="strong"><strong>ether fe:1a:f1:cb:0b:2e  txqueuelen 1000  (Ethernet)</strong></span>
+<span class="strong"><strong>    RX packets 14  bytes 2700 (2.6 KiB)</strong></span>
+<span class="strong"><strong>    RX errors 0  dropped 0  overruns 0  frame 0</strong></span>
+<span class="strong"><strong>    TX packets 8  bytes 648 (648.0 B)</strong></span>
+<span class="strong"><strong>    TX errors 0  dropped 0 overruns 0  carrier 0  collisions &#13;
+        0</strong></span>
+<span class="strong"><strong>[root@centos ~]#</strong></span>
+</pre><p>The preceding output displays the current configuration for the virtual interface of the <code class="literal">bridge</code> container we built earlier, as seen by the host OS.</p></div><div class="section" title="Using dnsmasq service to obtain an IP address in the container"><div class="titlepage"><div><div><h2 class="title"><a id="ch05lvl2sec55"/>Using dnsmasq service to obtain an IP address in the container</h2></div></div></div><p>The <code class="literal">dnsmasq</code> service that was started after installing the <code class="literal">lxc</code> package on Ubuntu should look similar to the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@bridge:/usr/src/bridge-utils# pgrep -lfaww dnsmasq</strong></span>
+<span class="strong"><strong>12779 dnsmasq -u lxc-dnsmasq --strict-order --bind-interfaces &#13;
+--pid-file=/run/lxc/dnsmasq.pid --listen-address 10.0.3.1 &#13;
+--dhcp-range 10.0.3.2,10.0.3.254 --dhcp-lease-max=253 &#13;
+--dhcp-no-override --except-interface=lo --interface=lxcbr0 &#13;
+--dhcp-leasefile=/var/lib/misc/dnsmasq.lxcbr0.leases &#13;
+--dhcp-authoritative</strong></span>
+<span class="strong"><strong>root@bridge:/usr/src/bridge-utils#</strong></span>
+</pre><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="note27"/>Note</h3><p>Note, the <code class="literal">dhcp-range</code> parameter matches what was defined in the <code class="literal">/etc/default/lxc-net</code> file.</p></div></div><p>Let's create a new container and explore its network settings:</p><pre class="programlisting">
+<span class="strong"><strong>root@bridge:/usr/src/bridge-utils# lxc-create -t ubuntu --name br1</strong></span>
+<span class="strong"><strong>Checking cache download in /var/cache/lxc/trusty/rootfs-amd64 ...</strong></span>
+<span class="strong"><strong>Installing packages in template: apt-transport-https,ssh,vim,language-pack-en</strong></span>
+<span class="strong"><strong>Downloading ubuntu trusty minimal ...</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>##</strong></span>
+<span class="strong"><strong># The default user is 'ubuntu' with password 'ubuntu'!</strong></span>
+<span class="strong"><strong># Use the 'sudo' command to run tasks as root in the container.</strong></span>
+<span class="strong"><strong>##</strong></span>
+<span class="strong"><strong>root@bridge:/usr/src/bridge-utils# lxc-start --name br1</strong></span>
+<span class="strong"><strong>root@bridge:/usr/src/bridge-utils# lxc-info --name br1</strong></span>
+<span class="strong"><strong>Name:           br1</strong></span>
+<span class="strong"><strong>State:          RUNNING</strong></span>
+<span class="strong"><strong>PID:            1773</strong></span>
+<span class="strong"><strong>IP:             10.0.3.65</strong></span>
+<span class="strong"><strong>CPU use:        1.66 seconds</strong></span>
+<span class="strong"><strong>BlkIO use:      160.00 KiB</strong></span>
+<span class="strong"><strong>Memory use:     7.27 MiB</strong></span>
+<span class="strong"><strong>KMem use:       0 bytes</strong></span>
+<span class="strong"><strong>Link:           veth366R6F</strong></span>
+<span class="strong"><strong> TX bytes:      1.85 KiB</strong></span>
+<span class="strong"><strong>RX bytes:      1.59 KiB</strong></span>
+<span class="strong"><strong>Total bytes:   3.44 KiB&#13;</strong></span>
+<span class="strong"><strong>root@bridge:/usr/src/bridge-utils#</strong></span>
+</pre><p>Notice the name of the virtual interface that was created on the host OS – <code class="literal">veth366R6F</code>, from the output of the <code class="literal">lxc-info</code> command. The interface should have been added as a port to the bridge. Let's confirm this using the <code class="literal">brctl</code> utility:</p><pre class="programlisting">
+<span class="strong"><strong>root@bridge:/usr/src/bridge-utils# brctl show</strong></span>
+<span class="strong"><strong>bridge name  bridge id          STP enabled   interfaces</strong></span>
+<span class="strong"><strong>lxcbr0       8000.fe7a39cee87c  no            veth366R6F</strong></span>
+<span class="strong"><strong>root@bridge:/usr/src/bridge-utils#</strong></span>
+</pre><p>Listing all interfaces on the host shows the bridge and the virtual interface associated with the container:</p><pre class="programlisting">
+<span class="strong"><strong>root@bridge:~# ifconfig</strong></span>
+<span class="strong"><strong>eth0      Link encap:EthernetHWaddr bc:76:4e:10:6a:31</strong></span>
+<span class="strong"><strong>inet addr:10.208.131.214  Bcast:10.208.255.255  Mask:255.255.128.0</strong></span>
+<span class="strong"><strong>inet6addr: fe80::be76:4eff:fe10:6a31/64 Scope:Link</strong></span>
+<span class="strong"><strong>       UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1</strong></span>
+<span class="strong"><strong>       RX packets:322 errors:0 dropped:0 overruns:0 frame:0</strong></span>
+<span class="strong"><strong>       TX packets:337 errors:0 dropped:0 overruns:0 carrier:0</strong></span>
+<span class="strong"><strong>       collisions:0 txqueuelen:1000</strong></span>
+<span class="strong"><strong>       RX bytes:14812 (14.8 KB)  TX bytes:14782 (14.7 KB)</strong></span>
+<span class="strong"><strong>lo        Link encap:Local Loopback</strong></span>
+<span class="strong"><strong>inet addr:127.0.0.1  Mask:255.0.0.0</strong></span>
+<span class="strong"><strong>inet6addr: ::1/128 Scope:Host</strong></span>
+<span class="strong"><strong>       UP LOOPBACK RUNNING  MTU:65536  Metric:1</strong></span>
+<span class="strong"><strong>       RX packets:9 errors:0 dropped:0 overruns:0 frame:0</strong></span>
+<span class="strong"><strong>       TX packets:9 errors:0 dropped:0 overruns:0 carrier:0</strong></span>
+<span class="strong"><strong>       collisions:0 txqueuelen:0</strong></span>
+<span class="strong"><strong>       RX bytes:668 (668.0 B)  TX bytes:668 (668.0 B)</strong></span>
+<span class="strong"><strong>lxcbr0    Link encap:EthernetHWaddr fe:7a:39:ce:e8:7c</strong></span>
+<span class="strong"><strong>inet addr:10.0.3.1  Bcast:0.0.0.0  Mask:255.255.255.0</strong></span>
+<span class="strong"><strong>inet6addr: fe80::fc7a:39ff:fece:e87c/64 Scope:Link</strong></span>
+<span class="strong"><strong>       UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1</strong></span>
+<span class="strong"><strong>       RX packets:53 errors:0 dropped:0 overruns:0 frame:0</strong></span>
+<span class="strong"><strong>       TX packets:57 errors:0 dropped:0 overruns:0 carrier:0</strong></span>
+<span class="strong"><strong>       collisions:0 txqueuelen:0</strong></span>
+<span class="strong"><strong>       RX bytes:4268 (4.2 KB)  TX bytes:5450 (5.4 KB)</strong></span>
+<span class="strong"><strong>veth366R6F Link encap:EthernetHWaddr fe:7a:39:ce:e8:7c</strong></span>
+<span class="strong"><strong>inet6addr: fe80::fc7a:39ff:fece:e87c/64 Scope:Link</strong></span>
+<span class="strong"><strong>       UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1</strong></span>
+<span class="strong"><strong>       RX packets:53 errors:0 dropped:0 overruns:0 frame:0</strong></span>
+<span class="strong"><strong>       TX packets:58 errors:0 dropped:0 overruns:0 carrier:0</strong></span>
+<span class="strong"><strong>       collisions:0 txqueuelen:1000</strong></span>
+<span class="strong"><strong>       RX bytes:5010 (5.0 KB)  TX bytes:5528 (5.5 KB)</strong></span>
+<span class="strong"><strong>root@bridge:~#</strong></span>
+</pre><p>Notice the IP address assigned to the <code class="literal">lxcbr0</code> interface—it's the same IP address passed as the <code class="literal">listen-address</code> argument to the <code class="literal">dnsmasq</code> process. Let's examine the network interface and the routes inside the container by attaching to it first:</p><pre class="programlisting">
+<span class="strong"><strong>root@bridge:~# lxc-attach --name br1</strong></span>
+<span class="strong"><strong>root@br1:~# ifconfig</strong></span>
+<span class="strong"><strong>eth0      Link encap:EthernetHWaddr 00:16:3e:39:cf:e9</strong></span>
+<span class="strong"><strong>inet addr:10.0.3.65  Bcast:10.0.3.255  Mask:255.255.255.0</strong></span>
+<span class="strong"><strong>inet6addr: fe80::216:3eff:fe39:cfe9/64 Scope:Link</strong></span>
+<span class="strong"><strong>          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1</strong></span>
+<span class="strong"><strong>          RX packets:58 errors:0 dropped:0 overruns:0 frame:0</strong></span>
+<span class="strong"><strong>          TX packets:53 errors:0 dropped:0 overruns:0 carrier:0</strong></span>
+<span class="strong"><strong>          collisions:0 txqueuelen:1000</strong></span>
+<span class="strong"><strong>          RX bytes:5528 (5.5 KB)  TX bytes:5010 (5.0 KB)</strong></span>
+<span class="strong"><strong>lo        Link encap:Local Loopback</strong></span>
+<span class="strong"><strong>inet addr:127.0.0.1  Mask:255.0.0.0</strong></span>
+<span class="strong"><strong>inet6addr: ::1/128 Scope:Host</strong></span>
+<span class="strong"><strong>          UP LOOPBACK RUNNING  MTU:65536  Metric:1</strong></span>
+<span class="strong"><strong>          RX packets:0 errors:0 dropped:0 overruns:0 frame:0</strong></span>
+<span class="strong"><strong>          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0</strong></span>
+<span class="strong"><strong>          collisions:0 txqueuelen:0</strong></span>
+<span class="strong"><strong>          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)</strong></span>
+<span class="strong"><strong>root@br1:~# route -n</strong></span>
+<span class="strong"><strong>Kernel IP routing table</strong></span>
+<span class="strong"><strong>Destination     Gateway         Genmask         Flags Metric Ref    Use Iface</strong></span>
+<span class="strong"><strong>0.0.0.0         10.0.3.1        0.0.0.0         UG    0      0        0 eth0</strong></span>
+<span class="strong"><strong>10.0.3.0        0.0.0.0         255.255.255.0   U     0      0        0 eth0</strong></span>
+<span class="strong"><strong>root@br1:~#</strong></span>
+</pre><p>The IP address assigned to the <code class="literal">eth0</code> interface by <code class="literal">dnsmasq</code> is part of the <code class="literal">10.0.3.0/24</code> subnet and the default gateway is the IP of the bridge interface on the host. The reason the container automatically obtained an IP address is its interface configuration file:</p><pre class="programlisting">
+<span class="strong"><strong>root@br1:~# cat /etc/network/interfaces</strong></span>
+<span class="strong"><strong># This file describes the network interfaces available on your system</strong></span>
+<span class="strong"><strong># and how to activate them. For more information, see interfaces(5).</strong></span>
+<span class="strong"><strong># The loopback network interface</strong></span>
+<span class="strong"><strong>auto lo</strong></span>
+<span class="strong"><strong>iface lo inet loopback</strong></span>
+<span class="strong"><strong>auto eth0</strong></span>
+<span class="strong"><strong>iface eth0 inetdhcp</strong></span>
+<span class="strong"><strong>root@br1:~#</strong></span>
+</pre><p>As the preceding output shows, <code class="literal">eth0</code> is configured to use DHCP. If we would rather use statically assigned addresses, we only have to change that file and specify whatever IP address we would like to use. Using DHCP with <code class="literal">dnsmasq</code> is not required for LXC networking, but it can be a convenience.</p><p>Let's change the range of IPs that <code class="literal">dnsmasq</code> offers, by not assigning the first one hundred IPs in the <code class="literal">/etc/default/lxc-net</code> file:</p><pre class="programlisting">
+<span class="strong"><strong>root@bridge:/usr/src/bridge-utils# sed -i 's/LXC_DHCP_RANGE="10.0.3.2,10.0.3.254"/LXC_DHCP_RANGE="10.0.3.100,10.0.3.254"/g' /etc/default/lxc-net&#13;</strong></span>
+<span class="strong"><strong>root@bridge:/usr/src/bridge-utils# grep LXC_DHCP_RANGE /etc/default/lxc-net</strong></span>
+<span class="strong"><strong>LXC_DHCP_RANGE="10.0.3.100,10.0.3.254"</strong></span>
+<span class="strong"><strong>root@bridge:/usr/src/bridge-utils#</strong></span>
+</pre><p>After restarting <code class="literal">dnsmasq</code>, observe the new DHCP range passed as the <code class="literal">dhcp-range</code> parameter:</p><pre class="programlisting">
+<span class="strong"><strong>root@bridge:/usr/src/bridge-utils# pgrep -lfaww dnsmasq</strong></span>
+<span class="strong"><strong>4215 dnsmasq -u lxc-dnsmasq --strict-order --bind-interfaces &#13;
+--pid-file=/run/lxc/dnsmasq.pid --listen-address 10.0.3.1 &#13;
+--dhcp-range 10.0.3.100,10.0.3.254 --dhcp-lease-max=253 &#13;
+--dhcp-no-override --except-interface=lo --interface=lxcbr0 --dhcp-leasefile=/var/lib/misc/dnsmasq.lxcbr0.leases &#13;
+--dhcp-authoritative</strong></span>
+<span class="strong"><strong>root@bridge:/usr/src/bridge-utils#</strong></span>
+</pre><p>The next time we build a container using the Ubuntu template, the IP address that will be assigned to the container will start from <code class="literal">100</code> for the fourth octet. This is handy if we want to use the first <code class="literal">100</code> IPs for manual assignment, as we'll see next.</p></div><div class="section" title="Statically assigning IP addresses in the LXC container"><div class="titlepage"><div><div><h2 class="title"><a id="ch05lvl2sec56"/>Statically assigning IP addresses in the LXC container</h2></div></div></div><p>Assigning an IP address inside the container is not any different than configuring a regular Linux server. While attached to the container, run the following commands:</p><pre class="programlisting">
+<span class="strong"><strong>root@br1:~# ifconfig eth0 10.0.3.10 netmask 255.255.255.0</strong></span>
+<span class="strong"><strong>root@br1:~# route add default gw 10.0.3.1</strong></span>
+<span class="strong"><strong>root@br1:~# ping -c 3 10.0.3.1</strong></span>
+<span class="strong"><strong>PING 10.0.3.1 (10.0.3.1) 56(84) bytes of data.</strong></span>
+<span class="strong"><strong>64 bytes from 10.0.3.1: icmp_seq=1 ttl=64 time=0.053 ms</strong></span>
+<span class="strong"><strong>64 bytes from 10.0.3.1: icmp_seq=2 ttl=64 time=0.073 ms</strong></span>
+<span class="strong"><strong>64 bytes from 10.0.3.1: icmp_seq=3 ttl=64 time=0.074 ms&#13;</strong></span>
+<span class="strong"><strong>--- 10.0.3.1 ping statistics ---</strong></span>
+<span class="strong"><strong>3 packets transmitted, 3 received, 0% packet loss, time 1998ms</strong></span>
+<span class="strong"><strong>rtt min/avg/max/mdev = 0.053/0.066/0.074/0.013 ms</strong></span>
+<span class="strong"><strong>root@br1:~#</strong></span>
+</pre><p>To make the change persistent, edit the file as follows, then stop and start the container:</p><pre class="programlisting">
+<span class="strong"><strong>root@br1:~# cat /etc/network/interfaces</strong></span>
+<span class="strong"><strong>auto lo</strong></span>
+<span class="strong"><strong>iface lo inet loopback</strong></span>
+<span class="strong"><strong>auto eth0</strong></span>
+<span class="strong"><strong>  iface eth0 inet static</strong></span>
+<span class="strong"><strong>  address 10.0.3.10</strong></span>
+<span class="strong"><strong>  netmask 255.255.255.0</strong></span>
+<span class="strong"><strong>  gateway 10.0.3.1</strong></span>
+<span class="strong"><strong>root@br1:~# exit</strong></span>
+<span class="strong"><strong>root@ubuntu:~#lxc-stop --name br1 &amp;&amp; lxc-start --name br1</strong></span>
+</pre><p>Let's use the <code class="literal">brctl</code> utility to see what MAC addresses the bridge knows about:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# brctl showmacs lxcbr0</strong></span>
+<span class="strong"><strong>port no   mac addr           is local?   ageing timer</strong></span>
+<span class="strong"><strong>1         fe:7a:39:ce:e8:7c   yes         0.00</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Notice how this is the MAC of the <code class="literal">veth366R6F</code> virtual interface and the bridge, as listed by <code class="literal">ifconfig</code> on the host from the earlier output.</p></div><div class="section" title="Overview of LXC network configuration options"><div class="titlepage"><div><div><h2 class="title"><a id="ch05lvl2sec57"/>Overview of LXC network configuration options</h2></div></div></div><p>Let's examine the network configuration for the <code class="literal">br1</code> container we built earlier:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cat /var/lib/lxc/br1/config | grep -vi "#" | sed  '/^$/d' | grep -i network</strong></span>
+<span class="strong"><strong>lxc.network.type = veth</strong></span>
+<span class="strong"><strong>lxc.network.link = lxcbr0</strong></span>
+<span class="strong"><strong>lxc.network.flags = up</strong></span>
+<span class="strong"><strong>lxc.network.hwaddr = 00:16:3e:39:cf:e9</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>An impoing to note is the <code class="literal">lxc.network.hwaddr</code> option. It is the MAC of <code class="literal">eth0</code> inside the container that was dynamically generated for us. All of the configuration options can be changed, before or after the creation of the container.</p><p>The following table describes briefly what network configuration options are available to the container:</p><div class="informaltable"><table border="1"><colgroup><col/><col/></colgroup><tbody><tr><td>
+<p><span class="strong"><strong>Option</strong></span></p>
+</td><td>
+<p><span class="strong"><strong>Description</strong></span></p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.network.type</code></p>
+</td><td>
+<p>The type of network virtualization to be used</p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.network.link</code></p>
+</td><td>
+<p>The interface on the host</p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.network.flags</code></p>
+</td><td>
+<p>An action to perform on the interface</p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.network.hwaddr</code></p>
+</td><td>
+<p>Sets a MAC address on the container's interface</p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.network.mtu</code></p>
+</td><td>
+<p>Sets the <span class="strong"><strong>Maximum Transfer Unit</strong></span> (<span class="strong"><strong>MTU</strong></span>) for the container's interface</p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.network.name</code></p>
+</td><td>
+<p>Specifies the interface name</p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.network.ipv4</code></p>
+</td><td>
+<p>The IPv4 address to be assigned to the container</p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.network.ipv4.gateway</code></p>
+</td><td>
+<p>The IPv4 address to be used as the default gateway</p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.network.ipv6</code></p>
+</td><td>
+<p>The IPv6 address to be assigned to the container</p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.network.ipv6.gateway</code></p>
+</td><td>
+<p>The IPv6 address to be used as the default gateway</p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.network.script.up</code></p>
+</td><td>
+<p>Specifies a script to be executed after creating and configuring the network</p>
+</td></tr><tr><td>
+<p><code class="literal">lxc.network.script.down</code></p>
+</td><td>
+<p>Specifies a script to be executed before destroying the network</p>
+</td></tr></tbody></table></div><div class="blockquote"><blockquote class="blockquote"><p>Table 5.1</p></blockquote></div><p>We'll explore most of the options from this table in more detail, later in this chapter.</p></div><div class="section" title="Manually manipulating the Linux bridge"><div class="titlepage"><div><div><h2 class="title"><a id="ch05lvl2sec58"/>Manually manipulating the Linux bridge</h2></div></div></div><p>Let's finish our exploration of the Linux bridge by showing a few examples of how to manually work with it.</p><p>We can start by showing the bridge on the host by running the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# brctl show</strong></span>
+<span class="strong"><strong>bridge name    bridge id          STP enabled  interfaces</strong></span>
+<span class="strong"><strong>lxcbr0         8000.000000000000   no</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>To delete the bridge, the interface needs to be brought down first:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# ifconfig lxcbr0 down</strong></span>
+<span class="strong"><strong>root@ubuntu:~# brctl delbr lxcbr0</strong></span>
+<span class="strong"><strong>root@ubuntu:~# brctl show</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Next, let's create a new bridge and add one of the containers' interfaces to it that is exposed on the host OS, <code class="literal">veth366R6F</code>, in this example:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# brctl addbr lxcbr0</strong></span>
+<span class="strong"><strong>root@ubuntu:~# brctl show</strong></span>
+<span class="strong"><strong>bridge name   bridge id          STP enabled  interfaces</strong></span>
+<span class="strong"><strong>lxcbr0        8000.000000000000   no&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# brctl addif lxcbr0 veth366R6F</strong></span>
+<span class="strong"><strong>root@ubuntu:~# brctl show</strong></span>
+<span class="strong"><strong>bridge name    bridge id          STP enabled  interfaces</strong></span>
+<span class="strong"><strong>lxcbr0         8000.fe7a39cee87c   no          veth366R6F</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>The bridge has been created, but the interface associated with it needs to be brought up as the error, as shown here:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# ifconfig lxcrb0</strong></span>
+<span class="strong"><strong>lxcrb0: error fetching interface information: Device not found&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# ifconfig lxcbr0 up</strong></span>
+<span class="strong"><strong>root@ubuntu:~# ifconfig lxcbr0</strong></span>
+<span class="strong"><strong>lxcbr0    Link encap:EthernetHWaddr fe:7a:39:ce:e8:7c</strong></span>
+<span class="strong"><strong>inet6addr: fe80::fc7a:39ff:fece:e87c/64 Scope:Link</strong></span>
+<span class="strong"><strong>          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1</strong></span>
+<span class="strong"><strong>          RX packets:0 errors:0 dropped:0 overruns:0 frame:0</strong></span>
+<span class="strong"><strong>          TX packets:6 errors:0 dropped:0 overruns:0 carrier:0</strong></span>
+<span class="strong"><strong>          collisions:0 txqueuelen:0</strong></span>
+<span class="strong"><strong>          RX bytes:0 (0.0 B)  TX bytes:508 (508.0 B)</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Finally, let's assign an IP address to the bridge that the containers can use as their default gateway:</p><pre class="programlisting">
+<span class="strong"><strong>root@bridge:~# ifconfig lxcbr0 10.0.3.1 netmask 255.255.255.0</strong></span>
+<span class="strong"><strong>root@bridge:~#</strong></span>
+</pre></div><div class="section" title="Open vSwitch"><div class="titlepage"><div><div><h2 class="title"><a id="ch05lvl2sec59"/>Open vSwitch</h2></div></div></div><p><span class="strong"><strong>Open vSwitch</strong></span> (<span class="strong"><strong>OVS</strong></span>) is a software switch that allows for more advanced network configurations, such as policy routing, <span class="strong"><strong>Access Control Lists</strong></span> (<span class="strong"><strong>ACLs</strong></span>), <span class="strong"><strong>Quality of Service</strong></span> (<span class="strong"><strong>QoS</strong></span>) policing, traffic monitoring, flow management, VLAN tagging, GRE tunneling, and more. OVS can be used as an alternative to the Linux bridge. In the next chapter, we'll build a software-defined network using OVS and GRE tunnels to isolate a group of LXC containers, but for now, let's demonstrate how to install and configure it in a way similar to the Linux bridge.</p><p>Let's start by installing the package on Ubuntu:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# apt-get install openvswitch-switch</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>Setting up openvswitch-common (2.0.2-0ubuntu0.14.04.3) ...</strong></span>
+<span class="strong"><strong>Setting up openvswitch-switch (2.0.2-0ubuntu0.14.04.3) ...</strong></span>
+<span class="strong"><strong>openvswitch-switch start/running</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# ovs-vsctl --version</strong></span>
+<span class="strong"><strong>ovs-vsctl (Open vSwitch) 2.0.2</strong></span>
+<span class="strong"><strong>Compiled Dec  9 2015 14:08:08</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>OVS uses a kernel module that should be loaded:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lsmod | grep switch</strong></span>
+<span class="strong"><strong>openvswitch            70989  0</strong></span>
+<span class="strong"><strong>vxlan                  37611  1 openvswitch</strong></span>
+<span class="strong"><strong>gre                    13796  1 openvswitch</strong></span>
+<span class="strong"><strong>libcrc32c              12644  1 openvswitch</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Next, let's confirm there are no switches configured:</p><pre class="programlisting">
+<span class="strong"><strong>root@bridge:~# ovs-vsctl show</strong></span>
+<span class="strong"><strong>4cf17055-87a7-4b01-a8eb-4a551c842342</strong></span>
+<span class="strong"><strong>ovs_version: "2.0.2"</strong></span>
+<span class="strong"><strong>root@bridge:~#</strong></span>
+</pre><p>The following processes are started after installing the package:</p><pre class="programlisting">
+<span class="strong"><strong>root@bridge:~# pgrep -lfa switch</strong></span>
+<span class="strong"><strong>9424 ovsdb-server /etc/openvswitch/conf.db -vconsole:emer &#13;
+-vsyslog:err -vfile:info --remote=punix:/var/run/openvswitch/db.sock &#13;
+--private-key=db:Open_vSwitch,SSL,private_key &#13;
+--certificate=db:Open_vSwitch,SSL,certificate &#13;
+--bootstrap-ca-cert=db:Open_vSwitch,SSL,ca_cert --no-chdir &#13;
+--log-file=/var/log/openvswitch/ovsdb-server.log &#13;
+--pidfile=/var/run/openvswitch/ovsdb-server.pid --detach --monitor</strong></span>
+<span class="strong"><strong>9433 ovs-vswitchd: monitoring pid 9434 (healthy)</strong></span>
+<span class="strong"><strong>9434 ovs-vswitchdunix:/var/run/openvswitch/db.sock -vconsole:emer &#13;
+-vsyslog:err -vfile:info --mlockall --no-chdir &#13;
+--log-file=/var/log/openvswitch/ovs-vswitchd.log &#13;
+--pidfile=/var/run/openvswitch/ovs-vswitchd.pid --detach --monitor</strong></span>
+<span class="strong"><strong>root@bridge:~#</strong></span>
+</pre><p>The <code class="literal">ovsdb-server</code> is a database engine that uses JSON RPC and can run independent of OVS. The <code class="literal">ovsdb-server</code> accepts connections from the <code class="literal">ovs-vswitchd</code> daemon, which in turn can create and modify bridges, ports, network flows, and so on. As a quick example, we can list the databases managed by the <code class="literal">ovsdb-server</code> process and the various tables it contains:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# ovsdb-client list-dbs</strong></span>
+<span class="strong"><strong>Open_vSwitch</strong></span>
+<span class="strong"><strong>root@ubuntu:~# ovsdb-client dump | grep table</strong></span>
+<span class="strong"><strong>Bridge table</strong></span>
+<span class="strong"><strong>Controller table</strong></span>
+<span class="strong"><strong>Flow_Sample_Collector_Set table</strong></span>
+<span class="strong"><strong>Flow_Table table</strong></span>
+<span class="strong"><strong>IPFIX table</strong></span>
+<span class="strong"><strong>Interface table</strong></span>
+<span class="strong"><strong>Manager table</strong></span>
+<span class="strong"><strong>Mirror table</strong></span>
+<span class="strong"><strong>NetFlow table</strong></span>
+<span class="strong"><strong>Open_vSwitch table</strong></span>
+<span class="strong"><strong>Port table</strong></span>
+<span class="strong"><strong>QoS table</strong></span>
+<span class="strong"><strong>Queue table</strong></span>
+<span class="strong"><strong>SSL table</strong></span>
+<span class="strong"><strong>sFlow table</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>The <code class="literal">ovs-vswitchd</code> process is the main OVS application that controls all switches on the host OS.</p><p>Now it's time to create a switch and name it <code class="literal">lxcovs0</code>:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# ovs-vsctl add-br lxcovs0</strong></span>
+<span class="strong"><strong>root@ubuntu:~# ovs-vsctl show</strong></span>
+<span class="strong"><strong>4cf17055-87a7-4b01-a8eb-4a551c842342</strong></span>
+<span class="strong"><strong>    Bridge "lxcovs0"</strong></span>
+<span class="strong"><strong>        Port "lxcovs0"</strong></span>
+<span class="strong"><strong>            Interface "lxcovs0"</strong></span>
+<span class="strong"><strong>               type: internal</strong></span>
+<span class="strong"><strong>ovs_version: "2.0.2"</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Next, assign an IP address and attach the container's virtual interface to it, by creating a port:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# ifconfig lxcovs0 192.168.0.1 netmask 255.255.255.0</strong></span>
+<span class="strong"><strong>root@ubuntu:~# ovs-vsctl add-port lxcovs0 veth366R6F</strong></span>
+<span class="strong"><strong>root@ubuntu:~# ovs-vsctl show</strong></span>
+<span class="strong"><strong>4cf17055-87a7-4b01-a8eb-4a551c842342</strong></span>
+<span class="strong"><strong>Bridge "lxcovs0"</strong></span>
+<span class="strong"><strong>    Port "lxcovs0"</strong></span>
+<span class="strong"><strong>        Interface "lxcovs0"</strong></span>
+<span class="strong"><strong>            type: internal</strong></span>
+<span class="strong"><strong>    Port "veth366R6F"</strong></span>
+<span class="strong"><strong>        Interface "veth366R6F"</strong></span>
+<span class="strong"><strong>ovs_version: "2.0.2"</strong></span>
+<span class="strong"><strong>root@ubuntu:~# </strong></span>
+</pre><p>The <code class="literal">veth366R6F</code> interface belongs to the <code class="literal">br1</code> container we built earlier in this chapter. To test connectivity, attach to the container, and change the IP address and default gateway to be the port of the OVS network:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-attach --name br1</strong></span>
+<span class="strong"><strong>root@br1:~# ifconfig eth0 192.168.0.10 netmask 255.255.255.0</strong></span>
+<span class="strong"><strong>root@br1:~# route add default gw 192.168.0.1</strong></span>
+</pre><p>To avoid conflict with the Linux bridge, ensure the bridge is destroyed and the kernel module is unloaded:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# ifconfig lxcbr0 down</strong></span>
+<span class="strong"><strong>root@ubuntu:~# brctl delbr lxcbr0</strong></span>
+<span class="strong"><strong>root@ubuntu:~# modprobe -r bridge</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></div></div></div>
+<div class="section" title="Connecting LXC to the host network"><div class="titlepage"><div><div><h1 class="title"><a id="ch05lvl1sec30"/>Connecting LXC to the host network</h1></div></div></div><p>There are three main modes of connecting LXC containers to the host network:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Using a physical network interface on the host OS, which requires one physical interface on the host for each container</li><li class="listitem" style="list-style-type: disc">Using a virtual interface connected to the host software bridge using NAT</li></ul></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Sharing the same network namespace as the host, using the host network device in the container</li></ul></div><p>The container configuration file provides the <code class="literal">lxc.network.type</code> option as we saw earlier in Table 5.1. Let's take a look at the available parameters for that configuration option:</p><div class="informaltable"><table border="1"><colgroup><col/><col/></colgroup><tbody><tr><td>
+<p><span class="strong"><strong>Parameter</strong></span></p>
+</td><td>
+<p><span class="strong"><strong>Description</strong></span></p>
+</td></tr><tr><td>
+<p><code class="literal">none</code></p>
+</td><td>
+<p>The container will share the host's network namespace.</p>
+</td></tr><tr><td>
+<p><code class="literal">empty</code></p>
+</td><td>
+<p>LXC will create only the loopback interface.</p>
+</td></tr><tr><td>
+<p><code class="literal">veth</code></p>
+</td><td>
+<p>A virtual interface is created on the host and connected to interface inside the container's network namespace.</p>
+</td></tr><tr><td>
+<p><code class="literal">vlan</code></p>
+</td><td>
+<p>Creates a VLAN interface linked to the device specified with <code class="literal">lxc.network.link</code>. The VLAN ID is specified with the <code class="literal">lxc.network.vlan.id</code> option.</p>
+</td></tr><tr><td>
+<p><code class="literal">macvlan</code></p>
+</td><td>
+<p>Allows a single physical interface to be associated with multiple IPs and MAC addresses.</p>
+</td></tr><tr><td>
+<p><code class="literal">phys</code></p>
+</td><td>
+<p>Assigns a physical interface from the host to the container, using the <code class="literal">lxc.network.link</code> option.</p>
+</td></tr></tbody></table></div><p>Let's explore the network configurations in more details.</p><div class="section" title="Configuring LXC using none network mode"><div class="titlepage"><div><div><h2 class="title"><a id="ch05lvl2sec60"/>Configuring LXC using none network mode</h2></div></div></div><p>In this mode, the container will share the same network namespace as the host. Let's configure the <code class="literal">br1</code> container we created in the beginning of this chapter for that mode:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# vim /var/lib/lxc/br1/config</strong></span>
+<span class="strong"><strong># Common configuration</strong></span>
+<span class="strong"><strong>lxc.include = /usr/share/lxc/config/ubuntu.common.conf</strong></span>
+<span class="strong"><strong># Container specific configuration</strong></span>
+<span class="strong"><strong>lxc.rootfs = /var/lib/lxc/br1/rootfs</strong></span>
+<span class="strong"><strong>lxc.rootfs.backend = dir</strong></span>
+<span class="strong"><strong>lxc.utsname = br1</strong></span>
+<span class="strong"><strong>lxc.arch = amd64</strong></span>
+<span class="strong"><strong># Network configuration</strong></span>
+<span class="strong"><strong>lxc.network.type = none</strong></span>
+<span class="strong"><strong>lxc.network.flags = up</strong></span>
+</pre><p>Stop and start the container for the new network options to take effect, and attach to the container:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-stop --name br1 &amp;&amp; lxc-start --name br1</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-attach --name br1</strong></span>
+<span class="strong"><strong>root@br1:~#</strong></span>
+</pre><p>Let's check the interface configuration and network routes inside the container:</p><pre class="programlisting">
+<span class="strong"><strong>root@br1:~# ifconfig</strong></span>
+<span class="strong"><strong>eth0      Link encap:EthernetHWaddr bc:76:4e:10:6a:31</strong></span>
+<span class="strong"><strong>inet addr:10.208.131.214  Bcast:10.208.255.255  Mask:255.255.128.0</strong></span>
+<span class="strong"><strong>inet6addr: fe80::be76:4eff:fe10:6a31/64 Scope:Link</strong></span>
+<span class="strong"><strong>          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1</strong></span>
+<span class="strong"><strong>          RX packets:35205 errors:0 dropped:0 overruns:0 frame:0</strong></span>
+<span class="strong"><strong>          TX packets:35251 errors:0 dropped:0 overruns:0 carrier:0</strong></span>
+<span class="strong"><strong>          collisions:0 txqueuelen:1000</strong></span>
+<span class="strong"><strong>         RX bytes:1621243 (1.6 MB)  TX bytes:1486058 (1.4 MB)</strong></span>
+<span class="strong"><strong>lo        Link encap:Local Loopback</strong></span>
+<span class="strong"><strong>inet addr:127.0.0.1  Mask:255.0.0.0</strong></span>
+<span class="strong"><strong>inet6addr: ::1/128 Scope:Host</strong></span>
+<span class="strong"><strong>          UP LOOPBACK RUNNING  MTU:65536  Metric:1</strong></span>
+<span class="strong"><strong>         RX packets:9 errors:0 dropped:0 overruns:0 frame:0</strong></span>
+<span class="strong"><strong>         TX packets:9 errors:0 dropped:0 overruns:0 carrier:0</strong></span>
+<span class="strong"><strong>         collisions:0 txqueuelen:0</strong></span>
+<span class="strong"><strong>         RX bytes:668 (668.0 B)  TX bytes:668 (668.0 B)</strong></span>
+<span class="strong"><strong>lxcovs0   Link encap:EthernetHWaddr b2:e1:c6:c8:e6:40</strong></span>
+<span class="strong"><strong>inet addr:192.168.0.1  Bcast:192.168.0.255  Mask:255.255.255.0</strong></span>
+<span class="strong"><strong>inet6addr: fe80::b0e1:c6ff:fec8:e640/64 Scope:Link</strong></span>
+<span class="strong"><strong>          UP BROADCAST RUNNING  MTU:1500  Metric:1</strong></span>
+<span class="strong"><strong>          RX packets:18557 errors:0 dropped:0 overruns:0 frame:0</strong></span>
+<span class="strong"><strong>      TX packets:678 errors:0 dropped:0 overruns:0 carrier:0</strong></span>
+<span class="strong"><strong>      collisions:0 txqueuelen:0</strong></span>
+<span class="strong"><strong>      RX bytes:6190048 (6.1 MB)  TX bytes:5641977 (5.6 MB)&#13;</strong></span>
+<span class="strong"><strong>root@br1:~# route -n</strong></span>
+<span class="strong"><strong>Kernel IP routing table</strong></span>
+<span class="strong"><strong>Destination     Gateway         Genmask         Flags Metric Ref    Use Iface</strong></span>
+<span class="strong"><strong>0.0.0.0         10.208.128.1    0.0.0.0         UG    0      0        0 eth0</strong></span>
+<span class="strong"><strong>10.208.0.0      10.208.128.1    255.240.0.0     UG    0      0        0 eth0</strong></span>
+<span class="strong"><strong>10.208.128.0    0.0.0.0         255.255.128.0   U     0      0        0 eth0</strong></span>
+<span class="strong"><strong>root@br1:~#</strong></span>
+</pre><p>Not surprisingly, the network interfaces and routes inside the container are the same as those on the host OS, since both share the same root network namespace.</p><p>Let's check the network connectivity while attached to the container:</p><pre class="programlisting">
+<span class="strong"><strong>root@br1:~# ping 8.8.8.8</strong></span>
+<span class="strong"><strong>PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.</strong></span>
+<span class="strong"><strong>64 bytes from 8.8.8.8: icmp_seq=1 ttl=48 time=11.7 ms</strong></span>
+<span class="strong"><strong>64 bytes from 8.8.8.8: icmp_seq=2 ttl=48 time=11.8 ms</strong></span>
+<span class="strong"><strong>root@br1:~# exit</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="tip28"/>Tip</h3><p>Stopping the container in this mode will cause the host OS to shutdown, so be careful.</p></div></div></div><div class="section" title="Configuring LXC using empty network mode"><div class="titlepage"><div><div><h2 class="title"><a id="ch05lvl2sec61"/>Configuring LXC using empty network mode</h2></div></div></div><p>The <code class="literal">empty</code> mode only creates the loopback interface in the container. The configuration file looks similar to the following output:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# vim /var/lib/lxc/br1/config</strong></span>
+<span class="strong"><strong># Common configuration</strong></span>
+<span class="strong"><strong>lxc.include = /usr/share/lxc/config/ubuntu.common.conf</strong></span>
+<span class="strong"><strong># Container specific configuration</strong></span>
+<span class="strong"><strong>lxc.rootfs = /var/lib/lxc/br1/rootfs</strong></span>
+<span class="strong"><strong>lxc.rootfs.backend = dir</strong></span>
+<span class="strong"><strong>lxc.utsname = br1</strong></span>
+<span class="strong"><strong>lxc.arch = amd64</strong></span>
+<span class="strong"><strong># Network configuration</strong></span>
+<span class="strong"><strong>lxc.network.type = empty</strong></span>
+<span class="strong"><strong>lxc.network.flags = up</strong></span>
+</pre><p>Restart the container and attach to it, so we can verify the loopback interface is the only device present:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-stop --name br1 &amp;&amp; sleep 5 &amp;&amp; lxc-start --name br1</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-attach --name br1</strong></span>
+<span class="strong"><strong>root@br1:~#</strong></span>
+</pre><p>Let's check the interface configuration and network routes inside the container:</p><pre class="programlisting">
+<span class="strong"><strong>root@br1:~# ifconfig</strong></span>
+<span class="strong"><strong>lo        Link encap:Local Loopback</strong></span>
+<span class="strong"><strong>inet addr:127.0.0.1  Mask:255.0.0.0</strong></span>
+<span class="strong"><strong>inet6addr: ::1/128 Scope:Host</strong></span>
+<span class="strong"><strong>      UP LOOPBACK RUNNING  MTU:65536  Metric:1</strong></span>
+<span class="strong"><strong>      RX packets:0 errors:0 dropped:0 overruns:0 frame:0</strong></span>
+<span class="strong"><strong>      TX packets:0 errors:0 dropped:0 overruns:0 carrier:0</strong></span>
+<span class="strong"><strong>      collisions:0 txqueuelen:0</strong></span>
+<span class="strong"><strong>      RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)</strong></span>
+<span class="strong"><strong>root@br1:~# route -n</strong></span>
+<span class="strong"><strong>Kernel IP routing table</strong></span>
+<span class="strong"><strong>Destination     Gateway         Genmask         Flags Metric Ref    Use Iface</strong></span>
+<span class="strong"><strong>root@br1:~# exit</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>As expected, only the loopback interface is present and no routes are configured.</p></div><div class="section" title="Configuring LXC using veth mode"><div class="titlepage"><div><div><h2 class="title"><a id="ch05lvl2sec62"/>Configuring LXC using veth mode</h2></div></div></div><p>The NAT mode is the default network mode when creating containers using the LXC template scripts or the libvirt userspace tools. In this mode, the container can reach the outside world using IP masquerading with <code class="literal">iptables</code> rules applied on the host. All examples we saw in previous chapters use the <code class="literal">veth</code> mode.</p><p>In this mode, LXC creates a virtual interface on the host named something like <code class="literal">veth366R6F</code>. This is one end of the virtual connection from the container and it should be connected to the software bridge. The other end of the connection is the interface inside the container, by default named <code class="literal">eth0</code>.</p><p>The following diagram helps visualize the network configuration:</p><div class="mediaobject"><img alt="Configuring LXC using veth mode" src="graphics/image_05_002.jpg"/><div class="caption"><p>LXC in veth mode</p></div></div><p>The container configuration is displayed here:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cat /var/lib/lxc/br1/config</strong></span>
+<span class="strong"><strong># Common configuration</strong></span>
+<span class="strong"><strong>lxc.include = /usr/share/lxc/config/ubuntu.common.conf</strong></span>
+<span class="strong"><strong># Container specific configuration</strong></span>
+<span class="strong"><strong>lxc.rootfs = /var/lib/lxc/br1/rootfs</strong></span>
+<span class="strong"><strong>lxc.rootfs.backend = dir</strong></span>
+<span class="strong"><strong>lxc.utsname = br1</strong></span>
+<span class="strong"><strong>lxc.arch = amd64</strong></span>
+<span class="strong"><strong># Network configuration</strong></span>
+<span class="strong"><strong>lxc.network.type = veth</strong></span>
+<span class="strong"><strong>lxc.network.link = lxcovs0</strong></span>
+<span class="strong"><strong>lxc.network.flags = up</strong></span>
+<span class="strong"><strong>lxc.network.hwaddr = 00:16:3e:39:cf:e9</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>The <code class="literal">lxc.network.link</code> option specifies the network device on the host the virtual interface should connect to, in this case, the <code class="literal">lxcovs0</code> OVS switch that was created earlier.</p><p>Notice the <code class="literal">iptables</code> masquerade rule that was applied on the host:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# iptables -L -n -t nat</strong></span>
+<span class="strong"><strong>Chain PREROUTING (policy ACCEPT)</strong></span>
+<span class="strong"><strong>target     prot opt source               destination</strong></span>
+<span class="strong"><strong>Chain INPUT (policy ACCEPT)</strong></span>
+<span class="strong"><strong>target     prot opt source               destination</strong></span>
+<span class="strong"><strong>Chain OUTPUT (policy ACCEPT)</strong></span>
+<span class="strong"><strong>target     prot opt source               destination</strong></span>
+<span class="strong"><strong>Chain POSTROUTING (policy ACCEPT)</strong></span>
+<span class="strong"><strong>target     prot opt source               destination</strong></span>
+<span class="strong"><strong>MASQUERADE  all  --  10.0.3.0/24         !10.0.3.0/24</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="tip29"/>Tip</h3><p>If for some reason the <code class="literal">iptables</code> rule is not present, or you would like to build a container that is on a different subnet, adding a new rule can be done with the <code class="literal">iptables -t nat -A POSTROUTING -s 10.3.0.0/24 -o eth0 -j MASQUERADE</code> command.</p></div></div></div><div class="section" title="Configuring LXC using phys mode"><div class="titlepage"><div><div><h2 class="title"><a id="ch05lvl2sec63"/>Configuring LXC using phys mode</h2></div></div></div><p>In this mode, we specify a physical interface from the host with the <code class="literal">lxc.network.link</code> configuration option, which will get assigned to the network namespace of the container and then make it unavailable for use by the host.</p><p>The following diagram helps visualize the network configuration:</p><div class="mediaobject"><img alt="Configuring LXC using phys mode" src="graphics/image_05_003.jpg"/><div class="caption"><p>LXC in phys mode</p></div></div><p>Let's take a look at the configuration file:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# vim /var/lib/lxc/br1/config</strong></span>
+<span class="strong"><strong># Common configuration</strong></span>
+<span class="strong"><strong>lxc.include = /usr/share/lxc/config/ubuntu.common.conf</strong></span>
+<span class="strong"><strong># Container specific configuration</strong></span>
+<span class="strong"><strong>lxc.rootfs = /var/lib/lxc/br1/rootfs</strong></span>
+<span class="strong"><strong>lxc.rootfs.backend = dir</strong></span>
+<span class="strong"><strong>lxc.utsname = br1</strong></span>
+<span class="strong"><strong>lxc.arch = amd64</strong></span>
+<span class="strong"><strong># Network configuration</strong></span>
+<span class="strong"><strong>lxc.network.type = phys</strong></span>
+<span class="strong"><strong>lxc.network.link = eth1</strong></span>
+<span class="strong"><strong>lxc.network.ipv4 = 10.208.131.214/24</strong></span>
+<span class="strong"><strong>lxc.network.hwaddr = bc:76:4e:10:6a:31</strong></span>
+<span class="strong"><strong>lxc.network.flags = up</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>We specify <code class="literal">phys</code> as the mode of networking, <code class="literal">eth1</code> as the interface from the host that will be moved in the container's namespace, and the IP and MAC addresses of <code class="literal">eth1</code>. Let's take a look at all network interfaces on the host first:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# ip a s</strong></span>
+<span class="strong"><strong>1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt;mtu 65536 qdiscnoqueue state UNKNOWN group default</strong></span>
+<span class="strong"><strong>  link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</strong></span>
+<span class="strong"><strong>    inet 127.0.0.1/8 scope host lo</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>    inet6 ::1/128 scope host</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>2: eth0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt;mtu 1500 qdiscpfifo_fast state UP group default qlen 1000</strong></span>
+<span class="strong"><strong>  link/ether bc:76:4e:10:57:b8 brdff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>    inet 192.168.167.122/24 brd 192.237.167.255 scope global eth0</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>    inet6 fe80::be76:4eff:fe10:57b8/64 scope link</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>3: eth1: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt;mtu 1500 qdiscpfifo_fast state UP group default qlen 1000</strong></span>
+<span class="strong"><strong>  link/ether bc:76:4e:10:6a:31 brdff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>    inet 10.208.131.214/17 brd 10.208.255.255 scope global eth1</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>    inet6 fe80::be76:4eff:fe10:6a31/64 scope link</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>4: lxcbr0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt;mtu 1500 qdiscnoqueue state UNKNOWN group default</strong></span>
+<span class="strong"><strong>  link/ether 52:26:ad:1d:1a:7f brdff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>    inet 10.0.3.1/24 scope global lxcbr0</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>    inet6 fe80::5026:adff:fe1d:1a7f/64 scope link</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>5: ovs-system: &lt;BROADCAST,MULTICAST&gt;mtu 1500 qdiscnoop state DOWN group default</strong></span>
+<span class="strong"><strong>  link/ether c2:05:a1:f4:7f:89 brdff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>6: lxcovs0: &lt;BROADCAST,UP,LOWER_UP&gt;mtu 1500 qdiscnoqueue state UNKNOWN group default</strong></span>
+<span class="strong"><strong>  link/ether b2:e1:c6:c8:e6:40 brdff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>    inet6 fe80::b0e1:c6ff:fec8:e640/64 scope link</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>root@ubuntu:~# </strong></span>
+</pre><p>Notice that the <code class="literal">eth1</code> interface is present on the host. Let's restart the <code class="literal">br1</code> container and list the host interfaces again:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-stop --name br1 &amp;&amp; lxc-start --name br1</strong></span>
+<span class="strong"><strong>root@ubuntu:~# ip a s</strong></span>
+<span class="strong"><strong>1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt;mtu 65536 qdiscnoqueue state UNKNOWN group default</strong></span>
+<span class="strong"><strong>  link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</strong></span>
+<span class="strong"><strong>    inet 127.0.0.1/8 scope host lo</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>    inet6 ::1/128 scope host</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>2: eth0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt;mtu 1500 qdiscpfifo_fast state UP group default qlen 1000</strong></span>
+<span class="strong"><strong>  link/ether bc:76:4e:10:57:b8 brdff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>    inet 192.168.167.122/24 brd 192.237.167.255 scope global eth0</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>    inet6 fe80::be76:4eff:fe10:57b8/64 scope link</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>4: lxcbr0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt;mtu 1500 qdiscnoqueue state UNKNOWN group default</strong></span>
+<span class="strong"><strong>  link/ether 52:26:ad:1d:1a:7f brdff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>    inet 10.0.3.1/24 scope global lxcbr0</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>    inet6 fe80::5026:adff:fe1d:1a7f/64 scope link</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>5: ovs-system: &lt;BROADCAST,MULTICAST&gt;mtu 1500 qdiscnoop state DOWN group default</strong></span>
+<span class="strong"><strong>  link/ether c2:05:a1:f4:7f:89 brdff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>6: lxcovs0: &lt;BROADCAST,UP,LOWER_UP&gt;mtu 1500 qdiscnoqueue state UNKNOWN group default</strong></span>
+<span class="strong"><strong>  link/ether b2:e1:c6:c8:e6:40 brdff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>    inet6 fe80::b0e1:c6ff:fec8:e640/64 scope link</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>The <code class="literal">eth1</code> interface is not showing on the host anymore. Let's attach to the container and examine its interfaces:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-attach --name br1</strong></span>
+<span class="strong"><strong>root@br1:~# ip a s</strong></span>
+<span class="strong"><strong>1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt;mtu 65536 qdiscnoqueue state UNKNOWN group default</strong></span>
+<span class="strong"><strong>  link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</strong></span>
+<span class="strong"><strong>    inet 127.0.0.1/8 scope host lo</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>    inet6 ::1/128 scope host</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>3: eth1: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt;mtu 1500 qdiscpfifo_fast state UP group default qlen 1000</strong></span>
+<span class="strong"><strong>  link/ether bc:76:4e:10:6a:31 brdff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>    inet 10.208.131.214/24 brd 10.208.131.255 scope global eth1</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>    inet6 fe80::be76:4eff:fe10:6a31/64 scope link</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>root@br1:~#</strong></span>
+</pre><p>The <code class="literal">eth1</code> interface is now a part of the container, with the same IP and MAC address as the original <code class="literal">eth1</code> interface from the host, because we explicitly specified them in the container's configuration file.</p><p>If we need to have multiple containers using the <code class="literal">phys</code> mode, then we'll need that many physical interfaces, which is not always practical.</p></div><div class="section" title="Configuring LXC using vlan mode"><div class="titlepage"><div><div><h2 class="title"><a id="ch05lvl2sec64"/>Configuring LXC using vlan mode</h2></div></div></div><p>The <code class="literal">vlan</code> network mode allows us to create a <span class="strong"><strong>Virtual LAN</strong></span> (<span class="strong"><strong>VLAN</strong></span>) tagged interface inside the container's network namespace. A VLAN is a broadcast domain that is isolated at the data link layer from the rest of the network.</p><p>The <code class="literal">lxc.network.link</code> configuration option specifies the interface the container should be linked to from the host and <code class="literal">lxc.network.vlan.id</code> is the tag that will be applied to the network traffic by the container's interface.</p><p>This mode is useful when there are multiple containers running on hosts and the traffic needs to be isolated between subsets of containers, thus creating a logical network separation. We demonstrated similar concepts with VLAN tags when we talked about network namespaces in <a class="link" href="ch01.html" title="Chapter 1. Introduction to Linux Containers"><span>Chapter 1</span></a>, <span class="emphasis"><em>Introduction to Linux Containers</em></span>.</p><p>To create a container that will be tagging Ethernet packets, the configuration should look similar to the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cat /var/lib/lxc/br1/config</strong></span>
+<span class="strong"><strong># Common configuration</strong></span>
+<span class="strong"><strong>lxc.include = /usr/share/lxc/config/ubuntu.common.conf</strong></span>
+<span class="strong"><strong># Container specific configuration</strong></span>
+<span class="strong"><strong>lxc.rootfs = /var/lib/lxc/br1/rootfs</strong></span>
+<span class="strong"><strong>lxc.rootfs.backend = dir</strong></span>
+<span class="strong"><strong>lxc.utsname = br1</strong></span>
+<span class="strong"><strong>lxc.arch = amd64</strong></span>
+<span class="strong"><strong># Network configuration</strong></span>
+<span class="strong"><strong>lxc.network.type = vlan</strong></span>
+<span class="strong"><strong>lxc.network.vlan.id = 100</strong></span>
+<span class="strong"><strong>lxc.network.link = eth1</strong></span>
+<span class="strong"><strong>lxc.network.flags = up</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>We specify a VLAN ID of <code class="literal">100</code> and <code class="literal">eth1</code> as the interface the container will be paired with. Restart the container and attach to it:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-stop --name br1 &amp;&amp; lxc-start --name br1</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-attach --name br1</strong></span>
+<span class="strong"><strong>root@br1:~#</strong></span>
+</pre><p>Let's examine the <code class="literal">eth0</code> interface from the container and ensure it's configured to tag packets with a VLAN ID of <code class="literal">100</code>:</p><pre class="programlisting">
+<span class="strong"><strong>root@br1:~# ip -d link show eth0</strong></span>
+<span class="strong"><strong>10: eth0@if3: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt;mtu 1500 qdiscnoqueue state UP mode DEFAULT group default</strong></span>
+<span class="strong"><strong>    link/ether bc:76:4e:10:6a:31 brdff:ff:ff:ff:ff:ff promiscuity 0</strong></span>
+<span class="strong"><strong>vlan protocol 802.1Q id 100 &lt;REORDER_HDR&gt;</strong></span>
+<span class="strong"><strong>root@br1:~#</strong></span>
+</pre><p>Notice how the <code class="literal">eth0</code> interface is named <code class="literal">eth0@if3</code>. Here, <code class="literal">if3</code> means that the container's interface is paired with the host interface that has an ID of <code class="literal">3</code>, in our case <code class="literal">eth1</code>. We can see that by running the following command on the host:</p><pre class="programlisting">
+<span class="strong"><strong>root@br1:~# exit</strong></span>
+<span class="strong"><strong>root@ubuntu:~# ip -d link show eth1</strong></span>
+<span class="strong"><strong>3: eth1: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc pfifo_fast state UP mode DEFAULT group default qlen 1000</strong></span>
+<span class="strong"><strong>    link/ether bc:76:4e:10:6a:31 brd ff:ff:ff:ff:ff:ff promiscuity 0</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Now you can configure <code class="literal">eth0</code> inside the container to be part of the same subnet as the <code class="literal">eth1</code> interface on the host.</p></div><div class="section" title="Configuring LXC using macvlan mode"><div class="titlepage"><div><div><h2 class="title"><a id="ch05lvl2sec65"/>Configuring LXC using macvlan mode</h2></div></div></div><p>The <code class="literal">macvlan</code> network mode allows for a single physical interface on the host to be associated with multiple virtual interfaces having different IP and MAC addresses. There are three modes that <code class="literal">macvlan</code> can operate in:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc"><span class="strong"><strong>Private</strong></span>: This mode disallows communication between LXC containers</li><li class="listitem" style="list-style-type: disc"><span class="strong"><strong>Virtual Ethernet Port Aggregator</strong></span> (<span class="strong"><strong>VEPA</strong></span>): This mode disallows communication between LXC containers unless there's a switch that works as a reflective relay</li><li class="listitem" style="list-style-type: disc"><span class="strong"><strong>Bridge</strong></span>: This mode creates a simple bridge (not to be confused with the Linux bridge or OVS), which allows containers to talk to each other, but it isolates them from the host.</li></ul></div><p>Let's configure the <code class="literal">br1</code> container to use <code class="literal">macvlan</code> in <code class="literal">bridge</code> mode:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cat /var/lib/lxc/br1/config</strong></span>
+<span class="strong"><strong># Common configuration</strong></span>
+<span class="strong"><strong>lxc.include = /usr/share/lxc/config/ubuntu.common.conf</strong></span>
+<span class="strong"><strong># Container specific configuration</strong></span>
+<span class="strong"><strong>lxc.rootfs = /var/lib/lxc/br1/rootfs</strong></span>
+<span class="strong"><strong>lxc.rootfs.backend = dir</strong></span>
+<span class="strong"><strong>lxc.utsname = br1</strong></span>
+<span class="strong"><strong>lxc.arch = amd64</strong></span>
+<span class="strong"><strong># Network configuration</strong></span>
+<span class="strong"><strong>lxc.network.type = macvlan</strong></span>
+<span class="strong"><strong>lxc.network.macvlan.mode = bridge</strong></span>
+<span class="strong"><strong>lxc.network.link = lxcmacvlan0</strong></span>
+<span class="strong"><strong>lxc.network.flags = up</strong></span>
+</pre><p>The device that we specify with <code class="literal">lxc.network.link</code> is the bridged interface we are going to create next:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# iplink add lxcmacvlan0 link eth1 type macvlan mode bridge</strong></span>
+<span class="strong"><strong>root@ubuntu:~# ifconfig lxcmacvlan0 up</strong></span>
+<span class="strong"><strong>root@ubuntu:~# ip -d link show lxcmacvlan0</strong></span>
+<span class="strong"><strong>12: lxcmacvlan0@eth1: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt;mtu 1500 qdiscnoqueue state UNKNOWN mode DEFAULT group default</strong></span>
+<span class="strong"><strong>  link/ether ae:de:56:01:2f:b6 brdff:ff:ff:ff:ff:ff promiscuity 0</strong></span>
+<span class="strong"><strong>macvlan  mode bridge</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>With the <code class="literal">macvlan</code> bridged interface up, we can start the container and examine its network interfaces:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-stop --name br1 &amp;&amp; lxc-start --name br1</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-attach --name br1</strong></span>
+<span class="strong"><strong>root@br1:~# ip -d link show eth0</strong></span>
+<span class="strong"><strong>13: eth0@if3: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt;mtu 1500 qdiscnoqueue state UNKNOWN mode DEFAULT group default</strong></span>
+<span class="strong"><strong>    link/ether aa:6e:cb:74:0c:fc brdff:ff:ff:ff:ff:ff promiscuity 0</strong></span>
+<span class="strong"><strong>macvlan  mode bridge</strong></span>
+<span class="strong"><strong>root@br1:~#</strong></span>
+</pre><p>Notice the <code class="literal">if3</code> ID of the <code class="literal">eth0</code> interface in the container matches the <code class="literal">eth1</code> ID on the host. We can now assign an IP address to the <code class="literal">eth0</code> interface from the same subnet as <code class="literal">eth1</code> on the host and be able to reach other containers in the same subnet. This mode is similar to using the Linux bridge or OVS, but without the overhead of each. Also notice that the containers will not be able to communicate with the host directly.</p></div></div>
+<div class="section" title="Summary"><div class="titlepage"><div><div><h1 class="title"><a id="ch05lvl1sec31"/>Summary</h1></div></div></div><p>In this chapter, you became familiar with the Linux Bridge and learned how to connect LXC containers to it. We also looked at Open vSwitch as an alternative to the Linux bridge. We then explored the various network configuration options that LXC presents and saw few examples.</p><p>We ended the chapter by demonstrating how to connect LXC to the host network and to other containers using, NAT, VLAN, direct connect, and more advanced nodes such as MAC VLAN.</p><p>In the next chapter, we are going to put all the knowledge you gained so far into practice, by building a highly available and scalable application deployment using LXC and HAProxy.</p></div></body></html>

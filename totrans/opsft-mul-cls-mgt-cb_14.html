@@ -1,0 +1,484 @@
+<html><head></head><body>
+		<div id="_idContainer363">
+			<h1 id="_idParaDest-273" class="chapter-number"><a id="_idTextAnchor290"/>14</h1>
+			<h1 id="_idParaDest-274"><a id="_idTextAnchor291"/>Building a Cloud-Native Use Case on a Hybrid Cloud Environment</h1>
+			<p>It has been a wonderful journey so far! We walked through so much content in this book already, from OpenShift architecture to Pipelines, GitOps, and multi-cloud tools! We are now reaching our main goal with this book, which is helping you to make the best decisions and implement a good hybrid/multi-cloud strategy for your OpenShift footprint. To wrap up this book with helpful content, we will make a comprehensive review using a practical approach to building and deploying an application using most features we covered during this book: OpenShift Pipelines (Tekton), OpenShift GitOps (ArgoCD), Advanced Cluster Management, Quay, and Advanced Cluster Security.</p>
+			<p>Therefore, you will find the following in this chapter:</p>
+			<ul>
+				<li>Use case description</li>
+				<li>Application build using OpenShift Pipelines and S2I</li>
+				<li>Application deployment using OpenShift Pipelines and GitOps</li>
+				<li>Adding security checks in the building and deployment process</li>
+				<li>Provisioning and managing multiple clusters</li>
+				<li>Deploying an application into multiple clusters</li>
+			</ul>
+			<p>So, what are we waiting for? Let’s play now!</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">The source code used in this chapter is available at <a href="https://github.com/PacktPublishing/OpenShift-Multi-Cluster-Management-Handbook/tree/main/chapter14">https://github.com/PacktPublishing/OpenShift-Multi-Cluster-Management-Handbook/tree/main/chapter14</a>.</p>
+			<h1 id="_idParaDest-275"><a id="_idTextAnchor292"/>Use case description</h1>
+			<p>To be a bit closer to what you <a id="_idIndexMarker974"/>see in the real world, this time we are going to use a <a id="_idIndexMarker975"/>Java application, using <strong class="bold">Quarkus</strong>, which is a great option to build modern, cloud-native applications with Java. Look at the references in the <em class="italic">Further reading</em> section of this chapter for more information about <strong class="bold">Quarkus</strong>.</p>
+			<p>Our application source code was extracted from the <em class="italic">Getting started with Quarkus</em> sample; see reference for it in the <em class="italic">Further reading</em> section of this chapter. During this chapter, we will create a CI/CD pipeline that will do the following:</p>
+			<ol>
+				<li>Build the application using s2i to generate Java binaries.</li>
+				<li>Push the container image to Quay.</li>
+				<li>Run a security scan on the image using Advanced Cluster Security.</li>
+				<li>Deploy the application on the local cluster using ArgoCD.</li>
+				<li>Deploy the application on multiple remote clusters using ArgoCD and Advanced Cluster Management.</li>
+			</ol>
+			<p>We are going to use Advanced Cluster Management to make all OpenShift clusters compliant with a <a id="_idIndexMarker976"/>standard policy we defined for them as well. For the sake of learning and simplicity, we are going to build the pipeline and other objects in sequential phases, like building blocks that are added to build a house.</p>
+			<div>
+				<div id="_idContainer330" class="IMG---Figure">
+					<img src="image/B18015_14_01.jpg" alt="Figure 14.1 – Comprehensive review - Building blocks "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.1 – Comprehensive review - Building blocks</p>
+			<p>We assume that you have access to an OpenShift cluster, which we will call the Hub cluster, with enough resources and with the following tools already installed:</p>
+			<ul>
+				<li>OpenShift Pipelines</li>
+				<li>OpenShift GitOps</li>
+				<li>Advanced Cluster Management</li>
+				<li>Advanced Cluster Security</li>
+				<li>Quay</li>
+				<li>The <strong class="source-inline">oc</strong> command line installed and connected to the Hub cluster</li>
+			</ul>
+			<p>We will also deploy additional single node clusters on AWS to be used as managed remote clusters, to <a id="_idIndexMarker977"/>exercise the application deployment into multiple clusters. If you haven’t installed these tools yet, refer to the installation process of each from <em class="italic">Chapters 9</em> to <em class="italic">13</em> of this book.</p>
+			<p>The source code used in this chapter is available at our GitHub repository: <a href="https://github.com/PacktPublishing/OpenShift-Multi-Cluster-Management-Handbook/tree/main/chapter14">https://github.com/PacktPublishing/OpenShift-Multi-Cluster-Management-Handbook/tree/main/chapter14</a>.</p>
+			<p>Let’s start by digging into the first building block: the application build.</p>
+			<h1 id="_idParaDest-276"><a id="_idTextAnchor293"/>Application build using OpenShift Pipelines and S2I</h1>
+			<p>For this step, we <a id="_idIndexMarker978"/>are going to <a id="_idIndexMarker979"/>use the <strong class="source-inline">quarkus-build</strong> pipeline that you <a id="_idIndexMarker980"/>can find in the <strong class="source-inline">chapter14/Build/Pipeline/quarkus-build.yaml</strong> file. This pipeline is very straightforward <a id="_idIndexMarker981"/>and explained in the following diagram:</p>
+			<div>
+				<div id="_idContainer331" class="IMG---Figure">
+					<img src="image/B18015_14_02.jpg" alt="Figure 14.2 – Pipeline to build a Java Quarkus application "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.2 – Pipeline to build a Java Quarkus application</p>
+			<p>In this pipeline we are using pre-existing ClusterTasks to do all the work:</p>
+			<ul>
+				<li><strong class="source-inline">git-clone</strong>: Used to clone the Git repository.</li>
+				<li><strong class="source-inline">s2i-java</strong>: Build the Java source code using S2I and Buildah to generate the image and <a id="_idIndexMarker982"/>push it to the <a id="_idIndexMarker983"/>Quay registry. S2I is a very convenient way to build code from many <a id="_idIndexMarker984"/>different languages, such as <a id="_idIndexMarker985"/>Java, Python, Node.js, and others. See the <em class="italic">Further reading</em> section of this chapter for more information about S2I.</li>
+				<li><strong class="source-inline">openshift-client</strong>: Used <a id="_idIndexMarker986"/>to run the manifests that deploy the application. Application manifests use <strong class="bold">Kustomize</strong> to declare the Kubernetes manifest. We covered <strong class="bold">Kustomize</strong> in <a href="B18015_10.xhtml#_idTextAnchor204"><em class="italic">Chapter 10</em></a>, <em class="italic">OpenShift GitOps – ArgoCD</em>, of this book; if you didn’t read it yet, we strongly recommend you to do so now and then get back here to perform the steps in this chapter.</li>
+			</ul>
+			<p>Now let’s create and run this pipeline. If you haven’t done it yet, fork this repository to your GitHub account: <a href="https://github.com/PacktPublishing/OpenShift-Multi-Cluster-Management-Handbook">https://github.com/PacktPublishing/OpenShift-Multi-Cluster-Management-Handbook</a>. After you forked it, follow the instructions in this section to create and run this pipeline:</p>
+			<ol>
+				<li value="1">Clone the repository in your machine:<p class="source-code">$ GITHUB_USER=&lt;your_user&gt;</p><p class="source-code">$ git clone https://github.com/PacktPublishing/OpenShift-Multi-Cluster-Management-Handbook.git</p></li>
+				<li>Run the following script and follow the instructions to change the references from the original repository (<strong class="source-inline">PacktPublishing</strong>) to your forked repository:<p class="source-code">$ cd OpenShift-Multi-Cluster-Management-Handbook/chapter14</p><p class="source-code">$ ./change-repo-urls.sh</p><p class="source-code"># Go to the Build folder</p><p class="source-code">$ cd Build</p></li>
+				<li>Run the following commands to create the namespace and the pipeline:<p class="source-code">$ oc apply -f Pipeline/namespace.yaml</p><p class="source-code">$ oc apply -f Pipeline/quarkus-build-pi.yaml</p></li>
+				<li>You <a id="_idIndexMarker987"/>should be able to <a id="_idIndexMarker988"/>see the <a id="_idIndexMarker989"/>pipeline in the OpenShift <a id="_idIndexMarker990"/>console, in <strong class="bold">Pipelines</strong> | <strong class="bold">Pipelines </strong>| <strong class="bold">Project: chap14-review-cicd</strong>, as you can see in the following screenshot:</li>
+			</ol>
+			<div>
+				<div id="_idContainer332" class="IMG---Figure">
+					<img src="image/B18015_14_03.jpg" alt="Figure 14.3 – Build pipeline created "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.3 – Build pipeline created</p>
+			<ol>
+				<li value="5">You can <a id="_idIndexMarker991"/>now run the <a id="_idIndexMarker992"/>pipeline <a id="_idIndexMarker993"/>either using the web interface or <a id="_idIndexMarker994"/>through the terminal. To do so from your terminal, run the following command:<p class="source-code">$ oc create -f PipelineRun/quarkus-build-pr.yaml</p></li>
+			</ol>
+			<p class="callout-heading">Note about Image Registry</p>
+			<p class="callout">This pipeline uses an external registry to push the resulting image. To be able to push an image to the registry, you need to link a secret that contains the registry credentials with the <strong class="source-inline">pipeline</strong> ServiceAccount. If you don’t do it before running the pipeline, you will notice that it will fail in the <strong class="source-inline">build</strong> task. We are using Quay in this chapter, but you can use any external image registry, such as Nexus, Amazon Elastic Container Registry, Docker Hub, or any other. If you decide to use Quay, you need to create a robot account, give it write permissions in the image repository, and import the secret to the namespace. Next, you will find out how to do it.</p>
+			<p>See next how to configure your Quay repository and link the credentials to the <strong class="source-inline">pipeline</strong> ServiceAccount.</p>
+			<h2 id="_idParaDest-277"><a id="_idTextAnchor294"/>Configuring the image registry</h2>
+			<p>After you have <a id="_idIndexMarker995"/>created a new repository on Quay, follow these steps to configure it:</p>
+			<ol>
+				<li value="1">Access the <strong class="bold">Settings</strong> tab of the repository and access the <strong class="bold">Create robot account</strong> link in the <strong class="bold">User and Robot Permissions</strong> section:</li>
+			</ol>
+			<div>
+				<div id="_idContainer333" class="IMG---Figure">
+					<img src="image/B18015_14_04.jpg" alt="Figure 14.4 – Create a robot account "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.4 – Create a robot account</p>
+			<ol>
+				<li value="2">Give it any name and click on the <strong class="bold">Create robot account</strong> button:</li>
+			</ol>
+			<div>
+				<div id="_idContainer334" class="IMG---Figure">
+					<img src="image/B18015_14_05.jpg" alt="Figure 14.5 – Create a robot account "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.5 – Create a robot account</p>
+			<ol>
+				<li value="3">Then, change <a id="_idIndexMarker996"/>the permission to <strong class="bold">Write</strong> and click on <strong class="bold">Add Permission</strong>:</li>
+			</ol>
+			<div>
+				<div id="_idContainer335" class="IMG---Figure">
+					<img src="image/B18015_14_06.jpg" alt="Figure 14.6 – Set Write permissions "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.6 – Set Write permissions</p>
+			<ol>
+				<li value="4">Click on the robot account link to download the secret that we will use to link with the pipeline ServiceAccount:</li>
+			</ol>
+			<div>
+				<div id="_idContainer336" class="IMG---Figure">
+					<img src="image/B18015_14_07.jpg" alt="Figure 14.7 – Robot account "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.7 – Robot account</p>
+			<ol>
+				<li value="5">Download the secret by clicking on the <strong class="bold">Download &lt;robot-name&gt;-secret.yml</strong> link in the <strong class="bold">Kubernetes Secret</strong> tab:</li>
+			</ol>
+			<div>
+				<div id="_idContainer337" class="IMG---Figure">
+					<img src="image/B18015_14_08.jpg" alt="Figure 14.8 – Download Quay credentials "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.8 – Download Quay credentials</p>
+			<p>With the <a id="_idIndexMarker997"/>secret YAML file in hand, you can proceed with its creation on OpenShift. See next how to do it.</p>
+			<h2 id="_idParaDest-278"><a id="_idTextAnchor295"/>Linking image registry credentials</h2>
+			<p>Now that we <a id="_idIndexMarker998"/>already have the secret file in our workspace, run the following commands to create the secret and link it to the pipeline ServiceAccount. Alternatively, you can just run the <strong class="source-inline">link-image-registry-secret.sh</strong> script from the GitHub repository that we prepared for you, which will do this same process:</p>
+			<pre class="source-code">$ SECRET_FILE=&lt;secret-file-which-contains-image-registry-credentials&gt;
+$ SECRET_NAME=&lt;secret-name&gt;
+$ oc create -f $SECRET_FILE --namespace=chap14-review-cicd
+$ oc patch serviceaccount pipeline -p '{"secrets": [{"name": "$SECRET_NAME"}]}' --namespace=chap14-review-cicd
+$ oc secrets link default $SECRET_NAME --for=pull -n chap14-review-cicd</pre>
+			<p>If you faced the error mentioned in the build task of the pipeline, you can now run it again by running the following command:</p>
+			<pre class="source-code">$ oc create -f PipelineRun/quarkus-build-pr.yaml</pre>
+			<p>Now you should <a id="_idIndexMarker999"/>see the pipeline finishing successfully, as you can see in the following screenshot:</p>
+			<div>
+				<div id="_idContainer338" class="IMG---Figure">
+					<img src="image/B18015_14_09.jpg" alt="Figure 14.9 – Build pipeline run successfully "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.9 – Build pipeline run successfully</p>
+			<p>After the pipeline <a id="_idIndexMarker1000"/>runs successfully, you may want to see what the image looks like on Quay.</p>
+			<h2 id="_idParaDest-279"><a id="_idTextAnchor296"/>Checking the image on Quay</h2>
+			<p>If you are <a id="_idIndexMarker1001"/>using Quay, at this stage, you should be able to see and <a id="_idIndexMarker1002"/>inspect the image there:</p>
+			<div>
+				<div id="_idContainer339" class="IMG---Figure">
+					<img src="image/B18015_14_10.jpg" alt="Figure 14.10 – Image on Quay, known vulnerabilities detected automatically "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.10 – Image on Quay, known vulnerabilities detected automatically</p>
+			<p>As we can see, Quay detected automatically that this image has some known vulnerabilities. We are going to fix these vulnerabilities further in this chapter, but it is important now <a id="_idIndexMarker1003"/>that you observe and understand how easy it is to push images <a id="_idIndexMarker1004"/>and start checking them automatically against known vulnerabilities.</p>
+			<p>Now that we already have the building pipeline of our application working, let’s evolve it to use ArgoCD as the deployment tool, leveraging GitOps practices.</p>
+			<h1 id="_idParaDest-280"><a id="_idTextAnchor297"/>Application deployment using OpenShift Pipelines and GitOps</h1>
+			<p>This time, we <a id="_idIndexMarker1005"/>are going to use ArgoCD <a id="_idIndexMarker1006"/>to deploy the application <a id="_idIndexMarker1007"/>instead of <a id="_idIndexMarker1008"/>directly running the Kubernetes manifests. The pipeline is basically the same, but now the deploy task will run a YAML file that creates an ArgoCD application and wait until the application becomes healthy.</p>
+			<div>
+				<div id="_idContainer340" class="IMG---Figure">
+					<img src="image/B18015_14_11.jpg" alt="Figure 14.11 – Pipeline to build a Java Quarkus application and deploy it using ArgoCD "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.11 – Pipeline to build a Java Quarkus application and deploy it using ArgoCD</p>
+			<p>Run the following command to create and run the pipeline:</p>
+			<pre class="source-code">$ cd OpenShift-Multi-Cluster-Management-Handbook/chapter14/Deploy
+$ oc apply -f Rolebindings/ # Permission required for Tekton to create an ArgoCD application
+$ oc apply -f Pipeline/quarkus-build-and-deploy-pi.yaml
+$ oc create -f PipelineRun/quarkus-build-and-deploy-pr.yaml</pre>
+			<p>A new <strong class="source-inline">PipelineRun</strong> will be created to build the container image and create the ArgoCD <a id="_idIndexMarker1009"/>application that will <a id="_idIndexMarker1010"/>deploy the application. You <a id="_idIndexMarker1011"/>will see the following <a id="_idIndexMarker1012"/>if everything works well:</p>
+			<div>
+				<div id="_idContainer341" class="IMG---Figure">
+					<img src="image/B18015_14_12.jpg" alt="Figure 14.12 – Task deployment using ArgoCD "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.12 – Task deployment using ArgoCD</p>
+			<p>Access the ArgoCD console to check the application deployment from there; you should see something similar to the following screenshot:</p>
+			<div>
+				<div id="_idContainer342" class="IMG---Figure">
+					<img src="image/B18015_14_13.jpg" alt="Figure 14.13 – Application in ArgoCD "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.13 – Application in ArgoCD</p>
+			<p>You can <a id="_idIndexMarker1013"/>find instructions <a id="_idIndexMarker1014"/>about how to access the <a id="_idIndexMarker1015"/>ArgoCD console in <a href="B18015_10.xhtml#_idTextAnchor204"><em class="italic">Chapter 10</em></a>,<em class="italic"> OpenShift GitOps – ArgoCD</em>. As a reminder, see next the commands to get the <a id="_idIndexMarker1016"/>ArgoCD URL and admin password:</p>
+			<pre class="source-code"># Get the ArgoCD URL:
+$ echo "$(oc get route openshift-gitops-server -n openshift-gitops --template='https://{{.spec.host}}')"
+# Get the Admin password
+$ oc extract secret/openshift-gitops-cluster -n openshift-gitops --to=-</pre>
+			<p>Now our pipeline already builds the application, pushes it to Quay, and deploys it using ArgoCD. The next step is to bring Advanced Cluster Security to add a security check step in our pipeline. See next how to do it.</p>
+			<h1 id="_idParaDest-281"><a id="_idTextAnchor298"/>Adding security checks in the building and deployment process</h1>
+			<p>This time, we <a id="_idIndexMarker1017"/>will add a new step to perform a security check in the image that has been built. We are going to use Advanced Cluster Security for that. To successfully use it, you should have Advanced Cluster Security installed and the local cluster configured as a secured cluster. Check <a href="B18015_12.xhtml#_idTextAnchor251"><em class="italic">Chapter 12</em></a>, <em class="italic">OpenShift Multi-Cluster Security</em>, to see how to do it.</p>
+			<p>See next what our pipeline looks like now:</p>
+			<div>
+				<div id="_idContainer343" class="IMG---Figure">
+					<img src="image/B18015_14_14.jpg" alt="Figure 14.14 – Pipeline with security checks "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.14 – Pipeline with security checks</p>
+			<p>Therefore, the following task has been added to the pipeline:</p>
+			<ul>
+				<li><strong class="source-inline">security-check</strong>: Uses ACS APIs to check the image against existing security policies defined in ACS.</li>
+			</ul>
+			<p>To simulate security issues, we will also use a custom <strong class="source-inline">s2i-java</strong> task that uses an old <strong class="source-inline">ubi-openjdk</strong> version, which contains many known vulnerabilities. To fix the issues, we will change the build strategy to use a Dockerfile that uses the latest version of the RHEL UBI image and additional security fixes.</p>
+			<p>Follow the instructions in this section to create and run this pipeline:</p>
+			<ol>
+				<li value="1">Before we get into the pipeline, we need to configure the integration between the pipeline and ACS. To do so, access the <strong class="bold">Advanced Cluster Security</strong> dashboard <a id="_idIndexMarker1018"/>and navigate to <strong class="bold">Platform Configuration</strong> | <strong class="bold">Integrations</strong> | <strong class="bold">Authentication Tokens</strong>, and click on <strong class="bold">API Token</strong>:</li>
+			</ol>
+			<div>
+				<div id="_idContainer344" class="IMG---Figure">
+					<img src="image/B18015_14_15.jpg" alt="Figure 14.15 – Creating ACS API Token"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.15 – Creating ACS API Token</p>
+			<ol>
+				<li value="2">Click on the <strong class="bold">Generate token</strong> button:</li>
+			</ol>
+			<div>
+				<div id="_idContainer345" class="IMG---Figure">
+					<img src="image/B18015_14_16.jpg" alt="Figure 14.16 – Generate token "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.16 – Generate token</p>
+			<ol>
+				<li value="3">Fill out <a id="_idIndexMarker1019"/>a name and select <strong class="bold">Continuous Integration</strong> in the <strong class="bold">Role</strong> field:</li>
+			</ol>
+			<div>
+				<div id="_idContainer346" class="IMG---Figure">
+					<img src="image/B18015_14_17.jpg" alt="Figure 14.17 – Generate token for CI "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.17 – Generate token for CI</p>
+			<ol>
+				<li value="4">Copy the token that has been generated. We are going to use it in a secret that will be used by the pipeline task to authenticate on ACS APIs:</li>
+			</ol>
+			<div>
+				<div id="_idContainer347" class="IMG---Figure">
+					<img src="image/B18015_14_18.jpg" alt="Figure 14.18 – Copy API Token "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.18 – Copy API Token</p>
+			<ol>
+				<li value="5">Now let’s <a id="_idIndexMarker1020"/>create the secret. Run the following command using the token from the previous step and the ACS central endpoint. Do <em class="italic">not</em> use <strong class="source-inline">http(s)</strong> in the <strong class="source-inline">rox_central_endpoint</strong> host:<p class="source-code">oc create secret generic acs-secret --from-literal=rox_api_token='&lt;token from previous step&gt;' --from-literal=rox_central_endpoint='&lt;host-for-rhacs-central-server&gt;:443' --namespace=chap14-review-cicd</p></li>
+				<li>Now we are all set to create and run our pipeline. Run the following commands:<p class="source-code">$ cd OpenShift-Multi-Cluster-Management-Handbook/chapter14/DevSecOps</p><p class="source-code">$ oc apply -f Task/ # Create the custom S2I and stackrox-image-check tasks</p><p class="source-code">$ oc apply -f Pipeline/quarkus-devsecops-v1-pi.yaml</p><p class="source-code">$ oc create -f PipelineRun/quarkus-devsecops-v1-pr.yaml</p></li>
+				<li>You should <a id="_idIndexMarker1021"/>see failures in the <strong class="source-inline">security-check</strong> task as we are intentionally using an old base image that contains many known vulnerabilities:</li>
+			</ol>
+			<div>
+				<div id="_idContainer348" class="IMG---Figure">
+					<img src="image/B18015_14_19.jpg" alt="Figure 14.19 – Security checks failure "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.19 – Security checks failure</p>
+			<p>Let’s take a look <a id="_idIndexMarker1022"/>briefly at the errors we have as a result of this task. The policies that have failed are the following:</p>
+			<ul>
+				<li><strong class="bold">Fixable Severity at least Important</strong>: As expected (remember that we are using now an old base image version), there are several components in the image that have important and critical known CVEs.</li>
+				<li><strong class="bold">Red Hat Package Manager in Image</strong>: Our S2I image uses <strong class="source-inline">ubi-minimal</strong>, which <a id="_idIndexMarker1023"/>includes <strong class="source-inline">microdnf</strong> as a package manager.</li>
+			</ul>
+			<p>We are going to demonstrate now how to fix these security issues using a Dockerfile that addresses all of them.</p>
+			<h2 id="_idParaDest-282"><a id="_idTextAnchor299"/>Fixing security issues</h2>
+			<p>To fix the <a id="_idIndexMarker1024"/>issues, we are going to change our pipeline to use a Dockerfile instead of the S2I. To do so we changed the <strong class="source-inline">build</strong> task to use the <strong class="source-inline">buildah</strong> ClusterTask instead of <strong class="source-inline">s2i-java</strong>:</p>
+			<pre class="source-code">    - name: build
+      params:
+        - name: IMAGE
+          value: $(params.IMAGE_NAME)
+        - name: CONTEXT
+          value: $(params.PATH_CONTEXT)
+        - name: DOCKERFILE
+          value: src/main/docker/Dockerfile.multistage <strong class="bold">#[1]</strong>
+        - name: TLSVERIFY
+          value: 'false'
+      runAfter:
+        - fetch-repository
+      taskRef:
+        kind: ClusterTask
+        name: buildah <strong class="bold">#[2]</strong>
+      workspaces:
+        - name: source
+          workspace: workspace</pre>
+			<p>Let’s take a look at what the highlighted numbers mean:</p>
+			<ul>
+				<li><strong class="bold">[1]</strong>: The path where the Dockerfile with security fixes is located</li>
+				<li><strong class="bold">[2]</strong>: <strong class="source-inline">buildah</strong> ClusterTasks that will build the application using the given Dockerfile</li>
+			</ul>
+			<p>Let’s also <a id="_idIndexMarker1025"/>take a look at the Dockerfile to understand the security fixes. This file is located at <strong class="source-inline">quarkus-getting-started/src/main/docker/Dockerfile.multistage</strong> in our GitHub:</p>
+			<pre class="source-code">## Stage 1: build with maven builder image with native capabilities
+FROM quay.io/quarkus/ubi-quarkus-native-image:22.2-java17 AS build
+(.. omitted ..)
+RUN ./mvnw package -Pnative
+FROM registry.access.redhat.com/ubi8/ubi-minimal <strong class="bold">#[1]</strong>
+WORKDIR /work/
+COPY --from=build /code/target/*-runner /work/application
+RUN chmod 775 /work /work/application \
+  &amp;&amp; chown -R 1001 /work \
+  &amp;&amp; chmod -R "g+rwX" /work \
+  &amp;&amp; chown -R 1001:root /work \
+  &amp;&amp; microdnf update -y \ <strong class="bold">#[2]</strong>
+  &amp;&amp; rpm -e --nodeps $(rpm -qa '*rpm*' '*dnf*' '*libsolv*' '*hawkey*' 'yum*') <strong class="bold">#[3]</strong>
+EXPOSE 8080
+USER 1001
+CMD ["./application", "-Dquarkus.http.host=0.0.0.0"]</pre>
+			<p>Let’s take a look at what the highlighted numbers mean:</p>
+			<ul>
+				<li><strong class="bold">[1]</strong>: Use the latest version of <strong class="source-inline">ubi-minimal</strong> as the base image.</li>
+				<li><strong class="bold">[2]</strong>: Update OS packages to the latest versions.</li>
+				<li><strong class="bold">[3]</strong>: Remove the package manager from the image.</li>
+			</ul>
+			<p>The lines highlighted will make sure the most up-to-date components, which contain the most recent <a id="_idIndexMarker1026"/>security fixes, are in use, and also the package manager is removed from the image before it is packaged.</p>
+			<p>Now, let’s create this new pipeline version and runs it to check whether the security issues have been resolved. To do so, run the following commands:</p>
+			<pre class="source-code">$ oc apply -f Pipeline/quarkus-devsecops-v2-pi.yaml
+$ oc create -f PipelineRun/quarkus-devsecops-v2-pr.yaml</pre>
+			<p>This time, the pipeline should be finished successfully, as there are no security issues detected anymore in our container image:</p>
+			<div>
+				<div id="_idContainer349" class="IMG---Figure">
+					<img src="image/B18015_14_20.jpg" alt="Figure 14.20 – Security issues fixed "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.20 – Security issues fixed</p>
+			<p>You can optionally check ACS now to investigate whether there are still other violations that may be fixed <a id="_idIndexMarker1027"/>later. If you want to do so, navigate to the <strong class="bold">Violations</strong> feature of ACS and filter by <strong class="source-inline">Namespace: chap14-review-cicd</strong> and <strong class="source-inline">Deployment: quarkus-quickstarts</strong>. You should still see some minor violations, as follows:</p>
+			<div>
+				<div id="_idContainer350" class="IMG---Figure">
+					<img src="image/B18015_14_21.jpg" alt="Figure 14.21 – ACS Violations "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.21 – ACS Violations</p>
+			<p>Do you remember <a id="_idIndexMarker1028"/>that Quay reported some vulnerabilities in our image before? Look at it now to see our new image version:</p>
+			<div>
+				<div id="_idContainer351" class="IMG---Figure">
+					<img src="image/B18015_14_22.jpg" alt="Figure 14.22 – Quay security scan "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.22 – Quay security scan</p>
+			<p>As you can see, the newer image has no security issues detected. In this section, we added a security check in our pipeline and fixed some vulnerabilities detected by this pipeline. In the <a id="_idIndexMarker1029"/>next section, our pipeline will be able to deploy our application against multiple clusters, using ArgoCD and Advanced Cluster Management.</p>
+			<h1 id="_idParaDest-283"><a id="_idTextAnchor300"/>Provisioning and managing multiple clusters</h1>
+			<p>We haven’t touched <a id="_idIndexMarker1030"/>so far on the hybrid or multi-cluster side <a id="_idIndexMarker1031"/>of the house. This is what we are going to add now: <em class="italic">deployment into multiple remote clusters</em>. To do so, we are going to use Advanced Cluster Management to provision new clusters and also help us to deploy the application in them.</p>
+			<h2 id="_idParaDest-284"><a id="_idTextAnchor301"/>Provisioning new clusters</h2>
+			<p>We are going to <a id="_idIndexMarker1032"/>use AWS to host <a id="_idIndexMarker1033"/>two new clusters that will be used as remote clusters to exercise our pipeline. For the sake of saving resources, we are going to use single node clusters, so we don’t need to get the cost of many servers for this exercise. If you already have clusters available, you can alternatively import the existing clusters, instead of provisioning new ones. You can find, in the <em class="italic">Further reading</em> section of this chapter, a link that contains instructions about how to import a cluster on Advanced Cluster Management.</p>
+			<p>To provision a single node cluster using ACM, you need to add the AWS credentials, navigate to the <strong class="bold">Credentials</strong> menu, and click on the <strong class="bold">Add credential</strong> button:</p>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US"> </p>
+			<div>
+				<div id="_idContainer352" class="IMG---Figure">
+					<img src="image/B18015_14_23.jpg" alt="Figure 14.23 – Adding AWS credentials "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.23 – Adding AWS credentials</p>
+			<p>Follow the <a id="_idIndexMarker1034"/>wizard and fill out all <a id="_idIndexMarker1035"/>required fields. You need to provide your pull secret, which is available at <a href="https://console.redhat.com/openshift/downloads">https://console.redhat.com/openshift/downloads</a>:</p>
+			<div>
+				<div id="_idContainer353" class="IMG---Figure">
+					<img src="image/B18015_14_24.jpg" alt="Figure 14.24 – Adding a new credential "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.24 – Adding a new credential</p>
+			<p>After you have <a id="_idIndexMarker1036"/>created the AWS <a id="_idIndexMarker1037"/>credential, access the <strong class="bold">Infrastructure</strong> | <strong class="bold">Clusters</strong> feature and click on the <strong class="bold">Create cluster</strong> button:</p>
+			<div>
+				<div id="_idContainer354" class="IMG---Figure">
+					<img src="image/B18015_14_25.jpg" alt="Figure 14.25 – Provisioning a new cluster "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.25 – Provisioning a new cluster</p>
+			<p>Select AWS as <a id="_idIndexMarker1038"/>the infrastructure <a id="_idIndexMarker1039"/>provider and fill out the wizard with the following data but do <em class="italic">not</em> hit the <strong class="bold">Create</strong> button in the last step of the wizard:</p>
+			<ul>
+				<li><strong class="bold">Infrastructure</strong> provider: <strong class="bold">Amazon Web Services</strong></li>
+				<li><strong class="bold">Infrastructure provider credential</strong>: <strong class="bold">aws</strong> (name of the credential that you created in the previous step)</li>
+				<li><strong class="bold">Cluster name</strong>: <strong class="source-inline">ocp-prd1</strong></li>
+				<li><strong class="bold">Cluster set</strong>: <strong class="bold">default</strong></li>
+				<li><strong class="bold">Base DNS domain</strong>: Your public domain on AWS (for example, example.com)</li>
+				<li><strong class="bold">Release image</strong>: Select the most recent</li>
+				<li><strong class="bold">Additional labels</strong>: <strong class="source-inline">env=prod</strong></li>
+				<li><strong class="bold">Control plane pool</strong>: Instance type: <strong class="source-inline">m5.2xlarge</strong></li>
+				<li><strong class="bold">Networking</strong>: Leave as-is</li>
+				<li><strong class="bold">Proxy</strong>: Leave unselected</li>
+				<li><strong class="bold">Automation</strong>: Leave blank</li>
+			</ul>
+			<p>On the <strong class="bold">Review</strong> page, select the <strong class="bold">YAML: On</strong> button:</p>
+			<div>
+				<div id="_idContainer355" class="IMG---Figure">
+					<img src="image/B18015_14_26.jpg" alt="Figure 14.26 – Edit YAML "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.26 – Edit YAML</p>
+			<p>In the <a id="_idIndexMarker1040"/>YAML file, edit <strong class="source-inline">MachinePool</strong> and <a id="_idIndexMarker1041"/>add the statement <strong class="source-inline">skipMachinePool: true</strong>, as you can see in the following:</p>
+			<div>
+				<div id="_idContainer356" class="IMG---Figure">
+					<img src="image/B18015_14_27.jpg" alt="Figure 14.27 – Editing MachinePool "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.27 – Editing MachinePool</p>
+			<p>Click in <a id="_idIndexMarker1042"/>the <strong class="source-inline">install-config</strong> tab <a id="_idIndexMarker1043"/>and change master replicas to <strong class="source-inline">1</strong> and compute replicas to <strong class="source-inline">0</strong>:</p>
+			<div>
+				<div id="_idContainer357" class="IMG---Figure">
+					<img src="image/B18015_14_28.jpg" alt="Figure 14.28 – Editing install-config "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.28 – Editing install-config</p>
+			<p>Now hit <a id="_idIndexMarker1044"/>the <strong class="bold">Create</strong> button. Repeat the <a id="_idIndexMarker1045"/>steps to create another cluster named <strong class="source-inline">ocp-prd2</strong> with the same parameters used previously. In the end, you should see two clusters being provisioned, as you can see in the following screenshot:</p>
+			<div>
+				<div id="_idContainer358" class="IMG---Figure">
+					<img src="image/B18015_14_29.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.29 – Clusters being created</p>
+			<p>The provisioning <a id="_idIndexMarker1046"/>will take about 40 <a id="_idIndexMarker1047"/>minutes. Continue next when you see both clusters marked as <strong class="bold">Ready</strong>.</p>
+			<h2 id="_idParaDest-285"><a id="_idTextAnchor302"/>Cluster governance</h2>
+			<p>One helpful feature <a id="_idIndexMarker1048"/>that ACM provides is cluster governance <a id="_idIndexMarker1049"/>using policies. We already covered this feature in <a href="B18015_11.xhtml#_idTextAnchor229"><em class="italic">Chapter 11</em></a>, <em class="italic">OpenShift Multi-Cluster GitOps and Management</em>. If you didn’t read it yet, we strongly recommend you check that chapter. We are going to deploy the policy that is in the <strong class="source-inline">Governance</strong> folder of our GitHub repository to inform if the etcd keystores of managed clusters are encrypted or not. To do so, run the following command:</p>
+			<pre class="source-code">$ cd OpenShift-Multi-Cluster-Management-Handbook/chapter14/Governance
+$ oc apply -k .</pre>
+			<p>Wait a few seconds <a id="_idIndexMarker1050"/>and access the <strong class="bold">Governance</strong> feature on ACM to check the compliance <a id="_idIndexMarker1051"/>of the clusters:</p>
+			<div>
+				<div id="_idContainer359" class="IMG---Figure">
+					<img src="image/B18015_14_30.jpg" alt="Figure 14.30 – Cluster compliance "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.30 – Cluster compliance</p>
+			<p>Move to the next section to see how to deploy our sample application into multiple remote clusters at once.</p>
+			<h1 id="_idParaDest-286"><a id="_idTextAnchor303"/>Deploying an application into multiple clusters</h1>
+			<p>Now that we <a id="_idIndexMarker1052"/>already have multiple remote <a id="_idIndexMarker1053"/>clusters, we can go ahead and use ACM and ArgoCD to make our pipeline able to deploy into all of them at once. We are going to change the deploy task to use an <strong class="source-inline">ApplicationSet</strong> object that will be responsible for deploying our application into both OpenShift remote clusters at once.</p>
+			<div>
+				<div id="_idContainer360" class="IMG---Figure">
+					<img src="image/B18015_14_31.jpg" alt="Figure 14.31 – Pipeline with deployment into multiple clusters "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.31 – Pipeline with deployment into multiple clusters</p>
+			<p>To make ArgoCD aware of the clusters managed by ACM, we first need to create a few objects, such as the <strong class="source-inline">GitOpsCluster</strong> Custom Resource. We covered a detailed explanation of these objects in <a href="B18015_11.xhtml#_idTextAnchor229"><em class="italic">Chapter 11</em></a>, <em class="italic">OpenShift Multi-Cluster GitOps and Management</em>. Run the following commands to create these objects:</p>
+			<pre class="source-code">$ cd OpenShift-Multi-Cluster-Management-Handbook/chapter14/Mult<a id="_idTextAnchor304"/>icluster-Deployment
+$ oc apply -f GitOpsCluster/</pre>
+			<p>Now let’s create <a id="_idIndexMarker1054"/>and run the pipeline, which <a id="_idIndexMarker1055"/>uses an <strong class="source-inline">ApplicationSet</strong> object to deploy the application into the managed clusters that have the <strong class="source-inline">env=prod</strong> label. Remember that we used this label in the clusters we provisioned using ACM. If you imported the clusters on ACM, make sure to add the <strong class="source-inline">env=prod</strong> label to them:</p>
+			<pre class="source-code">$ oc apply -f Rolebindings/ # Permissions required for pipeline to be able to create an ApplicationSet
+$ oc apply -f Pipeline/quarkus-multicluster-pi.yaml
+$ oc create -f PipelineRun/quarkus-multicluster-pr.yaml</pre>
+			<p>When the <a id="_idIndexMarker1056"/>pipeline finishes, you should now <a id="_idIndexMarker1057"/>have two new ArgoCD applications automatically created by the <strong class="source-inline">ApplicationSet</strong> mechanism:</p>
+			<div>
+				<div id="_idContainer361" class="IMG---Figure">
+					<img src="image/B18015_14_32.jpg" alt="Figure 14.32 – ArgoCD and ApplicationSet "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.32 – ArgoCD and ApplicationSet</p>
+			<p>That’s it, we did it! We started with a simple build pipeline that now performs security checks and deploys into multiple remote clusters at once!</p>
+			<h1 id="_idParaDest-287"><a id="_idTextAnchor305"/>Summary</h1>
+			<p>Thank you for being our partner in this journey! We hope the content of this book was helpful for you and now you have a good understanding of the topics covered in this book. We went through architecture, people, deployment, troubleshooting, multi-cluster administration, usage, and security. So much content that we thought we wouldn’t have the ability to write it! And if you are still here, we feel that my mission with this book is accomplished!</p>
+			<p>There is a quote from <em class="italic">Johann Wolfgang von Goethe</em> that says the following: “<em class="italic">Knowing is not enough; we must apply. Willing is not enough; we must do</em>.” After reading this book, we hope you not only learned new things but were also able to put them into practice. Following this hybrid cloud journey, you have the opportunity to leap in knowledge with didactic examples and content made with great dedication from us.</p>
+			<p>We hope that this book becomes one of your handbooks and will be useful to you for planning and executing models suitable for the enterprise, bringing multiple options to use, implementations, and good insights to leverage your knowledge and your career.</p>
+			<p>To wrap up the content of this chapter, we designed the following diagram to serve as a shortcut to the central themes of each chapter and see the entire journey we have gone through together:</p>
+			<div>
+				<div id="_idContainer362" class="IMG---Figure">
+					<img src="image/B18015_14_33.jpg" alt="Figure 14.33 – The book journey "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.33 – The book journey</p>
+			<p>We have almost reached the end of this book, but we are not completely done yet. We have prepared for you the last chapter with some suggestions as to where you can go next after this book, to keep learning and growing your OpenShift and Kubernetes skills.</p>
+			<p>We encourage you to move to the next chapter and look at the training and other content we suggest there.</p>
+			<h1 id="_idParaDest-288"><a id="_idTextAnchor306"/>Further reading</h1>
+			<p>Looking for more information? Check the following references to get more information:</p>
+			<ul>
+				<li><em class="italic">Quarkus</em>:<ul><li><em class="italic">Main page: </em><a href="https://quarkus.io/">https://quarkus.io/</a></li>
+<li><em class="italic">Quarkus getting started sample</em>: <a href="https://github.com/quarkusio/quarkus-quickstarts/tree/main/getting-started">https://github.com/quarkusio/quarkus-quickstarts/tree/main/getting-started</a></li>
+</ul></li>
+				<li><em class="italic">S2i:</em><ul><li><em class="italic">GitHub</em> page: <a href="https://github.com/openshift/source-to-image">https://github.com/openshift/source-to-image</a></li>
+<li><em class="italic">How to Create an S2I Builder Image</em> (blog article): <a href="https://cloud.redhat.com/blog/create-s2i-builder-image">https://cloud.redhat.com/blog/create-s2i-builder-image</a></li>
+<li><em class="italic">Using Source 2 Image build in Tekton</em> (blog article): <a href="https://cloud.redhat.com/blog/guide-to-openshift-pipelines-part-2-using-source-2-image-build-in-tekton">https://cloud.redhat.com/blog/guide-to-openshift-pipelines-part-2-using-source-2-image-build-in-tekton</a></li>
+<li><em class="italic">Tekton Hub - S2I</em>: <a href="https://hub.tekton.dev/tekton/task/s2i">https://hub.tekton.dev/tekton/task/s2i</a></li>
+</ul></li>
+				<li><em class="italic">Advanced Cluster Management – Importing clusters</em>: <a href="https://access.redhat.com/documentation/en-us/red_hat_advanced_cluster_management_for_kubernetes/2.5/html/clusters/managing-your-clusters#importing-a-target-managed-cluster-to-the-hub-cluster">https://access.redhat.com/documentation/en-us/red_hat_advanced_cluster_management_for_kubernetes/2.5/html/clusters/managing-your-clusters#importing-a-target-managed-cluster-to-the-hub-cluster</a></li>
+				<li><em class="italic">Advanced Cluster Security – Image check from Tekton Hub</em>: <a href="https://hub.tekton.dev/tekton/task/stackrox-image-check">https://hub.tekton.dev/tekton/task/stackrox-image-check</a></li>
+			</ul>
+		</div>
+		<div>
+			<div id="_idContainer364">
+			</div>
+		</div>
+
+
+		<div>
+			<div id="_idContainer365" class="Basic-Graphics-Frame">
+			</div>
+		</div>
+		<div>
+			<div id="_idContainer366">
+			</div>
+		</div>
+		<div id="_idContainer367" class="Content">
+			<h1 id="_idParaDest-289"><a id="_idTextAnchor307"/>Part 5 – Continuous Learning</h1>
+			<p>In this part, you will have some additional content to continue the journey to becoming a subject matter expert on OpenShift. Here, you will see a summary of the training available on the market to help you with OpenShift’s in-depth enablement.</p>
+			<p>This part of the book comprises the following chapter:</p>
+			<ul>
+				<li><a href="B18015_15.xhtml#_idTextAnchor308"><em class="italic">Chapter 15</em></a>, <em class="italic">What’s Next?</em></li>
+			</ul>
+		</div>
+</body></html>

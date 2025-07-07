@@ -1,0 +1,895 @@
+<html><head></head><body><div class="chapter" title="Chapter&#xA0;3.&#xA0;Going Further with Terraform"><div class="titlepage"><div><div><h1 class="title"><a id="ch03"/>Chapter 3. Going Further with Terraform</h1></div></div></div><p>In this chapter, we will cover the following recipes:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Handling different environments with Terraform</li><li class="listitem" style="list-style-type: disc">Provisioning a CentOS 7 EC2 instance with Chef using Terraform</li><li class="listitem" style="list-style-type: disc">Using data sources, templates, and local execution</li><li class="listitem" style="list-style-type: disc">Executing remote commands at bootstrap using Terraform</li><li class="listitem" style="list-style-type: disc">Using Docker with Terraform</li><li class="listitem" style="list-style-type: disc">Simulating infrastructure changes using Terraform</li><li class="listitem" style="list-style-type: disc">Teamwork – sharing Terraform infrastructure state</li><li class="listitem" style="list-style-type: disc">Maintaining a clean and standardized Terraform code</li><li class="listitem" style="list-style-type: disc">One Makefile to rule them all</li><li class="listitem" style="list-style-type: disc">Team workflow example</li><li class="listitem" style="list-style-type: disc">Managing GitHub with Terraform</li><li class="listitem" style="list-style-type: disc">External monitoring integration with StatusCake</li></ul></div><div class="section" title="Introduction"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec39"/>Introduction</h1></div></div></div><p>In this chapter, we'll go beyond the essentials of using Terraform we covered in <a class="link" href="ch02.html" title="Chapter 2. Provisioning IaaS with Terraform">Chapter 2</a>, <span class="emphasis"><em>Provisioning IaaS with Terraform</em></span>. We'll discover many important techniques to use Terraform in conjunction with other players in the field such as Docker and Chef, how it can be used in multiple environments (such as development/staging/production), how powerful it can be to manage not only infrastructure but many SaaS as well, and how to integrate the tool within a team workflow (sharing, synchronizing, maintaining, harmonizing, and so on). These topics are all equally important, as they will define the quality of our daily work and our ability to interact with other people, services, and systems.</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note16"/>Note</h3><p>The Terraform version in use for this book is 0.7.3.</p></div></div></div></div>
+<div class="section" title="Handling different environments with Terraform"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec40"/>Handling different environments with Terraform</h1></div></div></div><p>It's a <a id="id218" class="indexterm"/>common and recommended setup to have different infrastructure environments, with some level of parity. Those environments can vary greatly between companies and projects in both names and focus, but here are commonly found environments:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Development: where developers can implement and quickly test new features</li><li class="listitem" style="list-style-type: disc">Staging: where the new features are tested in a more consistent environment than the development one, sometimes very similar to a preproduction environment</li><li class="listitem" style="list-style-type: disc">Preproduction: this environment is the most similar possible to production</li><li class="listitem" style="list-style-type: disc">Production: the full-featured live production environment</li></ul></div><p>We'll see how using infrastructure-as-code and especially how Terraform fundamentally helps to build strong and replicated environments. This time we'll use a CoreOS AMI for a change.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec97"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Terraform installation</li><li class="listitem" style="list-style-type: disc">An AWS account with an SSH key configured in Terraform (refer to the <a class="link" href="ch02.html" title="Chapter 2. Provisioning IaaS with Terraform">Chapter 2</a>, <span class="emphasis"><em>Provisioning IaaS with Terraform,</em></span> recipes)</li><li class="listitem" style="list-style-type: disc">An Internet connection</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec98"/>How to do it…</h2></div></div></div><p>Using infrastructure-as-code, the easiest thing is to simply duplicate the code to create as many environments as needed. However, there's a much more powerful way to leverage the full capabilities of Terraform.</p><p>Let's define the requirements of simple target environments that we'll translate into dynamic Terraform code:</p><div class="informaltable"><table border="1"><colgroup><col style="text-align: left"/><col style="text-align: left"/><col style="text-align: left"/></colgroup><thead><tr><th style="text-align: left" valign="bottom">
+<p>Parameter</p>
+</th><th style="text-align: left" valign="bottom">
+<p>Staging</p>
+</th><th style="text-align: left" valign="bottom">
+<p>Production</p>
+</th></tr></thead><tbody><tr><td style="text-align: left" valign="top">
+<p>
+<span class="strong"><strong>Number of instances</strong></span>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>1</p>
+</td><td style="text-align: left" valign="top">
+<p>3</p>
+</td></tr><tr><td style="text-align: left" valign="top">
+<p>
+<span class="strong"><strong>Type of instance</strong></span>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>
+<code class="literal">t2.micro</code>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>
+<code class="literal">t2.medium</code>
+</p>
+</td></tr><tr><td style="text-align: left" valign="top">
+<p>
+<span class="strong"><strong>Operating system</strong></span>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>CoreOS Stable</p>
+</td><td style="text-align: left" valign="top">
+<p>CoreOS Stable</p>
+</td></tr><tr><td style="text-align: left" valign="top">
+<p>
+<span class="strong"><strong>AMI in eu-west-1</strong></span>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>
+<code class="literal">ami-85097ff6</code>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>
+<code class="literal">ami-85097ff6</code>
+</p>
+</td></tr><tr><td style="text-align: left" valign="top">
+<p>
+<span class="strong"><strong>AMI in us-east-1</strong></span>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>
+<code class="literal">ami-0aef8e1d</code>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>
+<code class="literal">ami-0aef8e1d</code>
+</p>
+</td></tr><tr><td style="text-align: left" valign="top">
+<p>
+<span class="strong"><strong>S3 bucket naming</strong></span>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>iacbook-staging</p>
+</td><td style="text-align: left" valign="top">
+<p>iacbook-production</p>
+</td></tr><tr><td style="text-align: left" valign="top">
+<p>
+<span class="strong"><strong>Default environment</strong></span>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>Yes</p>
+</td><td style="text-align: left" valign="top">
+<p>No</p>
+</td></tr></tbody></table></div><p>Let's start by declaring those variables in the <code class="literal">variables.tf</code> file, exactly as we' saw in <a class="link" href="ch02.html" title="Chapter 2. Provisioning IaaS with Terraform">Chapter 2</a>, <span class="emphasis"><em>Provisioning laaS with Terraform</em></span>, except we'll describe environments such as <span class="emphasis"><em>staging</em></span> and <span class="emphasis"><em>production</em></span> instead of the AWS regions for the cluster size and instance types.</p><p>Define the CoreOS AMI variable:</p><div class="informalexample"><pre class="programlisting">variable "aws_coreos_ami" {
+  type = "map"
+
+  default = {
+    eu-west-1 = "ami-85097ff6"
+    us-east-1 = "ami-0aef8e1d"
+  }
+}</pre></div><p>Define a cluster size variable with different values according to the environment:</p><div class="informalexample"><pre class="programlisting">variable "cluster_size" {
+  type = "map"
+
+  default = {
+    staging    = "1"
+    production = "3"
+  }
+
+  description = "Number of nodes in the cluster"
+}</pre></div><p>Finally, define the different AWS instance types:</p><div class="informalexample"><pre class="programlisting">variable "aws_instance_type" {
+  type = "map"
+
+  default = {
+    staging    = "t2.micro"
+    production = "t2.medium"
+  }
+
+  description = "Instance type"
+}</pre></div><p>Now let's use <a id="id219" class="indexterm"/>those in a highly dynamic infrastructure code (<code class="literal">instances.tf</code>), using the <code class="literal">aws_instance</code> resource and by choosing automatically the correct cluster size and instance type according to the environment, while choosing the right AMI according to the execution region:</p><div class="informalexample"><pre class="programlisting">resource "aws_instance" "coreos" {
+  count                       = "${lookup(var.cluster_size, var.environment)}"
+  ami                         = "${lookup(var.aws_coreos_ami, var.aws_region)}"
+  instance_type               = "${lookup(var.aws_instance_type, var.environment)}"
+  key_name                    = "${aws_key_pair.admin_key.key_name}"
+  associate_public_ip_address = true
+
+  tags {
+    Name        = "coreos_${var.environment}_${count.index+1}"
+    Environment = "${var.environment}"
+  }
+}</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note17"/>Note</h3><p>We constructed each instance <code class="literal">Name</code> tag according to its environment and its numerical value in the count (that is, <code class="literal">coreos_production_2</code>).</p></div></div><p>Our <a id="id220" class="indexterm"/>specification table indicates we need two different S3 buckets as well. Let's reuse in <code class="literal">s3.tf</code> something close to what we did in <a class="link" href="ch02.html" title="Chapter 2. Provisioning IaaS with Terraform">Chapter 2</a>, <span class="emphasis"><em>Provisioning IaaS with Terraform</em></span>:</p><div class="informalexample"><pre class="programlisting">resource "aws_s3_bucket" "bucket" {
+  bucket = "iacbook-${var.environment}"
+
+  tags {
+    Name        = "IAC Book ${var.environment} Bucket"
+    Environment = "${var.environment}"
+  }
+}</pre></div><p>It's the same construction here, each environment will get its bucket dynamically named after it.</p><div class="section" title="Keeping the tfstate isolated"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec39"/>Keeping the tfstate isolated</h3></div></div></div><p>It's strongly recommended <a id="id221" class="indexterm"/>to <span class="strong"><strong>not mix</strong></span> Terraform state files between environments. One elegant solution to keep them well separated is to use the following option when executing the <code class="literal">terraform</code> command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform apply -state=staging.tfstate</strong></span>
+</pre></div><p>Your default environment (set to staging) will now reside in the <code class="literal">staging.tfstate</code> file.</p></div><div class="section" title="Setting the production flag"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec40"/>Setting the production flag</h3></div></div></div><p>Now <a id="id222" class="indexterm"/>we have our staging infrastructure running smoothly, it's time to launch the real thing—the production environment. As we're already using a dedicated terraform state file, let's do the same for production, and set the <code class="literal">environment</code> variable directly through the command line:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform plan -state=production.tfstate -var environment=production</strong></span>
+</pre></div><p>You <a id="id223" class="indexterm"/>now have two clearly separated environments using the very same code, but living independently from each other. Concise and elegant!</p></div></div></div>
+<div class="section" title="Provisioning a CentOS 7 EC2 instance with Chef using Terraform"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec41"/>Provisioning a CentOS 7 EC2 instance with Chef using Terraform</h1></div></div></div><p>Once <a id="id224" class="indexterm"/>the underlying infrastructure is generated by Terraform, chances are the job isn't already finished. That's the moment a configuration management tool such as Chef, Ansible, or Puppet <a id="id225" class="indexterm"/>enters the game, to provision the virtual machine. Thankfully, Chef is a first class provisioning tool in Terraform. We'll see here how to fully bootstrap a CentOS 7.2 instance <a id="id226" class="indexterm"/>on AWS with Terraform, from nothing to a fully configured node, by gracefully handing over the configuration to Chef after having it automatically deployed and registered on Hosted Chef.</p><p>If it's <a id="id227" class="indexterm"/>the first time you've launched CentOS 7 servers on AWS, you have to agree their terms and conditions at <a class="ulink" href="https://aws.amazon.com/marketplace/pp/B00O7WM7QW">https://aws.amazon.com/marketplace/pp/B00O7WM7QW</a>.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec99"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Terraform installation</li><li class="listitem" style="list-style-type: disc">An AWS account with an SSH key configured in Terraform and a security group allowing SSH connections from outside (refer to the <a class="link" href="ch02.html" title="Chapter 2. Provisioning IaaS with Terraform">Chapter 2</a>, <span class="emphasis"><em>Provisioning IaaS with Terraform,</em></span> recipes)</li><li class="listitem" style="list-style-type: disc">An account on a Chef server (we recommend using a free hosted Chef account. Please refer to the <span class="emphasis"><em>Creating a free hosted server Chef account and a Puppet server</em></span> recipe of <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet</em></span>), with the default cookbook uploaded</li><li class="listitem" style="list-style-type: disc">An Internet connection</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec100"/>How to do it…</h2></div></div></div><p>As there're a lot of sources involved, let's put all the required information in a table (the Chef <a id="id228" class="indexterm"/>information <a id="id229" class="indexterm"/>is <a id="id230" class="indexterm"/>taken from the Chef Starter Kit, or your <a id="id231" class="indexterm"/>own Chef server, fill in your own values):</p><div class="informaltable"><table border="1"><colgroup><col style="text-align: left"/><col style="text-align: left"/></colgroup><thead><tr><th style="text-align: left" valign="bottom">
+<p>
+<span class="strong"><strong>Hostname</strong></span>
+</p>
+</th><th style="text-align: left" valign="bottom">
+<p>
+<code class="literal">centos-1</code>
+</p>
+</th></tr></thead><tbody><tr><td style="text-align: left" valign="top">
+<p>
+<span class="strong"><strong>Instance type</strong></span>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>
+<code class="literal">t2.micro</code>
+</p>
+</td></tr><tr><td style="text-align: left" valign="top">
+<p>
+<span class="strong"><strong>AMI in eu-west-1</strong></span>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>ami-7abd0209</p>
+</td></tr><tr><td style="text-align: left" valign="top">
+<p>
+<span class="strong"><strong>AMI in us-east-1</strong></span>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>ami-6d1c2007</p>
+</td></tr><tr><td style="text-align: left" valign="top">
+<p>
+<span class="strong"><strong>SSH username</strong></span>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>centos</p>
+</td></tr><tr><td style="text-align: left" valign="top">
+<p>
+<span class="strong"><strong>SSH key</strong></span>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>
+<code class="literal">keys/aws_terraform</code>
+</p>
+</td></tr><tr><td style="text-align: left" valign="top">
+<p>
+<span class="strong"><strong>TCP ports needed</strong></span>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>22</p>
+</td></tr><tr><td style="text-align: left" valign="top">
+<p>
+<span class="strong"><strong>Cookbook(s) to apply</strong></span>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>starter</p>
+</td></tr><tr><td style="text-align: left" valign="top">
+<p>
+<span class="strong"><strong>Chef server URL</strong></span>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>
+<a class="ulink" href="https://api.chef.io/organizations/iacbook">https://api.chef.io/organizations/iacbook</a>
+</p>
+</td></tr><tr><td style="text-align: left" valign="top">
+<p>
+<span class="strong"><strong>Validation key</strong></span>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>
+<code class="literal">iacbook.pem</code>
+</p>
+</td></tr><tr><td style="text-align: left" valign="top">
+<p>
+<span class="strong"><strong>Validation client name</strong></span>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>iacbook</p>
+</td></tr><tr><td style="text-align: left" valign="top">
+<p>
+<span class="strong"><strong>Chef client version</strong></span>
+</p>
+</td><td style="text-align: left" valign="top">
+<p>12.13.37</p>
+</td></tr></tbody></table></div><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Let's start by declaring our AMIs as a map in the <code class="literal">variables.tf</code> file:<div class="informalexample"><pre class="programlisting">variable "aws_centos_ami" {
+  type = "map"
+
+  default = {
+    eu-west-1 = "ami-7abd0209"
+    us-east-1 = "ami-6d1c2007"
+  }
+}</pre></div></li><li class="listitem">Now add the instance type in the same file:<div class="informalexample"><pre class="programlisting">variable "aws_instance_type" {
+  default     = "t2.micro"
+  description = "Instance Type"
+}</pre></div></li><li class="listitem">Declare the Chef version we're currently using in production, so it's stable and stays the same:<div class="informalexample"><pre class="programlisting">variable "chef_version" {
+  default = "12.13.37"
+}</pre></div></li><li class="listitem">Declare <a id="id232" class="indexterm"/>the Chef server URL. If you're using the book example with hosted Chef, you'll find the correct address in the <code class="literal">knife.rb</code> file: it's simply <a class="ulink" href="https://api.chef.io/organizations/&lt;your_organization_name&gt;">https://api.chef.io/organizations/&lt;your_organization_name&gt;</a>, otherwise, use your own Chef server):<div class="informalexample"><pre class="programlisting">variable "chef_server_url" {
+  default = "https://api.chef.io/organizations/iacbook"
+}</pre></div></li><li class="listitem">Finally, add <a id="id233" class="indexterm"/>the <span class="emphasis"><em>validation client</em></span> name for the Chef server:<div class="informalexample"><pre class="programlisting">variable "chef_validation_client_name" {
+  default = "iacbook"
+}</pre></div></li><li class="listitem">To <a id="id234" class="indexterm"/>connect to the instance, we know the default username is <code class="literal">centos</code>, but as it can evolve or you may use your own images, it's better to fix it in a variable as well:<div class="informalexample"><pre class="programlisting">variable "ssh_user" {
+  default = "centos"
+}</pre></div></li></ol></div><div class="section" title="Creating the EC2 instance"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec41"/>Creating the EC2 instance</h3></div></div></div><p>We know <a id="id235" class="indexterm"/>from previous recipes that a basic instance running CentOS looks like this in Terraform's <code class="literal">instances.tf </code>using a security group named <code class="literal">base_security_group</code>:</p><div class="informalexample"><pre class="programlisting">resource "aws_instance" "centos" {
+  ami                         = "${lookup(var.aws_centos_ami, var.aws_region)}"
+  instance_type               = "${var.aws_instance_type}"
+  key_name                    = "${aws_key_pair.admin_key.key_name}"
+  security_groups             = ["${aws_security_group.base_security_group.name}"]
+  associate_public_ip_address = true
+
+  tags {
+    Name = "CentOS-${count.index+1} by Terraform"
+  }
+}</pre></div><p>Now we need to provide two kinds of information to our Terraform file: what to do with Chef <a id="id236" class="indexterm"/>on the server and how to connect to it.</p></div><div class="section" title="Passing connection information"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec42"/>Passing connection information </h3></div></div></div><p>To tell <a id="id237" class="indexterm"/>Terraform how to connect itself to the new EC2 instance, we use a <code class="literal">connection {}</code> block inside the <code class="literal">aws_instance</code> resource to tell it which user and key to use through SSH:</p><div class="informalexample"><pre class="programlisting">connection {
+    type     = "ssh"
+    user     = "${var.ssh_user}"
+    key_file = "${var.aws_ssh_admin_key_file}"
+  } </pre></div></div><div class="section" title="Giving Chef information"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec43"/>Giving Chef information</h3></div></div></div><p>We need <a id="id238" class="indexterm"/>to give some information to Terraform to pass it on to Chef. This will all happen inside a <code class="literal">provisioner "chef" {}</code> block inside the <code class="literal">aws_instance</code> resource.</p><p>Using all the variables we declared, here's how it looks:</p><div class="informalexample"><pre class="programlisting">resource "aws_instance" "centos" {
+[...]
+  provisioner "chef" {
+    node_name              = "centos-${count.index+1}"
+    run_list               = ["starter"]
+    server_url             = "${var.chef_server_url}"
+    validation_client_name = "${var.chef_validation_client_name}"
+    validation_key         = "${file("chef/validator.pem")}"
+    version                = "${var.chef_version}"
+  }
+ }</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note18"/>Note</h3><p>Don't forget to use a valid path for the validation key!</p></div></div><p>Now you can <code class="literal">terraform apply</code> this and see everything happen, from instance creation to Chef Client deployment and cookbook installation.</p></div></div><div class="section" title="How it works…"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec101"/>How it works…</h2></div></div></div><p>First, Terraform creates the required AWS environment (keys, security groups, and instances), and once the instance is running, it connects to it with the right credentials by SSH, then deploys the specified Chef client version from the official source, and finally executes an initial chef-client run that registers the node on the Chef server and applies the requested cookbooks.</p></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec102"/>There's more…</h2></div></div></div><p>A lot <a id="id239" class="indexterm"/>more configuration options are possible for the Chef provisioner inside Terraform. For example, all <a id="id240" class="indexterm"/>available chef-client options can be passed as an array using <code class="literal">client_options</code>, and the Chef environment (usually very important) is passed using <code class="literal">environment</code> as a string. If you use a <a id="id241" class="indexterm"/>custom built image with the Chef client already baked in, you will be interested in setting <code class="literal">skip_install</code> to <code class="literal">true</code> so it doesn't get reinstalled.</p></div></div>
+<div class="section" title="Using data sources, templates, and local execution"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec42"/>Using data sources, templates, and local execution</h1></div></div></div><p>When we <a id="id242" class="indexterm"/>deploy or update an infrastructure with Terraform, it's sometimes enjoyable to have some local content dynamically generated. For example, if you <a id="id243" class="indexterm"/>want to provision with Ansible the new virtual machine launched by Terraform, chances are you'll need to populate a <code class="literal">hosts</code> file with the public IP <a id="id244" class="indexterm"/>address of this host locally on your laptop.</p><p>Ansible can use some dynamic inventories with AWS by itself, but we'll see here how to use a template in Terraform and dynamically fill in the required information so we end up with a working Ansible setup, thanks to Terraform.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec103"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Terraform installation</li><li class="listitem" style="list-style-type: disc">An AWS account with an SSH key configured in Terraform and a security group allowing SSH connections from outside (refer to the <a class="link" href="ch02.html" title="Chapter 2. Provisioning IaaS with Terraform">Chapter 2</a>, <span class="emphasis"><em>Provisioning IaaS with Terraform</em></span> recipes)</li><li class="listitem" style="list-style-type: disc">An Internet connection</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec104"/>How to do it…</h2></div></div></div><p>Let's start by launching a standard CentOS 7.2 on AWS with a standard set of variables in <code class="literal">variables.tf</code>:</p><div class="informalexample"><pre class="programlisting">variable "aws_centos_ami" {
+  type = "map"
+
+  default = {
+    eu-west-1 = "ami-7abd0209"
+    us-east-1 = "ami-6d1c2007"
+  }
+}
+
+variable "aws_instance_type" {
+  default     = "t2.micro"
+  description = "Instance Type"
+}</pre></div><p>Here's <a id="id245" class="indexterm"/>the <a id="id246" class="indexterm"/>simplest <code class="literal">instances.tf</code> file to <a id="id247" class="indexterm"/>launch the instance:</p><div class="informalexample"><pre class="programlisting">resource "aws_instance" "centos" {
+  ami                         = "${lookup(var.aws_centos_ami, var.aws_region)}"
+  instance_type               = "${var.aws_instance_type}"
+  key_name                    = "${aws_key_pair.admin_key.key_name}"
+  security_groups             = ["${aws_security_group.base_security_group.name}"]
+  associate_public_ip_address = true
+
+  tags {
+    Name = "CentOS"
+  }
+}</pre></div><div class="section" title="Data and templates"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec44"/>Data and templates</h3></div></div></div><p>Now, how <a id="id248" class="indexterm"/>does a typical <code class="literal">hosts</code> file look for Ansible? It looks like this:</p><div class="informalexample"><pre class="programlisting">[section_name_1]
+1.2.3.4
+[section_name_2]
+5.6.7.8
+a.server.fqdn</pre></div><p>So, later, Ansible will apply whatever role is needed for each server of each section.</p><p>In our <a id="id249" class="indexterm"/>case, we want a simple section named <code class="literal">centos7_hosts</code> and the servers IP as follows:</p><div class="informalexample"><pre class="programlisting">[centos7_hosts]
+1.2.3.4</pre></div><p>Let's construct <a id="id250" class="indexterm"/>our first template named <code class="literal">hosts.tpl</code> with a variable named <code class="literal">host_public_ipv4</code> that will ultimately be replaced by the real future IP of the host we'll later launch:</p><div class="informalexample"><pre class="programlisting">[centos7_hosts]
+${host_public_ipv4}</pre></div><p>To <a id="id251" class="indexterm"/>generate this file, we'll use a template with a variable in it, that Terraform will generate for us, using a <code class="literal">data</code> resource in <code class="literal">data.tf</code>—it simply contains <a id="id252" class="indexterm"/>the file interpolation of our template and passes it the variable <a id="id253" class="indexterm"/>we need from our AWS instance:</p><div class="informalexample"><pre class="programlisting">data "template_file" "ansible_hosts" {
+  template = "${file("hosts.tpl")}"
+
+  vars {
+    host_public_ipv4 = "${aws_instance.centos.public_ip}"
+  }
+}</pre></div></div><div class="section" title="The local-exec Terraform provisioner"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec45"/>The local-exec Terraform provisioner</h3></div></div></div><p>This <a id="id254" class="indexterm"/>generates the template internally, meaning the data is available, but not dumped anywhere. That's where the <code class="literal">local-exec</code> provisioner comes in, by simply echoing the rendered template from the data source into the file we want (in <code class="literal">data.tf</code>):</p><div class="informalexample"><pre class="programlisting">resource "null_resource" "generate_ansible_hosts" {
+  provisioner "local-exec" {
+    command = "echo '${data.template_file.ansible_hosts.rendered}' &gt; hosts"
+  }
+}</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note19"/>Note</h3><p>We use <code class="literal">"null_resource"</code> for this purpose, so the generation of the template is independent of any other executing resource. In other situations, we can perfectly use the <code class="literal">"local-exec" { }</code> provisioner directly from inside a standard resource.</p></div></div><p>We can now <code class="literal">terraform apply</code> this setup. How does our <code class="literal">hosts</code> file look? Like this:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ cat hosts</strong></span>
+<span class="strong"><strong>[centos7_hosts]</strong></span>
+<span class="strong"><strong>52.17.172.231</strong></span>
+</pre></div><p>It's correctly populated!</p></div><div class="section" title="Apply a configured Ansible"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec46"/>Apply a configured Ansible</h3></div></div></div><p>Our code repository is now ready for use by Ansible. Here's a <a id="id255" class="indexterm"/>sample Ansible role that simply installs Docker and starts it, so we can play with it, under <code class="literal">ansible/main.yml</code>:</p><div class="informalexample"><pre class="programlisting">---
+- hosts: centos7_hosts
+  become: yes
+  tasks:
+    - name: Install EPEL
+      yum: name=epel-release state=present
+    - name: Install Docker
+      yum: name=docker state=present
+    - name: Start docker
+      service: name=docker state=started enabled=yes</pre></div><p>Now you <a id="id256" class="indexterm"/>just have to execute Ansible when you want, it is all ready and configured!</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ ansible-playbook -i hosts -u centos ansible/main.yml</strong></span>
+<span class="strong"><strong>PLAY [centos7_hosts] ***********************************************************</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>PLAY RECAP *********************************************************************</strong></span>
+<span class="strong"><strong>52.17.172.231              : ok=4    changed=0    unreachable=0    failed=0</strong></span>
+</pre></div></div></div></div>
+<div class="section" title="Executing remote commands at bootstrap using Terraform"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec43"/>Executing remote commands at bootstrap using Terraform</h1></div></div></div><p>It's a <a id="id257" class="indexterm"/>very common practice to have a set of initial commands executed right after bootstrap, even before the proper <a id="id258" class="indexterm"/>configuration management system such as Chef or Ansible takes responsibility. It can include immediate full updating of the OS, initial registration on discovery systems such as Consul, or initial addition of local DNS servers. It really shouldn't go farther than delivering a system in a slightly more advanced and expected state for the next configuration system to take over. Under no circumstance should it replace a proper configuration management tool.</p><p>In this recipe, we'll launch a CentOS 7.2 system, then fully update it so it's as secure as possible, install EPEL so we have a greater library of available packages, add the Puppet Labs Yum repository and install a Puppet agent, and add a different name server so our system is ready for the next step (which we won't cover here, as it's probably executing Puppet code).</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec105"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Terraform installation</li><li class="listitem" style="list-style-type: disc">An AWS account with an SSH key configured in Terraform and a security group allowing SSH connections from outside (refer to the <a class="link" href="ch02.html" title="Chapter 2. Provisioning IaaS with Terraform">chapter 2</a>, <span class="emphasis"><em>Provisioning IaaS with Terraform</em></span> recipes)</li><li class="listitem" style="list-style-type: disc">An Internet connection</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec106"/>How to do it…</h2></div></div></div><p>Before <a id="id259" class="indexterm"/>diving into the provisioning part, let's start by describing a classic CentOS 7.2 AMI in <code class="literal">instances.tf</code>:</p><div class="informalexample"><pre class="programlisting">resource "aws_instance" "centos" {
+  ami                         = "${lookup(var.aws_centos_ami, var.aws_region)}"
+  instance_type               = "${var.aws_instance_type}"
+  key_name                    = "${aws_key_pair.admin_key.key_name}"
+  security_groups             = ["${aws_security_group.base_security_group.name}"]
+  associate_public_ip_address = true
+
+  tags {
+    Name = "CentOS"
+  }
+}</pre></div><p>The <a id="id260" class="indexterm"/>variables in the <code class="literal">variables.tf</code> file are as follows:</p><div class="informalexample"><pre class="programlisting">variable "aws_centos_ami" {
+  type = "map"
+
+  default = {
+    eu-west-1 = "ami-7abd0209"
+    us-east-1 = "ami-6d1c2007"
+  }
+}
+
+variable "aws_instance_type" {
+  default     = "t2.micro"
+  description = "Instance Type"
+}</pre></div><p>Now, what are our immediate objectives for this system?:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Fully update it: <code class="literal">sudo yum install -y</code></li><li class="listitem" style="list-style-type: disc">Enable the EPEL repository: <code class="literal">sudo yum install epel-release -y</code></li><li class="listitem" style="list-style-type: disc">Add a custom name server: <code class="literal">echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf</code></li><li class="listitem" style="list-style-type: disc">Add the Puppet Labs repository: <code class="literal">sudo yum install https://yum.puppetlabs.com/puppetlabs-release-pc1-el-7.noarch.rpm -y</code></li><li class="listitem" style="list-style-type: disc">Install the Puppet agent: <code class="literal">sudo yum install puppet-agent -y</code></li><li class="listitem" style="list-style-type: disc">Display the Puppet version: <code class="literal">sudo /opt/puppetlabs/bin/puppet agent --version</code></li></ul></div><p>Let's add <a id="id261" class="indexterm"/>those commands inside a <code class="literal">remote-exec</code> provisioner inside our <code class="literal">aws_instance</code> resource, changing <a id="id262" class="indexterm"/>the default username to <code class="literal">centos</code>:</p><div class="informalexample"><pre class="programlisting">provisioner "remote-exec" {
+    inline = [
+      "echo \"nameserver 8.8.8.8\" | sudo tee -a /etc/resolv.conf",
+      "sudo yum update -y",
+      "sudo yum install epel-release -y",
+      "sudo yum install https://yum.puppetlabs.com/puppetlabs-release-pc1-el-7.noarch.rpm -y",
+      "sudo yum install puppet-agent -y",
+      "sudo /opt/puppetlabs/bin/puppet agent --version"
+    ]
+    connection {
+        user = "centos"
+      }
+  }</pre></div><p>When you <code class="literal">terraform apply</code> this, you'll end up with a fully updated CentOS 7.2 system, with EPEL available, a custom DNS server added and Puppet agent installed.</p><p>Ready for the next stage of deployment with Puppet!</p></div></div>
+<div class="section" title="Using Docker with Terraform"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec44"/>Using Docker with Terraform</h1></div></div></div><p>Terraform <a id="id263" class="indexterm"/>can also be used to manipulate Docker. The classical usage is against an already running Docker server on the network, but it will work <a id="id264" class="indexterm"/>exactly the same locally with your own Docker installation. Using Terraform for controlling Docker, we'll be able to dynamically trigger Docker image updates, execute containers with every imaginable option, manipulate Docker networks, and use Docker volumes.</p><p>Here, we'll deploy an isolated blog container (Ghost) that will be publicly served by the <code class="literal">nginx-proxy</code> container over HTTP. This very useful <code class="literal">nginx-proxy</code> container is proposed <a id="id265" class="indexterm"/>by Jason Wilder from InfluxDB on his GitHub: <a class="ulink" href="https://github.com/jwilder/nginx-proxy">https://github.com/jwilder/nginx-proxy</a>.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec107"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Terraform installation.</li><li class="listitem" style="list-style-type: disc">A working Docker installation (native Docker for Mac, Docker Engine on Linux, a remote server running Docker on TCP, and so on). Docker 1.12 is used for this recipe.</li><li class="listitem" style="list-style-type: disc">An Internet connection.</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec108"/>How to do it…</h2></div></div></div><p>Before <a id="id266" class="indexterm"/>starting to code anything using Terraform, ensure <a id="id267" class="indexterm"/>you can connect to any kind of Docker Engine, local or remote:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ docker version</strong></span>
+<span class="strong"><strong>Client:</strong></span>
+<span class="strong"><strong> Version:      1.12.0</strong></span>
+<span class="strong"><strong> API version:  1.24</strong></span>
+<span class="strong"><strong> Go version:   go1.6.3</strong></span>
+<span class="strong"><strong> Git commit:   8eab29e</strong></span>
+<span class="strong"><strong> Built:        Thu Jul 28 21:15:28 2016</strong></span>
+<span class="strong"><strong> OS/Arch:      darwin/amd64</strong></span>
+
+<span class="strong"><strong>Server:</strong></span>
+<span class="strong"><strong> Version:      1.12.0</strong></span>
+<span class="strong"><strong> API version:  1.24</strong></span>
+<span class="strong"><strong> Go version:   go1.6.3</strong></span>
+<span class="strong"><strong> Git commit:   8eab29e</strong></span>
+<span class="strong"><strong> Built:        Thu Jul 28 21:15:28 2016</strong></span>
+<span class="strong"><strong> OS/Arch:      linux/amd64</strong></span>
+</pre></div><p>If you have issues at this point, you need to fix them before going further.</p><p>Our goal is to serve, through an <code class="literal">nginx-proxy</code> container, a blog container (Ghost) that will not be directly available on the network.</p><p>If you're connecting to a remote Docker server, you need to configure the Docker provider (maybe in <code class="literal">provider.tf</code>). Alternatively, it can use the <code class="literal">DOCKER_HOST</code> environment variable, or just the local daemon if not specified. When using locally for this exercise, you can just forget about including the provider:</p><div class="informalexample"><pre class="programlisting">provider "docker" {
+  host = "tcp://1.2.3.4:2375"
+}</pre></div><p>Let's start by declaring two data sources for each of our Docker images (in <code class="literal">docker.tf</code>). The <code class="literal">ghost</code> image will be in its <code class="literal">0.10</code> version tag, while <code class="literal">nginx-proxy</code> will use the <code class="literal">0.4.0</code> version tag. Using a data source will help us manipulate the image later:</p><div class="informalexample"><pre class="programlisting">data "docker_registry_image" "ghost" {
+  name = "ghost:0.10"
+}
+
+data "docker_registry_image" "nginx-proxy" {
+  name = "jwilder/nginx-proxy:0.4.0"
+}</pre></div><p>Now that we <a id="id268" class="indexterm"/>can access the image, let's exactly do that, using the <code class="literal">docker_image</code> resource. We're reusing all the information our data source is exposing <a id="id269" class="indexterm"/>to us, such as the image name or its SHA256, so we know if a new image is available to pull:</p><div class="informalexample"><pre class="programlisting">resource "docker_image" "ghost" {
+  name         = "${data.docker_registry_image.ghost.name}"
+  pull_trigger = "${data.docker_registry_image.ghost.sha256_digest}"
+}
+
+resource "docker_image" "nginx-proxy" {
+  name         = "${data.docker_registry_image.nginx-proxy.name}"
+  pull_trigger = "${data.docker_registry_image.nginx-proxy.sha256_digest}"
+}</pre></div><p>Let's now declare the private Ghost container (without any port mapping), using the <code class="literal">docker_container</code> resource. Let's use the image we just declared through the <code class="literal">docker_image</code> resource, and export an environment variable named <code class="literal">VIRTUAL_HOST</code>, to be used by the nginx-proxy container (refer to the nginx-proxy documentation for more information). Replace with the host you want if you're not running against a local Docker host:</p><div class="informalexample"><pre class="programlisting">resource "docker_container" "ghost" {
+  name  = "ghost"
+  image = "${docker_image.ghost.latest}"
+  env   = ["VIRTUAL_HOST=localhost"]
+}</pre></div><p>Now let's start the <code class="literal">nginx-proxy</code> container. We know from its documentation that it needs to share the Docker socket in read-only mode (<code class="literal">/var/run/docker.sock</code>) to dynamically <a id="id270" class="indexterm"/>access the running containers, and we want it to run on the default HTTP port (<code class="literal">tcp</code>/<code class="literal">80</code>). Let's do that:</p><div class="informalexample"><pre class="programlisting">resource "docker_container" "nginx-proxy" {
+  name  = "nginx-proxy"
+  image = "${docker_image.nginx-proxy.latest}"
+
+  ports {
+    internal = 80
+    external = 80
+    protocol = "tcp"
+  }
+
+  volumes {
+    host_path      = "/var/run/docker.sock"
+    container_path = "/tmp/docker.sock"
+    read_only      = true
+  }
+}</pre></div><p>Now <a id="id271" class="indexterm"/>if you <code class="literal">terraform apply</code> this, you can navigate over to <code class="literal">http://localhost/admin</code> (replace <code class="literal">localhost</code> with the Docker server you used) and set up your Ghost blog!</p><div class="mediaobject"><img src="graphics/B05671_03_01.jpg" alt="How to do it…"/></div></div></div>
+<div class="section" title="Simulating infrastructure changes using Terraform"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec45"/>Simulating infrastructure changes using Terraform</h1></div></div></div><p>In an <a id="id272" class="indexterm"/>earlier recipe, you learned how to manage different environments with Terraform, which is great. But how do we test for changes before applying them?</p><p>Terraform <a id="id273" class="indexterm"/>has a great internal mechanism that allows us to <span class="emphasis"><em>plan</em></span> for changes by comparing what our infrastructure code wants and what the remote state includes. That way, we can safely check whether what we thought was a minor modification in our code has in fact a destructive impact (sometimes, some parameters in a resource trigger a full destruction of the resource!).</p><p>We'll cover different ways of anticipating, simulating, and targeting changes in our infrastructure, as an added safety check before applying the changes for good.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec109"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Terraform installation</li><li class="listitem" style="list-style-type: disc">An AWS account with an SSH key configured in Terraform (refer to the <a class="link" href="ch02.html" title="Chapter 2. Provisioning IaaS with Terraform">Chapter 2</a>, <span class="emphasis"><em>Provisioning IaaS with Terraform</em></span> recipes)</li><li class="listitem" style="list-style-type: disc">An Internet connection</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec110"/>How to do it…</h2></div></div></div><p>Let's start <a id="id274" class="indexterm"/>with a simple CoreOS machine on AWS. We know the AMI ID, we want a single <code class="literal">t2.micro</code> host. Let's put that <a id="id275" class="indexterm"/>information in the <code class="literal">variables.tf</code> file:</p><div class="informalexample"><pre class="programlisting">variable "aws_coreos_ami" {
+  default = "ami-85097ff6"
+}
+
+variable "cluster_size" {
+  default     = "1"
+  description = "Number of nodes in the cluster"
+}
+
+variable "aws_instance_type" {
+  default     = "t2.micro"
+  description = "Instance type"
+}</pre></div><p>The simplest <code class="literal">aws_instance</code> resource we can make is the following in <code class="literal">instances.tf</code>:</p><div class="informalexample"><pre class="programlisting">resource "aws_instance" "coreos" {
+  count                       = "${var.cluster_size}"
+  ami                         = "${var.aws_coreos_ami}"
+  instance_type               = "${var.aws_instance_type}"
+  key_name                    = "${aws_key_pair.admin_key.key_name}"
+  associate_public_ip_address = true
+
+  tags {
+    Name = "coreos_${count.index+1}"
+  }
+}</pre></div><div class="section" title="Planning"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec47"/>Planning</h3></div></div></div><p>Until <a id="id276" class="indexterm"/>now, we've used <code class="literal">terraform apply</code> for immediate action. There's another command: <code class="literal">terraform plan</code>. It does what it says. It plans for changes, but doesn't apply them:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform plan</strong></span>
+<span class="strong"><strong>Refreshing Terraform state in-memory prior to plan...</strong></span>
+<span class="strong"><strong>The refreshed state will be used to calculate this plan, but</strong></span>
+<span class="strong"><strong>will not be persisted to local or remote state storage.</strong></span>
+<span class="strong"><strong>The Terraform execution plan has been generated and is shown below.</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+
+<span class="strong"><strong>+ aws_instance.coreos</strong></span>
+<span class="strong"><strong>    ami:                         "ami-85097ff6"</strong></span>
+<span class="strong"><strong>    [...]</strong></span>
+
+<span class="strong"><strong>+ aws_key_pair.admin_key</strong></span>
+<span class="strong"><strong>    [...]</strong></span>
+
+<span class="strong"><strong>Plan: 2 to add, 0 to change, 0 to destroy.</strong></span>
+</pre></div><p>So, by planning before applying, we can know what's about to happen to our infrastructure. We're happy about an instance with the right AMI being created, so let's <code class="literal">terraform apply</code>.</p><p>Now the infrastructure is created, if you run a plan again, it will say nothing should be modified:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform plan</strong></span>
+<span class="strong"><strong>Refreshing Terraform state in-memory prior to plan...</strong></span>
+<span class="strong"><strong>The refreshed state will be used to calculate this plan, but</strong></span>
+<span class="strong"><strong>will not be persisted to local or remote state storage.</strong></span>
+
+<span class="strong"><strong>aws_key_pair.admin_key: Refreshing state... (ID: admin_key)</strong></span>
+<span class="strong"><strong>aws_instance.coreos: Refreshing state... (ID: i-0f9106905e74a29f7)</strong></span>
+
+<span class="strong"><strong>No changes. Infrastructure is up-to-date. This means that Terraform</strong></span>
+<span class="strong"><strong>could not detect any differences between your configuration and</strong></span>
+<span class="strong"><strong>the real physical resources that exist. As a result, Terraform</strong></span>
+<span class="strong"><strong>doesn't need to do anything.</strong></span>
+</pre></div><p>A normally operating infrastructure should always be in a state where a <code class="literal">terraform plan</code> doesn't want to change anything.</p><p>Now let's say we need our infrastructure to evolve, and create an S3 bucket. That would look like this in a file named <code class="literal">s3.tf</code>:</p><div class="informalexample"><pre class="programlisting">resource "aws_s3_bucket" "bucket" {
+  bucket = "iacbook"
+
+  tags {
+    Name = "IAC Book Bucket"
+  }
+}</pre></div><p>We're not <a id="id277" class="indexterm"/>sure about what's about to happen, so let's plan with Terraform, so it's telling us exactly what it's intending to do:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform plan</strong></span>
+<span class="strong"><strong>Refreshing Terraform state in-memory prior to plan...</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+
+<span class="strong"><strong>aws_key_pair.admin_key: Refreshing state... (ID: admin_key)</strong></span>
+<span class="strong"><strong>aws_instance.coreos: Refreshing state... (ID: i-0f9106905e74a29f7)</strong></span>
+
+<span class="strong"><strong>[...]</strong></span>
+
+<span class="strong"><strong>+ aws_s3_bucket.bucket</strong></span>
+<span class="strong"><strong>    bucket:              "iacbook"</strong></span>
+<span class="strong"><strong>    tags.Name:           "IAC Book Bucket"</strong></span>
+<span class="strong"><strong>    [...]</strong></span>
+
+<span class="strong"><strong>Plan: 1 to add, 0 to change, 0 to destroy.</strong></span>
+</pre></div><p>The plan looks good—it seems to want to create an S3 bucket named the way we want! Let's <code class="literal">terraform apply</code> this and move on.</p></div><div class="section" title="Quickly simulating changes"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec48"/>Quickly simulating changes</h3></div></div></div><p>We now <a id="id278" class="indexterm"/>wonder what would happen if we were to change the number of instances. That's the <code class="literal">cluster_size</code> variable, currently set to <code class="literal">1</code>. Instead of messing with the code, we can test the impact of changing that value directly from the command line:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform plan -var 'cluster_size="2"'</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>+ aws_instance.coreos.1</strong></span>
+<span class="strong"><strong>    ami:                         "ami-85097ff6"</strong></span>
+<span class="strong"><strong>    instance_type:               "t2.micro"</strong></span>
+<span class="strong"><strong>    tags.Name:                   "coreos_2"</strong></span>
+<span class="strong"><strong>    [...]</strong></span>
+<span class="strong"><strong>Plan: 1 to add, 0 to change, 0 to destroy.</strong></span>
+</pre></div><p>Good news! It looks like increasing the <code class="literal">cluster_size</code> value has the intended effect: creating a new instance.</p><p>Now, we wonder legitimately what would be the effect of changing the instance type, from <code class="literal">t2.micro</code> to <code class="literal">t2.medium</code>:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform plan -var aws_instance_type="t2.medium"</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>-/+ aws_instance.coreos</strong></span>
+<span class="strong"><strong>    [...]</strong></span>
+<span class="strong"><strong>    instance_type:               "t2.micro" =&gt; "t2.medium" (forces new resource)</strong></span>
+
+<span class="strong"><strong>Plan: 1 to add, 0 to change, 1 to destroy.</strong></span>
+</pre></div><p>Ouch! Changing the instance type seems to be a destructive action. Let's work on that later, and add the change to a new file named <code class="literal">plan.tfvars</code>:</p><div class="informalexample"><pre class="programlisting">aws_instance_type="t2.medium"</pre></div><p>We <a id="id279" class="indexterm"/>know we'd like to propose to change the number of instances to <code class="literal">2</code>, so let's add that to the same file:</p><div class="informalexample"><pre class="programlisting">aws_instance_type="t2.medium"
+cluster_size="2"</pre></div><p>We can now test against this file containing all our changes, using the <code class="literal">-var-file</code> option:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform plan -var-file=plan.tfvars</strong></span>
+<span class="strong"><strong>-/+ aws_instance.coreos.0</strong></span>
+<span class="strong"><strong>    instance_type:               "t2.micro" =&gt; "t2.medium" (forces new resource)</strong></span>
+<span class="strong"><strong>    tags.Name:                   "coreos_1" =&gt; "coreos_1"</strong></span>
+<span class="strong"><strong>    [...]</strong></span>
+
+<span class="strong"><strong>+ aws_instance.coreos.1</strong></span>
+<span class="strong"><strong>    instance_type:               "t2.medium"</strong></span>
+<span class="strong"><strong>    tags.Name:                   "coreos_2"</strong></span>
+<span class="strong"><strong>    [...]</strong></span>
+<span class="strong"><strong>Plan: 2 to add, 0 to change, 1 to destroy.</strong></span>
+</pre></div><p>Good! You learn that our first instance will be destroyed and recreated to move from <code class="literal">t2.micro</code> to <code class="literal">t2.medium</code>, and that a second instance will be created with the same values. Let's not apply this, as added fees will be incurred.</p></div><div class="section" title="Targeting for a specific change"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec49"/>Targeting for a specific change</h3></div></div></div><p>Our <a id="id280" class="indexterm"/>colleague asks us if we're sure our proposed changes have no impact specifically on the S3 bucket. Terraform allows us to get an answer to that question very specifically by targeting the resource directly in the planning phase:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform plan -var-file=plan.tfvars -target="aws_s3_bucket.bucket"</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>aws_s3_bucket.bucket: Refreshing state... (ID: iacbook)</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>No changes. Infrastructure is up-to-date.</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+</pre></div><p>Our colleague is happy, and we're now sure that this change will do exactly what's intended. We can submit this change for review.</p></div></div></div>
+<div class="section" title="Teamwork &#x2013; sharing Terraform infrastructure state"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec46"/>Teamwork – sharing Terraform infrastructure state</h1></div></div></div><p>You <a id="id281" class="indexterm"/>probably work with a team, and now you're using Terraform to manage your infrastructure, you'll face an issue: how does your team work together on infrastructure-as-code? There're many answers to that, and one crucial question to address is: how is transmitted or synchronized the Terraform state?</p><p>We'll see here how we can share the state using Git (a version control system where developers can store code), AWS S3 (an Amazon Web Services storage system using HTTP) or Consul (a tool for service discovery and a key-value store), chosen among many other solutions.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec111"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Terraform installation</li><li class="listitem" style="list-style-type: disc">An AWS account with an SSH key configured in Terraform (refer to the <a class="link" href="ch02.html" title="Chapter 2. Provisioning IaaS with Terraform">Chapter 2</a>, <span class="emphasis"><em>Provisioning IaaS with Terraform</em></span> recipes)</li><li class="listitem" style="list-style-type: disc">A working Docker installation for the Consul simulation solution (optional)</li><li class="listitem" style="list-style-type: disc">An Internet connection</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec112"/>How to do it…</h2></div></div></div><p>Let's start by having an initial infrastructure running (a single virtual machine for this example). Here's an <code class="literal">aws_instance</code> resource in <code class="literal">instances.tf</code> for a CoreOS stable release taken from previous recipes:</p><div class="informalexample"><pre class="programlisting">resource "aws_instance" "coreos" {
+  count                       = "${var.cluster_size}"
+  ami                         = "${var.aws_coreos_ami}"
+  instance_type               = "${var.aws_instance_type}"
+  key_name                    = "${aws_key_pair.admin_key.key_name}"
+  associate_public_ip_address = true
+
+  tags {
+    Name = "coreos_${count.index+1}"
+  }
+}</pre></div><p>Here <a id="id282" class="indexterm"/>are example variables in <code class="literal">variables.tf</code>; feel free to adapt them:</p><div class="informalexample"><pre class="programlisting">variable "aws_coreos_ami" {
+  default = "ami-85097ff6"
+}
+
+variable "cluster_size" {
+  default     = "1"
+  description = "Number of nodes in the cluster"
+}
+
+variable "aws_instance_type" {
+  default     = "t2.micro"
+  description = "Instance type"
+}</pre></div><p>Terraform stores its state by default in a file named <code class="literal">terraform.tfstate</code>, with a backup file named <code class="literal">terraform.tfstate.backup</code>:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ ls terraform.tfstate*</strong></span>
+<span class="strong"><strong>terraform.tfstate        terraform.tfstate.backup</strong></span>
+</pre></div><div class="section" title="Sharing with Git"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec50"/>Sharing with Git</h3></div></div></div><p>The <a id="id283" class="indexterm"/>simplest of all options is to share the state file using Git: you're already supposed to version your infrastructure code! Go and create an account <a id="id284" class="indexterm"/>somewhere. GitHub (<a class="ulink" href="https://github.com">https://github.com</a>) doesn't have free private repositories, but GitLab (<a class="ulink" href="https://gitlab.com">https://gitlab.com</a>) or BitBucket (<a class="ulink" href="https://bitbucket.org">https://bitbucket.org</a>) do. Follow the instructions to have your Git repository locally working.</p><p>Now, add the <code class="literal">tfstate</code> files:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git add *.tfstate*</strong></span>
+</pre></div><p>Commit the files:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git commit -m "initial state creating the infrastructure"</strong></span>
+<span class="strong"><strong>[master (root-commit) 6f7e2ba] initial state creating the infrastructure</strong></span>
+<span class="strong"><strong> 2 files changed, 193 insertions(+)</strong></span>
+<span class="strong"><strong> create mode 100644 terraform.tfstate</strong></span>
+<span class="strong"><strong> create mode 100644 terraform.tfstate.backup</strong></span>
+</pre></div><p>Push the commit:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git push</strong></span>
+</pre></div><p>Now <a id="id285" class="indexterm"/>your coworkers absolutely need to pull the changes before applying any action, or calamity might follow soon:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>coworker@host $ git pull</strong></span>
+</pre></div></div><div class="section" title="Sharing remotely with S3"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec51"/>Sharing remotely with S3</h3></div></div></div><p>Sharing <a id="id286" class="indexterm"/>the state file through Git works, to some extent. You'll end up someday in a situation where someone forgets to push or pull. Merging conflicts in a state file is really not something nice to do.</p><p>One solution to stop thinking about it is using S3 to share the state file and use the remote state feature of Terraform.</p><p>Start by creating an S3 bucket just for that, in <code class="literal">s3.tf</code>, with versioning enabled (so you can roll back to a previous version of the infrastructure):</p><div class="informalexample"><pre class="programlisting">resource "aws_s3_bucket" "tfstate" {
+  bucket = "iacbook-tfstate"
+
+  versioning {
+    enabled = true
+  }
+
+  tags {
+    Name = "IAC Book TFState Bucket"
+  }
+}</pre></div><p>Let's <code class="literal">terraform apply</code> this S3 bucket, and move on to the remote configuration with our information:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform remote config -backend=s3 -backend-config="bucket=iacbook-tfstate" -backend-config="key=terraform.tfstate"</strong></span>
+<span class="strong"><strong>Remote state management enabled</strong></span>
+<span class="strong"><strong>Remote state configured and pulled.   </strong></span>
+</pre></div><p>You can now see the terraform state file in the S3 browser:</p><div class="mediaobject"><img src="graphics/B05671_03_02.jpg" alt="Sharing remotely with S3"/></div><p>Now <a id="id287" class="indexterm"/>make any change to the infrastructure, such as adding a new S3 bucket, to see the file change in action:</p><div class="informalexample"><pre class="programlisting">resource "aws_s3_bucket" "bucket" {
+  bucket = "iacbook-bucket"
+
+  tags {
+    Name = "IAC Book Bucket"
+  }
+}</pre></div><p>After a <code class="literal">terraform apply</code>, simply push the changes:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform remote push</strong></span>
+<span class="strong"><strong>State successfully pushed!</strong></span>
+</pre></div><p>See the history in the S3 browser:</p><div class="mediaobject"><img src="graphics/B05671_03_03.jpg" alt="Sharing remotely with S3"/></div><p>The coworker has to configure their environment and pull the information:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>coworker@host $ terraform remote config -backend=s3 -backend-config="bucket=iacbook-tfstate" -backend-config="key=terraform.tfstate"</strong></span>
+<span class="strong"><strong>Initialized blank state with remote state enabled!</strong></span>
+<span class="strong"><strong>Remote state configured and pulled.</strong></span>
+</pre></div><p>A local <a id="id288" class="indexterm"/>copy is now residing in the <code class="literal">.terraform</code> folder:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ head .terraform/terraform.tfstate</strong></span>
+</pre></div></div><div class="section" title="Sharing remotely with Consul"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec52"/>Sharing remotely with Consul</h3></div></div></div><p>A very <a id="id289" class="indexterm"/>nice way to share the state file is by using Consul, a powerful key/value storage from Hashicorp (<a class="ulink" href="http://consul.io/)">http://consul.io/)</a>. Using Consul to store the Terraform states makes it easier to work with a team, as there's only a single replicated state. No risk of using an old state file if we forgot to synchronize our git repository.</p><p>Configuring <a id="id290" class="indexterm"/>a proper Consul in cluster for production is out of the scope of this book, but if you don't have a Consul cluster at hand to try this out, here's a way to quickly have one, using Docker and a Consul image:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ docker run -it --rm -p 8400:8400 -p 8500:8500 -p 8600:53/udp -h node1 progrium/consul -server -bootstrap</strong></span>
+</pre></div><p>Now let's configure our Terraform remote for Consul, and name it <code class="literal">terraform/my_customer</code>, so we can manage multiple customers simultaneously:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform remote config -backend=consul -backend-config="path=terraform/my_customer"</strong></span>
+<span class="strong"><strong>Remote state management enabled</strong></span>
+<span class="strong"><strong>Remote state configured and pulled.</strong></span>
+</pre></div><p>Job done! Your coworkers can now push and pull from the Consul source! In a production Consul cluster, it means replicated and synchronized states on each node, with added privacy.</p></div><div class="section" title="Other state sharing options"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec53"/>Other state sharing options</h3></div></div></div><p>There're <a id="id291" class="indexterm"/>many other ways to share the state, such as on Azure, using OpenStack Swift, any kind of HTTP server supporting REST, CoreOS's own etcd key-value store, Google Cloud storage, or Atlas, the commercial solution by Hashicorp.</p></div></div></div>
+<div class="section" title="Maintaining a clean and standardized Terraform code"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec47"/>Maintaining a clean and standardized Terraform code</h1></div></div></div><p>Everyone <a id="id292" class="indexterm"/>has coding styles, but enforcing a standardized and commonly readable style is the key for a smooth collaborative team work. That's why Terraform has a command to ensure both format and style are all right.</p><p>I encourage <a id="id293" class="indexterm"/>readers to use it extensively, and even integrate it in <span class="strong"><strong>Continuous Integration</strong></span> (<span class="strong"><strong>CI</strong></span>) systems and in Makefiles.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec113"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Terraform installation</li><li class="listitem" style="list-style-type: disc">An Internet connection</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec114"/>How to do it…</h2></div></div></div><p>We'll intentionally write a simple Terraform code with non-standard style and with an error (a missing variable). This will help us manipulate the various tools Terraform offers to ensure the most consistent and homogenous code, so we can achieve more quickly a better quality and a higher level of standardization of our code.</p><p>Let's write a provider for AWS like this in <code class="literal">provider.tf</code> (deliberately on one line):</p><div class="informalexample"><pre class="programlisting">provider "aws" { region = "${var.aws_region}" }</pre></div><div class="section" title="Syntax validation"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec54"/>Syntax validation</h3></div></div></div><p>Try to <a id="id294" class="indexterm"/>validate that file, and it will notify us that we're missing a variable:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform validate</strong></span>
+<span class="strong"><strong>Error validating: 1 error(s) occurred:</strong></span>
+
+<span class="strong"><strong>* provider config 'aws': unknown variable referenced: 'aws_region'. define it with 'variable' blocks</strong></span>
+</pre></div><p>The validation fails, and the return code is <code class="literal">1</code>:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ echo $?</strong></span>
+<span class="strong"><strong>1</strong></span>
+</pre></div><p>Let's add <a id="id295" class="indexterm"/>this variable to a <code class="literal">variables.tf</code> file:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>variable "aws_region" { default = "eu-west-1" }</strong></span>
+</pre></div><p>Hooray! A <code class="literal">terraform validate</code> is now happy:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform validate</strong></span>
+<span class="strong"><strong>$ echo $?</strong></span>
+<span class="strong"><strong>0</strong></span>
+</pre></div></div><div class="section" title="Style validation"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec55"/>Style validation</h3></div></div></div><p>This <a id="id296" class="indexterm"/>thing is, we solved the obvious problem (a missing variable), but what about style? The preceding style perfectly works, but style might not be canonical.</p><p>Let's use the <code class="literal">fmt</code> option to check for styling issues, displaying the <code class="literal">diff</code> onscreen, but not writing the files automatically:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform fmt -write=false -diff=true</strong></span>
+<span class="strong"><strong>provider.tf</strong></span>
+<span class="strong"><strong>diff a/provider.tf b/provider.tf</strong></span>
+<span class="strong"><strong>--- /var/folders/zn/bx_20cp90bq5_fqqmlvx3tq40000gn/T/598506546  2016-09-10 22:40:35.000000000 +0200</strong></span>
+<span class="strong"><strong>+++ /var/folders/zn/bx_20cp90bq5_fqqmlvx3tq40000gn/T/407676393  2016-09-10 22:40:35.000000000 +0200</strong></span>
+<span class="strong"><strong>@@ -1 +1,3 @@</strong></span>
+<span class="strong"><strong>-provider "aws" { region = "${var.aws_region}" }</strong></span>
+<span class="strong"><strong>+provider "aws" {</strong></span>
+<span class="strong"><strong>+  region = "${var.aws_region}"</strong></span>
+<span class="strong"><strong>+}</strong></span>
+<span class="strong"><strong>variables.tf</strong></span>
+<span class="strong"><strong>diff a/variables.tf b/variables.tf</strong></span>
+<span class="strong"><strong>--- /var/folders/zn/bx_20cp90bq5_fqqmlvx3tq40000gn/T/743564340  2016-09-10 22:40:35.000000000 +0200</strong></span>
+<span class="strong"><strong>+++ /var/folders/zn/bx_20cp90bq5_fqqmlvx3tq40000gn/T/095288323  2016-09-10 22:40:35.000000000 +0200</strong></span>
+<span class="strong"><strong>@@ -1 +1,3 @@</strong></span>
+<span class="strong"><strong>-variable "aws_region" { default = "eu-west-1" }</strong></span>
+<span class="strong"><strong>+variable "aws_region" {</strong></span>
+<span class="strong"><strong>+  default = "eu-west-1"</strong></span>
+<span class="strong"><strong>+}</strong></span>
+</pre></div><p>We see our style was quite far away from the guidelines. Let's fix this and automatically format our files correctly:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform fmt</strong></span>
+<span class="strong"><strong>provider.tf</strong></span>
+<span class="strong"><strong>variables.tf</strong></span>
+</pre></div><p>Our two files are now correctly formatted!</p><p>I highly <a id="id297" class="indexterm"/>recommend putting those two commands in your CI tests (you are running infrastructure code tests in CI, aren't you?), and even before reaching the CI, it's even better if it's in the project's <code class="literal">Makefile</code>.</p><p>Here's a simple <code class="literal">Makefile</code> example:</p><div class="informalexample"><pre class="programlisting">.DEFAULT_GOAL := all
+
+all:
+  terraform validate
+  terraform fmt</pre></div><p>Now you can just type <code class="literal">make</code> in the Terraform directory and you're sure your code both validates and is coherently styled.</p></div></div></div>
+<div class="section" title="One Makefile to rule them all"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec48"/>One Makefile to rule them all</h1></div></div></div><p>Some <a id="id298" class="indexterm"/>languages have environment or version managers such as RVM for Ruby, NVM for Node, or even Rackspace's DVM for Docker.</p><p>It's highly recommended to lock the Terraform version, so everyone in the team uses the same version, and updates can be painlessly handled. To do that, I suggest using a Terraform <a id="id299" class="indexterm"/>container, so we'll use here the one I use myself: <code class="literal">sjourdan/terraform:&lt;version&gt;</code> (from <a class="ulink" href="https://github.com/sjourdan/terraform-docker">https://github.com/sjourdan/terraform-docker</a>). But I understand replacing the simple <code class="literal">terraform</code> command by something such as <code class="literal">docker run -it --rm -v `pwd`:/data sjourdan/terraform:0.7.3</code> can feel not so appealing. That's why we can use a common <code class="literal">Makefile</code> for each project using Terraform.</p><p>Using a common entry point for manipulating the infrastructure code helps a lot of sharing practices, enforcing policies, and integrating third-party services such as CI systems.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec115"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Terraform installation</li><li class="listitem" style="list-style-type: disc">An AWS account with an SSH key configured in Terraform (refer to the <a class="link" href="ch02.html" title="Chapter 2. Provisioning IaaS with Terraform">Chapter 2</a>, <span class="emphasis"><em>Provisioning IaaS with Terraform</em></span> recipes)</li><li class="listitem" style="list-style-type: disc">An Internet connection</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec116"/>How to do it…</h2></div></div></div><p>Let's begin <a id="id300" class="indexterm"/>by setting the Terraform version we want to use in a Makefile so it will be easy to manipulate for updates in the future:</p><div class="informalexample"><pre class="programlisting">TERRAFORM_VERSION = 0.7.3</pre></div><p>Let's now create a <code class="literal">TERRAFORM_BIN</code> variable that will include the full Docker command, plus share our local folder:</p><div class="informalexample"><pre class="programlisting">TERRAFORM_BIN = docker run -it --rm -v "$(PWD)":/data sjourdan/terraform:$(TERRAFORM_VERSION)</pre></div><p>I like auto-documenting my Makefile, and I propose a popular technique: <code class="literal">make</code> by default calls <code class="literal">make help</code>, which in turn parses the <code class="literal">Makefile</code> for comments, and displays them. That way, I can choose what to output by simply adding a comment. Here's how it works:</p><div class="informalexample"><pre class="programlisting">.DEFAULT_GOAL := help
+
+help:
+  @grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m   %s\n", $$1, $$2}'</pre></div><p>Now simply use this feature to create an entry for the validation and formatting from the previous recipe:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>validate: terraform-fmt terraform-validate  ## Validate syntax and format</strong></span>
+<span class="strong"><strong>terraform-fmt:</strong></span>
+<span class="strong"><strong>  $(TERRAFORM_BIN) fmt -list</strong></span>
+<span class="strong"><strong>terraform-validate:</strong></span>
+<span class="strong"><strong>  $(TERRAFORM_BIN) validate</strong></span>
+</pre></div><p>If you simply type <code class="literal">make</code>, you'll get an automatic help:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ make</strong></span>
+<span class="strong"><strong>validate                       Validate syntax and format</strong></span>
+</pre></div><p>Now, a simple <code class="literal">make validate</code> will both validate the syntax and format the code.</p><p>It would be great to have the <code class="literal">plan</code> and <code class="literal">apply</code> commands as well, and if you followed the recipe on environment management with Terraform, that would be awesome if it worked right from the <code class="literal">Makefile</code>, we'd save a lot of time.</p><p>Start by creating the <code class="literal">Makefile</code> main "help" entries:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>plan: terraform-validate terraform-plan ## Plan changes</strong></span>
+<span class="strong"><strong>apply: terraform-validate terraform-apply ## Apply Changes</strong></span>
+</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note20"/>Note</h3><p>We added the validation step at each step, so we're always absolutely sure it passes full validation (and you can add your own validation steps).</p></div></div><p>Let's check <a id="id301" class="indexterm"/>for an environment variable named <code class="literal">env</code>, passed at <code class="literal">make</code> execution (such as <code class="literal">make plan env=staging</code>), and returns an error if not set:</p><div class="informalexample"><pre class="programlisting">ifndef env
+getenv=$(error var:"env=" is not set)
+else
+getenv=$(env)
+endif</pre></div><p>Now we can write what <code class="literal">terraform-plan</code> and <code class="literal">terraform-apply</code> are exactly running, with isolated Terraform states and environments:</p><div class="informalexample"><pre class="programlisting">terraform-plan:
+  $(TERRAFORM_BIN) plan -state=$(call getenv).tfstate -var environment=$(call getenv)
+
+terraform-apply:
+  $(TERRAFORM_BIN) apply -state=$(call getenv).tfstate -var environment=$(call getenv)</pre></div><p>By the way, you can add support for environments to our previous <code class="literal">terraform-validate</code> example:</p><div class="informalexample"><pre class="programlisting">terraform-validate:
+  $(TERRAFORM_BIN) validate -var environment=$(call getenv)</pre></div><p>Add as many features as you want to your project's <code class="literal">Makefile</code>; you'll soon realize this simple tool helps so much.</p><p>For example, I always add a <code class="literal">make destroy</code> command, so I can easily destroy a test infrastructure (be careful though!):</p><div class="informalexample"><pre class="programlisting">destroy: terraform-destroy  ## Destroy (careful!)
+terraform-destroy:
+  $(TERRAFORM_BIN) destroy -state=$(call getenv).tfstate -var environment=$(call getenv)</pre></div><p>Our Makefile now looks like this:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ make</strong></span>
+<span class="strong"><strong>apply                          Apply Changes</strong></span>
+<span class="strong"><strong>destroy                        Destroy (careful!)</strong></span>
+<span class="strong"><strong>plan                           Plan changes</strong></span>
+<span class="strong"><strong>validate                       Validate syntax and format</strong></span>
+</pre></div><p>Also, it <a id="id302" class="indexterm"/>can be used like this:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ make plan env=staging</strong></span>
+<span class="strong"><strong>$ make apply env=staging</strong></span>
+</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note21"/>Note</h3><p>Add <a id="id303" class="indexterm"/>absolutely <a id="id304" class="indexterm"/>anything <a id="id305" class="indexterm"/>that might make your lives easier, such as <a id="id306" class="indexterm"/>releases, tests, and so on.</p></div></div></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec117"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The <a id="id307" class="indexterm"/>auto documented Makefile: <a class="ulink" href="http://marmelab.com/blog/2016/02/29/auto-documented-makefile.html">http://marmelab.com/blog/2016/02/29/auto-documented-makefile.html</a></li><li class="listitem" style="list-style-type: disc">Rbenv: <a class="ulink" href="https://github.com/rbenv/rbenv">https://github.com/rbenv/rbenv</a></li><li class="listitem" style="list-style-type: disc">RVM: <a class="ulink" href="https://github.com/rvm/rvm">https://github.com/rvm/rvm</a></li><li class="listitem" style="list-style-type: disc">DVM: <a class="ulink" href="https://github.com/getcarina/dvm">https://github.com/getcarina/dvm</a></li><li class="listitem" style="list-style-type: disc">NVM: <a class="ulink" href="https://github.com/creationix/nvm">https://github.com/creationix/nvm</a></li></ul></div></div></div>
+<div class="section" title="Team workflow example"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec49"/>Team workflow example</h1></div></div></div><p>Working <a id="id308" class="indexterm"/>with infrastructure code is very similar to working with software code. Countless books and methods exist on the subject and approaches are usually very opinionated. </p><p>A <a id="id309" class="indexterm"/>simple workflow I propose <a id="id310" class="indexterm"/>to use here for our infrastructure-as-code work is based on what's called the <span class="strong"><strong>GitHub Flow</strong></span> (<a class="ulink" href="https://guides.github.com/introduction/flow/">https://guides.github.com/introduction/flow/</a>):</p><div class="mediaobject"><img src="graphics/B05671_03_13.jpg" alt="Team workflow example"/></div><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec118"/>Getting ready</h2></div></div></div><p>To step <a id="id311" class="indexterm"/>through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">An account on some Git hosting (self-hosted or commercial)</li><li class="listitem" style="list-style-type: disc">A working Terraform installation</li><li class="listitem" style="list-style-type: disc">An AWS account with an SSH key configured in Terraform (refer to the <a class="link" href="ch02.html" title="Chapter 2. Provisioning IaaS with Terraform">Chapter 2</a>, <span class="emphasis"><em>Provisioning IaaS with Terraform</em></span> recipes)</li><li class="listitem" style="list-style-type: disc">An Internet connection</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec119"/>How to do it…</h2></div></div></div><p>Start by creating a new repository for use with your team. Use any service that works for you: GitLab, GitHub, BitBucket, and others. This example uses GitHub.</p><div class="section" title="A simple Git repository"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec56"/>A simple Git repository</h3></div></div></div><p>Create <a id="id312" class="indexterm"/>a new repository on GitHub:</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note22"/>Note</h3><p>We might be storing secrets in that repository, such as SSH private keys or passwords. It's probably a safer option to create a private Git repository for now.</p></div></div><div class="mediaobject"><img src="graphics/B05671_03_04.jpg" alt="A simple Git repository"/></div><p>Now <a id="id313" class="indexterm"/>import this new empty repository on your workstation, in a dedicated folder:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git clone &lt;your_git_repostory_address&gt;</strong></span>
+<span class="strong"><strong>Cloning into 'my_infrastructure_code'...</strong></span>
+<span class="strong"><strong>remote: Counting objects: 3, done.</strong></span>
+<span class="strong"><strong>remote: Compressing objects: 100% (2/2), done.</strong></span>
+<span class="strong"><strong>remote: Total 3 (delta 0), reused 0 (delta 0), pack-reused 0</strong></span>
+<span class="strong"><strong>Receiving objects: 100% (3/3), done.</strong></span>
+<span class="strong"><strong>Checking connectivity... done.</strong></span>
+</pre></div></div><div class="section" title="Initial infrastructure code"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec57"/>Initial infrastructure code</h3></div></div></div><p>Create <a id="id314" class="indexterm"/>a new Git branch to work on an initial infrastructure:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git checkout -b new_infrastructure</strong></span>
+<span class="strong"><strong>Switched to a new branch 'new_infrastructure'</strong></span>
+</pre></div><p>Add some Terraform code from the previous recipes, such as a single CoreOS instance. For the record, here's the <code class="literal">variables.tf</code> file:</p><div class="informalexample"><pre class="programlisting">variable "aws_region" {
+  default = "eu-west-1"
+}
+
+variable "aws_ssh_admin_key_file" {
+  default = "keys/aws_terraform"
+}
+
+variable "aws_coreos_ami" {
+  default = "ami-85097ff6"
+}
+
+variable "cluster_size" {
+  default     = "1"
+  description = "Number of nodes in the cluster"
+}
+
+variable "aws_instance_type" {
+  default     = "t2.micro"
+  description = "Instance type"
+}</pre></div><p>Here's a <a id="id315" class="indexterm"/>deliberately badly formatted <code class="literal">provider.tf</code>:</p><div class="informalexample"><pre class="programlisting">provider "aws" { region = "${var.aws_region}" }</pre></div><p>Also, here's a CoreOS instance in <code class="literal">instances.tf</code>:</p><div class="informalexample"><pre class="programlisting">resource "aws_instance" "coreos" {
+  count                       = "${var.cluster_size}"
+  ami                         = "${var.aws_coreos_ami}"
+  instance_type               = "${var.aws_instance_type}"
+  key_name                    = "${aws_key_pair.admin_key.key_name}"
+  associate_public_ip_address = true
+
+  tags {
+    Name = "coreos_${count.index+1}"
+  }
+}</pre></div></div><div class="section" title="Terraform code validation"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec58"/>Terraform code validation</h3></div></div></div><p>Let's be <a id="id316" class="indexterm"/>sure our code validates:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform validate</strong></span>
+</pre></div><p>Thankfully, it does!</p><p>Does this code plan to do what we want it to do? Have a look:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform plan</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>+ aws_instance.coreos</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>+ aws_key_pair.admin_key</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>Plan: 2 to add, 0 to change, 0 to destroy.</strong></span>
+</pre></div><p>This <a id="id317" class="indexterm"/>looks exactly like our objective. Let's continue.</p></div><div class="section" title="Infrastructure code commit"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec59"/>Infrastructure code commit</h3></div></div></div><p>What are <a id="id318" class="indexterm"/>the new files on this branch that aren't on master? Let's find out:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git status</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>        instances.tf</strong></span>
+<span class="strong"><strong>        keys.tf</strong></span>
+<span class="strong"><strong>        keys/</strong></span>
+<span class="strong"><strong>        provider.tf</strong></span>
+<span class="strong"><strong>        variables.tf</strong></span>
+</pre></div><p>Good, those are the files we just created. Let's add them to a <code class="literal">commit</code>:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git add .</strong></span>
+<span class="strong"><strong>$ git commit -m "an initial infrastructure"</strong></span>
+<span class="strong"><strong>[new_infrastructure 2415ad4] an initial infrastructure</strong></span>
+<span class="strong"><strong> 6 files changed, 65 insertions(+)</strong></span>
+<span class="strong"><strong> create mode 100644 instances.tf</strong></span>
+<span class="strong"><strong> create mode 100644 keys.tf</strong></span>
+<span class="strong"><strong> create mode 100644 keys/aws_terraform</strong></span>
+<span class="strong"><strong> create mode 100644 keys/aws_terraform.pub</strong></span>
+<span class="strong"><strong> create mode 100644 provider.tf</strong></span>
+<span class="strong"><strong> create mode 100644 variables.tf</strong></span>
+</pre></div><p>Now let's send the branch upstream so that our coworkers can see our work that's still not yet in production:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git push --set-upstream origin new_infrastructure</strong></span>
+<span class="strong"><strong>Counting objects: 9, done.</strong></span>
+<span class="strong"><strong>Delta compression using up to 4 threads.</strong></span>
+<span class="strong"><strong>Compressing objects: 100% (8/8), done.</strong></span>
+<span class="strong"><strong>Writing objects: 100% (9/9), 2.60 KiB | 0 bytes/s, done.</strong></span>
+<span class="strong"><strong>Total 9 (delta 0), reused 0 (delta 0)</strong></span>
+<span class="strong"><strong>To git@github.com:sjourdan /my_infrastructure_code.git</strong></span>
+<span class="strong"><strong> * [new branch]      new_infrastructure -&gt; new_infrastructure</strong></span>
+<span class="strong"><strong>Branch new_infrastructure set up to track remote branch new_infrastructure from origin.</strong></span>
+</pre></div></div><div class="section" title="Make a pull request"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec60"/>Make a pull request</h3></div></div></div><p>Navigate <a id="id319" class="indexterm"/>to your repository, and you'll see something similar to the following screenshot, showing an information about the new branch being just pushed. GitHub proposes to easily create a pull request. A pull request is a request to merge the content of one branch to another branch. In our case, we want to ask our coworkers to merge our <code class="literal">new_infrastructure</code> branch into the master branch, to create some discussion:</p><div class="mediaobject"><img src="graphics/B05671_03_05.jpg" alt="Make a pull request"/></div><p>When you open a pull request, GitHub automatically tries the requested merge (in our case, from our branch to master). Here, no conflicts are noted, so we can write a message explaining <a id="id320" class="indexterm"/>what our request is all about. A pull request is often composed of multiple commits, so a summary is more than welcome:</p><div class="mediaobject"><img src="graphics/B05671_03_06.jpg" alt="Make a pull request"/></div><p>Now <a id="id321" class="indexterm"/>everyone from your team have access to your work and can discuss it right from GitHub if necessary:</p><div class="mediaobject"><img src="graphics/B05671_03_07.jpg" alt="Make a pull request"/></div><p>A few minutes later, one of your coworkers reviews your code and sends you a remark:</p><div class="mediaobject"><img src="graphics/B05671_03_08.jpg" alt="Make a pull request"/></div><p>She might be right; let's find out with the Terraform formatter:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform fmt</strong></span>
+<span class="strong"><strong>provider.tf</strong></span>
+</pre></div><p>Looks <a id="id322" class="indexterm"/>like there was a formatting issue! Use <code class="literal">git diff</code> to see what's the difference:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git diff</strong></span>
+<span class="strong"><strong>diff --git a/provider.tf b/provider.tf</strong></span>
+<span class="strong"><strong>index 59cdf2a..b54eb94 100644</strong></span>
+<span class="strong"><strong>--- a/provider.tf</strong></span>
+<span class="strong"><strong>+++ b/provider.tf</strong></span>
+<span class="strong"><strong>@@ -1 +1,3 @@</strong></span>
+<span class="strong"><strong>-provider "aws" { region = "${var.aws_region}" }</strong></span>
+<span class="strong"><strong>+provider "aws" {</strong></span>
+<span class="strong"><strong>+  region = "${var.aws_region}"</strong></span>
+<span class="strong"><strong>+}</strong></span>
+</pre></div><p>We're happy with that; let's <code class="literal">add</code>, <code class="literal">commit</code>, and <code class="literal">push</code>. Pushing to our remote branch will automatically add our commit to the pull request as well:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git add provider.tf</strong></span>
+<span class="strong"><strong>$ git commit -m "fixed bad formatting"</strong></span>
+<span class="strong"><strong>[new_infrastructure b027825] fixed bad formatting</strong></span>
+<span class="strong"><strong> 1 file changed, 3 insertions(+), 1 deletion(-)</strong></span>
+<span class="strong"><strong>$ git push</strong></span>
+</pre></div><p>Our coworker can now see in real time that we took her remark into account, as GitHub automatically marks it as outdated:</p><div class="mediaobject"><img src="graphics/B05671_03_09.jpg" alt="Make a pull request"/></div><p>Now our <a id="id323" class="indexterm"/>coworker pulled the changes on her side, tried to plan the changes herself with Terraform, and announces she's happy with the results as well:</p><div class="mediaobject"><img src="graphics/B05671_03_10.jpg" alt="Make a pull request"/></div></div><div class="section" title="Apply the changes"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec61"/>Apply the changes</h3></div></div></div><p>So <a id="id324" class="indexterm"/>let's do that right now:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ terraform apply</strong></span>
+<span class="strong"><strong>aws_key_pair.admin_key: Creating...</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>aws_instance.coreos: Creating...[...]</strong></span>
+<span class="strong"><strong>Apply complete! Resources: 2 added, 0 changed, 0 destroyed.</strong></span>
+</pre></div><p>Is there anything new in our repository? Have a look:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git status</strong></span>
+<span class="strong"><strong>terraform.tfstate</strong></span>
+</pre></div><p>Sure, now we have to ship our infrastructure state to the pull request:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ git add terraform.tfstate</strong></span>
+<span class="strong"><strong>$ git commit -m "initial terraform state"</strong></span>
+<span class="strong"><strong>$ git push</strong></span>
+</pre></div><p>Our <a id="id325" class="indexterm"/>coworker sees that everything is all right, and she also checked the server is doing well. So, now she can merge our branch, close the pull request with a message, and then delete the now useless branch:</p><div class="mediaobject"><img src="graphics/B05671_03_11.jpg" alt="Apply the changes"/></div><div class="mediaobject"><img src="graphics/B05671_03_12.jpg" alt="Apply the changes"/></div><p>Our code and its fixes are now on master, along with the updated infrastructure state, all done in full collaboration with a coworker.</p><p>For any new feature, anything added to the infrastructure should follow the same pattern: create a branch, insert your changes, open a pull request, discuss the changes with the coworkers, apply the change, and merge to master. Master is now the reference again.</p></div></div></div>
+<div class="section" title="Managing GitHub with Terraform"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec50"/>Managing GitHub with Terraform</h1></div></div></div><p>There're <a id="id326" class="indexterm"/>many service providers to use with Terraform. GitHub is one of them, and we'll see how to manage members of an organization, various <a id="id327" class="indexterm"/>teams, and control repository access, right from our infrastructure code. That way, we have an automatic history log of who accesses what.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec120"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Terraform installation</li><li class="listitem" style="list-style-type: disc">A GitHub account (with an API token)</li><li class="listitem" style="list-style-type: disc">An Internet connection</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec121"/>How to do it…</h2></div></div></div><p>We want <a id="id328" class="indexterm"/>to manage a GitHub organization named <span class="strong"><strong>ACME</strong></span>. Here are the users and their groups:</p><div class="informaltable"><table border="1"><colgroup><col style="text-align: left"/><col style="text-align: left"/><col style="text-align: left"/><col style="text-align: left"/></colgroup><thead><tr><th style="text-align: left" valign="bottom">
+<p>GitHub username</p>
+</th><th style="text-align: left" valign="bottom">
+<p>GitHub team name</p>
+</th><th style="text-align: left" valign="bottom">
+<p>Membership level</p>
+</th><th style="text-align: left" valign="bottom">
+<p>Team privacy</p>
+</th></tr></thead><tbody><tr><td style="text-align: left" valign="top">
+<p>John</p>
+</td><td style="text-align: left" valign="top">
+<p>Documentation</p>
+</td><td style="text-align: left" valign="top">
+<p>member</p>
+</td><td style="text-align: left" valign="top">
+<p>closed</p>
+</td></tr><tr><td style="text-align: left" valign="top">
+<p>Jane</p>
+</td><td style="text-align: left" valign="top">
+<p>Engineering</p>
+</td><td style="text-align: left" valign="top">
+<p>admin</p>
+</td><td style="text-align: left" valign="top">
+<p>secret</p>
+</td></tr></tbody></table></div><p>Here's the <a id="id329" class="indexterm"/>policy we decided concerning the Git repository named <code class="literal">infrastructure-repository</code>:</p><div class="informaltable"><table border="1"><colgroup><col style="text-align: left"/><col style="text-align: left"/></colgroup><thead><tr><th style="text-align: left" valign="bottom">
+<p>GitHub team name</p>
+</th><th style="text-align: left" valign="bottom">
+<p>Repository permissions</p>
+</th></tr></thead><tbody><tr><td style="text-align: left" valign="top">
+<p>Documentation</p>
+</td><td style="text-align: left" valign="top">
+<p>pull</p>
+</td></tr><tr><td style="text-align: left" valign="top">
+<p>Engineering</p>
+</td><td style="text-align: left" valign="top">
+<p>admin</p>
+</td></tr></tbody></table></div><div class="section" title="Configuring GitHub"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec62"/>Configuring GitHub</h3></div></div></div><p>Let's start <a id="id330" class="indexterm"/>by creating a <code class="literal">github</code> provider, as we used an <code class="literal">aws</code> provider for AWS in the previous recipes. The documentation lists the requirements: an API token and an organization name:</p><div class="informalexample"><pre class="programlisting">provider "github" {
+  token        = "${var.github_token}"
+  organization = "${var.github_organization}"
+}</pre></div><p>Set the generic variables in a <code class="literal">variables.tf</code> file:</p><div class="informalexample"><pre class="programlisting">variable "github_token" {
+  default = "1a2b3c4d5"
+  description = "GitHub API Token"
+}
+
+variable "github_organization" {
+  default = "ACME Inc."
+  description = "GitHub Organization Name"
+}</pre></div><p>Don't forget <a id="id331" class="indexterm"/>to override those variables to fit your own in the <code class="literal">terraform.tfvars</code> file.</p></div><div class="section" title="Adding users to the GitHub organization"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec63"/>Adding users to the GitHub organization</h3></div></div></div><p>We want <a id="id332" class="indexterm"/>to add the username <code class="literal">john</code> as a member, and <code class="literal">jane</code> as an admin, in a file you can name <code class="literal">github.tf</code> (feel free to split managed GitHub features in many smaller files as your organization grows):</p><div class="informalexample"><pre class="programlisting">// john is a simple member of the organization
+resource "github_membership" "membership_for_john" {
+  username = "john"
+  role     = "member"
+}
+
+// jane is an administrator of the organization
+resource "github_membership" "membership_for_jane" {
+  username = "jane"
+  role     = "admin"
+}</pre></div><p>John and Jane are now part of the GitHub organization (they will receive invitations by e-mail).</p></div><div class="section" title="Adding GitHub teams"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec64"/>Adding GitHub teams</h3></div></div></div><p>Let's create <a id="id333" class="indexterm"/>our two teams, technical writers and engineering, with their respective privacy settings:</p><div class="informalexample"><pre class="programlisting">// An engineering team
+resource "github_team" "engineering" {
+  name        = "Engineering Team"
+  description = "Our awesome engineers"
+  privacy     = "secret"
+}
+
+// A documentation team
+resource "github_team" "documentation" {
+  name        = "Technical Writers Team"
+  description = "Our awesome technical writers"
+  privacy     = "closed"
+}</pre></div><p>Add our <a id="id334" class="indexterm"/>two members to their respective teams—Jane in engineering, John in documentation:</p><div class="informalexample"><pre class="programlisting">// Jane is a member of the engineering team
+resource "github_team_membership" "eng_membership_jane" {
+  team_id  = "${github_team.engineering.id}"
+  username = "jane"
+  role     = "member"
+}
+
+// John is a member of the documentation team
+resource "github_team_membership" "doc_membership_john" {
+  team_id  = "${github_team.documentation.id}"
+  username = "john"
+  role     = "member"
+}</pre></div></div><div class="section" title="Setting Git repository access rights"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec65"/>Setting Git repository access rights</h3></div></div></div><p>The <a id="id335" class="indexterm"/>policy we've set is that members of the engineering group are admins of the repository, while technical writers can only pull the code:</p><div class="informalexample"><pre class="programlisting">// technical writers can pull the repo
+resource "github_team_repository" "infrastructure_doc" {
+  team_id    = "${github_team.documentation.id}"
+  repository = "infrastructure-repository"
+  permission = "pull"
+}
+
+// engineers are admin on the repo
+resource "github_team_repository" "infrastructure_eng" {
+  team_id    = "${github_team.engineering.id}"
+  repository = "infrastructure-repository"
+  permission = "admin"
+}</pre></div><p>You've just set the essentials to manage your GitHub organization right from Terraform!</p></div></div></div>
+<div class="section" title="External monitoring integration with StatusCake"><div class="titlepage"><div><div><h1 class="title"><a id="ch03lvl1sec51"/>External monitoring integration with StatusCake</h1></div></div></div><p>External <a id="id336" class="indexterm"/>monitoring is helpful because it gives insights on how performant your infrastructure is, as seen from the outside, maybe from <a id="id337" class="indexterm"/>many places in the world. We can build our own availability monitoring systems, or we can use third-party services. StatusCake is a good example for us as they have a good API and a free service tier for us to try with Terraform. We'll monitor two things: host latency and HTTP availability.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec122"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Terraform installation</li><li class="listitem" style="list-style-type: disc">A <a id="id338" class="indexterm"/>StatusCake account (<a class="ulink" href="https://statuscake.com">https://statuscake.com</a>)</li><li class="listitem" style="list-style-type: disc">Optionally, an infrastructure managed by Terraform (refer to the previous recipes)</li><li class="listitem" style="list-style-type: disc">An Internet connection</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch03lvl2sec123"/>How to do it…</h2></div></div></div><p>Start by <a id="id339" class="indexterm"/>setting the new <code class="literal">statuscake</code> provider, as we did with AWS or GitHub, using a username and API key:</p><div class="informalexample"><pre class="programlisting">provider "statuscake" {
+  username = "${var.statuscake_username}"
+  apikey   = "${var.statuscake_apikey}"
+}</pre></div><p>Declare the variables in <code class="literal">variables.tf</code>:</p><div class="informalexample"><pre class="programlisting">variable "statuscake_username" {
+  default     = "changeme"
+  description = "Sets the StatusCake Username"
+}
+
+variable "statuscake_apikey" {
+  default     = "hackme"
+  description = "Sets the StatusCake API Key"
+}</pre></div><p>Also, don't forget <a id="id340" class="indexterm"/>to set those variables to your own values in <code class="literal">terraform.tfvars</code>.</p><div class="section" title="Creating an automated ping monitoring test"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec66"/>Creating an automated ping monitoring test</h3></div></div></div><p>Let's create an initial test, a simple ICMP ping to a server whose IP is <code class="literal">1.2.3.4</code>, every 5 minutes:<a id="id341" class="indexterm"/>
+</p><div class="informalexample"><pre class="programlisting">resource "statuscake_test" "latency" {
+  website_name = "My Server Latency"
+  website_url  = "1.2.3.4"
+  test_type    = "PING"
+  check_rate   = 300
+  paused       = false
+}</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note23"/>Note</h3><p>The <code class="literal">website_name</code> or <code class="literal">website_url</code> can be a reference to an existing Terraform resource. If our AWS instance resource is named <code class="literal">centos</code>, you can access the value dynamically like this, instead of a static value:</p><div class="informalexample"><pre class="programlisting">website_url = "${aws_instance.centos.public_ip}"</pre></div></div></div><p>If your resource has a <code class="literal">count</code> number, you can iterate through it so all the available instances are automatically monitored. It works like this: </p><div class="informalexample"><pre class="programlisting">resource "statuscake_test" "another_latency" {
+  website_name = "${element(aws_instance.centos.*.public_ip, count.index)}"
+  website_url  = "${element(aws_instance.centos.*.public_ip, count.index)}"
+  test_type    = "PING"
+  check_rate   = 300
+  paused       = false
+}</pre></div><p>Another <a id="id342" class="indexterm"/>useful feature is to switch the value of <code class="literal">paused</code> to <code class="literal">true</code> for planned downtimes, so you're not hammered with alerts you're already aware of.</p></div><div class="section" title="Creating an HTTPS test"><div class="titlepage"><div><div><h3 class="title"><a id="ch03lvl3sec67"/>Creating an HTTPS test</h3></div></div></div><p>A very <a id="id343" class="indexterm"/>common test we'll want to make is HTTP availability. It's really no different than an ICMP check;</p><div class="informalexample"><pre class="programlisting">resource "statuscake_test" "http" {
+  website_name = "www.myweb.com Availability"
+  website_url  = "https://www.myweb.com:443"
+  test_type    = "HTTP"
+  check_rate   = 300
+}</pre></div></div></div></div></body></html>

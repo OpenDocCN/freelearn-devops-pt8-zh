@@ -1,0 +1,756 @@
+<html><head></head><body><div class="chapter" title="Chapter&#xA0;7.&#xA0;Testing and Writing Better Infrastructure Code with Chef and Puppet"><div class="titlepage"><div><div><h1 class="title"><a id="ch07"/>Chapter 7. Testing and Writing Better Infrastructure Code with Chef and Puppet</h1></div></div></div><p>In this chapter, we will cover the following recipes:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Linting Chef code with Foodcritic and Puppet code with puppet-lint</li><li class="listitem" style="list-style-type: disc">Unit testing with ChefSpec and rspec-puppet</li><li class="listitem" style="list-style-type: disc">Testing infrastructure with Test Kitchen for Chef and Beaker for Puppet</li><li class="listitem" style="list-style-type: disc">Integration testing with ServerSpec</li></ul></div><div class="section" title="Introduction"><div class="titlepage"><div><div><h1 class="title"><a id="ch07lvl1sec81"/>Introduction</h1></div></div></div><p>In the development world, good practices of testing software are widespread, such as unit and integration tests. Linters are also used daily for most languages by software developers. These techniques are fortunately brought to the infrastructure world through the tools we use; now as infrastructure is basically code, it can be analyzed, tested, and reported! Combined with CI systems, writing infrastructure code that is thoroughly tested at different levels helps hugely to achieve a very high quality of sustainable code and prevents unexpected regressions that would have otherwise broken things later.</p><p>In this chapter, you'll discover various techniques to write cleaner code using linters and styling tools, so our code follows high standards. You'll learn how to unit test infrastructure code such as Chef resources and achieve the highest code coverage possible, so we're sure nothing is there by error or is being modified unintentionally. Then we'll configure the testing environment Test Kitchen, which leverages the use of VMs through Vagrant (or other systems) to apply test suites. This will be our base to then write integration tests so we can make sure we achieve what we intended to achieve with multiple cookbooks and sources of code, really reaching the target and doing the job on a real system.</p><p>These tools and techniques are absolutely key to write the best infrastructure code possible, and they are as fun to use as they are powerful!</p><p>All recipes are based on Chef. However, when possible, we'll try to show how things work similarly with Puppet, Chef's direct alternative.</p></div></div>
+<div class="section" title="Linting Chef code with Foodcritic and Puppet code with puppet-lint"><div class="titlepage"><div><div><h1 class="title"><a id="ch07lvl1sec82"/>Linting Chef code with Foodcritic and Puppet code with puppet-lint</h1></div></div></div><p>Since we're <a id="id774" class="indexterm"/>mainly coding in Ruby, we can <a id="id775" class="indexterm"/>use common linters such as Rubocop in the Ruby world. However, Rubocop, is targeted at software development <a id="id776" class="indexterm"/>by default and is not really optimized <a id="id777" class="indexterm"/>for Chef cookbooks development. So, Chef adapted their own version of Rubocop, named Cookstyle. In the meantime, the Foodcritic tool used in conjunction with rules checks our code for a set of commonly accepted good practices by the community. We'll walk through those tools to end up with a much better and cleaner code.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec199"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Chef client configuration on the remote host</li><li class="listitem" style="list-style-type: disc">The Chef code from <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet</em></span>, or any custom Chef code.</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec200"/>How to do it…</h2></div></div></div><p>We'll study and follow suggestions of the two complimentary tools—Cookstyle and Foodcritic. Both give some precious and complementary advice on code quality and portability. Let's start with the quickest and easiest—Cookstyle.</p><div class="section" title="Cookstyle"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec134"/>Cookstyle</h3></div></div></div><p>Navigate <a id="id778" class="indexterm"/>to a cookbook root directory and type in the following:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ cookstyle</strong></span>
+</pre></div><p>This will output all the suggestions for a cleaner code.</p><p>To get more information about the suggestions, including a URL with more information, use the following options:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ cookstyle -DES</strong></span>
+</pre></div><p>If you're happy with the propositions and would like to automatically apply them all directly in the code, use the following switch:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ cookstyle -a</strong></span>
+</pre></div><p>If we <a id="id779" class="indexterm"/>apply <code class="literal">cookstyle</code> to the <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet</em></span>, Chef cookbooks we've written, we'll end up with two good suggestions:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Single quotes for strings when interpolation is not needed</li><li class="listitem" style="list-style-type: disc">Newer Ruby 1.9 syntax for hashes</li></ul></div><p>As these are valuable and recommended changes, let's bump our cookbook versions in all concerned <code class="literal">metadata.rb</code> files, apply those suggestions, and upload the new minor revision to the Chef server.</p></div><div class="section" title="Foodcritic"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec135"/>Foodcritic</h3></div></div></div><p>Foodcritic <a id="id780" class="indexterm"/>goes much further than Cookstyle and checks the Chef code for things such as incompatible, nonidempotent, repetitive, or deprecated code, and missing templates, files, dependencies, or variables. All the rules are described on the Foodcritic <a id="id781" class="indexterm"/>website at <a class="ulink" href="http://www.foodcritic.io">http://www.foodcritic.io</a>, along with examples and explanations.</p><p>Execute <code class="literal">foodcritic</code> by navigating to the Chef repo and type in the following command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ foodcritic &lt;cookbook path&gt;</strong></span>
+</pre></div><p>For example, for testing our previous <code class="literal">mysite</code> cookbook (excluding the auto-generated <code class="literal">test</code> directory, as it's not a cookbook in itself), we type the following command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ foodcritic --exclude test cookbooks/mysite</strong></span>
+<span class="strong"><strong>FC003: Check whether you are running with chef server before using server-specific features: cookbooks/mysite/recipes/htaccess.rb:7</strong></span>
+<span class="strong"><strong>FC033: Missing template: cookbooks/mysite/recipes/htaccess.rb:9</strong></span>
+<span class="strong"><strong>FC033: Missing template: cookbooks/mysite/recipes/htaccess.rb:19</strong></span>
+<span class="strong"><strong>FC064: Ensure issues_url is set in metadata: cookbooks/mysite/metadata.rb:1</strong></span>
+<span class="strong"><strong>FC065: Ensure source_url is set in metadata: cookbooks/mysite/metadata.rb:1</strong></span>
+</pre></div><p>Interesting! Let's <a id="id782" class="indexterm"/>start with FC003 (<a class="ulink" href="http://www.foodcritic.io/#FC003">http://www.foodcritic.io/#FC003</a>). Our code is indeed not usable with other Chef modes such as chef-solo, as we're using Chef Search directly in the code and chef-solo can't interact with a Chef server. Two options here are that either we don't care about chef-solo portability and you exclude that rule from the tests, or we care and modify the code accordingly.</p><p>To exclude the <code class="literal">FC003</code> rule, use the <code class="literal">-t</code> option:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ foodcritic -t ~FC003 --exclude test cookbooks/mysite/</strong></span>
+<span class="strong"><strong>FC033: Missing template: cookbooks/mysite/recipes/htaccess.rb:9</strong></span>
+<span class="strong"><strong>FC033: Missing template: cookbooks/mysite/recipes/htaccess.rb:19</strong></span>
+<span class="strong"><strong>FC064: Ensure issues_url is set in metadata: cookbooks/mysite/metadata.rb:1</strong></span>
+<span class="strong"><strong>FC065: Ensure source_url is set in metadata: cookbooks/mysite/metadata.rb:1</strong></span>
+</pre></div><p>Alternatively, if we care about chef-solo compatibility, let's change the code as proposed by the FC003 rule. Bump the <code class="literal">mysite</code> cookbook in the <code class="literal">mysite/metadata.rb</code> file, and edit the <code class="literal">users</code> search in the <code class="literal">mysite/recipes/htaccess.rb</code> file to include an evaluation of whether we're running chef-solo or not:</p><div class="informalexample"><pre class="programlisting">if Chef::Config[:solo]
+  Chef::Log.warn('This recipe uses search. Chef Solo does not support search.')
+else
+  users = search(:webusers, '*:*')
+end</pre></div><p>Upload <a id="id783" class="indexterm"/>the new version of the cookbook using Berkshelf:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ berks upload</strong></span>
+</pre></div><p>Rerun <code class="literal">foodcritic</code> and the warning is gone:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ foodcritic --exclude test cookbooks/mysite</strong></span>
+</pre></div><p>Let's continue our investigation of the suggestions. <code class="literal">FC033</code> (<a class="ulink" href="http://www.foodcritic.io/#FC033">http://www.foodcritic.io/#FC033</a>) is about missing templates. However, our templates are placed under <code class="literal">mysite/templates</code> by the <code class="literal">chef</code> workflow command. This is typically why it's important to understand why suggestions are only that—suggestions. The Foodcritic team proposes to enforce in FC033 the presence of default templates in the <code class="literal">templates/default</code> directory. It is entirely up to you and your team to decide what to follow: the recommended behavior from Chef or from Foodcritic. Let's decide to follow Chef and ignore this warning:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ foodcritic -t ~FC033 --exclude test cookbooks/mysite/</strong></span>
+<span class="strong"><strong>FC064: Ensure issues_url is set in metadata: cookbooks/mysite/metadata.rb:1</strong></span>
+<span class="strong"><strong>FC065: Ensure source_url is set in metadata: cookbooks/mysite/metadata.rb:1</strong></span>
+</pre></div><p>The previous two warnings (<code class="literal">FC064</code> and <code class="literal">FC065</code>) are only about cookbooks released on the Chef Supermarket, which is not our case. Let's exclude globally all supermarket-related warnings using the <code class="literal">-t ~supermarket</code> switch:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ foodcritic -t ~FC033 -t ~supermarket --exclude test cookbooks/mysite/</strong></span>
+</pre></div><p>No more warnings now; our cookbook is following the best advice on the planet from both Chef and the Foodcritic community!</p><p>It's highly <a id="id784" class="indexterm"/>recommended that you add those tests to your automated testing process. Let's say we're using a global <code class="literal">Makefile</code> to do that. Create it at the root of the Chef repository:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ cat Makefile</strong></span>
+<span class="strong"><strong>tests:</strong></span>
+<span class="strong"><strong>  foodcritic -t ~FC033 -t ~supermarket --exclude test cookbooks/mysite</strong></span>
+</pre></div><p>Now, you or some CI system can automatically check the code for quality or regression in quality.</p></div></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec201"/>There's more…</h2></div></div></div><p>Using <a id="id785" class="indexterm"/>Puppet, puppet-lint will help us to clean code. We need to install puppet-lint using the following command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo puppet resource package puppet-lint provider=puppet_gem </strong></span>
+</pre></div><p>If you <a id="id786" class="indexterm"/>are already familiar with Puppet, you probably saw that the code we wrote in the previous chapter does not conform <a id="id787" class="indexterm"/>to standards. Let's discover <a id="id788" class="indexterm"/>some issues with puppet-lint based on the latest recipe for our Apache module:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ puppet-lint modules/apache/manifests/init.pp</strong></span>
+<span class="strong"><strong>WARNING: class not documented on line 1</strong></span>
+<span class="strong"><strong>ERROR: two-space soft tabs not used on line 3</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>$ puppet-lint modules/apache/manifests/vhost.pp</strong></span>
+<span class="strong"><strong>WARNING: defined type not documented on line 1</strong></span>
+<span class="strong"><strong>WARNING: variable not enclosed in {} on line 6</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>ERROR: trailing whitespace found on line 11</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>ERROR: two-space soft tabs not used on line 2</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>WARNING: indentation of =&gt; is not properly aligned</strong></span>
+<span class="strong"><strong> (expected in column 34, but found it in column 31) on line 12</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>$ puppet-lint modules/apache/manifests/htpasswd.pp</strong></span>
+<span class="strong"><strong>WARNING: defined type not documented on line 1</strong></span>
+<span class="strong"><strong>WARNING: string containing only a variable on line 6</strong></span>
+<span class="strong"><strong>WARNING: variable not enclosed in {} on line 6</strong></span>
+<span class="strong"><strong>ERROR: two-space soft tabs not used on line 2</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>$ puppet-lint modules/apache/manifests/htaccess.pp</strong></span>
+<span class="strong"><strong>WARNING: defined type not documented on line 1</strong></span>
+<span class="strong"><strong>WARNING: variable not enclosed in {} on line 6</strong></span>
+<span class="strong"><strong>ERROR: two-space soft tabs not used on line 2</strong></span>
+</pre></div><p>We <a id="id789" class="indexterm"/>can <a id="id790" class="indexterm"/>see two error categories:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Puppet <a id="id791" class="indexterm"/>coding style warnings/errors</li><li class="listitem" style="list-style-type: disc">Missing documentation</li></ul></div><p>Let's try <a id="id792" class="indexterm"/>to fix them!</p><div class="section" title="Puppet coding style"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec136"/>Puppet coding style</h3></div></div></div><p>For our <a id="id793" class="indexterm"/>concerns here, the basic rules are:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Tabulation needs to be <span class="emphasis"><em>two-space</em></span> characters</li><li class="listitem" style="list-style-type: disc">No trailing whitespaces</li><li class="listitem" style="list-style-type: disc">In string interpolation, variables should be enclosed in braces; for example, <code class="literal">"$docroot/.htaccess"</code> is wrong and must be <code class="literal">"${docroot}/.htaccess"</code></li></ul></div></div><div class="section" title="Documentation"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec137"/>Documentation</h3></div></div></div><p>Documentation should be done using Markdown. If you've never heard about it, Markdown is a language used to format a document in plain text mode, in order to export it in HTML. With Markdown, it becomes easy to add headers, links, bullets and font effects. A short and interactive tutorial can be found on <a class="ulink" href="http://www.markdowntutorial.com">http://www.markdowntutorial.com</a>.</p><p>A Markdown editor with a <span class="emphasis"><em>live preview</em></span> mode is available at <a class="ulink" href="https://stackedit.io">https://stackedit.io</a>.</p><p>We need to <a id="id794" class="indexterm"/>create a <code class="literal">README.md</code> file at the top-level directory of the module. This file should contain a short description, and some usage examples. For more readability, we will focus only on the installation and the definition of a virtual host. The complete documentation can be found in the code bundle. Here is an extract of <code class="literal">modules/apache/README.md</code>:</p><div class="informalexample"><pre class="programlisting"># Apache module
+
+## Table of Contents
+
+1. [Description](#description)
+1. [Usage](#usage)
+    * [Apache installation](#installation)
+    * [Defining a vhost](#vhost)
+
+## Description
+
+Sample module for Apache on Ubuntu systems
+
+## Usage
+
+### installation
+
+To install apache2:
+
+```
+class {
+  'apache':;
+}
+```
+
+
+### vhost
+
+To create a vhost:
+
+```
+apache::vhost{'mysite':
+  website    =&gt; 'www.example.com',
+  docroot    =&gt; '/var/www/example',
+}
+```</pre></div><p>We also <a id="id795" class="indexterm"/>need to document all statements and their parameters, using the <code class="literal">@param</code> tag inside comments at the top of each manifest. The new code following puppet-lint recommendations, is:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">For <code class="literal">modules/apache/manifests/init.pp</code>:<div class="informalexample"><pre class="programlisting"># See README
+class apache {
+  package {'apache2':
+    ensure =&gt; present,
+  }
+
+  service {'apache2':
+    ensure =&gt; running,
+    enable =&gt; true
+  }
+
+  file {'/etc/apache2/sites-enabled/000-default.conf':
+    ensure =&gt; absent,
+    notify =&gt; Service['apache2'],
+  }
+}</pre></div></li><li class="listitem" style="list-style-type: disc">For <code class="literal">modules/apache/manifests/htpasswd.pp</code>:<div class="informalexample"><pre class="programlisting"># @param filepath Path of the htpasswd database
+# @param users Array of hash containing users
+# See README
+define apache::htpasswd (
+  $filepath,
+  $users
+) {
+  file { $filepath:
+    ensure  =&gt; present,
+    owner   =&gt; 'root',
+    group   =&gt; 'root',
+    mode    =&gt; '0644',
+    content =&gt; template('apache/htpasswd.erb'),
+  }
+}</pre></div></li><li class="listitem" style="list-style-type: disc">For <code class="literal">modules/apache/manifests/htaccess.pp</code>:<div class="informalexample"><pre class="programlisting"># @param filepath Path of the htpasswd database
+# @param docroot DocumentRoot where the .htaccess should be generated
+# See README
+define apache::htaccess (
+  $filepath,
+  $docroot
+) {
+  file { "${docroot}/.htaccess":
+    ensure  =&gt; present,
+    owner   =&gt; 'root',
+    group   =&gt; 'root',
+    mode    =&gt; '0644',
+    content =&gt; template('apache/htaccess.erb'),
+  }
+}</pre></div></li><li class="listitem" style="list-style-type: disc">For <code class="literal">modules/apache/manifests/vhost.pp</code>:<div class="informalexample"><pre class="programlisting"># @param website Site name
+# @param docroot DocumentRoot
+# See README
+define apache::vhost (
+  $website,
+  $docroot
+) {
+  file { "/etc/apache2/sites-available/${website}.conf":
+    ensure  =&gt; present,
+    owner   =&gt; 'root',
+    group   =&gt; 'root',
+    mode    =&gt; '0644',
+    content =&gt; epp('apache/vhost.epp', {
+      'website'    =&gt; $website,
+      'docroot' =&gt; $docroot}
+    ),
+  }
+
+  file { "/etc/apache2/sites-enabled/${website}.conf":
+    ensure  =&gt; link,
+    target  =&gt; "/etc/apache2/sites-available/${website}.conf",
+    require =&gt; File["/etc/apache2/sites-available/${website}.conf"],
+    notify  =&gt; Service['apache2'],
+  }
+}</pre></div></li></ul></div><p>The documentation can be automatically generated to a set of HTML pages. To do so, we need to install the <code class="literal">yard</code> and <code class="literal">puppet-strings</code> packages:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo puppet resource package yard provider=puppet_gem</strong></span>
+
+<span class="strong"><strong>$ sudo puppet resource package puppet-strings provider=puppet_gem</strong></span>
+</pre></div><p>Now, from <a id="id796" class="indexterm"/>the top-level directory of our module, the documentation can be generated:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ puppet strings</strong></span>
+<span class="strong"><strong>Files:                    4</strong></span>
+<span class="strong"><strong>Modules:                  0 (    0 undocumented)</strong></span>
+<span class="strong"><strong>Classes:                  0 (    0 undocumented)</strong></span>
+<span class="strong"><strong>Constants:                0 (    0 undocumented)</strong></span>
+<span class="strong"><strong>Attributes:               0 (    0 undocumented)</strong></span>
+<span class="strong"><strong>Methods:                  0 (    0 undocumented)</strong></span>
+<span class="strong"><strong>Puppet Classes:           1 (    0 undocumented)</strong></span>
+<span class="strong"><strong>Puppet Defined Types:     3 (    0 undocumented)</strong></span>
+<span class="strong"><strong>Puppet Types:             0 (    0 undocumented)</strong></span>
+<span class="strong"><strong>Puppet Providers:         0 (    0 undocumented)</strong></span>
+<span class="strong"><strong>Puppet Functions:         0 (    0 undocumented)</strong></span>
+<span class="strong"><strong> 100.00% documented</strong></span>
+<span class="strong"><strong>$ ls -1 doc</strong></span>
+<span class="strong"><strong>_index.html</strong></span>
+<span class="strong"><strong>css/</strong></span>
+<span class="strong"><strong>file.README.html</strong></span>
+<span class="strong"><strong>frames.html</strong></span>
+<span class="strong"><strong>index.html</strong></span>
+<span class="strong"><strong>js/</strong></span>
+<span class="strong"><strong>puppet_class_list.html</strong></span>
+<span class="strong"><strong>puppet_classes/</strong></span>
+<span class="strong"><strong>puppet_defined_type_list.html</strong></span>
+<span class="strong"><strong>puppet_defined_types/</strong></span>
+<span class="strong"><strong>top-level-namespace.html</strong></span>
+</pre></div><p>The <a id="id797" class="indexterm"/>documentation <a id="id798" class="indexterm"/>is in <a id="id799" class="indexterm"/>the <a id="id800" class="indexterm"/>
+<code class="literal">doc</code> directory. We can now read it by opening <code class="literal">index.html</code> in <a id="id801" class="indexterm"/>any browser.</p></div></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec202"/>See also</h2></div></div></div><p>The Puppet <a id="id802" class="indexterm"/>Language Style:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Cookstyle: <a class="ulink" href="https://github.com/chef/cookstyle">https://github.com/chef/cookstyle</a></li><li class="listitem" style="list-style-type: disc">Foodcritic: <a class="ulink" href="http://www.foodcritic.io/">http://www.foodcritic.io/</a></li></ul></div></div></div>
+<div class="section" title="Unit testing with ChefSpec and rspec-puppet"><div class="titlepage"><div><div><h1 class="title"><a id="ch07lvl1sec83"/>Unit testing with ChefSpec and rspec-puppet</h1></div></div></div><p>ChefSpec <a id="id803" class="indexterm"/>is a Chef cookbook RSpec unit testing framework written by the great Seth Vargo (Opscode Chef, Hashicorp). ChefSpec helps to create a fast feedback loop, locally simulate Chef runs (solo or server) over the code, and issue a code coverage statement for every resource used. It integrates very well with Berkshelf, so cookbook dependencies are easily handled during the testing process.</p><p>We'll create unit tests for the cookbooks created in <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet,</em></span> that covers the most common tests, such as convergence issues, packages installation, services status check, file and template creation, access rights, recipe inclusion, stubbing data bag searches, or even intercepting expected errors. These tests are so generic, we'll be able to reuse them in all our future recipes and get started on more.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec203"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Chef client configuration on the remote host</li><li class="listitem" style="list-style-type: disc">The Chef code from Chapter 6, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet</em></span>, or any custom Chef code</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec204"/>How to do it…</h2></div></div></div><p>ChefSpec unit tests are found in the <code class="literal">spec/unit/recipes</code> folder of every Chef cookbook. Depending on how we created our cookbooks, this folder may already exist.</p><p>To illustrate, let's start from the <code class="literal">apache</code> cookbook from <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet,</em></span> but any similar custom cookbook is equally good.</p><p>If the <code class="literal">spec/unit/recipes</code> directory doesn't exist, create it by executing the following command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ mkdir -p spec/unit/recipes</strong></span>
+</pre></div><p>In <a id="id804" class="indexterm"/>this <code class="literal">recipes</code> directory in <code class="literal">spec/unit</code> are found the ChefSpec unit tests, typically:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ tree spec/</strong></span>
+<span class="strong"><strong>spec/</strong></span>
+<span class="strong"><strong>├── spec_helper.rb</strong></span>
+<span class="strong"><strong>└── unit</strong></span>
+<span class="strong"><strong>    └── recipes</strong></span>
+<span class="strong"><strong>        ├── default_spec.rb</strong></span>
+<span class="strong"><strong>        └── virtualhost_spec.rb</strong></span>
+</pre></div><p>Each recipe gets its matching ChefSpec file. In this case, our simple cookbook contains two recipes, so we get two specs.</p><div class="section" title="The Spec Helper"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec138"/>The Spec Helper</h3></div></div></div><p>It's <a id="id805" class="indexterm"/>helpful to have a common set of requirements for all the concerned cookbook tests. The default is to have it named <code class="literal">spec_helper.rb</code> at the root of the <code class="literal">spec/unit</code> directory. We suggest to include at least three requirements:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">ChefSpec itself</li><li class="listitem" style="list-style-type: disc">The Berkshelf plugin for dependencies management</li><li class="listitem" style="list-style-type: disc">Immediately start the code coverage</li></ul></div><p>Here's our sample <code class="literal">spec_helper.rb</code> file:</p><div class="informalexample"><pre class="programlisting">require 'chefspec'
+require 'chefspec/berkshelf'
+ChefSpec::Coverage.start!</pre></div></div><div class="section" title="Testing a successful Chef run context"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec139"/>Testing a successful Chef run context</h3></div></div></div><p>We'll now <a id="id806" class="indexterm"/>unit test the default apache cookbook recipe. Our first step is to require the helper created earlier in the <code class="literal">default_spec.rb</code> file. It will be required in all of our future tests:</p><div class="informalexample"><pre class="programlisting">require 'spec_helper'</pre></div><p>All unit tests start with a descriptive block, as given here:</p><div class="informalexample"><pre class="programlisting">describe 'cookbook::recipe_name' do 
+  [...]
+end</pre></div><p>Inside this block, we want to simulate the Chef run in a simulated CentOS 7.2 environment, with the default attributes. This is the context, and we expect this Chef run to not <a id="id807" class="indexterm"/>raise any errors:</p><div class="informalexample"><pre class="programlisting">describe 'apache::default' do
+  context 'Default attributes on CentOS 7.2' do
+    let(:chef_run) do
+      runner = ChefSpec::ServerRunner.new(platform: 'centos', version: '7.2.1511')
+      runner.converge(described_recipe)
+    end
+
+    it 'converges successfully' do
+      expect { chef_run }.to_not raise_error
+    end
+  end
+end</pre></div><p>To find <a id="id808" class="indexterm"/>the exact past or future CentOS version we might need, we can go to the CentOS mirror site, <a class="ulink" href="http://mirror.centos.org/centos/">http://mirror.centos.org/centos/</a>, or read a full list of available simulated platforms at <a class="ulink" href="https://github.com/customink/fauxhai/tree/master/lib/fauxhai/platforms">https://github.com/customink/fauxhai/tree/master/lib/fauxhai/platforms</a>.</p><p>Execute our first unit test using <code class="literal">chef exec rspec</code> (it's using the bundled <code class="literal">rspec</code> from the Chef DK):</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ chef exec rspec --color</strong></span>
+<span class="strong"><strong>.....</strong></span>
+
+<span class="strong"><strong>Finished in 0.82521 seconds (files took 1.87 seconds to load)</strong></span>
+<span class="strong"><strong>5 examples, 0 failures</strong></span>
+
+
+<span class="strong"><strong>ChefSpec Coverage report generated...</strong></span>
+
+<span class="strong"><strong>  Total Resources:   2</strong></span>
+<span class="strong"><strong>  Touched Resources: 0</strong></span>
+<span class="strong"><strong>  Touch Coverage:    0.0%</strong></span>
+
+<span class="strong"><strong>Untouched Resources:</strong></span>
+
+<span class="strong"><strong>  yum_package[httpd]                 apache/recipes/default.rb:7</strong></span>
+<span class="strong"><strong>  service[httpd]                     apache/recipes/default.rb:11</strong></span>
+</pre></div><p>We see the simulated Chef run execution times, as well as a coverage report (0%, as we didn't test anything for now). ChefSpec even shows us what's not unit tested yet!</p><p>A nice <a id="id809" class="indexterm"/>option is the <span class="emphasis"><em>documentation</em></span> RSpec formatter, so we have descriptions of what's being tested. At the end of this section, we'll have something like this, using this formatter:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ chef exec rspec --format documentation --color</strong></span>
+
+<span class="strong"><strong>apache::default</strong></span>
+<span class="strong"><strong>  Default attributes on CentOS 7.2</strong></span>
+<span class="strong"><strong>    converges successfully</strong></span>
+<span class="strong"><strong>    installs httpd</strong></span>
+<span class="strong"><strong>    enables and starts httpd service</strong></span>
+
+<span class="strong"><strong>apache::virtualhost</strong></span>
+<span class="strong"><strong>  Default attributes on CentOS 7.2</strong></span>
+<span class="strong"><strong>    converges successfully</strong></span>
+<span class="strong"><strong>    creates a virtualhost directory</strong></span>
+<span class="strong"><strong>    creates and index.html file</strong></span>
+<span class="strong"><strong>    creates a virtualhost configuration file</strong></span>
+
+<span class="strong"><strong>Finished in 1.14 seconds (files took 2.56 seconds to load)</strong></span>
+<span class="strong"><strong>7 examples, 0 failures</strong></span>
+
+
+<span class="strong"><strong>ChefSpec Coverage report generated...</strong></span>
+
+<span class="strong"><strong>  Total Resources:   5</strong></span>
+<span class="strong"><strong>  Touched Resources: 5</strong></span>
+<span class="strong"><strong>  Touch Coverage:    100.0%</strong></span>
+
+<span class="strong"><strong>You are awesome and so is your test coverage! Have a fantastic day!</strong></span>
+</pre></div></div><div class="section" title="Testing a package installation"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec140"/>Testing a package installation</h3></div></div></div><p>Our <a id="id810" class="indexterm"/>default recipe starts by installing the <code class="literal">httpd</code> package. Here's how to test it using ChefSpec, inside the context we created earlier:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>    it 'installs httpd' do</strong></span>
+<span class="strong"><strong>      expect(chef_run).to install_package('httpd')</strong></span>
+<span class="strong"><strong>    end</strong></span>
+</pre></div><p>Execute <code class="literal">rspec</code> again and see the touch coverage attain 50% as one of the two resources from <a id="id811" class="indexterm"/>the default recipe is now tested.</p></div><div class="section" title="Testing services status"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec141"/>Testing services status</h3></div></div></div><p>The default <a id="id812" class="indexterm"/>recipe enables and starts the <code class="literal">httpd</code> service. Here's how to test if both actions are handled by the code using ChefSpec, inside the context created earlier:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>    it 'enables and starts httpd service' do</strong></span>
+<span class="strong"><strong>      expect(chef_run).to enable_service('httpd')</strong></span>
+<span class="strong"><strong>      expect(chef_run).to start_service('httpd')</strong></span>
+<span class="strong"><strong>    end</strong></span>
+</pre></div><p>Our test coverage is now 100% for the default recipe as we tested both declared resources.</p></div><div class="section" title="Testing another recipe from the same cookbook"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec142"/>Testing another recipe from the same cookbook</h3></div></div></div><p>As we <a id="id813" class="indexterm"/>have two recipes in the apache cookbook, let's create tests for our second recipe—<code class="literal">virtualhost_spec.rb</code>. Start it exactly like the first one, with a description, context, and an initial test for a valid Chef run:</p><div class="informalexample"><pre class="programlisting">require 'spec_helper'
+
+describe 'apache::virtualhost' do
+  context 'Default attributes on CentOS 7.2' do
+    let(:chef_run) do
+      runner = ChefSpec::ServerRunner.new(platform: 'centos', version: '7.2.1511')
+      runner.converge(described_recipe)
+    end
+
+    it 'converges successfully' do
+      expect { chef_run }.to_not raise_error
+    end
+  end
+end</pre></div><p>Execute RSpec and see the coverage fall from 100% to 40%. Three new resources are now untested, from the <code class="literal">apache::virtualhost</code> recipe:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ chef exec rspec --color</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>ChefSpec Coverage report generated...</strong></span>
+
+<span class="strong"><strong>  Total Resources:   5</strong></span>
+<span class="strong"><strong>  Touched Resources: 2</strong></span>
+<span class="strong"><strong>  Touch Coverage:    40.0%</strong></span>
+
+<span class="strong"><strong>Untouched Resources:</strong></span>
+
+<span class="strong"><strong>  directory[/var/www/default]        apache/recipes/virtualhost.rb:8</strong></span>
+<span class="strong"><strong>  file[/var/www/default/index.html]   apache/recipes/virtualhost.rb:15</strong></span>
+<span class="strong"><strong>  template[/etc/httpd/conf.d/default.conf]   apache/recipes/virtualhost.rb:22</strong></span>
+</pre></div><p>The good <a id="id814" class="indexterm"/>news is that ChefSpec still tells us which resources are not tested!</p></div><div class="section" title="Testing directory creation"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec143"/>Testing directory creation</h3></div></div></div><p>This <a id="id815" class="indexterm"/>particular <code class="literal">apache::virtualhost</code> recipe starts by creating a directory. Here's how we can test for this directory existence, along with its ownership parameters:</p><div class="informalexample"><pre class="programlisting">    it 'creates a virtualhost directory' do
+      expect(chef_run).to create_directory('/var/www/default').with(
+        user: 'root',
+        group: 'root'
+      )
+    end</pre></div><p>Code coverage is now 60%!</p></div><div class="section" title="Testing file creation"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec144"/>Testing file creation</h3></div></div></div><p>The same <a id="id816" class="indexterm"/>recipe then creates an index file. This is how we test it's created with the required ownership:</p><div class="informalexample"><pre class="programlisting">    it 'creates and index.html file' do
+      expect(chef_run).to create_file('/var/www/default/index.html').with(
+        user: 'root',
+        group: 'root'
+      )
+    end</pre></div><p>Code coverage is now 80%!</p></div><div class="section" title="Testing templates creation"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec145"/>Testing templates creation</h3></div></div></div><p>The recipe <a id="id817" class="indexterm"/>ends with the creation of Apache VirtualHost from a template. This is how to test it's in place with the default attributes:</p><div class="informalexample"><pre class="programlisting">    it 'creates a virtualhost configuration file' do
+      expect(chef_run).to create_template('/etc/httpd/conf.d/default.conf').with(
+        user: 'root',
+        group: 'root'
+      )
+    end</pre></div><p>All in all, we've now covered 100% of our resources!</p><p>As the output says:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>You are awesome and so is your test coverage! Have a fantastic day!</strong></span>
+</pre></div></div><div class="section" title="Stubbing data bags for searches"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec146"/>Stubbing data bags for searches</h3></div></div></div><p>The <code class="literal">mysite</code> cookbook we created earlier contains a search in a data bag to later populate a file <a id="id818" class="indexterm"/>with content. The thing is, we're unit testing, and no real Chef server is answering requests. So the tests are failing: the simulated Chef run doesn't end well because a search can't be executed. Fortunately, ChefSpec allows us to stub the data bag with real content. So here's how it looks in <code class="literal">spec/unit/recipes/default_spec.rb</code> from the <code class="literal">mysite</code> cookbook:</p><div class="informalexample"><pre class="programlisting">describe 'mysite::default' do
+  context 'Default attributes on CentOS 7.2' do
+    let(:chef_run) do
+      runner = ChefSpec::ServerRunner.new(platform: 'centos', version: '7.2.1511')
+      <span class="strong"><strong>runner.create_data_bag('webusers', {</strong></span>
+<span class="strong"><strong>        'john' =&gt; {</strong></span>
+<span class="strong"><strong>          'id' =&gt; 'john',</strong></span>
+<span class="strong"><strong>          'htpasswd' =&gt; '$apr1$AUI2Y5pj$0v0PaSlLfc6QxZx1Vx5Se.'</strong></span>
+<span class="strong"><strong>        }</strong></span>
+<span class="strong"><strong>      })</strong></span>
+      runner.converge(described_recipe)
+    end
+
+    it 'converges successfully' do
+      expect { chef_run }.to_not raise_error
+    end
+  end
+end</pre></div><p>Now the <a id="id819" class="indexterm"/>simulated Chef run has a <code class="literal">webusers</code> data bag and some sample data to work with!</p></div><div class="section" title="Testing recipes inclusion"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec147"/>Testing recipes inclusion</h3></div></div></div><p>It's very <a id="id820" class="indexterm"/>common to include recipes inside another recipe. Typically, when using notifications for restarting a service from a file change, the concerned service must be included in the recipe where the file resource is located; otherwise, the code most probably works by chance because the required dependent cookbook is included elsewhere! Here's how to test for a cookbook inclusion:</p><div class="informalexample"><pre class="programlisting">    it 'includes the `apache` recipes' do
+      expect(chef_run).to include_recipe('apache::default')
+      expect(chef_run).to include_recipe('apache::virtualhost')
+    end</pre></div><p>We now ensure that dependencies are always included.</p></div><div class="section" title="Intercepting errors in tests"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec148"/>Intercepting errors in tests</h3></div></div></div><p>Sometimes <a id="id821" class="indexterm"/>we have to work with third-party cookbooks, that may somehow raise errors. It's the case with the official MySQL cookbook, which depends on the SELinux cookbook for the RHEL/CentOS platform. This cookbook, for some reason, doesn't work with ChefSpec, so when converged, it errors out the following string: <code class="literal">chefspec not supported!</code>. ChefSpec stops there, and say the Chef run is in error. As we don't have any power on why is that, here's a workaround to expect a very specific error from a Chef run, and this will be helpful many times later:</p><div class="informalexample"><pre class="programlisting">    it 'converges successfully' do
+      # The selinux cookbook raises this error.
+      expect { chef_run }.to raise_error(RuntimeError, 'chefspec not supported!')
+    end</pre></div><p>We've seen a selection of the most common and reusable unit tests for Chef cookbooks!</p></div></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec205"/>There's more…</h2></div></div></div><p>Using <a id="id822" class="indexterm"/>Puppet, Puppet Labs is providing a repository containing several useful tools we will use in this chapter—the Puppet Labs Spec Helper. Let's install it:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo puppet resource package puppetlabs_spec_helper provider=puppet_gem</strong></span>
+</pre></div><p>For unit <a id="id823" class="indexterm"/>testing, rspec-puppet is the counterpart of ChefSpec for Puppet, and has been installed as a dependency of <code class="literal">puppetlabs_spec_helper</code>. We will now add a unit test for each manifest in our Apache module. First of all, we need a <code class="literal">Rakefile</code> to create the required targets. Fortunately, the <code class="literal">puppetlabs_spec_helper</code> gem provides such targets. Let's create a <code class="literal">Rakefile</code> in the top-level directory of our Apache module with the following content:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>require 'puppetlabs_spec_helper/rake_tasks'</strong></span>
+</pre></div><p>All unit tests should remain in a <code class="literal">spec</code> directory. Before writing any test, we also need a helper script that will be common to all tests. Let's create it in <code class="literal">spec/spec_helper.rb</code>. This file should contain the following line:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>require 'puppetlabs_spec_helper/module_spec_helper'</strong></span>
+</pre></div><p>We are now ready to write unit tests. We have four manifests in our module, and we are about to create a unit test for each of them. Here are the goals:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">For the <code class="literal">apache/manifests/init.pp</code> manifest: The unit test needs to validate the manifest is compiling, the <code class="literal">apache2</code> package installation is done, and the <code class="literal">apache2</code> service is running and activated on boot.</li><li class="listitem" style="list-style-type: disc">For the <code class="literal">apache/manifests/vhost.pp</code> manifest: The unit test should ensure the virtual host is created in <code class="literal">/etc/apache2/sites-available</code> and activated in <code class="literal">/etc/apache2/sites-enabled</code>.</li><li class="listitem" style="list-style-type: disc">For the <code class="literal">apache/manifests/htpasswd.pp</code> manifest: The unit test should ensure a <code class="literal">htpasswd</code> file is generated correctly.</li><li class="listitem" style="list-style-type: disc">For the <code class="literal">apache/manifests/htaccess.pp</code> manifest: The unit test should ensure a <code class="literal">.htaccess</code> file is generated correctly.</li></ul></div><p>Let's try the first one! Since the manifest contains a class declaration, the unit test should be in <code class="literal">spec/classes</code>. The class name is <code class="literal">apache</code>; this will be the base name of the file containing the test. Each test file should be suffixed by <code class="literal">_spec.rb</code>, so let's create <code class="literal">spec/classes/apache_spec.rb</code> with the following content:</p><div class="informalexample"><pre class="programlisting">require 'spec_helper'
+
+# Description of the "apache" class
+describe 'apache' do
+  # Assertion list
+  it { is_expected.to compile.with_all_deps }
+  it { is_expected.to contain_package('apache2').with(
+     {
+      'ensure' =&gt; 'present',
+    }
+  ) }
+  it { is_expected.to contain_service('apache2').with(
+     {
+      'ensure' =&gt; 'running',
+      'enable' =&gt; 'true',
+    }
+  ) }
+end</pre></div><p>Unit tests are in descriptive blocks, with a list of assertions. Here, we have the three assertions we mentioned earlier when describing the goal of the test.</p><p>Now, let's run the unit test using the <code class="literal">spec</code> rake target:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ rake spec</strong></span>
+<span class="strong"><strong>...</strong></span>
+
+<span class="strong"><strong>Finished in 2.42 seconds (files took 1.53 seconds to load)</strong></span>
+<span class="strong"><strong>3 examples, 0 failures</strong></span>
+</pre></div><p>That's it! Our three assertions have been tested successfully!</p><p>The three other <a id="id824" class="indexterm"/>tests should be placed under <code class="literal">spec/defines</code>, this is because the corresponding manifests declare a <code class="literal">define</code> statement. Let's create:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc"><code class="literal">spec/defines/apache_vhost_spec.rb</code>, with the following content:<div class="informalexample"><pre class="programlisting">require 'spec_helper'
+
+# Description of the "apache::vhost" 'define' resource
+describe 'apache::vhost', :type =&gt; :define do
+
+  # As a requirement, we should load the apache class
+  let :pre_condition do
+    'class {"apache":;}'
+  end
+
+  # Define a title for the 'define' resource
+  let :title do
+    'mysite'
+  end
+
+  # Parameters list 
+  let :params do 
+    {
+      :website =&gt; 'www.sample.com' , 
+      :docroot =&gt; '/var/www/docroot',
+    }
+  end
+
+  # Assertions list
+  it { is_expected.to compile }
+  it { is_expected.to contain_class('apache') }
+  it { is_expected.to contain_file('/etc/apache2/sites-available/www.sample.com.conf')
+    .with_content(/DocumentRoot \/var\/www\/docroot/) }
+  it { is_expected.to contain_file('/etc/apache2/sites-enabled/www.sample.com.conf').with(
+    'ensure' =&gt; 'link',
+    'target' =&gt; '/etc/apache2/sites-available/www.sample.com.conf'
+  ) }
+end</pre></div></li><li class="listitem" style="list-style-type: disc"><code class="literal">spec/defines/apache_htpasswd_spec.rb</code>, with the following content:<div class="informalexample"><pre class="programlisting">require 'spec_helper'
+
+# Description of the "apache::htpasswd" 'define' resource
+describe 'apache::htpasswd', :type =&gt; :define do
+
+  # As a requirement, we should load the apache class
+  let :pre_condition do
+    'class {"apache":;}'
+  end
+
+  # Define a title for the 'define' resource
+  let :title do
+    'myhtpasswd'
+  end
+
+  # Parameters list
+  let :params do 
+    {
+      :filepath =&gt; '/tmp/htpasswd' , 
+      :users =&gt; [ { "id" =&gt; "user1", "htpasswd" =&gt; "hash1" } ]
+    }
+  end
+
+  # Assertion list
+  it { is_expected.to compile }
+  it { is_expected.to contain_class('apache') }
+  it { is_expected.to contain_file('/tmp/htpasswd')
+    .with_content(/user1:hash1/) }
+end</pre></div></li><li class="listitem" style="list-style-type: disc"><code class="literal">spec/defines/apache_htaccess_spec.rb,</code> with the following content:<div class="informalexample"><pre class="programlisting">require 'spec_helper'
+
+# Description of the "apache::htaccess" 'define' resource
+describe 'apache::htaccess', :type =&gt; :define do
+
+  # As a requirement, we should load the apache class
+  let :pre_condition do
+    'class {"apache":;}'
+  end
+
+  # Define a title for the 'define' resource
+  let :title do
+    'myhtaccess'
+  end
+
+  # Parameters list
+  let :params do 
+    {
+      :filepath =&gt; '/tmp/htpasswd' , 
+      :docroot =&gt; '/var/www/docroot',
+    }
+  end
+
+  # Assertion list
+  it { is_expected.to compile }
+  it { is_expected.to contain_class('apache') }
+  it { is_expected.to contain_file('/var/www/docroot/.htaccess')
+    .with_content(/AuthUserFile \/tmp\/htpasswd/) }
+end</pre></div></li></ul></div><p>Now <a id="id825" class="indexterm"/>we have all our unit tests, and each one validates the initial target we defined earlier. The total number of assertions is <code class="literal">13</code>, and we can now run the complete test suite:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ rake spec</strong></span>
+<span class="strong"><strong>.............</strong></span>
+
+<span class="strong"><strong>Finished in 2.88 seconds (files took 1.52 seconds to load)</strong></span>
+<span class="strong"><strong>13 examples, 0 failures</strong></span>
+</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note53"/>Note</h3><p>The Rake targets provided also contain a <code class="literal">lint</code> target that can be used with <code class="literal">rake lint</code>. We can use this target directly instead of puppet-lint manually as we did earlier.</p></div></div></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec206"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">ChefSpec: <a class="ulink" href="http://sethvargo.github.io/chefspec">http://sethvargo.github.io/chefspec</a></li><li class="listitem" style="list-style-type: disc">A wide <a id="id826" class="indexterm"/>selection of quality examples is given on the ChefSpec GitHub repository: <a class="ulink" href="https://github.com/se">https://github.com/se</a><a class="ulink" href="http://thvargo/chefspec/tree/m">thvargo/chefspec/tree/m</a><a class="ulink" href="http://aster/examples">aster/examples</a></li><li class="listitem" style="list-style-type: disc">Puppet <a id="id827" class="indexterm"/>RSpec: <a class="ulink" href="http://rspec-puppet.com">http://rspec-puppet.com</a></li><li class="listitem" style="list-style-type: disc">Rspec: <a class="ulink" href="http://rspec.info">http://rspec.info</a></li></ul></div></div></div>
+<div class="section" title="Testing infrastructure with Test Kitchen for Chef and Beaker for Puppet"><div class="titlepage"><div><div><h1 class="title"><a id="ch07lvl1sec84"/>Testing infrastructure with Test Kitchen for Chef and Beaker for Puppet</h1></div></div></div><p>Test Kitchen <a id="id828" class="indexterm"/>is a central tool in the Chef ecosystem as it enables thorough testing of infrastructure code and plays very well with a <a id="id829" class="indexterm"/>lot of other tools we already use and know. It takes the strong testing culture from the development world and applies it to an infrastructure-as-code environment. Test Kitchen helps start an isolated system environment, apply Chef cookbooks to it, and then execute tests. Supported test frameworks include RSpec, ServerSpec, or Bats (and more), with a large choice of supported environments such as AWS, Vagrant, Digital Ocean, Docker, and OpenStack. Test Kitchen integrates very well with Berkshelf, so cookbook dependencies aren't an issue while testing complex infrastructures. The best part is, it's already included in the Chef DK, so we just have to use it.</p><p>In this section, we'll structure everything needed to properly test our Chef cookbooks code using Vagrant with CentOS 7.2</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note54"/>Note</h3><p>The Test Kitchen version in use in the Chef DK at the time of writing is 1.13.2.</p></div></div><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec207"/>Getting ready</h2></div></div></div><p>To step through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Vagrant installation on the workstation</li><li class="listitem" style="list-style-type: disc">The Chef code from <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet,</em></span> or any custom Chef code</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec208"/>How to do it…</h2></div></div></div><p>Test <a id="id830" class="indexterm"/>Kitchen is configured by a single <code class="literal">.kitchen.yml</code> file <a id="id831" class="indexterm"/>at the root of the cookbook. It contains a lot of information:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">How to test the system (Vagrant, by default)</li><li class="listitem" style="list-style-type: disc">How to provision the system (chef-solo, chef-zero, or other modes)</li><li class="listitem" style="list-style-type: disc">Which platforms to test (Ubuntu 16.04, CentOS 7.2, or other distributions)</li><li class="listitem" style="list-style-type: disc">The test suites (what to apply, where to find information, in what context, and similar information)</li></ul></div><div class="section" title="Configuring Test Kitchen"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec149"/>Configuring Test Kitchen</h3></div></div></div><p>Irrespective <a id="id832" class="indexterm"/>of whether we already have a <code class="literal">.kitchen.yml</code> file or not, let's open it and fill in the following details:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">We want <a id="id833" class="indexterm"/>to run the tests with <span class="strong"><strong>Vagrant</strong></span> to closely simulate a VM in production</li><li class="listitem" style="list-style-type: disc">We want <a id="id834" class="indexterm"/>to provision using <span class="strong"><strong>Chef Zero</strong></span> (by simulating a Chef server locally)</li><li class="listitem" style="list-style-type: disc">We want <a id="id835" class="indexterm"/>to test only on <span class="strong"><strong>CentOS 7.2</strong></span> (our code isn't currently designed to run on something else)</li><li class="listitem" style="list-style-type: disc">We want a single suite of tests, with a run list of the <code class="literal">mysite::default</code> recipe, and a path to the <span class="strong"><strong>Data Bags</strong></span></li></ul></div><p>This is how our <code class="literal">.kitchen.yml</code> file looks for the <code class="literal">mysite</code> cookbook:</p><div class="informalexample"><pre class="programlisting">---
+driver:
+  name: vagrant
+
+provisioner:
+  name: chef_zero
+
+platforms:
+  - name: centos-7.2
+
+suites:
+  - name: default
+    data_bags_path: "../../data_bags"
+    run_list:
+      - recipe[mysite::default]
+    attributes:</pre></div></div><div class="section" title="Testing with Test Kitchen"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec150"/>Testing with Test Kitchen</h3></div></div></div><p>To simply <a id="id836" class="indexterm"/>launch Test Kitchen with the specified configuration, execute the following command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ kitchen test</strong></span>
+<span class="strong"><strong>-----&gt; Testing &lt;default-centos-72&gt;</strong></span>
+<span class="strong"><strong>-----&gt; Creating &lt;default-centos-72&gt;...</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>       Finished creating &lt;default-centos-72&gt; (1m1.51s).</strong></span>
+<span class="strong"><strong>-----&gt; Converging &lt;default-centos-72&gt;...</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>-----&gt; Installing Chef Omnibus (install only if missing)</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>       resolving cookbooks for run list: ["mysite::default"]</strong></span>
+<span class="strong"><strong>       Synchronizing Cookbooks:</strong></span>
+<span class="strong"><strong>         - apache (0.5.0)</strong></span>
+<span class="strong"><strong>         - php (0.2.0)</strong></span>
+<span class="strong"><strong>         - selinux (0.9.0)</strong></span>
+<span class="strong"><strong>         - yum-mysql-community (1.0.0)</strong></span>
+<span class="strong"><strong>         - mysite (0.3.1)</strong></span>
+<span class="strong"><strong>         - mysql (8.0.4)</strong></span>
+<span class="strong"><strong>         - yum (4.0.0)</strong></span>
+<span class="strong"><strong>[...]</strong></span>
+<span class="strong"><strong>       Chef Client finished, 41/56 resources updated in 02 minutes 47 seconds</strong></span>
+<span class="strong"><strong>       Finished converging &lt;default-centos-72&gt; (3m18.96s).</strong></span>
+<span class="strong"><strong>-----&gt; Setting up &lt;default-centos-72&gt;...</strong></span>
+<span class="strong"><strong>       Finished setting up &lt;default-centos-72&gt; (0m0.00s).</strong></span>
+<span class="strong"><strong>-----&gt; Verifying &lt;default-centos-72&gt;...</strong></span>
+<span class="strong"><strong>       Preparing files for transfer</strong></span>
+<span class="strong"><strong>       Transferring files to &lt;default-centos-72&gt;</strong></span>
+<span class="strong"><strong>       Finished verifying &lt;default-centos-72&gt; (0m0.00s).</strong></span>
+<span class="strong"><strong>-----&gt; Destroying &lt;default-centos-72&gt;...</strong></span>
+<span class="strong"><strong>       ==&gt; default: Stopping the VMware VM...</strong></span>
+<span class="strong"><strong>       ==&gt; default: Deleting the VM...</strong></span>
+<span class="strong"><strong>       Vagrant instance &lt;default-centos-72&gt; destroyed.</strong></span>
+<span class="strong"><strong>       Finished destroying &lt;default-centos-72&gt; (0m28.38s).</strong></span>
+<span class="strong"><strong>       Finished testing &lt;default-centos-72&gt; (4m48.86s).</strong></span>
+<span class="strong"><strong>-----&gt; Kitchen is finished. (4m50.01s)</strong></span>
+</pre></div><p>What <a id="id837" class="indexterm"/>happened here is the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Test Kitchen read the <code class="literal">.kitchen.yml</code> file</li><li class="listitem" style="list-style-type: disc">Test Kitchen created the Vagrant VM with the specified image</li><li class="listitem" style="list-style-type: disc">Test Kitchen installed Chef, synchronized the cookbooks, solved dependencies with Berkshelf, and applied the <code class="literal">run_list</code> content</li><li class="listitem" style="list-style-type: disc">Test Kitchen launched tests (we don't have any for now)</li><li class="listitem" style="list-style-type: disc">Test Kitchen destroyed the VM as everything went smoothly</li></ul></div></div></div><div class="section" title="How it works…"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec209"/>How it works…</h2></div></div></div><p>When we execute the simple <code class="literal">kitchen test</code> command, we are in fact running through five steps:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem"><code class="literal">kitchen create</code>: This creates the virtual testing environment (in our case, through Vagrant and an hypervisor), but does not provision it.</li><li class="listitem"><code class="literal">kitchen converge</code>: This provisions the instance with the suite information from the <code class="literal">.kitchen.yml</code> we created. As we're using Test Kitchen with Chef, it starts by installing Chef and then resolves cookbook dependencies for us. Then it applies <code class="literal">run_list</code> with the requested Chef mode (chef-zero in our case).</li><li class="listitem"><code class="literal">kitchen setup</code>: This installs any additional plugin we might need.</li><li class="listitem"><code class="literal">kitchen verify</code>: This first installs everything needed to run the tests—in our case, this will be ServerSpec.</li><li class="listitem"><code class="literal">kitchen destroy</code>: If all tests pass, this step destroys the testing environment.</li></ol></div><p>We highly recommend that you use each command sequentially for debugging purposes.</p><p>For reference, as this will all be discussed in the next section, all tests are located in the <code class="literal">test/integration/&lt;suite_name&gt;/&lt;plugin_name&gt;</code> folder. In other words, the <code class="literal">test/integration/default/serverspec/virtualhost_spec.rb</code> file will match the Chef cookbook recipe named <code class="literal">virtualhost</code>, executed from the <code class="literal">default</code> Kitchen test suite, and tested with the <code class="literal">serverspec</code> plugin.</p></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec210"/>There's more…</h2></div></div></div><p>The counterpart for Puppet is Beaker. The development of Beaker is very active, and the current version (6.x) needs at least Ruby 2.2.5. In order to use the Embedded Ruby provided by Puppet Collections, let's stay on the 5.x branch:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo puppet resource package beaker-rspec </strong></span>
+<span class="strong"><strong>provider=puppet_gem ensure=5.6.0</strong></span>
+</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note55"/>Note</h3><p>A C/C++ compiler is needed to install Beaker, so install gcc/g++ or clang before trying to install <code class="literal">beaker-rspec</code>. The Zlib library is also needed (binaries and headers).</p></div></div><p>We also <a id="id838" class="indexterm"/>need another gem containing helpers: <code class="literal">beaker-puppet_install_helper</code>. This gem is mainly used to install Puppet in boxes during tests:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ sudo puppet resource package beaker-puppet_install_helper provider=puppet_gem</strong></span>
+</pre></div><p>We first need to define a list of supported platforms for running test acceptances. Each platform must be defined in a YAML file in <code class="literal">spec/acceptance/nodesets</code>. Since our code only works on Ubuntu, let's define a single platform in <code class="literal">spec/acceptance/nodesets/default.yml</code>:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>HOSTS:</strong></span>
+<span class="strong"><strong>  ubuntu-1604-x64:</strong></span>
+<span class="strong"><strong>    roles:</strong></span>
+<span class="strong"><strong>      - agent</strong></span>
+<span class="strong"><strong>      - default</strong></span>
+<span class="strong"><strong>    platform: ubuntu-16.04-amd64</strong></span>
+<span class="strong"><strong>    hypervisor: vagrant</strong></span>
+<span class="strong"><strong>    box: bento/ubuntu-16.04</strong></span>
+<span class="strong"><strong>CONFIG:</strong></span>
+<span class="strong"><strong>  type: foss</strong></span>
+</pre></div><p>As you can see, we will use Vagrant as hypervisor, with an Ubuntu Xenial box.</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note56"/>Note</h3><p>
+<code class="literal">type: foss</code> means that the open source edition of Puppet will be used.</p></div></div><p>Now we can run Beaker:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ rake beaker</strong></span>
+<span class="strong"><strong>/opt/puppetlabs/puppet/bin/ruby -I/opt/puppetlabs/puppet/lib/ruby/gems/2.1.0/gems/rspec-support-3.6.0.beta1/lib:/opt/puppetlabs/puppet/lib/ruby/gems/2.1.0/gems/rspec-core-3.6.0.beta1/lib /opt/puppetlabs/puppet/lib/ruby/gems/2.1.0/gems/rspec-core-3.6.0.beta1/exe/rspec --pattern spec/acceptance --color</strong></span>
+<span class="strong"><strong>No examples found.</strong></span>
+<span class="strong"><strong>Finished in 0.00081 seconds (files took 0.14125 seconds to load)</strong></span>
+<span class="strong"><strong>0 examples, 0 failures</strong></span>
+</pre></div><a id="id839" class="indexterm"/><a id="id840" class="indexterm"/><p>No acceptance test has been defined yet, but we will see how to write one in the next pages.</p></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec211"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Bats <a id="id841" class="indexterm"/>testing framework: <a class="ulink" href="https://github.com/sstephenson/bats">https://github.com/sstephenson/bats</a></li><li class="listitem" style="list-style-type: disc">RSpec: <a class="ulink" href="http://rspec.info/">http://rspec.info/</a></li><li class="listitem" style="list-style-type: disc">ServerSpec: <a class="ulink" href="http://serverspec.org/">http://serverspec.org/</a></li><li class="listitem" style="list-style-type: disc">Test <a id="id842" class="indexterm"/>Kitchen drivers: <a class="ulink" href="https://rubygems.org/search?query=kitchen-">https://rubygems.org/search?query=kitchen-</a></li></ul></div></div></div>
+<div class="section" title="Integration testing with ServerSpec"><div class="titlepage"><div><div><h1 class="title"><a id="ch07lvl1sec85"/>Integration testing with ServerSpec</h1></div></div></div><p>Integration <a id="id843" class="indexterm"/>testing comes after unit testing: we're now testing the actual functionality on a real black box system. We're probably using many cookbooks that are doing a lot of things, each unit tested in an early stage, but how are they playing together for real? Everything assembled together, intentions might match, but reality can be very different. Overrides might overlap, a forgotten recipe can change behavior, a service might not start and then changes will happen, regression can be introduced, or newer systems or updates can break; there are countless reasons why things can go wrong at a certain point on a real system. That's the reason we need integration testing; testing the outcome of the combination of all our cookbooks applied to a real test system, and now.</p><p>In the case of Chef, we have a great tool to help us for this matter named Test Kitchen, which we previously installed and configured to run and execute tests. Let's now write these tests!</p><p>We'll write integrations tests for the <code class="literal">mysite</code> cookbook written in <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet,</em></span> for demonstration purposes, but those are completely generic and can be reused anywhere. We'll test for services, files, directories, yum repositories, packages, ports, and injected content. This way, we'll be certain that the code we're writing actually does what it's expected to do in the (simulated) real world!</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note57"/>Note</h3><p>We strongly suggest that you add those integrations tests to an automated CI system. So that after a change in the code, tests can be automatically launched and as time go by, complexity soars with many cases added, so you just don't have to think about it: it's all going to be tested, and if your change breaks something you missed, you'll know it in seconds. Nobody wants to manually verify that nothing breaks on three versions of four operating systems at each change.</p></div></div><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec212"/>Getting ready</h2></div></div></div><p>To step <a id="id844" class="indexterm"/>through this recipe, you will need the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">A working Chef DK installation on the workstation</li><li class="listitem" style="list-style-type: disc">A working Vagrant installation on the workstation</li><li class="listitem" style="list-style-type: disc">The Chef code from <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet,</em></span> or any custom Chef code</li></ul></div></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec213"/>How to do it…</h2></div></div></div><p>Depending on how the cookbooks we test are created, a <code class="literal">test</code> folder can be created with some sample content under it. We don't need it, so be sure to get rid of everything under the <code class="literal">test</code> folder to start fresh. We'll use the <code class="literal">mysite</code> cookbook from <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet,</em></span> as the base cookbook to build our ServerSpec tests on, but obviously those tests can be used anywhere:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ cd cookbooks/mysite</strong></span>
+<span class="strong"><strong>$ rm -rf test/*</strong></span>
+</pre></div><p>Test Kitchen works with <span class="emphasis"><em>test suites</em></span>, and consequently expects a folder hierarchy with the same name as the suite name, in an <code class="literal">integration</code> folder. The final folder hierarchy for a <code class="literal">default</code> test suite will then be <code class="literal">mysite/test/integration/default/serverspec</code>.</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ mkdir -p test/integration/default/serverspec</strong></span>
+</pre></div><div class="section" title="Creating a ServerSpec helper script"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec151"/>Creating a ServerSpec helper script</h3></div></div></div><p>ServerSpec <a id="id845" class="indexterm"/>needs a minimum of two lines of configuration that must be repeated on each test. Instead of repeating ourselves, let's create a helper script in <code class="literal">test/integration/default/serverspec/spec_helper.rb</code>:</p><div class="informalexample"><pre class="programlisting">require 'serverspec'
+# Required by serverspec
+set :backend, :exec</pre></div><p>Now all our tests will just need to include the following at the top of the file:</p><div class="informalexample"><pre class="programlisting">require 'spec_helper'</pre></div></div><div class="section" title="Testing a package installation"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec152"/>Testing a package installation</h3></div></div></div><p>Our <a id="id846" class="indexterm"/>cookbooks are doing a lot of things, and among the most important things is package installation. These things were unit tested previously, but now we're in integration. Are those packages really installed? Let's find out by writing the test for the <code class="literal">httpd</code> package in <code class="literal">apache_spec.rb</code>:</p><div class="informalexample"><pre class="programlisting">require 'spec_helper'
+
+describe package('httpd') do
+  it { should be_installed }
+end</pre></div><p>We can now fire up Test Kitchen and see if this specific package is really installed!</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note58"/>Note</h3><p>While writing integration tests, we strongly suggest that you use Test Kitchen to create/converge/set up/verify the sequence and not the simple <code class="literal">kitchen test</code> command that does everything at once—the manual way is much faster!</p></div></div><p>Similarly, testing for the <code class="literal">php</code> packages in a <code class="literal">php_spec.rb</code> file will look exactly the same:</p><div class="informalexample"><pre class="programlisting">require 'spec_helper'
+
+describe package('php') do
+  it { should be_installed }
+end
+
+describe package('php-cli') do
+  it { should be_installed }
+end
+
+describe package('php-mysql') do
+  it { should be_installed }
+end</pre></div></div><div class="section" title="Testing for service status"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec153"/>Testing for service status</h3></div></div></div><p>ServerSpec <a id="id847" class="indexterm"/>allows us to test the actual process status. In the recipe to install the Apache HTTPD server, we requested it to be enabled and running. Let's find out if it's really the case by adding the following to the <code class="literal">apache_spec.rb</code> file:</p><div class="informalexample"><pre class="programlisting">describe service('httpd') do
+  it { should be_enabled }
+  it { should be_running }
+end</pre></div><p>In the case of our MySQL installation, the documentation from the official cookbook indicates the service is by default named <code class="literal">mysql-default</code> (and not the usual <code class="literal">mysqld</code>). In a <code class="literal">mysql_spec.rb</code> file, add the following:</p><div class="informalexample"><pre class="programlisting">describe service('mysql-default') do
+  it { should be_enabled }
+  it { should be_running }
+end</pre></div></div><div class="section" title="Testing for listening ports"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec154"/>Testing for listening ports</h3></div></div></div><p>ServerSpec <a id="id848" class="indexterm"/>is a great tool to test listening ports. In our case, we expect Apache to listen on port <code class="literal">80</code> (HTTP) and we configured MySQL to listen to <code class="literal">3306</code>. Add the following to the <code class="literal">apache_spec.rb</code> file:</p><div class="informalexample"><pre class="programlisting">describe port('80') do
+  it { should be_listening }
+end</pre></div><p>Similarly, add the following for MySQL in the <code class="literal">mysql_spec.rb</code> file:</p><div class="informalexample"><pre class="programlisting">describe port('3306') do
+  it { should be_listening }
+end</pre></div></div><div class="section" title="Testing for files existence and content"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec155"/>Testing for files existence and content</h3></div></div></div><p>We previously <a id="id849" class="indexterm"/>unit tested the intention to create all those files in our cookbooks, such as a VirtualHost with a custom name, impacting both filename and <a id="id850" class="indexterm"/>content (that's what the <code class="literal">mysite</code> cookbook from <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet,</em></span> does, override the defaults from the custom apache cookbook). Is it really working? Let's find out by testing our virtual hosting configuration with <code class="literal">vhost_spec.rb</code>:</p><div class="informalexample"><pre class="programlisting">describe file('/etc/httpd/conf.d/mysite.conf') do
+  it { should exist }
+  it { should be_mode 644 }
+  its(:content) { should match /ServerName mysite/ }
+  it { should be_owned_by 'root' }
+  it { should be_grouped_into 'root' }
+end</pre></div><p>This actually proves the default attribute really got overridden by the <code class="literal">mysite</code> value, and the content of the virtual host configuration file also matches this value. The cookbook really works.</p><p>A directory <a id="id851" class="indexterm"/>can similarly be tested like this in the same <code class="literal">vhost_spec.rb</code> file:</p><div class="informalexample"><pre class="programlisting">describe file('/var/www/mysite') do
+  it { should be_directory }
+end</pre></div><p>Another <a id="id852" class="indexterm"/>interesting test to be done is to check the content of the <code class="literal">htpasswd</code> file; in <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet,</em></span> we wrote a recipe making a request to the Chef server for authorized users in a data bag. We unit tested the feature by stubbing the data bag, and then using Test Kitchen, we configured it to simulate the availability of those data bags. Is this Chef Server-specific code really working and adding the <code class="literal">john</code> user in the <code class="literal">htpasswd</code> file while restricting access to it? Let's find out by adding the following to an <code class="literal">htaccess_spec.rb</code> file:</p><div class="informalexample"><pre class="programlisting">describe file('/etc/httpd/htpasswd') do
+  it { should exist }
+  it { should be_mode 660 }
+  its(:content) { should match /john/ }
+  it { should be_owned_by 'root' }
+  it { should be_grouped_into 'root' }
+end</pre></div></div><div class="section" title="Testing for repository existence"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec156"/>Testing for repository existence</h3></div></div></div><p>Our <code class="literal">mysite</code> cookbook example from <a class="link" href="ch06.html" title="Chapter 6. Fundamentals of Managing Servers with Chef and Puppet">Chapter 6</a>, <span class="emphasis"><em>Fundamentals of Managing Servers with Chef and Puppet,</em></span> is using the official Chef cookbook to deploy MySQL, and that includes adding a yum <a id="id853" class="indexterm"/>repository. As it's now an important part of the system, we'd better test for its existence and status! To test a yum repository, add the following to the <code class="literal">mysql_spec.rb</code> file:</p><div class="informalexample"><pre class="programlisting">describe yumrepo('mysql57-community') do
+    it { should be_exist   }
+    it { should be_enabled }
+end</pre></div><p>Many other parts of a system can be tested using ServerSpec, notably in networking (routing tables, gateways, and interfaces), Unix users and groups, real commands, cron jobs, and many more.</p></div></div><div class="section" title="There's more…"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec214"/>There's more…</h2></div></div></div><p>Using <a id="id854" class="indexterm"/>Puppet and Beaker, let's try to write acceptance tests for our Apache module. Acceptance tests needs to be placed in the <code class="literal">spec/acceptance</code> directory.</p><p>We need to define a helper file that will be shared by all acceptance tests. Let's create a <code class="literal">spec/spec_helper_acceptance.rb</code> file with the following content:</p><div class="informalexample"><pre class="programlisting">require 'beaker-rspec'
+require 'beaker/puppet_install_helper'
+
+# Install puppet
+run_puppet_install_helper
+
+RSpec.configure do |c|
+  # Project root
+  proj_root = File.expand_path(File.join(File.dirname(__FILE__), '..'))
+
+  # Output should contain test descriptions
+  c.formatter = :documentation
+
+  # Configure nodes
+  c.before :suite do
+    # Install module 
+    puppet_module_install(:source =&gt; proj_root, :module_name =&gt; 'apache')
+  end
+end</pre></div><p>This helper file will be used to install Puppet on the test box, and populate the module directory with our <code class="literal">apache</code> module.</p><p>As a first basic acceptance test for the main <code class="literal">apache</code> class, let's create <code class="literal">spec/acceptances/classes/apache_spec.rb</code>, with the following content:</p><div class="informalexample"><pre class="programlisting">require 'spec_helper_acceptance'
+
+describe 'Apache' do
+  describe 'Puppet code' do
+    it 'should compile and work with no error' do
+      pp = &lt;&lt;-EOS
+        class { 'apache': }
+      EOS
+
+      apply_manifest(pp, :catch_failures =&gt; true)
+      apply_manifest(pp, :catch_changes =&gt; true)
+    end
+  end
+end</pre></div><p>The goals <a id="id855" class="indexterm"/>of this test are as follows:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Installing Apache using our class.</li><li class="listitem" style="list-style-type: disc">Verifying Puppet applies properly.</li><li class="listitem" style="list-style-type: disc">Verifying that a second run of Puppet does not change anything: we want to prove the code is idempotent.</li></ul></div><p>Let's try <a id="id856" class="indexterm"/>the <a id="id857" class="indexterm"/>test!</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ rake beaker</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>Beaker::Hypervisor, found some vagrant boxes to create</strong></span>
+<span class="strong"><strong>Bringing machine 'ubuntu-1604-x64' up with 'virtualbox' provider...</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>Apache</strong></span>
+<span class="strong"><strong>  Puppet code</strong></span>
+<span class="strong"><strong>localhost $ scp /var/folders/k9/7sp85p796qx7c22btk7_tgym0000gn/T/beaker20161101-75828-1of1g5j ubuntu-1604-x64:/tmp/apply_manifest.pp.cZK277 {:ignore =&gt; }</strong></span>
+<span class="strong"><strong>localhost $ scp /var/folders/k9/7sp85p796qx7c22btk7_tgym0000gn/T/beaker20161101-75828-1l28bth ubuntu-1604-x64:/tmp/apply_manifest.pp.q2Z81Z {:ignore =&gt; }</strong></span>
+<span class="strong"><strong>    should compile and work with no error</strong></span>
+<span class="strong"><strong>Destroying vagrant boxes</strong></span>
+<span class="strong"><strong>==&gt; ubuntu-1604-x64: Forcing shutdown of VM...</strong></span>
+<span class="strong"><strong>==&gt; ubuntu-1604-x64: Destroying VM and associated drives...</strong></span>
+
+<span class="strong"><strong>Finished in 19.68 seconds (files took 1 minute 20.11 seconds to load)</strong></span>
+<span class="strong"><strong>1 example, 0 failures</strong></span>
+</pre></div><p>In this example, Beaker created the box, installed Puppet, uploaded our code, applied Puppet twice to validate our test, and destroyed the box.</p><p>To <a id="id858" class="indexterm"/>have more logs regarding Puppet agent installation and execution, we can add a line <code class="literal">log_level: verbose</code> in the <code class="literal">nodeset</code> file:</p><div class="informalexample"><pre class="programlisting">HOSTS:
+  ubuntu-1604-x64:
+    roles:
+      - agent
+      - default
+    platform: ubuntu-16.04-amd64
+    hypervisor: vagrant
+    box: bento/ubuntu-16.04
+CONFIG:
+  type: foss
+<span class="strong"><strong>  log_level: verbose</strong></span>
+</pre></div><p>Now let's extend our test to use all code contained in the apache module. We want to update the <a id="id859" class="indexterm"/>manifest at the top of the file in order to do the following:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Install apache</li><li class="listitem" style="list-style-type: disc">Define a virtual host</li><li class="listitem" style="list-style-type: disc">Create the root directory of the virtual host</li><li class="listitem" style="list-style-type: disc">Create a <code class="literal">htpasswd</code> file with a test user</li><li class="listitem" style="list-style-type: disc">Create a <code class="literal">.htaccess</code> file in the root directory, using the previous <code class="literal">htpasswd</code> file</li></ul></div><p>Regarding tests, we want to:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Verify Puppet applies</li><li class="listitem" style="list-style-type: disc">Verify the code is idempotent</li><li class="listitem" style="list-style-type: disc">Verify apache is running and activated at boot</li><li class="listitem" style="list-style-type: disc">Verify apache is listening</li><li class="listitem" style="list-style-type: disc">Verify the virtual host is deployed and activated with the correct <code class="literal">DocumentRoot</code></li><li class="listitem" style="list-style-type: disc">Verify the <code class="literal">htpasswd</code> file is deployed with a correct content</li><li class="listitem" style="list-style-type: disc">Verify the <code class="literal">.htaccess</code> file is deployed with a correct content</li></ul></div><p>The updated acceptance test code is now as follows:</p><div class="informalexample"><pre class="programlisting">require 'spec_helper_acceptance'
+
+describe 'Apache' do
+  describe 'Puppet code' do
+    it 'should compile and work with no error' do
+      pp = &lt;&lt;-EOS
+        class { 'apache': }
+<span class="strong"><strong>        apache::vhost{'mysite':</strong></span>
+<span class="strong"><strong>          website    =&gt; 'www.sample.com',</strong></span>
+<span class="strong"><strong>          docroot    =&gt; '/var/www/docroot',</strong></span>
+<span class="strong"><strong>        }</strong></span>
+<span class="strong"><strong>        apache::htpasswd{'htpasswd':</strong></span>
+<span class="strong"><strong>          filepath =&gt; '/etc/apache2/htpasswd',</strong></span>
+<span class="strong"><strong>          users    =&gt; [ { "id" =&gt; "user1", "htpasswd" =&gt; "hash1" } ],</strong></span>
+<span class="strong"><strong>        }</strong></span>
+<span class="strong"><strong>        file { '/var/www/docroot':</strong></span>
+<span class="strong"><strong>          ensure =&gt; directory,</strong></span>
+<span class="strong"><strong>          owner  =&gt; 'www-data',</strong></span>
+<span class="strong"><strong>          group  =&gt; 'www-data',</strong></span>
+<span class="strong"><strong>          mode   =&gt; '0755',</strong></span>
+<span class="strong"><strong>        }</strong></span>
+<span class="strong"><strong>        apache::htaccess{'myhtaccess':</strong></span>
+<span class="strong"><strong>          filepath =&gt; '/etc/apache2/htpasswd',</strong></span>
+<span class="strong"><strong>          docroot  =&gt; '/var/www/docroot',</strong></span>
+<span class="strong"><strong>        }</strong></span>
+      EOS
+
+      apply_manifest(pp, :catch_failures =&gt; true)
+      apply_manifest(pp, :catch_changes =&gt; true)
+    end
+  end
+
+<span class="strong"><strong>  # Apache running and enabled at boot ?</strong></span>
+<span class="strong"><strong>  describe service('apache2') do</strong></span>
+<span class="strong"><strong>    it { is_expected.to be_enabled }</strong></span>
+<span class="strong"><strong>    it { is_expected.to be_running }</strong></span>
+<span class="strong"><strong>  end</strong></span>
+
+<span class="strong"><strong>  # Apache listening ?</strong></span>
+<span class="strong"><strong>  describe port(80) do</strong></span>
+<span class="strong"><strong>    it { is_expected.to be_listening }</strong></span>
+<span class="strong"><strong>  end</strong></span>
+
+<span class="strong"><strong>  # Vhost deployed ?</strong></span>
+<span class="strong"><strong>  describe file ('/etc/apache2/sites-available/www.sample.com.conf') do</strong></span>
+<span class="strong"><strong>    its(:content) { should match /DocumentRoot \/var\/www\/docroot/ }</strong></span>
+<span class="strong"><strong>  end</strong></span>
+
+<span class="strong"><strong>  describe file ('/etc/apache2/sites-enabled/www.sample.com.conf') do</strong></span>
+<span class="strong"><strong>    it { is_expected.to be_symlink }</strong></span>
+<span class="strong"><strong>  end</strong></span>
+
+<span class="strong"><strong>  # htpasswd file deployed ?</strong></span>
+<span class="strong"><strong>  describe file ('/etc/apache2/htpasswd') do</strong></span>
+<span class="strong"><strong>    its(:content) { should match /user1:hash1/ }</strong></span>
+<span class="strong"><strong>  end</strong></span>
+
+<span class="strong"><strong>  # htaccess file deployed ?</strong></span>
+<span class="strong"><strong>  describe file ('/var/www/docroot/.htaccess') do</strong></span>
+<span class="strong"><strong>    its(:content) { should match /AuthUserFile \/etc\/apache2\/htpasswd/ }</strong></span>
+<span class="strong"><strong>  end</strong></span>
+
+<span class="strong"><strong>end</strong></span>
+</pre></div><p>Now, let's <a id="id860" class="indexterm"/>try to run Beaker again:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$ rake beaker</strong></span>
+<span class="strong"><strong>…</strong></span>
+<span class="strong"><strong>…</strong></span>
+<span class="strong"><strong>Beaker::Hypervisor, found some vagrant boxes to create</strong></span>
+<span class="strong"><strong>Bringing machine 'ubuntu-1604-x64' up with 'virtualbox' provider...</strong></span>
+<span class="strong"><strong>…</strong></span>
+<span class="strong"><strong>…</strong></span>
+<span class="strong"><strong>Apache</strong></span>
+<span class="strong"><strong>  Puppet code</strong></span>
+<span class="strong"><strong>localhost $ scp /var/folders/k9/7sp85p796qx7c22btk7_tgym0000gn/T/beaker20161103-41882-1twwbr2 ubuntu-1604-x64:/tmp/apply_manifest.pp.nWPdZJ {:ignore =&gt; }</strong></span>
+<span class="strong"><strong>localhost $ scp /var/folders/k9/7sp85p796qx7c22btk7_tgym0000gn/T/beaker20161103-41882-73vqlb ubuntu-1604-x64:/tmp/apply_manifest.pp.0Jht7j {:ignore =&gt; }</strong></span>
+<span class="strong"><strong>    should compile and work with no error</strong></span>
+<span class="strong"><strong>  Service "apache2"</strong></span>
+<span class="strong"><strong>    should be enabled</strong></span>
+<span class="strong"><strong>    should be running</strong></span>
+<span class="strong"><strong>  Port "80"</strong></span>
+<span class="strong"><strong>    should be listening</strong></span>
+<span class="strong"><strong>  File "/etc/apache2/sites-available/www.sample.com.conf"</strong></span>
+<span class="strong"><strong>    content</strong></span>
+<span class="strong"><strong>      should match /DocumentRoot \/var\/www\/docroot/</strong></span>
+<span class="strong"><strong>  File "/etc/apache2/sites-enabled/www.sample.com.conf"</strong></span>
+<span class="strong"><strong>    should be symlink</strong></span>
+<span class="strong"><strong>  File "/etc/apache2/htpasswd"</strong></span>
+<span class="strong"><strong>    content</strong></span>
+<span class="strong"><strong>      should match /user1:hash1/</strong></span>
+<span class="strong"><strong>  File "/var/www/docroot/.htaccess"</strong></span>
+<span class="strong"><strong>    content</strong></span>
+<span class="strong"><strong>      should match /AuthUserFile \/etc\/apache2\/htpasswd/</strong></span>
+<span class="strong"><strong>Destroying vagrant boxes</strong></span>
+<span class="strong"><strong>==&gt; ubuntu-1604-x64: Forcing shutdown of VM...</strong></span>
+<span class="strong"><strong>==&gt; ubuntu-1604-x64: Destroying VM and associated drives...</strong></span>
+
+<span class="strong"><strong>Finished in 20.22 seconds (files took 1 minute 24.54 seconds to load)</strong></span>
+<span class="strong"><strong>8 examples, 0 failures</strong></span>
+</pre></div><p>We now <a id="id861" class="indexterm"/>have a complete acceptance test suite for our Apache module!</p></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec215"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">ServerSpec GitHub: <a class="ulink" href="https://github.com/serverspec/">https://github.com/serverspec/</a></li><li class="listitem" style="list-style-type: disc">ServerSpec Homepage: <a class="ulink" href="http://serverspec.org/">http://serverspec.org/</a></li><li class="listitem" style="list-style-type: disc">Test Kitchen Homepage: <a class="ulink" href="http://kitchen.ci/">http://kitchen.ci/</a></li><li class="listitem" style="list-style-type: disc">A sample skeleton for Puppet module with Beaker enabled: <a class="ulink" href="https://gitlab.com/joshbeard/puppet-module-test">https://gitlab.com/joshbeard/puppet-module-test</a></li></ul></div></div></div></body></html>

@@ -1,0 +1,712 @@
+<html><head></head><body><div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Exploring Advanced Synchronization Concepts</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root CDPAlignLeft CDPAlign">In current projects and workshops, we often see that administrators or consultants find handling the Azure AD Connect synchronization engine difficult, especially if the out-of-the-box functionality configured by the wizard doesn't work as expected in their scenarios. The chapter will give you all the needed knowledge so that you can handle basic and advanced synchronization requirements.</p>
+<p class="mce-root">In this chapter, we'll discuss advanced synchronization concepts. We'll look into the synchronization rules and work with practical situations to provide you with the information and practical experience you need to solve common requests in your projects or solutions. Furthermore, we explain the declarative provisioning and expressions concept and use them directly in real-world examples. Another topic in this chapter is the connection to an additional untrusted Active Directory forest. Finally, we'll give you an idea of the special considerations you need to handle.</p>
+<p class="mce-root">This chapter is organized into the following topics:</p>
+<ul>
+<li>Understanding declarative provisioning and expressions</li>
+<li>Synchronization rules explained</li>
+<li>Special considerations in advanced synchronization concepts</li>
+</ul>
+<p>We will start with the steps to prepare our lab environment.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Preparing your lab environment</h1>
+                </header>
+            
+            <article>
+                
+<p>To work through the guidance provided in this chapter, we need to arrange some preparation tasks. You need to provide an additional public DNS suffix (which in my case is <kbd>azureid.ch</kbd>) that represents <kbd>YOURDOMAIN2.COM</kbd>. We need to add this other domain as a custom domain in the first Azure AD tenant (<span><kbd>YOURDOMAIN1.ONMICROSOFT.COM</kbd>), which </span>we used in <a href="c0918163-6616-4bdb-aa82-4a65f578d268.xhtml" target="_blank">Chapter 2</a>, <em>Understanding Identity Synchronization</em><em>:</em></p>
+<p>Use the following steps to start the configuration:</p>
+<ol>
+<li>Open the Azure Portal: <a href="https://portal.azure.com">https://portal.azure.com.</a></li>
+<li>Navigate to the Azure AD blade. </li>
+<li>Click <span class="packt_screen">Custom domains. </span></li>
+<li>Click <span class="packt_screen">Add custom domain. </span></li>
+<li>Use your additional domain name:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/8512cad3-370b-474d-bc20-8d6f1ec266b9.png" style="width:74.92em;height:18.25em;" width="1425" height="347"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Adding a custom domain</div>
+<ol start="6">
+<li>Configure your public DNS to represent the following verification entry:</li>
+</ol>
+<div class="CDPAlignCenter packt_figref CDPAlign"><img src="Images/3e627533-2e35-4cb6-8997-9e829b0a91ff.png" style="width:34.75em;height:26.67em;" width="578" height="443"/></div>
+<div class="packt_figref CDPAlignCenter CDPAlign">Custom domain verification</div>
+<ol start="7">
+<li>Click <span class="packt_screen">Verify</span>. </li>
+<li>The following result is expected:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/6a2d0cd5-2ad9-4904-a690-5e35da8c3038.png" style="width:81.17em;height:9.50em;" width="1253" height="147"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Verified domains overview</div>
+<p>The following diagram shows the complete lab environment we'll use in this book:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/d225759d-93f9-4a85-9839-30377eb0178f.png" width="1098" height="767"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Lab environment overview</div>
+<p>Furthermore, we need to configure a new Active Directory Forest that uses the new domain name. Use the preceding specifications to create the virtual machine to host the domain controller. Create the same organizational structure and users, just like you did for the first Active Directory forest that we used in the <a href="c0918163-6616-4bdb-aa82-4a65f578d268.xhtml" target="_blank">Chapter 2</a>, <em>Understanding Identity Synchronization</em>. You'll find all the scripts in this book's code package. Don't worry—we'll do the configuration in this chapter to avoid errors in your lab. After preparing the lab environment, we can start working through this chapter.</p>
+<div class="packt_infobox">We are focusing on the synchronization process in this chapter to adopt the authentication parts you can use the resources from <a href="1f239a9c-c62a-4e40-ab58-ce78cd87e8be.xhtml" target="_blank">Chapter 6</a>, <em>Managing Authentication Protocols</em>, <a href="468509fa-856c-411d-abdb-e9a39c266750.xhtml" target="_blank">Chapter 7</a>, <span><em>Deploying Solutions on Azure AD and ADFS</em></span>, <span>and <a href="efbe1917-c755-4449-b29e-fa4a21e819fd.xhtml" target="_blank">Chapter 8</a>, </span><span><em>Using the Azure AD App Proxy and the Web Application Proxy</em>.</span></div>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Understanding declarative provisioning and expressions</h1>
+                </header>
+            
+            <article>
+                
+<p>The easiest way to explain declarative provisioning is as follows: objects are processed from the source connected directory to the target source by evaluating how the objects and the associated attributes should be transformed. This is controlled by inbound rules from the connector space to the metaverse and outbound rules from the metaverse to the connector space. The following diagram gives you an overview of all of the components:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/5b481b4a-e626-42bb-8d68-482c634be89a.png" style="width:49.25em;height:18.92em;" width="970" height="373"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Declarative provisioning options and components overview</div>
+<p>Declarative provisioning provides the following capabilities:</p>
+<ul>
+<li>The only way to configure the sync engine</li>
+<li>Functions to configure attribute flows</li>
+<li>Precedence is on SRs (not on Connectors)</li>
+<li><span class="packt_screen">MV—</span>deletion rules now use declarative provisioning</li>
+<li>Introduces parameters, such as <kbd>%Domain.Netbios%</kbd></li>
+<li>Configured through PowerShell</li>
+</ul>
+<p>The attribute-flow expression language can be explained as follows:</p>
+<ul>
+<li>Written in <strong>Visual Basic for Applications</strong> (<strong><span>VBA</span></strong>)</li>
+<li>Stricter syntax:
+<ul>
+<li>Useful errors for easy troubleshooting</li>
+<li>Strongly-typed for different data types</li>
+</ul>
+</li>
+</ul>
+<ul>
+<li>Evolved expressions:
+<ul>
+<li><kbd>[attributename]</kbd>, <kbd>%parametername%</kbd></li>
+<li><kbd>&amp;H</kbd> (hexadecimal value)</li>
+<li>Constants—<kbd>CRLF</kbd>, <kbd>True</kbd>, <kbd>False</kbd>, <kbd>NULL</kbd></li>
+</ul>
+</li>
+</ul>
+<p>It brings the following attribute flow operators into the game:</p>
+<ul>
+<li><strong>String concatenate</strong>: <kbd>&amp;</kbd></li>
+<li><strong>Mathematics</strong>: <kbd>+</kbd>, <kbd>-</kbd>, <kbd>*</kbd>, <kbd>/</kbd></li>
+<li><strong>Comparison</strong>: <kbd>=</kbd>, <kbd>&lt;</kbd>, <kbd>&gt;</kbd>, <kbd>&lt;&gt;</kbd>, <kbd>&lt;=</kbd>, <kbd>&gt;=</kbd></li>
+<li><strong>Evaluation order</strong>: <kbd>( )</kbd></li>
+<li><strong>Logical operator</strong>: <kbd>&amp;&amp;</kbd> (and) <kbd>||</kbd> (or)</li>
+</ul>
+<p>It also provides a lot of functions for the attribute flow, as follows:</p>
+<table style="border-collapse: collapse;width: 100%" border="1">
+<tbody>
+<tr>
+<td>
+<p><strong>Conversion</strong></p>
+</td>
+<td>
+<p><kbd>CBool</kbd></p>
+<p><kbd>CDate</kbd></p>
+<p><kbd>CGuid</kbd></p>
+<p><kbd>ConvertFromBase64</kbd></p>
+<p><kbd>ConvertToBase64</kbd></p>
+<p><kbd>CNum</kbd></p>
+<p><kbd>CRef</kbd></p>
+<p><kbd>CStr</kbd></p>
+<p><kbd>StringFromGuid</kbd></p>
+<p><kbd>StringFromSid</kbd></p>
+</td>
+<td>
+<p><strong>Math</strong></p>
+</td>
+<td><kbd>BitAnd</kbd>
+<p><kbd>BitOr</kbd></p>
+<p><kbd>RandomNum</kbd></p>
+</td>
+</tr>
+<tr>
+<td>
+<p><strong>Date/time</strong></p>
+</td>
+<td><kbd>DateAdd</kbd>
+<p><kbd>DateFromNum</kbd></p>
+<p><kbd>FormatDateTime</kbd></p>
+<p><kbd>Now</kbd></p>
+<p><kbd>NumFromDate</kbd></p>
+</td>
+<td>
+<p><strong>Multi-valued</strong></p>
+</td>
+<td><kbd>Contains</kbd><br/>
+<p><kbd>Count</kbd></p>
+<p><kbd>Item</kbd></p>
+<p><kbd>Join</kbd></p>
+<p><kbd>RemoveDuplicates</kbd></p>
+<p><kbd>Split</kbd></p>
+</td>
+</tr>
+<tr>
+<td>
+<p><strong>Directory</strong></p>
+</td>
+<td><kbd>DNComponent</kbd>
+<p><kbd>DNComponentRev</kbd></p>
+<p><kbd>EscapeDNComponent</kbd></p>
+</td>
+<td>
+<p><strong>Program flow</strong></p>
+</td>
+<td><kbd>Error</kbd>
+<p><kbd>IIF</kbd></p>
+<p><kbd>Switch</kbd></p>
+</td>
+</tr>
+<tr>
+<td>
+<p><strong>Inspection</strong></p>
+</td>
+<td><kbd>IsBitSet</kbd>
+<p><kbd>IsDate</kbd></p>
+<p><kbd>IsEmpty</kbd></p>
+<p><kbd>IsGuid</kbd></p>
+<p><kbd>IsNull</kbd></p>
+<p><kbd>IsNullOrEmpty</kbd></p>
+<p><kbd>IsNumeric</kbd></p>
+<p><kbd>IsPresent</kbd></p>
+<p><kbd>IsString</kbd></p>
+</td>
+<td>
+<p><strong>Text</strong></p>
+</td>
+<td><kbd>GUID</kbd>
+<p><kbd>InStr</kbd></p>
+<p><kbd>InStrRev</kbd></p>
+<p><kbd>LCase </kbd></p>
+<p><kbd>Left</kbd></p>
+<p><kbd>Len</kbd></p>
+<p><kbd>LTrim</kbd></p>
+<p><kbd>Mid</kbd></p>
+<p><kbd>PadLeft </kbd></p>
+<p><kbd>PadRight </kbd></p>
+<p><kbd>PCase </kbd></p>
+<p><kbd>Replace </kbd></p>
+<p><kbd>ReplaceChars</kbd></p>
+<p><kbd>Right</kbd></p>
+<p><kbd>RTrim</kbd></p>
+<p><kbd>Trim</kbd></p>
+<p><kbd>UCase </kbd></p>
+<p><kbd>Word</kbd></p>
+</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>In the following section, we'll explain these components in detail to provide you with a better understanding.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Synchronization rules explained</h1>
+                </header>
+            
+            <article>
+                
+<p>Azure AD Connect uses an extra user interface in the <span class="packt_screen">Synchronization Rules Editor</span> to manage the synchronization logic. In the following screenshot, you can see all of the synchronization rules have been created for your basic configuration. Every entry is one synchronization rule. In the <span class="packt_screen">Direction</span> dropdown, you can choose between two different types: <span class="packt_screen">Inbound</span> and <span class="packt_screen">Outbound</span>. Practically, we say that the <span class="packt_screen">Inbound</span> and <span class="packt_screen">Outbound</span> synchronization is always viewed from the metaverse perspective. In my explanations, I'll use the <span class="packt_screen">inbound</span> <span class="packt_screen">synchronization rules</span> because we will find the related information there.</p>
+<p>In the following screenshot, we can see the connected Active Directory forest (<kbd>inovitdemos.ch</kbd>) and that it doesn't have any services, such as Exchange or Skype for Business, and no synchronization rules have been created for these services:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/9438d5a8-9150-49f5-b76f-5a848a3837e9.png" width="943" height="730"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Synchronization rules overview<span>—</span>Inbound</div>
+<p>With the following steps, we will gather more information on the practical usage of the tool:</p>
+<ol>
+<li><span>V</span>iew this configuration on your <span class="packt_screen">YD1ADS01</span>.</li>
+<li>Click on <span class="packt_screen">Start</span> and navigate to <span class="packt_screen">Azure AD Connect</span>.</li>
+</ol>
+<ol start="3">
+<li>Click on <span class="packt_screen">Synchronization Rules Editor</span>:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/c89b2e4e-e5b7-4ca4-a097-32212203dcd7.png" style="width:19.58em;height:14.92em;" width="250" height="190"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Start Menu<span>—</span>Synchronization Rules Editor</div>
+<p>AAD Connect provides several default synchronization rules based on your configuration. The templates for these rules can be found under <kbd>C:\Program Files\Microsoft Azure AD Connect\SynchronizationRulesTemplates</kbd> and are XML-based:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/8667ee0a-fa52-47cf-a4b6-203b36b6b9af.png" style="width:52.33em;height:15.58em;" width="917" height="273"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Synchronization rules templates overview</div>
+<p>The screenshot of the <span class="packt_screen">Synchronization Rules Editor</span> shows the different rules and their precedence.</p>
+<p>Microsoft always generates the first rule with the number <kbd>100</kbd> and iterates over all connectors. They read the first item in that file (sorted by precedence). It has the name of a rule and the criteria for being added. Then, they generate the first rule with the number <kbd>100</kbd> and iterate over all connectors. If there are multiple connectors, the <kbd>whenCreated</kbd> date/time is used as the arbitrator.</p>
+<p>In the following screenshot, we'll take an in-depth look into a <span class="packt_screen">synchronization rule</span>:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/deba353b-d27a-43b5-befb-0a3056ed38b2.png" style="width:54.92em;height:36.33em;" width="922" height="610"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Inbound synchronization rule details</div>
+<p><span>Here, we'll find detailed information about the </span><span class="packt_screen">Connected System</span><span> for which the rule applies. Further details are the object type in the metaverse and the connector space of the synchronization engine. As we can see in the preceding example, the object type in the connector space is called a user, which represents a user account in an Active Directory, for example. The </span><span class="packt_screen">Metaverse Object Type</span><span> for a user is always a </span><span class="packt_screen">person</span><span>. Under the </span><span class="packt_screen">Link Type</span><span>, you can choose between </span><span class="packt_screen">Join</span><span>, </span><span class="packt_screen">StickyJoin</span><span>, and </span><span class="packt_screen">Provision</span><span>. We already discussed the join and provision option in</span> <a href="c0918163-6616-4bdb-aa82-4a65f578d268.xhtml" target="_blank">Chapter 2</a><span>, <em>Understanding Identity Synchronization</em>. The </span><span class="packt_screen">StickyJoin</span><span> option can be used if the provisioning of a new object to the metaverse is prohibited. Furthermore, the rule is enabled for password synchronization.</span></p>
+<p>In the following screenshot, we explore the <span class="packt_screen">Scoping filter</span> capabilities. The following rule applies only if the user is enabled in the Active Directory. We use the<span> </span><span><span class="packt_screen">userAccountControl</span> attribute to</span><span> identify the status of the user</span><span>. This screenshot shows us that the value isn't required to have the bit <kbd>2</kbd> not set. The value for an enabled user in Active Directory is <kbd>512</kbd>, and <kbd>514</kbd> for a disabled one:</span></p>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/2d8dab24-4f30-4e0b-91f3-f82ccce63d6b.png" style="width:54.83em;height:36.17em;" width="921" height="607"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Scoping filter options</div>
+<p>Within the <span class="packt_screen">Scoping filter</span>, we can see that there are groups and clauses that can be nested. To apply a rule, all clauses inside a group need to be met. A rule has two types of logical operators: the logical OR operator that's used between groups and the logical AND within a group.</p>
+<p class="mce-root">We'll take a closer look at the <kbd>Out to AAD—Group Join</kbd> rule, which is shown in the following screenshot. We can find an example of the different group types and how they get handled.</p>
+<p class="mce-root">The rule shown in the following screenshot regulates how and which groups are provisioned to the Azure AD. Also, other attributes will be checked from the rule:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/1dcbf78c-344b-4bfd-b5a7-64332b495526.png" style="width:58.25em;height:38.42em;" width="922" height="609"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">More Scoping filter options</div>
+<p>In the following example, we look into the <kbd>In from AD—User Join rule</kbd>, where we find <span class="packt_screen">m</span><span class="packt_screen">s-DS-ConsistencyGuid</span> and <span class="packt_screen">objectGuid</span> handling for joining users from the connector space to the metaverse. Keep in mind that join rules will only be checked once. The link between the connector space and the metaverse object exists until the conditions in the synchronization rule will not be achieved. It's important to know that the synchronization engine will show an error when multiple join rules want to be applied:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/f9563612-2cf0-4375-9e5a-ff41287fff69.png" width="924" height="609"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Join rules example</div>
+<p>For transformations types, such as constant, direct or expression can be used. If we use a constant flow, we can write a value directly into the chosen attribute. With a direct flow, the attribute from the source system will be used in the target attribute. With <strong>Visual Basic for Applications</strong> (<strong>VBA</strong>), we can develop extended configurations. The syntax for attributes is the square brackets, such as <span class="packt_screen">company</span> or <span class="packt_screen">department</span>, as shown in the following screenshot. Keep in mind that you need to work with case-sensitive functions and attribute names. You can also use nesting options in your rules.</p>
+<p>The following screenshot shows the transformations of the <kbd>In from AD—User common</kbd> rule:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/2f90a56e-4dd0-40e7-a8ff-253c94d10cda.png" style="width:56.17em;height:37.00em;" width="924" height="609"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Transformation rule example</div>
+<p>We worked through individual synchronization rules. Sometimes, many synchronization rules are applied to one target attribute. The <kbd>sourceAnchor</kbd> in the following screenshot can be used as an example. There, you can see that two rules have been applied to the attribute. Now, precedence comes into the game and decides which rule will be used. View the following screenshots to follow the explanation:</p>
+<ul>
+<li><kbd>In from AD—User AccountEnabled</kbd>:</li>
+</ul>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/0a571f62-d37a-4246-8ae2-d995a401d0cd.png" style="width:34.00em;height:6.33em;" width="530" height="99"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Expression example for AccountEnabled</div>
+<ul>
+<li><kbd>In from AD—User Common</kbd>:</li>
+</ul>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/e39fb761-ea30-46fd-8f68-77e3b0b6c386.png" style="width:35.92em;height:6.92em;" width="532" height="102"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Expression example sourceAnchor</div>
+<p>In the case of <kbd>sourceAnchor</kbd>, an enabled account from the connected Active Directory will be populated to the Azure AD. If no enabled account is available in any connected Active Directory, the <kbd>In from AD—User Common</kbd> rule applies. The default behavior for multiple connected Active Directories is that the <kbd>In from AD—User Join</kbd> rule has the highest precedence. So, the system iterates through all connected Active Directories.</p>
+<p>Now that we have introduced you to the concepts of declarative provisioning and synchronization rules, we'll configure some examples.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Special considerations in advanced synchronization concepts</h1>
+                </header>
+            
+            <article>
+                
+<p>In this section, we'll start using our knowledge in practical examples. First, we'll explore some essential functions that can be used out of the box. In some environments, you have the requirement that an organization has an <strong>organizational unit</strong> (<strong>OU</strong>) filter in place, where all users are included in this OU. But now that you need to filter out, this shouldn't be synchronized to the Azure AD. Furthermore, we'll integrate a second AD forest and use PowerShell to configure the synchronization rules.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Using standard filters to exclude users and groups</h1>
+                </header>
+            
+            <article>
+                
+<p>In this section, we'll use the standard filtering options to exclude users and groups to be synchronized to the metaverse:</p>
+<ol>
+<li>Log in as domain administrator to your <span class="packt_screen">YD1ADS01</span>.</li>
+<li>Open the Active Directory Users and Computers console (<kbd>dsa.msc</kbd>).</li>
+<li>Be sure that you are in the advanced features view:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/8732c575-25d0-4e3f-a883-8e28a955e2e8.png" style="width:23.42em;height:15.50em;" width="373" height="247"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Active Directory Users and Computers—Advanced Features option</div>
+<ol start="4">
+<li>Choose one of your users and move to the <span class="packt_screen">Attribute Editor</span> tab.</li>
+<li class="mce-root">Edit the <span class="packt_screen">adminDescription</span> attribute and enter <kbd>User_NoSync</kbd>, where <kbd>User_</kbd> is the important part:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/fc91ea9e-e48a-43cf-bbb9-0f68c3a8b6de.png" style="width:26.58em;height:27.58em;" width="405" height="421"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">adminDescription filtering option</div>
+<ol start="6">
+<li>Save your settings and minimize the console.</li>
+<li>Open the <span class="packt_screen">Synchronization Rules Editor</span>.</li>
+<li>Edit the rule <kbd>In from AD - User Common</kbd>.</li>
+<li>Click on <span class="packt_screen">Scoping filter</span>.</li>
+<li>You'll see a <span class="packt_screen">Scoping filter</span> with the following clause:</li>
+</ol>
+<pre style="padding-left: 90px"><strong>adminDescription NOTSTARTSWITH User_</strong></pre>
+<p class="mce-root"/>
+<p style="padding-left: 60px">The following screenshot shows the configuration to filter users to synchronize to Azure AD by filling the <kbd>adminDescription</kbd> attribute:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/2543e3fc-4fc8-4398-a432-546462a82d91.png" style="width:61.50em;height:37.42em;" width="920" height="560"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Rule configuration to filter specific users</div>
+<ol start="11">
+<li>Click <span class="packt_screen">Cancel</span> and minimize the synchronization rules editor.</li>
+<li>Open the <span class="packt_screen">Synchronization Service Manager</span>.</li>
+<li>Click on <span class="packt_screen">Connectors</span> and start a delta import on your Active Directory connector.</li>
+<li>You'll get an update in the sync statistics:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/c5441614-42b2-477b-9a10-d9e98ccc542f.png" style="width:21.83em;height:10.92em;" width="333" height="166"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Delta import synchronization statistics</div>
+<ol start="15">
+<li>Click on <span class="packt_screen">Updates</span>.</li>
+<li>You'll notice add on your modified user account:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/791a8505-b55d-4802-9020-827d0470e5e7.png" width="969" height="390"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">adminDescription attribute flow</div>
+<ol start="17">
+<li>Click on <span class="packt_screen">Preview</span>.</li>
+<li>Choose <span class="packt_screen">Delta Synchronization</span>.</li>
+<li>Click <span class="packt_screen">Generate Preview</span>:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/0d4f31d6-5bfe-4ddd-9360-870b9d8b3595.png" width="888" height="332"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Synchronization preview options</div>
+<ol start="20">
+<li>You'll see in the result that the <span class="packt_screen">Object Deletion Rule</span> was satisfied:</li>
+</ol>
+<div class="CDPAlignCenter packt_figref CDPAlign"><img src="Images/367cb67f-c54c-4ea3-ada9-dcd78a3bdded.png" style="width:46.25em;height:17.58em;" width="626" height="238"/></div>
+<div class="packt_figref CDPAlignCenter CDPAlign">Object deletion rule preview</div>
+<ol start="21">
+<li>Click on <span class="packt_screen">Connector Deprovisioning</span>:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/3e9bd5dc-714f-4c35-aa92-110c93e1e35f.png" style="width:55.58em;height:13.58em;" width="889" height="217"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Connector Deprovisioning preview</div>
+<ol start="22">
+<li>The object will be disconnected.</li>
+<li>Click <span class="packt_screen">Close</span>.</li>
+<li>Click <span class="packt_screen">Preview</span>.</li>
+<li>Chose <span class="packt_screen">Delta synchronization.</span></li>
+</ol>
+<ol start="26">
+<li>Click <span class="packt_screen">Commit Preview</span>:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/86dc303a-3f7b-4d38-882e-c84281f6ab33.png" style="width:59.92em;height:22.33em;" width="889" height="330"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Preview commitment option</div>
+<ol start="27">
+<li>Open a <span class="packt_screen">Metaverse Search</span>:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/ac43bdd8-b0a3-4230-a251-a8dfadc2a90d.png" style="width:63.25em;height:30.08em;" width="1010" height="480"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Metaverse search option</div>
+<ol start="28">
+<li>Click <span class="packt_screen">Search</span>.</li>
+<li>Aaron Painter no longer exists in the Metaverse.</li>
+<li>Run an <span class="packt_screen">Export</span> on the Azure AD connector:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/d697a01a-5f8b-4d83-aa00-d058543afdba.png" style="width:66.25em;height:27.67em;" width="1007" height="420"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Export run profile execution on Azure AD</div>
+<ol start="31">
+<li>You'll get a delete in the sync statistics.</li>
+<li>Click <span class="packt_screen">Deletes</span>:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/4255e4e7-7904-4690-bcb9-4b8df6fc37c1.png" style="width:14.42em;height:8.25em;" width="209" height="119"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Export Statistics on Azure AD</div>
+<ol start="33">
+<li>Click on the object GUID:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/45f15b27-7fd1-46c8-a986-a3d7ced59954.png" style="width:54.00em;height:22.75em;" width="1007" height="425"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Connector space validation</div>
+<ol start="34">
+<li>Your user will be deleted from the Azure AD.</li>
+<li>You'll see Awaiting Export Confirmation.</li>
+<li>Run delta import on the Azure AD connector.</li>
+<li>The object will be deleted in the connector space of the Azure AD connector:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/557f2c74-c994-49c0-89ed-806e5031042a.png" style="width:39.08em;height:20.58em;" width="792" height="416"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Deletion of the object in the connector space</div>
+<ol start="38">
+<li>Run delta sync on the Azure AD connector to finish the change.</li>
+<li>Open the connector space on the Azure AD connector. You won't find the preceding <kbd>CN=</kbd>:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/c4c676cc-954c-47ba-9398-621fab4897ab.png" style="width:66.50em;height:37.08em;" width="1005" height="561"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Connector space search and validation options</div>
+<p>With this option, you've seen that you can filter objects in a filter OU by filling the <span class="packt_screen">adminDescription</span> attribute with <span class="packt_screen">User_NoSync</span>. The same procedure can be used to filter groups with <kbd>Group_NoSync</kbd>, for example. Here, you can find the specific <kbd>In from AD—Group Common</kbd> inbound rule, which is shown in the following screenshot:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/35772ed6-4700-4766-bc91-4ad29900509b.png" style="width:60.50em;height:25.75em;" width="922" height="393"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">adminDescription usage for groups</div>
+<p>In the next example, we'll build a custom rule.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Building a custom rule for filtering</h1>
+                </header>
+            
+            <article>
+                
+<p>In this example, we'll build our own rule to filter by a specific department. You can use the following procedure in the <span class="packt_screen">Synchronization Rules Editor</span>:</p>
+<ol>
+<li>Open the <span class="packt_screen">Synchronization Rules Editor</span>.<span class="packt_screen"> </span></li>
+<li>Click on <span class="packt_screen">Add New Rule</span> and select <span class="packt_screen">Inbound</span>. </li>
+</ol>
+<ol start="3">
+<li>Configure the <span class="packt_screen">Description</span> section:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/fb173fc2-32c5-41b3-90fc-6c85b20d1275.png" style="width:57.92em;height:25.42em;" width="923" height="405"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Inbound rule creation process</div>
+<ol start="4">
+<li>Build a <span class="packt_screen">Scoping filter</span>:</li>
+</ol>
+<pre style="padding-left: 90px"><strong>department EQUAL Human Resources</strong></pre>
+<ol start="5">
+<li>The configuration should look like this:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/86d24fcd-d080-4e5c-a290-1920dae3d3d3.png" style="width:56.08em;height:19.50em;" width="921" height="320"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Scope filtering by department attribute</div>
+<ol start="6">
+<li>Leave the <span class="packt_screen">Join rules</span>. </li>
+</ol>
+<ol start="7">
+<li>Go to <span class="packt_screen">Transformations </span>and create a transformation:</li>
+</ol>
+<pre style="padding-left: 90px"><strong>Constant cloudFiltered True</strong></pre>
+<ol start="8">
+<li>This is shown in the following <span>screenshot</span>:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/b9f82382-29f6-4c97-b45f-5fa86026d9b8.png" style="width:49.58em;height:13.42em;" width="891" height="241"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Cloud filtering option</div>
+<ol start="9">
+<li>Save the rule and step through the following run profile steps in the synchronization manager:
+<ul>
+<li><strong>Delta</strong> <strong>Import</strong>: AD Connector</li>
+<li><strong>Delta Sync</strong>: AD Connector</li>
+<li><strong>Export</strong>: AAD Connector</li>
+<li><strong>Delta Import</strong>: AAD Connector</li>
+<li><strong>Delta Sync</strong>: AAD Connector</li>
+</ul>
+</li>
+</ol>
+<ol start="10">
+<li>Verify that the human resources users are deleted in your Azure AD. </li>
+</ol>
+<p>With the following example, you can block synchronizing the <kbd>thumbnailPhoto</kbd> with Azure AD. Furthermore, the configuration will also remove other uploaded <kbd>thumbnailPhotos</kbd>.</p>
+<p>You can use the following PowerShell to configure the scenario:</p>
+<pre><strong>$ThumbnailRules = (Get-ADSyncRule | Where-Object {($_.AttributeFlowMappings.Source -eq "thumbnailPhoto") -and ($_.Direction -eq "Inbound")})</strong><br/><br/><strong>foreach($syncrule in $ThumbnailRules) { </strong><br/> <br/><strong>  Write-Host -ForegroundColor Green "Processing Rule $($syncrule.Name)"</strong><br/><strong> $mapping = $syncrule.AttributeFlowMappings | Where-Object {$_.Source -eq "thumbnailPhoto"}</strong><br/> <br/><strong>  Remove-ADSyncAttributeFlowMapping -SynchronizationRule $syncrule -AttributeFlowMappings $mapping -OutVariable rule</strong><br/> <br/><strong>  Add-ADSyncAttributeFlowMapping -SynchronizationRule $syncrule -Source @('thumbnailPhoto') -Destination 'thumbnailPhoto' -FlowType 'Expression' -Expression 'AuthoritativeNull' -ValueMergeType 'Update' -OutVariable rule</strong><br/> <br/><strong>  Add-ADSyncRule -SynchronizationRule $rule[0]</strong><br/><strong>}</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Connecting Azure AD Connect to the second forest</h1>
+                </header>
+            
+            <article>
+                
+<p>Now that we've seen how the synchronization rules work, we can integrate an additional Active Directory forest to our configuration.</p>
+<p>Perform the following steps and use the mentioned scripts to configure your environment:</p>
+<ol>
+<li>Create the Demo Org Structure:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>New-ADOrganizationalUnit -Name "Managed Business Objects" -Path "DC=AZUREID,DC=CH"</strong><br/><strong>New-ADOrganizationalUnit -Name "Users" -Path "OU=Managed Business Objects,DC=AZUREID,DC=CH"</strong><br/><strong>New-ADOrganizationalUnit -Name "Groups" -Path "OU=Managed Business Objects,DC=AZUREID,DC=CH"</strong><br/><strong>New-ADOrganizationalUnit -Name "Devices" -Path "OU=Managed Business Objects,DC=AZUREID,DC=CH"</strong><br/><strong>New-ADOrganizationalUnit -Name "Managed Service Objects" -Path "DC=AZUREID,DC=CH"</strong><br/><strong>New-ADOrganizationalUnit -Name "AAD" -Path "OU=Managed Service Objects,DC=AZUREID,DC=CH"</strong><br/><strong>New-ADOrganizationalUnit -Name "Users" -Path "OU=AAD,OU=Managed Service Objects,DC=AZUREID,DC=CH"</strong></pre>
+<ol start="2">
+<li>Create the Azure AD Connect AD Management Agent service account:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>New-ADUser -Name "svcaadcadma" -SamAccountName svcaadcadma -UserPrincipalName svcaadcadma@azureid.ch -path "OU=Users,OU=AAD,OU=Managed Service Objects,DC=azureid,DC=ch" -AccountPassword (ConvertTo-SecureString "YOURPASSWORD" -AsPlainText -Force) -Enabled $True</strong></pre>
+<ol start="3">
+<li>Create the <strong>group managed service account</strong> (<strong>gMSA</strong>) to run the AAD Connect:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>Add-KdsRootKey -EffectiveTime (Get-Date).AddHours(-10)</strong><br/><strong>New-ADServiceAccount -Name svcaadconnect -DNSHostname INOAZUREIDADS01 -PrincipalsAllowedToRetrieveManagedPassword INOAZUREIDADS01$</strong></pre>
+<ol start="4">
+<li>Set the following rights for the AD Management Agent account on the domain level.</li>
+<li>Configure the permissions to configure AAD Connect <kbd>svcaadcadma</kbd>:
+<ul>
+<li><span class="packt_screen">Replicate Directory Changes</span></li>
+<li><span class="packt_screen">Replicate Directory Changes All</span>:</li>
+</ul>
+</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/f1bd4fed-5b49-47f0-9bdc-9780377bf0f6.png" style="width:39.08em;height:24.83em;" width="609" height="387"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Active Directory MA service account permissions</div>
+<ol start="6">
+<li>Enable the AD <kbd>Recycle Bin Feature</kbd>:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>Enable-ADOptionalFeature –Identity 'CN=Recycle Bin Feature,CN=Optional Features,CN=Directory Service,CN=Windows NT,CN=Services,CN=Configuration,DC=azureid,DC=ch' –Scope ForestOrConfigurationSet –Target 'azureid.ch'</strong></pre>
+<p>Create your test users with the following in detailed viewed script:</p>
+<ol start="1">
+<li>Import the Active Directory module:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>Import-module activedirectory</strong></pre>
+<ol start="2">
+<li class="mce-root">The script part auto-populates the currently used domain:</li>
+</ol>
+<pre style="padding-left: 60px" class="mce-root"><strong>$dnsDomain =gc env:USERDNSDOMAIN</strong><br/><strong> $split = $dnsDomain.split(".")</strong><br/><strong> if ($split[2] -ne $null) {</strong><br/><strong> $domain = "DC=$($split[0]),DC=$($split[1]),DC=$($split[2])"</strong><br/><strong> } else {</strong><br/><strong> $domain = "DC=$($split[0]),DC=$($split[1])"</strong><br/><strong> }</strong></pre>
+<ol start="3">
+<li class="mce-root">Declare any variables:</li>
+</ol>
+<pre style="padding-left: 60px" class="mce-root"><strong>$dirpath = $pwd.path</strong><br/><strong> $orgUnit = "OU=Managed Business Objects"</strong><br/><strong> $dummyPassword = ConvertTo-SecureString -AsPlainText "OnBo@rdInoDemos19!" -Force</strong><br/><strong> $counter = 0</strong></pre>
+<ol start="4">
+<li class="mce-root">Import the CSV file:</li>
+</ol>
+<pre style="padding-left: 60px" class="mce-root"><strong>$ImportFile = Import-csv "$dirpath\ADUsers.csv"</strong><br/><strong> $TotalImports = $importFile.Count</strong></pre>
+<ol start="5">
+<li class="mce-root">Create users:</li>
+</ol>
+<pre style="padding-left: 60px" class="mce-root"><strong>$ImportFile | foreach {</strong><br/><strong> $counter++</strong><br/><strong> $progress = [int]($counter / $totalImports * 100)</strong><br/><strong> $upn = "$($_.GivenName).$($_.Sn)@azureid.ch"</strong><br/><strong> Write-Progress -Activity "Provisioning User Accounts" -status "Provisioning account $counter of $TotalImports" -perc $progress</strong><br/><strong> if ($_.Manager -eq "") {</strong><br/><strong> New-ADUser -SamAccountName $_.SamAccountName -Name $_.Name -Surname $_.Sn -GivenName $_.GivenName -Path "$orgUnit,$domain" -AccountPassword $dummyPassword -Enabled $true -title $_.title -officePhone $_.officePhone -department $_.department -UserPrincipalName $upn -PasswordNeverExpires $false</strong><br/><strong> } else {</strong><br/><strong> New-ADUser -SamAccountName $_.SamAccountName -Name $_.Name -Surname $_.Sn -GivenName $_.GivenName -Path "$orgUnit,$domain" -AccountPassword $dummyPassword -Enabled $true -title $_.title -officePhone $_.officePhone -department $_.department -manager "$($_.Manager),$orgUnit,$domain" -UserPrincipalName $upn -PasswordNeverExpires $false</strong><br/><strong> }</strong><br/><strong> If (gci "$dirpath\userimages\$($_.name).jpg") {</strong><br/><strong> $photo = [System.IO.File]::ReadAllBytes("$dirpath\userImages\$($_.name).jpg")</strong><br/><strong> Set-ADUSER $_.samAccountName -Replace @{thumbnailPhoto=$photo}</strong><br/><strong> }</strong><br/><strong> }</strong></pre>
+<p>Create the email addresses from <kbd>userPrincipalName</kbd> with the following script:</p>
+<pre style="padding-left: 60px"><strong> Import-Module ActiveDirectory </strong><br/><strong> Get-ADUser -LDAPFilter '(userPrincipalName=*)' `</strong><br/><strong>-Properties userPrincipalName,mail | Select-Object * | `</strong><br/><strong>ForEach-Object { Set-ADObject -Identity `</strong><br/><strong>$_.DistinguishedName -Replace `</strong><br/><strong>@{mail=$($_.userPrincipalName)} }</strong></pre>
+<p>Create a DNS forwarder to your other domain, because Active Directory trust has been established:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/f5c5b3e3-f8ee-4479-bfb0-25f7316ae2df.png" style="width:37.08em;height:24.17em;" width="734" height="478"/></p>
+<div class="CDPAlignCenter CDPAlign packt_figref">DNS configuration for additional forests</div>
+<p>Configure the <span><kbd>ms-ds-consistencyGuid</kbd> permissions for the <kbd>svcaadcadma</kbd> service account:</span></p>
+<pre style="padding-left: 60px"><strong>$accountName = "AZUREID\svcaadcadma"</strong><br/><strong>$ForestDN = "DC=AZUREID,DC=CH"</strong><br/><strong>$cmd = "dsacls '$ForestDN' /I:S /G '`"$accountName`":WP;ms-ds-consistencyGuid;user'"</strong><br/><strong>Invoke-Expression $cmd</strong></pre>
+<p>Now that we've prepared our second Active Directory Forest, we can include it in our Azure AD Connect:</p>
+<ol>
+<li>Open the Azure AD Configuration wizard on the <span class="packt_screen">YD1ADS01</span> server:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/d4cb4ee6-f653-4587-be93-8d58d7b60574.png" style="width:19.75em;height:14.50em;" width="265" height="195"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Start Menu–Azure AD Connect</div>
+<ol start="2">
+<li>Click <span class="packt_screen">Configure</span>:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/595f64fc-5de8-4df7-b98d-5fe7dcc357e4.png" style="width:46.50em;height:32.08em;" width="878" height="607"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Azure AD Connect configuration</div>
+<ol start="3">
+<li>Click <span class="packt_screen">Customize synchronization options</span>:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/8f157f0b-6ffc-470d-add7-5c94e79d240a.png" style="width:49.33em;height:34.17em;" width="880" height="609"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Synchronization options customization</div>
+<ol start="4">
+<li><span class="packt_screen">Connect to Azure AD</span> with <span class="packt_screen">global administrator</span> rights:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/2eb5d7ff-bf07-43dd-acf8-c47e5fb4219d.png" style="width:57.33em;height:39.92em;" width="875" height="609"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Providing global administrator credentials for Azure AD connection</div>
+<ol start="5">
+<li>Connect the second forest:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/f32be88c-eaba-4075-a268-ed6100a7007b.png" style="width:52.33em;height:36.25em;" width="879" height="611"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Connecting the additional AD forest</div>
+<ol start="6">
+<li>Use the service account in the other forest to connect:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/84d7704f-8765-4485-8d6f-b1070709de14.png" style="width:35.58em;height:28.17em;" width="596" height="471"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Using the AD Management Agent service account of the additional forest</div>
+<ol start="7">
+<li>You should get a second AD that's valid in your list:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/844b6838-eb87-4f7d-919e-be8f60dabd7a.png" style="width:16.08em;height:6.58em;" width="242" height="99"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Valid connection overview</div>
+<ol start="8">
+<li>As we already verified the domain suffixes, our domain suffix is okay to sync:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/935f1c09-7f02-4b38-a483-d03112998e60.png" style="width:61.42em;height:42.50em;" width="874" height="607"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Sign-in configuration option</div>
+<ol start="9">
+<li>Filter the <span class="packt_screen">OU</span> you want to synchronize:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/8736bdb4-4f0a-4891-b842-2f6910f67085.png" style="width:57.83em;height:40.42em;" width="874" height="611"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Filtering the related objects</div>
+<ol start="10">
+<li>Enable the following features to see the extended synchronization options:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/57406061-97da-476f-9660-678a6ac1e0f8.png" style="width:59.17em;height:41.08em;" width="878" height="611"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Configuration of optional features<span>—</span>app and attribute filtering, password hash sync, and extension attributes</div>
+<ol start="11">
+<li>With this configuration, you can limit the attributes that get synced to Azure AD for specific workloads:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/7803efa0-5220-410a-a6f5-435ded822c1f.png" style="width:57.08em;height:39.75em;" width="876" height="612"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">App filtering options</div>
+<ol start="12">
+<li>Choose which attributes get exported:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/4654b2e7-a7ff-465e-9efe-e518387c5da7.png" style="width:56.67em;height:39.67em;" width="875" height="612"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">extensionAttribute limitations</div>
+<ol start="13">
+<li>Choose some additional attributes, but keep in mind that not all services will get these attributes:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/cd50b7fa-4d21-4776-a9e3-12b8719cd336.png" style="width:56.08em;height:39.00em;" width="873" height="609"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Directory extension implementation</div>
+<div class="packt_tip">Never start the synchronization <span>directly—</span>Initial load is always a manual stepping process that's used to avoid errors.</div>
+<ol start="14">
+<li>We're ready to start the configuration, so click <span class="packt_screen">Configure</span>:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/4d3f9211-4557-448d-b07b-18e79c678db7.png" style="width:54.67em;height:38.50em;" width="873" height="615"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Final configuration step</div>
+<ol start="15">
+<li>Close the configuration assistant.</li>
+<li>Let's start stepping through the initial load of the new Active Directory forest, so open the <span class="packt_screen">Synchronization Service Manager</span>:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="Images/1c684d19-220a-474c-954a-f7cf88a6e2ad.png" style="width:54.33em;height:12.08em;" width="1010" height="224"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Connected directories overview</div>
+<ol start="17">
+<li>Start the initial load with the following steps—and control every step:
+<ol>
+<li>Run a full import on all AD Forests</li>
+<li>Run a full import on AAD</li>
+<li>Run a full sync on all AD Forests</li>
+<li>Run a full sync on Azure AD</li>
+<li>Run an Export on AAD</li>
+<li>Run an Export on all AD Forests</li>
+</ol>
+</li>
+</ol>
+<p>Yeah! We connected our new forest under complete control. Congrats!</p>
+<p>The authentication part for this will be described in <a href="468509fa-856c-411d-abdb-e9a39c266750.xhtml" target="_blank">Chapter 7</a>, <em>Deploying Solutions on Azure AD and ADFS</em>, <a href="efbe1917-c755-4449-b29e-fa4a21e819fd.xhtml">Chapter 8</a>, <em>Using the Azure AD App Proxy and the Web Application Proxy</em>, and <a href="6b29475f-7917-49bf-91d4-3024835d0278.xhtml"/><a href="6b29475f-7917-49bf-91d4-3024835d0278.xhtml">Chapter 10</a>, <em>Exploring Azure AD Identity Services</em>.</p>
+<p>Keep an eye out for the ADFS B2B configuration with a claim's provider trust in <a href="6b29475f-7917-49bf-91d4-3024835d0278.xhtml">Chapter 10</a>, <em>Exploring<span> </span>Azure AD Identity Services</em>.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, you learned about declarative provisioning and how synchronization rules work. We explored practical examples to learn how to use standard sync rules and how to create our own. You also learned how to use PowerShell to configure synchronization rules and block/delete attributes to and in Azure AD. With the integration of another untrusted Active Directory, you saw the standard procedure to do this and to customize your synchronization options to define precisely what should happen in your environment.</p>
+<p>In the next chapter, we'll show you how to monitor your synchronization solution.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  </body></html>

@@ -1,0 +1,752 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Exploring Functions as a Service</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, we will take a deep dive into Cloud Functions on Google Cloud. We have covered a fair bit already; however, there is still so much more to know and learn. Our primary focus so far has been to understand HTTP endpoints and to build some simple applications in order to demonstrate their associated capabilities. In addition to exciting HTTP event functionality, there are also background functions, that is, those functions that do not require access to an external HTTP endpoint.</p>
+<p>To increase our understanding of these types of functions, we will be building several tools throughout this chapter to illustrate various concepts and techniques. We will continue to utilize the Functions Framework to create our code, and start to integrate the external system in order to showcase the ease of building a tool that meets our requirements.</p>
+<p>Later in this chapter, we will build a simple application based on creating a <kbd>SignedURL</kbd> function by utilizing Google APIs, which provides a way to establish a time-constrained URL. The source data for this will reside on Cloud Storage, and we will extend our function to have a simple frontend. Finally, we will continue to use the Functions Framework to enable us to work locally and to maintain compatibility with Google Cloud Functions.</p>
+<p>In this chapter, we will learn about the following topics:</p>
+<ul>
+<li>Developing an HTTP endpoint application</li>
+<li>Exploring Cloud Functions and Google APIs</li>
+<li>Exploring Google Cloud Storage events</li>
+<li>Building an enhanced signed URL service</li>
+</ul>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Technical requirements</h1>
+                </header>
+            
+            <article>
+                
+<p>To complete the exercises in this chapter, you will require a Google Cloud project or a Qwiklabs account.</p>
+<p class="mce-root">You can find the code files of this chapter in the GitHub repository for the book under the <kbd>ch05</kbd> <span>subdirectory </span>at <a href="https://github.com/PacktPublishing/Hands-on-Serverless-Computing-with-Google-Cloud/tree/master/ch05">https://github.com/PacktPublishing/Hands-on-Serverless-Computing-with-Google-Cloud/tree/master/ch05</a>.</p>
+<div class="mce-root packt_infobox">While you are going through code snippets in the book, you will notice that, in a few instances, a few lines from the code/output have been removed and replaced with dots (<kbd>...</kbd>). The use of ellipses is only to show relevant code/output. The complete code is available on GitHub at the previously mentioned link.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Developing an HTTP endpoint application</h1>
+                </header>
+            
+            <article>
+                
+<p>Working with Cloud Functions allows isolated and standalone components to create extended functionality. These components or microservices offer an excellent way to build your applications as decoupled architecture. In this example, we will go back to basics and learn how to extend our knowledge to call Google Cloud APIs.</p>
+<p>Events provide the ability to react to system notifications associated with a provider. As outlined in earlier chapters on Google Cloud, these providers present multiple options in which to extend services through defined provider interfaces such as Cloud Pub/Sub and Cloud Storage.</p>
+<p>We have already looked at the HTTP functions invoked using a URL. Utilizing the same semantic notation (for example, GET/POST) and signature (for example, request/response) for HTTP communications, these types of functions are well understood and can build upon existing knowledge. Due to the abstraction of HTTP complexities over time, the general understanding of the HTTP construct represents a well-understood API.</p>
+<p>However, not everything will support an HTTP endpoint; therefore, another approach for integrating providers with existing services is required. Background (that is, asynchronous) functions enhance the Cloud Functions model beyond parameters to establish middleware interfaces that are capable of passing data between disparate components. Examples of these types of providers include Cloud Pub/Sub and Cloud Storage, which both offer a rich interface for messaging and event notifications. In both instances, any data presented must conform to the standard supported schemas to be capable of responding to the provider interface.</p>
+<p>Additionally, a trigger needs to be defined in order to invoke background Cloud Functions. However, the integration mechanism changes depending on the trigger used. Over the following sections, we will focus our discussion on the different types of triggers available on Google Cloud. For background functions, Cloud Pub/Sub and Cloud Storage will be the primary areas of discussion; however, there many other trigger types that are available for an application.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Triggering Cloud Pub/Sub</h1>
+                </header>
+            
+            <article>
+                
+<p>A Cloud Pub/Sub trigger is based on a message queue in which information is passed between the publisher and the subscriber:</p>
+<ul>
+<li>The <em>publisher</em> is responsible for the schema associated with the message to be propagated using a topic.</li>
+<li>A <em>topic</em> indicates the available queue on which information consumption takes place.</li>
+<li>The <em>subscriber</em> (consumer) of the message queue can read the associated information in the queue.</li>
+</ul>
+<p><span>It's worth pointing out that, in general, subscriptions are either</span> pull or push <span>subscriptions, as shown in the following diagram: </span></p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-1136 image-border" src="assets/e2ba5f99-3c56-45a0-bde9-1af1d96de893.png" style=""/></div>
+<p>In the preceding diagram, you can see an overview of the pull and push subscription types. </p>
+<p class="mce-root"/>
+<div class="packt_infobox">For scenarios that require high levels of throughput, a pull mechanism is currently the most effective way to manage this type of requirement.</div>
+<p>Having the publisher and subscriber together enables both sides of the message queue deliver a payload from the origin to the destination. Cloud Pub/Sub uses several scenarios in order to provide information to and from sources consistently. As you might expect, there are many design patterns associated with Cloud Pub/Sub that ensure the transmission of data occurs with a regularity scheduled for the service that is required.</p>
+<p>The distribution of <span>messages </span>uses a globally distributed message bus that enables the exchange of information between systems. In this instance, an event system for Cloud Pub/Sub uses a push mechanism with Cloud Functions to trigger messages. A trigger type of <kbd>google.pubsub.topic.publish</kbd> is defined to manage events used by Cloud Functions, allowing you to have complete control over the publishing of events. For each message published, the notification of the event establishes the message payload to be published.</p>
+<p>Besides this, Cloud Pub/Sub supports different design patterns depending on where you want to go. Subscribers will provide an acknowledgment for each message that is processed for every subscription. If a subscriber cannot acknowledge a message within the <kbd>ackDeadline</kbd> threshold, then the message payload is re-sent. Based on your own use case, the following patterns are good examples to consider when thinking about incorporating Cloud Pub/Sub into your design:</p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td style="width: 26.5268%"><strong>Pattern</strong></td>
+<td style="width: 72.9477%"><strong>Description</strong></td>
+</tr>
+<tr>
+<td style="width: 26.5268%">
+<p>Straight-through processing </p>
+</td>
+<td style="width: 72.9477%">
+<p>A simple queue mechanism<span>—</span>from topic to subscription.</p>
+</td>
+</tr>
+<tr>
+<td style="width: 26.5268%">
+<p>Multiple publishers</p>
+</td>
+<td style="width: 72.9477%">
+<p>Multiple publishers of the same topic<span>—</span><span>this </span>enables the concurrent processing of a source message.</p>
+</td>
+</tr>
+<tr>
+<td style="width: 26.5268%">
+<p>Multiple subscribers </p>
+</td>
+<td style="width: 72.9477%">
+<p>Multiple subscribers to the same subscription<span>—</span><span>this </span>enables you to have different subscribers for the originating topic consumed through subscription.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>An event for Cloud Pub/Sub has the defined trigger value of <kbd>google.pubsub.topic.publish</kbd>. The event notification is triggered when a payload message publishes to the event type associated with a Cloud Function. Input data will take the message payload that is passed and execute the named Cloud Function to establish data to any subscriber set to receive information.</p>
+<p>The following example illustrates how you can use a background function with Cloud Pub/Sub; the blueprint code that is shown represents the default function used by Google:</p>
+<pre>/**<br/>* Triggered from a message on a Cloud Pub/Sub topic.<br/>*<br/>* @param {!Object} event Event payload.<br/>* @param {!Object} context Metadata for the event.<br/>*/<br/>exports.helloPubSub = (event, context) =&gt; {<br/>  const pubsubMessage = event.data;<br/>  console.log(Buffer.from(pubsubMessage, 'base64').toString());<br/>};</pre>
+<p>As you can see, the signature relating to the background function definition remains consistent. We define an <kbd>exports</kbd> function onto which the trigger establishes a corresponding action. The service related to the event information to be used requires parameters, that is, event payload data and event metadata. In the Cloud Pub/Sub Cloud Functions example, the function will take the input to the message queue and display the content as a log entry.</p>
+<p>Creating an event type trigger of the Cloud Pub/Sub type requires a topic to be created as part of the initiation of the function. Once created, testing the service presents the same properties that we saw previously with the HTTP trigger, for example, region, memory allocation, timeout, and last deployment. However, here, the HTTP endpoint is replaced with the trigger type of Cloud Pub/Sub and the associated <span>defined </span>topic.</p>
+<p>To test the function, <span>an important thing to remember is that Cloud Pub/Sub expects its data to be formatted as <kbd>base64</kbd>. Follow these two steps:</span></p>
+<ol>
+<li><span>Transpose the data to <kbd>base64</kbd> to trigger an event from the Cloud Functions testing page. Thankfully, you can do this from Google Cloud Shell by entering the following on the command line:</span></li>
+</ol>
+<pre style="padding-left: 60px"><strong><span>base64 &lt;&lt;&lt; "Rich"</span></strong></pre>
+<ol start="2">
+<li>The output of the preceding command shows the <kbd>base64</kbd> equivalent of the text entered:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-900 image-border" src="assets/a87f23d7-5ef0-4081-a137-5ab284161809.png" style=""/></div>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<div class="packt_infobox">In the preceding example, we need to convert the information using <kbd>base64</kbd> manually. If you were to use the Cloud Pub/Submenu item or the <kbd>gcloud pubsub topics publish</kbd> command, both of these tools will automatically convert your text message.</div>
+<p>From the preceding, you may discern the raw power of this event type, as it can pass information between multiple services. For example, Stackdriver supports Cloud Pub/Sub interfaces (a Stackdriver sink). Understanding this means that it is possible to use Cloud Pub/Sub to invoke a coupling across services, such as publishing information in Stackdriver and consuming this data in services such as BigQuery or Cloud Storage.</p>
+<p>Now that we know a bit more about the power and versatility of Cloud Pub/Sub, we can turn our attention to Cloud Storage.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Triggering Cloud Storage</h1>
+                </header>
+            
+            <article>
+                
+<p>As indicated in earlier chapters, Cloud Storage is an object data store that has an associated life cycle and event notification. More commonly referred to as a bucket, Cloud Storage adds a highly functional notification mechanism to your arsenal. Having the ability to incorporate intermediary storage into your application opens up greater possibilities, and it provides the means to apply stage gating as part of any processing via the associated event types that are supported. The flexibility of this solution means that it is a useful service to familiarize yourself with, as the storage can be adopted for multiple scenarios.</p>
+<p>The typical use cases for storage is that of either temporary storage (that is, where an application might need to store an intermediary file such as audio or text output) or as a cheap form of storage for something like a static website. Later in this chapter, we will present an example for building a simple website that can be used to show information, based on a defined template.</p>
+<p>Cloud storage can be used in a number of different ways; however, here, we will primarily focus on using this as storage. Event types focus on the notification of actions such as <kbd>finalize</kbd>, <kbd>delete</kbd>, <kbd>archive</kbd>, and <kbd>metadataUpdate</kbd>. It should be noted that the notification mechanism for storage leverages Cloud Pub/Sub notifications to ensure scalable and flexible messaging.</p>
+<p>Over the course of this section, we will cover a few of the most common use cases for Cloud Storage. In addition to this, the event type mentions that you are still able to retain all the existing benefits, for example, life cycle access, API access, support of different storage classes, and secure/durable storage.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Google provides a wealth of APIs and learning how to access these APIs gives you the opportunity to access different services. Due to the richness of the Cloud Storage API, there are a number of event types that are supported. The most common, perhaps, is the creation of an object within Cloud Storage:</p>
+<pre>/**<br/>* Triggered from a change to a Cloud Storage bucket.<br/>*<br/>* @param {!Object} event Data payload.<br/>* @param {!Object} context Metadata for the event.<br/>*/<br/>exports.helloGCS = (event, context) =&gt; {<br/>  const gcsEvent = event;<br/>  console.log(`Processing file: ${gcsEvent.name}`);<br/>  console.log(`Event Type: ${context.eventType}`);<br/>};</pre>
+<p><span>In the preceding example, a notification occurs when an <em>object creation</em> event is generated from the bucket object. When setting up the function, an essential requirement is to specify a storage bucket on which the action will respond.</span></p>
+<p><span>Notably, there are several parameters supported that enable an application to derive further information about the state of the calling object. If an event has passed additional metadata, this high-level event metadata (of the type invocation information) is also accessible. Additionally, background functions can utilize other properties, such as data that contains the message to be processed.</span></p>
+<p><span>A notification emitting from the function has a similar pattern across each of the notification types. This event structure is one that you should aim to become familiar with, as the use of functions is very consistent, irrespective of the kind of service used.</span></p>
+<p><span>The specific function referenced by the Google Cloud Storage event is captured in the event parameter, which is passed to the Cloud Function when the service is run. The blueprint code listed previously will log the event notification that has been processed along with the name of the file residing within the bucket. </span><span>Outside, more essential services include additional triggers such as Firebase Authentication. However, the patterns outlined follow for these functions, and it should be a smooth and easy transition to be able to work with any of these other function triggers as they become available:</span></p>
+<ul>
+<li><span>Google Cloud Firestore</span></li>
+<li><span>Google Analytics for Firebase</span></li>
+<li><span>Firebase Authentication</span></li>
+<li><span>Firebase Realtime Database</span></li>
+<li><span>Firebase Remote Config</span></li>
+</ul>
+<p><span>At this point, you will hopefully be thinking about how to incorporate some of these trigger types into your application. When working with functions, it is essential to remember that the services should be short-lived and built around lightweight components. Clearly, there are many cases and examples that are both innovative and useful that will show how to use the code in a real-world example. The documentation for Cloud Functions is amazingly detailed and can provide answers to many of the queries you may come across in your implementations.</span></p>
+<p><span>Later in this chapter, we will be looking at some use cases that utilize these notification types. First, we will look at how to utilize the vast software library of Google APIs.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Exploring Cloud Functions and Google APIs</h1>
+                </header>
+            
+            <article>
+                
+<p>In this example, we will build an application that will use Cloud Pub/Sub to provide resilient access to a document. Earlier, we introduced our new friend, Google Cloud Pub. Now we will get to see how we can utilize this feature as part of a simple solution.</p>
+<p>Our application will create a time-constrained link to a text file, which can only be accessed by an authenticated source. This type of functionality is actually an everyday use case for transferring data securely across the internet.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">General architecture</h1>
+                </header>
+            
+            <article>
+                
+<p>To create a signed URL, we will need an existing file that has been uploaded to a storage bucket. For the sake of this example, we will take the following approach in terms of the types of functions to be developed:</p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-1137 image-border" src="assets/beb8344e-a02a-48dd-b13a-041c32c40204.png" style=""/></div>
+<p>From the preceding diagram, we are going to create two services in order to create a signed URL:</p>
+<ol>
+<li class="mce-root"><span><strong>Frontend service</strong>: A straightforward service that will be based on an HTTP endpoint and be made publically available.</span></li>
+<li class="mce-root"><strong>Backend service</strong>: A second service that will be used to perform the background function of creating the signed URL.</li>
+</ol>
+<p class="CDPAlignLeft CDPAlign">Let's understand each service in more detail next. </p>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Frontend service</h1>
+                </header>
+            
+            <article>
+                
+<p>Our primary export function named <kbd>gcpSecureURL</kbd> accepts a request and response parameters, indicating that this is an HTTP function. This signature is consistent across all Cloud Functions and provides a common way to pass and receive information in an application.</p>
+<p>From the architecture diagram previously presented, it should be apparent that our frontend service uses Cloud Pub/Sub. As described earlier in this chapter, we can use Pub/Sub to provide information to our application. In this example, we are using the initial request information and adding this to the message queue of Cloud Pub/Sub.</p>
+<p>To start, we need to initialize our environment once more:</p>
+<ol>
+<li>Create a new directory called <kbd>ch05</kbd> and make this the current directory.</li>
+<li>Create a new subdirectory called <kbd>frontend-service</kbd>.</li>
+<li>Create a second new subdirectory called <kbd>backend-service</kbd>.</li>
+<li>At this point, you will have the following directory structure:</li>
+</ol>
+<pre class="mce-root" style="padding-left: 60px">.<br/>└── ch05<br/>├── backend-service<br/>└── frontend-service</pre>
+<ol start="5">
+<li>Make <kbd>frontend-service</kbd> the current directory.</li>
+<li>Initialize the <kbd>npm</kbd> package for this directory, that is, <kbd>npm init --yes</kbd>.</li>
+<li>Then, add the <kbd>pubsub</kbd> package, that is, <kbd>npm install @google-cloud/pubsub</kbd>.</li>
+</ol>
+<p>In order to process the information presented at the frontend, we need to create a new application:</p>
+<ol>
+<li>Create a new file called <kbd>index.js</kbd>.</li>
+<li>Add the following code to <kbd>index.js</kbd>:</li>
+</ol>
+<pre class="mce-root" style="padding-left: 60px">const {PubSub} = require('@google-cloud/pubsub');<br/>const pubsub = new PubSub();<br/><br/>async function gcpCreatePayload(message) {<br/> const payload = Buffer.from(JSON.stringify(message));<br/> console.log ('Information passed: ' + message);<br/> await pubsub.topic('start-process').publish(payload);<br/>}<br/><br/>exports.gcpSecureURL = async(req, res)=&gt; {<br/> const message = req.query.message || req.body.message || 'google-cloud.png';<br/> await gcpCreatePayload(message);<br/> res.status(200).send('Creating a secure URL for:' + message);<br/>}</pre>
+<p><span>The entry point for the code is the <kbd>gcpSecureURL</kbd> function. Here is an</span> overview of this application's activities:</p>
+<ol>
+<li>From here, we call the <kbd>gcpCreatePayload</kbd> <span>function </span>with an example filename, for example, <kbd>google-cloud.png</kbd>.</li>
+<li>The <kbd>gcpCreatePayload</kbd> function performs a single task in order to establish a new topic and publish the filename to it.</li>
+<li>After this action has been taken, the application will return a <kbd>200</kbd> HTTP response code and output a message indicating that a secure URL has been created for the filename.</li>
+</ol>
+<p>To deploy the function, we take the normal steps for an HTTP endpoint, that is, the following:</p>
+<pre><strong>gcloud functions deploy gcpSecureURL — trigger-http --runtime nodejs8</strong></pre>
+<p>As mentioned previously, we are going to use Cloud Pub/Sub; therefore, we need to create a topic to enable communication to take place:</p>
+<pre><strong>gcloud pubsub topics create start-process</strong></pre>
+<p>Congratulations! The frontend application has been successfully deployed and is ready to serve filenames to Cloud Pub/Sub.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Backend service</h1>
+                </header>
+            
+            <article>
+                
+<p>Now that we have the frontend service created, what is left to do? Well, so far we have essentially been creating a queue of files to be processed. In this section, we will set about processing the filenames that have been added to the message queue.</p>
+<p>Once again, we need to reinitialize our environment<span>—</span>this time, focusing our efforts on the <kbd>backend-service</kbd> subdirectory:</p>
+<ol>
+<li>Move to the <kbd>backend-service</kbd> <span>subdirectory </span>created earlier.</li>
+<li>Initialize the <kbd>npm</kbd> package for this directory, that is, <kbd>npm init --yes</kbd>.</li>
+<li>Add the <kbd>pubsub</kbd> package, that is, <kbd>npm install @google-cloud/pubsub</kbd>.</li>
+<li>Then, add the Cloud Storage package, that is, <kbd>npm install @google-cloud/storage</kbd>.</li>
+</ol>
+<p>In order to process the information presented at the backend, we need to create a new application:</p>
+<ol>
+<li>Create a new file called <kbd>index.js</kbd>.</li>
+<li>Add the following code to <kbd>index.js</kbd>:</li>
+</ol>
+<pre style="padding-left: 60px">exports.gcpCreateSignedURL = (event, context)=&gt; {<br/>  // Get the file to be processed<br/>  const payload = JSON.parse(Buffer.from(event.data, 'base64').toString());<br/><br/>  // Debug message<br/>  console.log ('Creating a Signed URL: ' + payload);<br/>}</pre>
+<p>In the preceding code, we will take information from a message queue and convert it from <kbd>base64</kbd>. The information presented should represent the example filename passed. Using a console log message, we can confirm that it has been correctly accessed. Deploy this initial revision of the code in order to check our assumption:</p>
+<pre style="padding-left: 30px"><strong>gcloud functions deploy gcpCreateSignedURL --trigger-topic start-process --runtime nodejs8</strong></pre>
+<p>At this point, we now have two Cloud Functions deployed on Google Cloud:</p>
+<table border="1" style="border-collapse: collapse;width: 50%">
+<tbody>
+<tr>
+<td style="width: 17%">
+<p><strong>Name</strong></p>
+</td>
+<td style="width: 33.3455%">
+<p><strong>Function type</strong></p>
+</td>
+</tr>
+<tr>
+<td style="width: 17%">
+<p><kbd>gcpSecureURL</kbd></p>
+</td>
+<td style="width: 33.3455%">
+<p>HTTP endpoint function</p>
+</td>
+</tr>
+<tr>
+<td style="width: 17%">
+<p><kbd>gcpCreateSignedURL</kbd></p>
+</td>
+<td style="width: 33.3455%">
+<p>Background function</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Testing the functions can be done via the Cloud Console using the <kbd>trigger</kbd> commands. Go to the Cloud Functions option in Google Cloud and select the function for accessing the required command:</p>
+<ol>
+<li class="mce-root">Select the trigger from the menu and choose the URL associated with <kbd>gcpSecureURL</kbd>.</li>
+<li class="mce-root">The function will display the message <kbd>Creating a secure URL for: google-cloud.png</kbd>.</li>
+<li class="mce-root">Now select the second <kbd>gcpCreateSignedURL</kbd> function.</li>
+<li class="mce-root">From the invocation list, it can be seen that this function has been called.</li>
+<li class="mce-root">Then, select the view logs options to see the associated log messages.</li>
+<li class="mce-root">Observe the message, <kbd>gcpCreateSignedURL: google-cloud.png</kbd>, in the logs.</li>
+</ol>
+<p>Congratulations! The <kbd>gcpCreateSignedURL</kbd> (backend) service has been successfully deployed and is receiving messages from the <kbd>gcpSecureURL</kbd> (frontend) service.</p>
+<div class="packt_infobox">At this point in the development, we are unapologetically using unauthenticated invocations of our functions, as this makes the development process more straightforward. In a production environment, this approach would be unacceptable. As there are components for both the frontend and the backend, one approach would be to amend the permissions so only the <kbd>gcpSecureURL</kbd> is able to call the <kbd>gcpCreateSignedURL</kbd> service. Toward the end of the chapter, we will come to a different conclusion on how to address this particular issue.</div>
+<p>Our application is really progressing quite quickly. Now we need to add the signed URL processing capability to our existing <kbd>gcpCreateSignedURL</kbd> backend code.</p>
+<p>To process the information presented at the backend, we need to create a new application:</p>
+<ol>
+<li class="mce-root">Edit the <kbd>index.js</kbd> file.</li>
+<li class="mce-root">Add the following code to the top of the existing <kbd>index.js</kbd> file:</li>
+</ol>
+<pre style="padding-left: 60px">async function gcpGenerateSignedURL() {<br/>  // Get a signed URL for the file<br/>  storage<br/>    .bucket(bucketName)<br/>    .file(filename)<br/>    .getSignedUrl(options)<br/>    .then(results =&gt; {<br/>      const url = results[0];<br/><br/>      console.log('The signed url for ${filename} is ${url}.');<br/>    })<br/>    .catch(err =&gt; {<br/>      console.error('ERROR:', err);<br/>    });<br/>}</pre>
+<p style="padding-left: 60px">In the preceding code, we make some assumptions regarding the bucket and filename for the purposes of brevity. As you can see, the function performs one task, which is to create a signed URL. Again, we use the <kbd>console.log</kbd> function for debugging purposes.</p>
+<p style="padding-left: 60px">Additionally, we also need to add some definitions to our code.</p>
+<ol start="3">
+<li class="mce-root">Add the following code to the top of the existing <kbd>index.js</kbd> file:</li>
+</ol>
+<pre style="padding-left: 60px">const {Storage} = require('@google-cloud/storage');<br/>const storage = new Storage();<br/><br/>const bucketName = 'roselabs-cloud-functions';<br/>const filename = 'google-cloud.png';<br/><br/>// These options will allow temporary read access to the file<br/>const options = {<br/>      action: 'read',<br/>      // MM-DD-CCYY<br/>      expires: '11-23-2019',<br/>};<br/><br/>async function gcpGenerateSignedURL() {<br/>…<br/>}</pre>
+<div class="packt_infobox">In the code extract, we need to ensure that the both variables' names <kbd>bucketName</kbd> and <kbd>filename</kbd> exist in your project before running the application. In addition to this, <strong>make sure that the expiration date is set to a future date</strong>, taking note of the expected format. We will fix that in a later revision; however, for now, just remember that these attributes are valid for your project.</div>
+<p style="padding-left: 60px">Finally, we want to reference our new <kbd>SignedURL</kbd> function within the subdirectory <kbd>backend-service</kbd> :</p>
+<ol start="4">
+<li class="mce-root">Edit the <kbd>index.js</kbd> file and amend the entry point function:</li>
+</ol>
+<pre style="padding-left: 60px">…<br/>exports.gcpCreateSignedURL= (event, context)=&gt; {<br/>  const payload = JSON.parse(Buffer.from(event.data, 'base64').toString());<br/>  console.log ('gcpCreateSignedURL: ' + payload);<br/>  gcpGenerateCreateSignedURL();<br/>}</pre>
+<ol start="5">
+<li>Based on the preceding enhancements, we are now ready to deploy the updated version of <kbd>gcpCreateSignedURL</kbd> (that is, the <kbd>backend-service</kbd>)</li>
+</ol>
+<pre style="padding-left: 60px"><strong>gcloud functions deploy gcpCreateSignedURL --trigger-topic start-process --runtime nodejs8</strong></pre>
+<p>To test the newly deployed  <kbd>backend-service</kbd>, we replicate the process that we followed earlier. Go to the <span class="packt_screen">Cloud Functions</span> option in Google Cloud and invoke the <kbd>frontend-service</kbd> by pressing the associated URL available in the Cloud Console. Then, observe the logs for the <kbd>backend-service</kbd> as the information is processed and logs messages.</p>
+<p>Congratulations! The logs contain a reference to the signed URL for the file presented. We have covered a lot of important context in this section. Continue to the next section to work on an example using Cloud Storage.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Exploring Google Cloud Storage events</h1>
+                </header>
+            
+            <article>
+                
+<p>In this example, we want to expand our understanding of background functions. In particular, we will be integrating with Cloud Storage in order to automate object life cycle management.</p>
+<p>Taking advantage of existing functionality (for example, packages and libraries) is an excellent way to build your application. In this example, we will leverage Google Cloud Storage encrypted by default to develop a secure data solution.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">General architecture</h1>
+                </header>
+            
+            <article>
+                
+<p>The main difference from our Cloud Pub/Sub example will be the notifications that we attach to Cloud Storage. In this example, we will want the storage bucket to initiate the request to provide a <kbd>SignedURL</kbd> function, rather than having to invoke our function manually. Remember, in the first version of our application, there was no event notification between the storage bucket and the <kbd>frontend-service</kbd>—let's fix that:</p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-828 image-border" src="assets/d57ad862-00c7-46c7-b0d9-db31cc9e75ce.png" style=""/></div>
+<p>From the diagram, we will introduce an additional service to react to storage event notifications (that is, create/finalize):</p>
+<ul>
+<li class="mce-root"><strong>Storage</strong>: A file is uploaded to the storage bucket.</li>
+<li class="mce-root"><strong>Stream Processing</strong>: A notification is generated as well as a payload containing the filename.</li>
+<li class="mce-root"><strong>SignedURL Frontend Service</strong>: This maintains a subscription to a topic and invokes its function on receipt of a new payload.</li>
+<li class="mce-root"><strong>SignedURL Backend Service</strong>: This performs the background function of creating the signed URL.</li>
+</ul>
+<p class="mce-root"/>
+<p>We need to make two changes to our existing code to enable this functionality. First, we need to amend the frontend service:</p>
+<ol>
+<li class="mce-root"><strong>Frontend service</strong>: Amend the code.</li>
+<li class="mce-root"><strong>Storage service</strong>: Set up a new notification.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Frontend service</h1>
+                </header>
+            
+            <article>
+                
+<p>As you may have guessed, the signature for a Cloud Storage trigger is different from an HTTP endpoint. Therefore, the code in <kbd>frontend-service</kbd> subdirectory will require a small amendment to retain compatibility. We need to change our application code so that we can process the information correctly:</p>
+<ol>
+<li class="mce-root">In the <kbd>frontend-service</kbd> subdirectory, edit the <kbd>index.js</kbd> file.</li>
+<li class="mce-root">Remove the existing <kbd>gcpSecureURL</kbd> function as this relates to an HTTP endpoint.</li>
+<li class="mce-root">Add the following code so that the Cloud Storage trigger can be processed:</li>
+</ol>
+<pre style="padding-left: 60px">exports.gcpSecureURL = (data, context)=&gt; {<br/>  // Get the file to be processed<br/>  const message = data;<br/><br/>  // Create a pubsub message<br/>  gcpCreatePayload(message.name);<br/>};</pre>
+<div class="packt_infobox"><br/>
+Note how the signature for <kbd>gcpSecureURL</kbd> is now using data and context as we are now referencing information from Cloud Storage. Compare this to previous examples that use request and response for HTTP based triggers.</div>
+<p>Congratulations! The <kbd>gcpSecureURL frontend-service</kbd> is now able to accept notifications from Cloud Storage. Let's move on to establishing a suitable trigger for the storage bucket used in our project.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Storage service</h1>
+                </header>
+            
+            <article>
+                
+<p>To enable the storage service, unlike the previous section, we need to let Google Cloud Storage know that we want to receive notifications. Due to the richness of the API associated with storage, there is also another command that we need to use, <kbd>gsutil</kbd>.</p>
+<p class="mce-root"/>
+<p>From the command line, we need to tell our storage bucket which notification event we want to monitor. Besides that, we also want it to inform us when something has happened. <a href="9431bfa5-ef43-4043-9779-d5b6d3fef36c.xhtml" target="_blank">Chapter 4</a>, <em>Developing Cloud Functions</em>, contains the Cloud Storage triggers that are supported. Specifically, the one relevant to our task is <kbd>google.storage.object.finalize</kbd> (that is, the <kbd>finalize</kbd>/<kbd>create</kbd> activities), which includes the events based on the creation of an object within a bucket:</p>
+<ol>
+<li class="mce-root">Delete the existing <kbd>gcpSecureURL</kbd> Cloud Function.</li>
+<li class="mce-root">Deploy the <kbd>frontend</kbd> function with a trigger based on the bucket resource:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>gcloud functions deploy gcpSecureURL \</strong><br/><strong>  --runtime nodejs10 \</strong><br/><strong>  --trigger-resource gs://roselabs-signed-upload \</strong><br/><strong>  --trigger-event google.storage.object.finalize</strong></pre>
+<div class="packt_infobox"><br/>
+In the above code my bucket is defined as <kbd>roselabs-signed-upload</kbd> which is unique to my application. In your project, the bucket should be named appropriately based on your Google Cloud project settings. </div>
+<ol start="3">
+<li>Upload a file to the bucket. This can be any file you have handy.</li>
+<li>The <kbd>gcpSecureURL</kbd>  will now be invoked through a Cloud Pub/Sub notification.</li>
+</ol>
+<p>Congratulations, integrating notifications within an application is a huge time-saver. In the next section, we will enhance the function in order to learn how to integrate it with Google Cloud Services.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Building an enhanced signed URL service</h1>
+                </header>
+            
+            <article>
+                
+<p>In the final revision of the application, we will fix some of the apparent issues with the Cloud Function. The main thing that needs addressing is the hard coding of the bucket reference, filename, and expiration date. One option would be to provide a nice graphical frontend for the application. However<span>—</span>spoiler alert<span>—</span>we won't be taking that approach here.</p>
+<p>To conclude the application, we need to correct three things to make the Cloud Function super useful:</p>
+<ol>
+<li>Filename</li>
+<li>Bucket reference</li>
+<li>Expiration date</li>
+</ol>
+<p class="mce-root"/>
+<p>Small changes can have a substantive impact, and these three things will make the application significantly better. To make the changes, we need to amend both services and pass additional variables from one service to another. Remember, we have previously implemented Cloud Pub/Sub to pass information between our services. Now we need to expand this approach. But will this make the task more difficult? By enhancing the components in turn and discussing the impact it has, we will answer this question as we  start our enhancement journey with the frontend service.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Frontend service</h1>
+                </header>
+            
+            <article>
+                
+<p>In terms of the frontend service, the application currently sends the filename as the payload. However, we are missing a trick here, as the Cloud Storage data object actually includes some really useful information.</p>
+<p><strong>Cl</strong><strong>oud Storage context object</strong>:<br/>
+The following table contains the information associated with a context object.</p>
+<table border="1" style="border-collapse: collapse;width: 50%">
+<tbody>
+<tr>
+<td style="width: 10%">
+<p><strong>Object</strong></p>
+</td>
+<td style="width: 35%">
+<p><strong>Field</strong></p>
+</td>
+</tr>
+<tr>
+<td style="width: 10%">
+<p><kbd>Context</kbd></p>
+</td>
+<td style="width: 35%">
+<p><kbd>eventId</kbd></p>
+</td>
+</tr>
+<tr>
+<td style="width: 10%">
+<p><kbd>Context</kbd></p>
+</td>
+<td style="width: 35%">
+<p><kbd>eventType</kbd></p>
+</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p><strong>Cloud Storage data object</strong>:<br/>
+The following table outlines the information associated with a data object. As you can see there is some useful information available here that we can use in our application.</p>
+<table border="1" style="border-collapse: collapse;width: 50%">
+<tbody>
+<tr>
+<td style="width: 10%">
+<p><strong>Object</strong></p>
+</td>
+<td style="width: 35%">
+<p><strong>Field</strong></p>
+</td>
+</tr>
+<tr>
+<td style="width: 10%">
+<p><kbd>data</kbd></p>
+</td>
+<td style="width: 35%">
+<p><kbd>bucket</kbd></p>
+</td>
+</tr>
+<tr>
+<td style="width: 10%">
+<p><kbd>data</kbd></p>
+</td>
+<td style="width: 35%">
+<p><kbd>name</kbd></p>
+</td>
+</tr>
+<tr>
+<td style="width: 10%">
+<p><kbd>data</kbd></p>
+</td>
+<td style="width: 35%">
+<p><kbd>metageneration</kbd></p>
+</td>
+</tr>
+<tr>
+<td style="width: 10%">
+<p><kbd>data</kbd></p>
+</td>
+<td style="width: 35%">
+<p><kbd>timeCreation</kbd></p>
+</td>
+</tr>
+<tr>
+<td style="width: 10%">
+<p><kbd>data</kbd></p>
+</td>
+<td style="width: 35%">
+<p><kbd>updated</kbd></p>
+</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>Based on the preceding information, much of what we need is available in the data object. In this case, we can pass this object to our message queue for further processing by the backend:</p>
+<ol>
+<li>Go to the <kbd>frontend-service</kbd> subdirectory.</li>
+</ol>
+<ol start="2">
+<li>Amend the <kbd>entrypoint</kbd> function, which is outlined as follows:</li>
+</ol>
+<pre style="padding-left: 60px">exports.gcpSecureURL = async (data, context)=&gt; {<br/>  // Get the file to be processed<br/>  const message = data;<br/><br/>  // Create a pubsub message based on filename, bucketname<br/>  await gcpCreatePayload(message);<br/>}</pre>
+<ol start="3">
+<li>Then, amend the <kbd>gcpCreatePayload</kbd> <span>function </span>as follows:</li>
+</ol>
+<pre style="padding-left: 60px">async function gcpCreatePayload(message) {<br/>  // Process a Pub/Sub message - amend to a JSON string<br/>  const payload = Buffer.from(JSON.stringify(message));<br/><br/>  console.log ('Information passed: ' + payload);<br/><br/>  // Pass the Topic and the payload<br/>  await pubsub.topic('start-process').publish(payload);<br/>}</pre>
+<p>Congratulations! The <kbd>gcpSecureURL</kbd> function is now forwarding the data object to Cloud Pub/Sub. Rather than creating additional potentially complex code, we simply pass data between services utilizing Cloud Pub/Sub messaging.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Backend service</h1>
+                </header>
+            
+            <article>
+                
+<p>The backend service will not have a data object presented to the <kbd>entrypoint</kbd> function. Instead of accessing a filename, we need to extract both the filename and the bucket name from the data object:</p>
+<ol>
+<li>Go to the <kbd>backend-service</kbd> subdirectory.</li>
+<li>Amend the <kbd>gcpCreateSignedURL</kbd> function, which is as outlined as follows:</li>
+</ol>
+<pre style="padding-left: 60px">exports.gcpCreateSignedURL= (event, context)=&gt; {<br/>  // Get the file to be processed<br/>  const payload = JSON.parse(Buffer.from(event.data, 'base64').toString());<br/><br/>  // Debug message<br/>  console.log ('gcpCreateSignedURL: ' + payload.name + ' ' + payload.bucket);<br/><br/>  // Call the function<br/>  gcpGenerateSignedURL(payload.name, payload.bucket);<br/>}</pre>
+<ol start="3">
+<li>Amend the <kbd>signedURL</kbd> function:</li>
+</ol>
+<pre style="padding-left: 60px">async function gcpGenerateSignedURL(filename, bucketName) {<br/>  // Get a signed URL for the file<br/>  storage<br/>    .bucket(bucketName)<br/>    .file(filename)<br/>    .getSignedUrl(options)<br/>    .then(results =&gt; {<br/>      const url = results[0];<br/>      console.log('The signed url for ${filename} is ${url}.');<br/>      // gcpMessageQueue(url);<br/>    })<br/>    .catch(err =&gt; {<br/>      console.error('ERROR:', err);<br/>    });<br/>}</pre>
+<p>While we are in the <kbd>backend-service</kbd> subdirectory, we can also fix the hard coded expiration date. One simple way to correct the issue with expiration dates is to add a standard duration for signed URLs. Adding a duration means that we can automatically supply a future date on which the URLs supplied will automatically expire:</p>
+<ol>
+<li>Go to the <kbd>backend-service</kbd> subdirectory.</li>
+<li>Add an expiry date function above the <kbd>gcpGenerateSignedURL</kbd> function:</li>
+</ol>
+<pre style="padding-left: 60px">function gcpExpirationDate(duration) {<br/>  const ExpirationDate = new Date();<br/><br/>  ExpirationDate.setDate(ExpirationDate.getDate() + duration);<br/>  futureDate = ((ExpirationDate.getMonth()+1) + '-' + ExpirationDate.getDate() + '-' + ExpirationDate.getFullYear());<br/><br/>  console.log ('Expiration date: ${futureDate}');<br/><br/>  return (futureDate);<br/>}<br/><br/>async function gcpGenerateSignedURL(filename, bucketName) {<br/>…<br/>}</pre>
+<p class="mce-root"/>
+<ol start="3">
+<li>Amend the <kbd>options</kbd> object in order to call the <kbd>gcpExpirationDate</kbd> function:</li>
+</ol>
+<pre style="padding-left: 60px">const MAX_DURATION_DAYS = 7<br/><br/>const options = {<br/>      action: 'read',<br/>      // MM-DD-CCYY<br/>      //expires: '11-23-2019',<br/>      expires: gcpExpirationDate(MAX_DURATION_DAYS),<br/>};</pre>
+<p>Rather than adding complex code, we pass the current information provided by Cloud Storage, and that enables our services to take advantage of a complete dataset. Additionally, we now have a set duration for signed URLs, so the process is completely automated from start to finish.</p>
+<p>Go ahead and delete the existing Cloud Functions from your project, and delete any content from the storage bucket. We will redeploy our functions one last time. However, this time, when asked whether you want to allow unauthenticated invocations, select <strong>No</strong>:</p>
+<ol>
+<li>
+<p>Deploy the updated frontend service:</p>
+</li>
+</ol>
+<pre style="padding-left: 60px"><strong>gcloud functions deploy gcpSecureURL \</strong><br/><strong>  --runtime nodejs8 \</strong><br/><strong>  --trigger-resource gs://roselabs-signed-upload \</strong><br/><strong>  --trigger-event google.storage.object.finalize</strong></pre>
+<ol start="2">
+<li>Deploy the backend service:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>gcloud functions deploy gcpCreateSignedURL --trigger-topic start-process --runtime nodejs8</strong></pre>
+<ol start="3">
+<li>Once the Cloud Functions are deployed, upload a new file to the storage bucket.</li>
+</ol>
+<p>Once the user uploads a document to the bucket, the automated process takes over. Our functions still work, as they use the service account associated with the project. The Cloud Functions are no longer externally accessible to unauthenticated invocations.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>The data object for Cloud Storage provides all the information we need for our service to be completely self-reliant (that is, a filename and a bucket name). With the application now seamlessly passing information between services using a service account, we no longer have to worry so much about the following:</p>
+<ul>
+<li class="mce-root">The security of the Cloud Functions, as a service account manages them</li>
+<li class="mce-root">User validation, as the information in the storage bucket is provided automatically on file upload</li>
+<li class="mce-root">Scaling our function, as the data uses Cloud Storage and Cloud Pub/Sub</li>
+</ul>
+<p>Congratulations! The <kbd>backend-service</kbd> is now using the data object consumed from Cloud Pub/Sub. Before we conclude this topic, please take a minute to consider how flexible our solution has become. We started with a simple requirement, and by making some small incremental changes, we now have a fully automated service. Due to the inclusion of both Cloud Pub/Sub and Cloud Storage, we also have a solution that will scale and has a level of resilience built-in. The architecture maintains loose coupling between the functions, so we can continue to iterate our design without fear of breaking links to components, thanks to the inclusion of Cloud Pub/Sub messages.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>At this point, you should have a reasonable understanding of the general architecture and components provided by Cloud Functions. While the typical use case of Cloud Functions is to use HTTP endpoints, it is also incredibly useful to have background functions (for example, Cloud Pub/Sub and Cloud Storage) available to integrate different services using a standardized interface. Our use of HTTP endpoints and background functions has enabled us to prototype a simple service application to create a <kbd>signedURL</kbd> function. Building on the knowledge we have gathered over the previous chapters, we have been able to perform the majority of this work from a local development environment.</p>
+<p>The Cloud Functions process of developing an application demonstrates how a simple solution can be quick to build and extend. Cloud Pub/Sub requires a message queue to be defined that provides the capability to integrate different services. Being able to decouple the background processing of data allows solutions to be loosely coupled and more open to integration with a broader range of technical solutions. In many instances, Cloud Pub/Sub operates as the glue for Google Cloud, delivering data exchanges between a variety of services. Cloud Storage offers a simple, yet effective, means for users to upload data without needing to expose portals or create complex life cycle management code.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>In the next chapter, we will create some general examples to build on the techniques we have learned so far. Our focus will remain on Cloud Functions and building components to whet our appetite for developing a more complete and challenging application. The emphasis of this content will be to provide a more comprehensive series of examples and also cover some of the elements necessary to incorporate Cloud Functions within your portfolio.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Questions</h1>
+                </header>
+            
+            <article>
+                
+<ol>
+<li>What subscription types does Cloud Pub/Sub support? </li>
+<li><span>Name three message design patterns for Cloud Pub/Sub?</span></li>
+<li>What verbs are associated with HTTP?</li>
+<li>If I want to have user data accessible in the URL, should I use GET or POST? </li>
+<li>What Cloud Storage property maintains information on the data content?</li>
+<li>If my code responds with an error code of 5xx, where should I expect the error to be?</li>
+<li>Does Google Cloud support OAuth v2?</li>
+<li>If a Cloud Pub/Sub message is not acknowledged before its deadline, is the message lost?</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Further reading</h1>
+                </header>
+            
+            <article>
+                
+<ul>
+<li><strong>Authentication Developers, Functions, and End Users</strong>: <a href="https://cloud.google.com/functions/docs/securing/authenticating">https://cloud.google.com/functions/docs/securing/authenticating</a></li>
+<li><strong>Using OAuth 2.0 and Google Cloud Functions to access Google services</strong>: <a href="https://cloud.google.com/community/tutorials/cloud-functions-oauth-gmail">https://cloud.google.com/community/tutorials/cloud-functions-oauth-gmail</a></li>
+<li><strong>Understanding OAuth2 and Deploying a Basic Authorization Service to Cloud Functions</strong>: <a href="https://cloud.google.com/community/tutorials/understanding-oauth2-and-deploy-a-basic-auth-srv-to-cloud-functions">https://cloud.google.com/community/tutorials/understanding-oauth2-and-deploy-a-basic-auth-srv-to-cloud-functions</a></li>
+<li><strong>Securing Google Cloud Functions</strong>: <a href="https://cloud.google.com/functions/docs/securing/">https://cloud.google.com/functions/docs/securing/</a></li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

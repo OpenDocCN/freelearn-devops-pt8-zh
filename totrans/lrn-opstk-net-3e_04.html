@@ -1,0 +1,876 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Virtual Network Infrastructure Using Linux Bridges</h1>
+                </header>
+            
+            <article>
+                
+<p>One of the core functions of OpenStack Networking is to provide end-to-end network connectivity to instances running in the cloud. In <em><a href="bf508e37-ce8a-4116-89db-e8f8a6abf0f4.xhtml">chapter 3</a> Installing Neutron</em>, we installed the Neutron API service and the ML2 plugin across all nodes in the cloud. Beginning with this chapter, you will be introduced to networking concepts and architectures that Neutron relies on to provide connectivity to instances and other virtual devices.</p>
+<p>The ML2 plugin for Neutron allows an OpenStack cloud to leverage multiple Layer 2 technologies simultaneously through the use of Mechanism drivers. In the next few chapters, we will look at multiple Mechanism drivers that extend the functionality of the ML2 network plugin, including the Linux bridge and Open vSwitch drivers.</p>
+<p>In this chapter, you will do the following:</p>
+<ul>
+<li>Discover how Linux bridges are used to build a virtual network infrastructure</li>
+<li>Visualize traffic flow through virtual bridges</li>
+<li>Deploy the Linux bridge Mechanism driver and agent on hosts</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using the Linux bridge driver</h1>
+                </header>
+            
+            <article>
+                
+<p>The Linux bridge Mechanism driver supports a range of traditional and overlay networking technologies, and has support for the following types of drivers:</p>
+<ul>
+<li>Local</li>
+<li>Flat</li>
+<li>VLAN</li>
+<li>VXLAN</li>
+</ul>
+<p>When a host is configured to use the ML2 plugin and the Linux bridge Mechanism driver, the Neutron agent on the host relies on the <kbd>bridge</kbd>, <kbd>8021q</kbd>, and <kbd>vxlan</kbd> kernel modules to properly connect instances and other network resources to virtual switches. These connections allow instances to communicate with other network resources in and out of the cloud. The Linux bridge Mechanism driver is popular for its dependability and ease of troubleshooting but lacks support for some advanced Neutron features such as distributed virtual routers.</p>
+<p>In a Linux bridge-based network implementation, there are five types of interfaces managed by OpenStack Networking:</p>
+<ul>
+<li>Tap interfaces</li>
+<li>Physical interfaces</li>
+<li>VLAN interfaces</li>
+<li>VXLAN interfaces</li>
+<li>Linux bridges</li>
+</ul>
+<p>A <strong>tap interface</strong> is created and used by a hypervisor such as QEMU/KVM to connect the guest operating system in a virtual machine instance to the underlying host. These virtual interfaces on the host correspond to a network interface inside the guest instance. An Ethernet frame sent to the tap device on the host is received by the guest operating system, and frames received from the guest operating system are injected into the host network stack.</p>
+<p>A <strong>physical interface</strong> represents an interface on the host that is plugged into physical network hardware. Physical interfaces are often labeled <kbd>eth0</kbd>, <kbd>eth1</kbd>, <kbd>em0</kbd>, <kbd>em1</kbd>, and so on, and may vary depending on the host operating system.</p>
+<p>Linux supports 802.1q VLAN tagging through the use of virtual VLAN interfaces. A VLAN interface can be created using <kbd>iproute2</kbd> commands or the traditional <kbd>vlan</kbd> utility and <kbd>8021q</kbd> kernel module. A VLAN interface is often labeled <kbd>ethX.&lt;vlan&gt;</kbd> and is associated with its respective physical interface, <kbd>ethX</kbd>.</p>
+<p>A <strong>VXLAN interface</strong> is a virtual interface that is used to encapsulate and forward traffic based on parameters configured during interface creation, including a VXLAN Network Identifier (<strong>VNI</strong>) and VXLAN Tunnel End Point (VTEP). The function of a VTEP is to encapsulate virtual machine instance traffic within an IP header across an IP network. Traffic on the same VTEP is segregated from other VXLAN traffic using an ID provided by the VNI. The instances themselves are unaware of the outer network topology providing connectivity between VTEPs.</p>
+<p>A <strong>Linux bridge</strong> is a virtual interface that connects multiple network interfaces. In Neutron, a bridge will usually include a physical interface and one or more virtual or tap interfaces. Linux bridges are a form of virtual switches.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Visualizing traffic flow through Linux bridges</h1>
+                </header>
+            
+            <article>
+                
+<p>For an Ethernet frame to travel from a virtual machine instance to a device on the physical network, it will pass through three or four devices inside the host:</p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td class="CDPAlignCenter CDPAlign" style="width: 129px">
+<p><strong>Network type</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 159.531px">
+<p><strong>Interface type</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 414.469px">
+<p><strong>Interface name</strong></p>
+</td>
+</tr>
+<tr>
+<td style="width: 129px">
+<p>all</p>
+</td>
+<td style="width: 159.531px">
+<p>tap</p>
+</td>
+<td style="width: 414.469px">
+<p>tapN</p>
+</td>
+</tr>
+<tr>
+<td style="width: 129px">
+<p>all</p>
+</td>
+<td style="width: 159.531px">
+<p>bridge</p>
+</td>
+<td style="width: 414.469px">
+<p>brqXXXX</p>
+</td>
+</tr>
+<tr>
+<td style="width: 129px">
+<p>vxlan</p>
+</td>
+<td style="width: 159.531px">
+<p>vxlan</p>
+</td>
+<td style="width: 414.469px">
+<p>vxlan-z (where Z is the VNI)</p>
+</td>
+</tr>
+<tr>
+<td style="width: 129px">
+<p>vlan</p>
+</td>
+<td style="width: 159.531px">
+<p>vlan</p>
+</td>
+<td style="width: 414.469px">
+<p>ethX.Y (where X is the physical interface and Y is the VLAN ID)</p>
+</td>
+</tr>
+<tr>
+<td style="width: 129px">
+<p>flat, vlan</p>
+</td>
+<td style="width: 159.531px">
+<p>physical</p>
+</td>
+<td style="width: 414.469px">
+<p>ethX (where X is the interface)</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>To help conceptualize how Neutron uses Linux bridges, a few examples of Linux bridge architectures are provided in the following sections.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">VLAN</h1>
+                </header>
+            
+            <article>
+                
+<p>Imagine an OpenStack cloud that consists of a single <kbd>vlan</kbd> provider network with the segmentation ID <span class="packt_screen">100</span>. Three instances have been connected to the network. As a result, the network architecture within the <kbd>compute</kbd> node resembles the following:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/f4294799-da56-4b93-b330-8f31b59981b7.png" style="width:53.50em;height:36.58em;"/></div>
+<div class="packt_figure packt_figref CDPAlignCenter CDPAlign">Figure 4.1</div>
+<p>In Figure 4.1, three virtual machine instances are connected to a Linux bridge named <kbd>brqXXXX</kbd> via their respective tap interfaces. When the first instance was launched and connected to the network, Neutron created the bridge and a virtual interface named <kbd>eth1.100</kbd> and automatically connected the interface to the bridge. The <kbd>eth1.100</kbd> interface is bound to physical interface <kbd>eth1</kbd>. As traffic from instances traverses the Linux bridge and out toward the physical interface, interface <kbd>eth1.100</kbd> tags that traffic as VLAN 100 and drops it on <kbd>eth1</kbd>. Likewise, ingress traffic toward the instances through <kbd>eth1</kbd> is inversely untagged by <kbd>eth1.100</kbd> and sent to the appropriate instance connected to the bridge.</p>
+<p class="mce-root"/>
+<p>Using the <kbd>brctl show</kbd> command, the preceding diagram can be realized in the Linux CLI as the following:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/cdf7dc29-1527-4be3-bfec-e0c576e3fca3.png" style="width:35.33em;height:9.17em;"/></div>
+<p>The <kbd>bridge id</kbd> in the output is dynamically generated based on the parent NIC of the virtual VLAN interface. In this bridge, the parent interface is <kbd>eth1</kbd>.</p>
+<p>The <kbd>bridge name</kbd>, beginning with the <kbd>brq</kbd> prefix, is generated based on the ID of the corresponding Neutron network it is associated with. In a Linux bridge architecture, every network uses its own bridge. Bridge names should be consistent across nodes for the same network.</p>
+<p>On the physical switch, the necessary configuration to facilitate the networking described here will resemble the following:</p>
+<pre>vlan 100<br/>    name VLAN_100<br/><br/>interface Ethernet1/3<br/>    description Provider_Interface_eth1<br/>    switchport<br/>    switchport mode trunk<br/>    switchport trunk allowed vlan add 100<br/>    no shutdown</pre>
+<p>When configured as a trunk port, the provider interface can support multiple VLAN networks. If more than one VLAN network is needed, another Linux bridge will be created automatically that contains a separate VLAN interface. The new virtual interface, <kbd>eth1.101</kbd>, is connected to a new bridge, <kbd>brqYYYY</kbd>, as seen in Figure 4.2:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/c03d0af9-2f3a-4c25-bdfb-62cac609f165.png" style="width:46.83em;height:39.42em;"/></div>
+<div class="packt_figure packt_figref CDPAlignCenter CDPAlign">Figure 4.2</div>
+<p>On the <kbd>compute</kbd> node, the preceding diagram can be realized as the following <kbd>brctl show</kbd> output:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/5a02f465-940d-4f04-8406-22804f535e5b.png" style="width:36.00em;height:14.17em;"/></div>
+<p>On the physical switch, the necessary configuration to facilitate the networking described here will resemble the following:</p>
+<pre>vlan 100<br/>    name VLAN_100 <br/>vlan 101 <br/>    name VLAN_101 <br/> <br/>interface Ethernet1/3<br/>    description Provider_Interface_eth1<br/>    switchport<br/>    switchport mode trunk<br/>    switchport trunk allowed vlan add 100-101<br/>    no shutdown </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Flat</h1>
+                </header>
+            
+            <article>
+                
+<p>A flat network in Neutron describes a network in which <em>no </em>VLAN tagging takes place. Unlike VLAN networks, flat networks require that the physical interface of the host associated with the network be connected directly to the bridge. This means that only a <em>single</em> flat network can exist per physical interface.</p>
+<p>Figure 4.3 demonstrates a physical interface connected directly to a Neutron-managed bridge in a flat network scenario:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/e02072f7-9d5f-423a-97d2-261a40d5d127.png" style="width:45.08em;height:30.83em;"/></div>
+<div class="packt_figure packt_figref CDPAlignCenter CDPAlign">Figure 4.3</div>
+<p>In Figure 4.3, <kbd>eth1</kbd> is connected to the bridge named <kbd>brqZZZZ</kbd> along with three tap interfaces that correspond to guest instances. No VLAN tagging for instance traffic takes place in this scenario.</p>
+<p>On the <kbd>compute</kbd> node, the preceding diagram can be realized as the following <kbd>brctl show</kbd> output:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/5d198e2a-b0cf-4de2-9052-00c8a3f5fd0b.png" style="width:30.58em;height:7.83em;"/></div>
+<p>On the physical switch, the necessary configuration to facilitate the networking described here will resemble the following:</p>
+<pre>vlan 200<br/>    name VLAN_200 <br/> <br/>interface Ethernet1/3<br/>    description Provider_Interface_eth1<br/>    switchport<br/>    switchport mode trunk<br/>    switchport trunk native vlan 200 <br/>    switchport trunk allowed vlan add 200<br/>    no shutdown </pre>
+<p>Alternatively, the interface can also be configured as an access port:</p>
+<pre>interface Ethernet1/3<br/>    description Provider_Interface_eth1<br/>    switchport<br/>    switchport mode access<br/>    switchport access vlan 200<br/>    no shutdown </pre>
+<p>Only one flat network is supported per provider interface. When configured as a trunk port with a native VLAN, the provider interface can support a single flat network and multiple VLAN networks. When configured as an access port, the interface can only support a single flat network and any attempt to tag traffic will fail.</p>
+<p>When multiple flat networks are created, a separate physical interface must be associated with each flat network. Figure 4.4 demonstrates the use of a second physical interface required for the second flat network:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/89500fd7-b3c8-4da1-b390-4931221d1a70.png" style="width:59.00em;height:50.58em;"/></div>
+<div class="packt_figure packt_figref CDPAlignCenter CDPAlign">Figure 4.4</div>
+<p>On the <kbd>compute</kbd> node, the use of two physical interfaces for separate flat networks can be realized as the following <kbd>brctl show</kbd> output:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/131ff3f7-4c4e-4104-b482-82280715f3a3.png" style="width:27.75em;height:10.17em;"/></div>
+<p>On the physical switch, the necessary configuration to facilitate the networking described here will resemble the following:</p>
+<pre>vlan 200<br/>    name VLAN_200<br/>vlan 201<br/>    name VLAN_201 </pre>
+<pre> interface Ethernet1/3<br/>    description Flat_Provider_Interface_eth1<br/>    switchport<br/>    switchport mode trunk<br/>    switchport trunk native vlan 200<br/>    switchport trunk allowed vlan add 200<br/>    no shutdown </pre>
+<pre>interface Ethernet1/4<br/>    description Flat_Provider_Interface_eth2<br/>    switchport<br/>    switchport mode trunk<br/>    switchport trunk native vlan 201<br/>    switchport trunk allowed vlan add 201<br/>    no shutdown </pre>
+<p>With the two flat networks, the host does not perform any VLAN tagging on traffic traversing those bridges. Instances connected to the two bridges require a router to communicate with one another. Given the requirement for unique interfaces per flat network, flat networks do not scale well and are not common in production environments.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">VXLAN</h1>
+                </header>
+            
+            <article>
+                
+<p>When VXLAN networks are created, the Neutron Linux bridge agent creates a corresponding VXLAN interface using <kbd>iproute2</kbd> user-space utilities and connects it to a Linux bridge. The VXLAN interface is programmed with information such as the VNI and local VTEP address.</p>
+<p>When the L2 population driver is configured, Neutron prepopulates the forwarding database with static entries consisting of the MAC addresses of instances and their respective host VTEP addresses. As a packet from an instance traverses the bridge, the host determines how to forward the packet by consulting the forwarding table. If an entry is found, Neutron will forward the packet out of the corresponding local interface and encapsulate the traffic accordingly. To view the forwarding database table on each host, use the <kbd>bridge fdb show</kbd> command.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Potential issues when using overlay networks</h1>
+                </header>
+            
+            <article>
+                
+<p>One thing to be aware of when using overlay networking technologies is that the additional headers added to the encapsulated packets may cause them to exceed the <strong>maximum transmission unit (MTU)</strong> of the switchport or interface. The MTU is the largest size of packet or frame that can be sent over the network. Encapsulating a packet with VXLAN headers may cause the packet size to exceed the default maximum 1500-byte MTU. Connection issues caused by exceeding the MTU manifest themselves in strange ways, including partial failures in connecting to instances over SSH or a failure to transfer large payloads between instances, and more. To avoid this, consider lowering the MTU of interfaces within virtual machine instances from 1500 bytes to 1450 bytes to account for the overhead of VXLAN encapsulation to avoid connectivity issues.</p>
+<p>An alternative to dropping the MTU is to increase the MTU of the interfaces used for the VTEPs. It is common to set a jumbo MTU of 9000 on VTEP interfaces and corresponding switchports to avoid having to drop the MTU inside instances. Increasing the MTU of the VTEP interfaces has also been shown to provide increases in network throughput when using overlay networks.</p>
+<p>The DHCP agent can be configured to push a non-standard MTU to instances within the DHCP lease offer by modifying DHCP option <kbd>26</kbd>. To configure a lower MTU, complete the following steps:</p>
+<ol>
+<li>On the <kbd>controller</kbd> node, modify the DHCP configuration file at <kbd>/etc/neutron/dhcp_agent.ini</kbd> and specify a custom <kbd>dnsmasq</kbd> configuration file:</li>
+</ol>
+<pre>[DEFAULT]<br/>dnsmasq_config_file = /etc/neutron/dnsmasq-neutron.conf</pre>
+<ol start="2">
+<li>Next, create the custom <kbd>dnsmasq</kbd> configuration file at <kbd>/etc/neutron/dnsmasq-neutron.conf</kbd><a> </a>and add the following contents:</li>
+</ol>
+<pre>dhcp-option-force=26,1450 </pre>
+<ol start="3">
+<li>Save and close the file. Restart the Neutron DHCP agent with the following command:</li>
+</ol>
+<pre># systemctl restart neutron-dhcp-agent   </pre>
+<p>Inside an instance running Linux, the MTU can be observed within the instance using the <kbd>ip link show &lt;interface&gt;</kbd> command.</p>
+<div class="packt_infobox">A change to the <kbd>dnsmasq</kbd> configuration affects all networks, even instances on VLAN networks. Neutron ports can be modified individually to avoid this effect.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Local</h1>
+                </header>
+            
+            <article>
+                
+<p>When creating a local network in Neutron, it is not possible to specify a VLAN ID or even a physical interface. The Neutron Linux bridge agent will create a bridge and connect only the tap interface of the instance to the bridge. Instances in the same local network on the same node will be connected to the same bridge and are free to communicate with one another. Because the host does not have a physical or virtual VLAN interface connected to the bridge, traffic between instances is limited to the host on which the instances reside. Traffic between instances in the same local network that reside on different hosts will be unable to communicate with one another.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Figure 4.5 demonstrates the lack of physical or virtual VLAN interfaces connected to the bridge:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/643d81ea-7e9f-49ec-9fe7-b631bba698fb.png" style="width:41.92em;height:35.08em;"/></div>
+<div class="packt_figure packt_figref CDPAlignCenter CDPAlign">Figure 4.5</div>
+<p>In Figure 4.5, two local networks have been created along with their respective bridges, <kbd>brqZZZZ</kbd> and <kbd>brqNNNN</kbd>. Instances connected to the same bridge can communicate with one another, but nothing else outside of the bridge. There is no mechanism to permit traffic between instances on different bridges or hosts when using local networks.</p>
+<p>Some application architectures may require multiple instances be deployed on the same host without the need for cross-host communication. A local network might make sense in this scenario and can be used to avoid the consumption of precious VLAN IDs or VXLAN overhead.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring the ML2 networking plugin</h1>
+                </header>
+            
+            <article>
+                
+<p>Before you can build network resources in an OpenStack cloud, a network plugin must be defined and configured. The ML2 plugin provides a common framework that allows multiple drivers to interoperate with one another. In this section, we will look at how to configure the Linux bridge ML2 driver and agent on the <kbd>controller01</kbd> and <kbd>compute01</kbd> hosts.</p>
+<div class="packt_infobox">Configuring the Linux bridge and Open vSwitch drivers for simultaneous operation will be discussed in this book but may not be appropriate for a production environment. To make things simple, I recommend deploying the Linux bridge driver if distributed virtual routers are not required. The configuration and architecture of distributed virtual routers are outlined in <em><span class="ChapterrefPACKT"><a href="b441728b-4377-43cf-b675-166266fef6c9.xhtml">Chapter 12</a></span>, Distributed Virtual Routers</em><span class="ChapterrefPACKT">.</span></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring the bridge interface</h1>
+                </header>
+            
+            <article>
+                
+<p>In this installation, physical network interface <kbd>eth2</kbd> will be utilized as the <strong>provider interface </strong>for VLAN and flat networks. Neutron will be responsible for configuring VLAN interfaces off <kbd>eth2</kbd> once the initial network configuration has been completed.</p>
+<p>On the <kbd>controller01</kbd> and <kbd>compute01</kbd> nodes, configure the <kbd>eth2</kbd> interface within the<kbd>/etc/network/interfaces</kbd> file as follows:</p>
+<pre>auto eth2<br/>iface eth2 inet manual </pre>
+<p>Close and save the file, and bring the interface up with the following command:</p>
+<pre>    # ip link set dev eth2 up</pre>
+<p>Confirm the interface is in an <kbd>UP</kbd> state using the <kbd>ip link show dev eth2</kbd> command. If the interface is up, it is ready for use in bridges that Neutron will create and manage.</p>
+<div class="packt_infobox">Because the interface will be used in a bridge, an IP address cannot be applied directly to the interface. If there is an IP address applied to <kbd>eth2</kbd>, it will become inaccessible once the interface is placed in a bridge. If an IP is required, consider moving it to an interface not required for Neutron networking.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring the overlay interface</h1>
+                </header>
+            
+            <article>
+                
+<p>In this installation, physical network interface <kbd>eth1</kbd> will be utilized as the <strong>overlay interface </strong>for overlay networks using VXLAN. Neutron will be responsible for configuring VXLAN interfaces once the initial network configuration has been completed.</p>
+<p>On the <kbd>controller01</kbd> and <kbd>compute01</kbd> nodes, configure the <kbd>eth1</kbd> interface within the <kbd>/etc/network/interfaces</kbd> file as follows:</p>
+<pre>auto eth1<br/>iface eth1 inet static<br/>    address 10.20.0.X/24 </pre>
+<p>Use the following table for the appropriate address, and substitute for <kbd>X</kbd> where appropriate:</p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td class="CDPAlignCenter CDPAlign" style="width: 322.142px">
+<p><strong>Host</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 377.858px">
+<p><strong>Address</strong></p>
+</td>
+</tr>
+<tr>
+<td style="width: 322.142px">
+<p><kbd>controller01</kbd></p>
+</td>
+<td style="width: 377.858px">
+<p>10.20.0.100</p>
+</td>
+</tr>
+<tr>
+<td style="width: 322.142px">
+<p><kbd>compute01</kbd></p>
+</td>
+<td style="width: 377.858px">
+<p>10.20.0.101</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>Close and save the file, and bring the interface up with the following command:</p>
+<pre>    # ip link set dev eth1 up</pre>
+<p>Confirm the interface is in an <kbd>UP</kbd> state and that the address has been set using the <kbd>ip addr show dev eth1</kbd> command. Ensure both hosts can communicate over the newly configured interface by pinging <kbd>compute01</kbd> from the <kbd>controller01</kbd> node:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/a8b325ed-0688-40b6-89ae-2ed75ac53034.png" style="width:33.67em;height:14.08em;"/></div>
+<div class="packt_tip">If you experience any issues communicating across this interface, you <em>will</em> experience issues with VXLAN networks created with OpenStack Networking. Any issues should be corrected before continuing.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">ML2 plugin configuration options</h1>
+                </header>
+            
+            <article>
+                
+<p>The ML2 plugin was installed in the previous chapter and its configuration file located at <a><kbd>/etc/neutron/plugins/ml2/ml2_conf.ini</kbd> </a>must be configured before OpenStack Networking services can be used.The ML2 plugin configuration file is referenced by the <kbd>neutron-server</kbd> service may be referenced by multiple agents, including Linux bridge and Open vSwitch agents. Agent-specific changes will be made in their respective configuration files on each host.</p>
+<p>The <kbd>ml2_conf.ini</kbd> file is broken into configuration blocks and contains the following commonly used options:</p>
+<pre>[ml2]<br/>...<br/>type drivers = ...<br/>mechanism drivers = ...<br/>tenant_network_types = ...<br/>extension_drivers = ... <br/><br/>[ml2_type_flat]<br/>...<br/>flat_networks = ...<br/><br/>[ml2_type_vlan]<br/>...<br/>network_vlan_ranges = ...<br/><br/>[ml2_type_vxlan]<br/>...<br/>vni_ranges = ...<br/>vxlan_group = ...<br/><br/>[securitygroup]<br/>...<br/>enable_security_group = ...<br/>enable_ipset = ...</pre>
+<div class="packt_infobox">Configuration options must remain in the appropriate block, otherwise Neutron services may not start or operate properly.</div>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Type drivers</h1>
+                </header>
+            
+            <article>
+                
+<p>Type drivers describe the type of networks that can be created and implemented by Mechanism drivers. Type drivers included with the ML2 plugin include <kbd>local</kbd>, <kbd>flat</kbd>, <kbd>vlan</kbd>, <kbd>gre</kbd>, <kbd>vxlan</kbd>, and <kbd>geneve</kbd>. Not all Mechanism drivers can implement all types of networks, however. The Linux bridge driver lacks support for GENEVE and GRE networks.</p>
+<p>Update the ML2 configuration file on the controller01 node and add the following <kbd>type_drivers</kbd>:</p>
+<pre>[ml2]<br/>...<br/>type_drivers = local,flat,vlan,vxlan</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Mechanism drivers</h1>
+                </header>
+            
+            <article>
+                
+<p>Mechanism drivers are responsible for implementing networks described by the type driver. Mechanism drivers included with the ML2 plugin include <kbd>linuxbridge</kbd>, <kbd>openvswitch</kbd>, and <kbd>l2population</kbd>.</p>
+<p>Update the ML2 configuration file on the <kbd>controller01</kbd> node and add the following <kbd>mechanism_drivers</kbd>:</p>
+<pre>[ml2]<br/>...<br/>mechanism_drivers = linuxbridge,l2population</pre>
+<div class="packt_infobox">The Neutron Linux bridge agent requires specific configuration options that will be discussed later in this chapter.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using the L2 population driver</h1>
+                </header>
+            
+            <article>
+                
+<p>The L2 population driver was introduced in the Havana release of OpenStack alongside the ML2 plugin. It enables broadcast, multicast, and unicast traffic to scale on large overlay networks constructed by OpenStack.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>The goal of the L2 population driver is to inhibit costly switch learning behaviors by pre-populating bridge forwarding and IP neighbor (ARP) tables on all hosts. Because Neutron is seen as a source of truth for the logical layout of networks and instances created by users, it can easily pre-populate forwarding tables consisting of MAC addresses and destination VTEPs with that information. The L2 population driver also implements an ARP proxy on each host, eliminating the need to broadcast ARP requests across the overlay network. Each <kbd>compute</kbd> or <kbd>network</kbd> node is able to intercept an ARP request from an instance or router and proxy the response to the requestor. However, the L2 population driver does have limitations that will be discussed later in this chapter.</p>
+<p>An alternative to using the L2 population driver is to rely on the use of multicast to propagate forwarding database information between hosts. Each host should be configured to subscribe to a multicast group configured outside of OpenStack. If not properly configured, broadcast messages may be used in lieu of multicast and may cause unnecessary chatter on the network. The configuration of multicast is outside the scope of this book.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Tenant network types</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>tenant_network_types</kbd> configuration option describes the type of networks that a tenant or project can create. When using the Linux bridge Mechanism driver, the supported tenant network types are <kbd>flat</kbd>, <kbd>vlan</kbd>, <kbd>local</kbd>, <kbd>vxlan</kbd>, and <kbd>none</kbd>.</p>
+<p>The configuration option takes values in an ordered list, such as <kbd>vlan,vxlan</kbd>. In this example, when a user creates a network, Neutron will automatically provision a VLAN network and ID without any user interaction. When all available VLAN IDs have been allocated, Neutron will allocate a network of the next type in the list. In this case, a VXLAN network and VNI would be allocated. When all segmentation IDs of any listed network type have been allocated, users will no longer be able to create networks and an error will be presented to the user.</p>
+<div class="packt_infobox">Users with the <kbd>admin</kbd> role can override the behavior of <kbd>tenant_network_types</kbd> by specifying provider attributes during the network creation process.</div>
+<p>Update the ML2 configuration file on the <kbd>controller</kbd> node and add the following <kbd>tenant_network_types</kbd> configuration to the <kbd>[ml2]</kbd> section:</p>
+<pre>[ml2]<br/>...<br/>tenant_network_types= vlan,vxlan</pre>
+<p class="mce-root"/>
+<p>If at any time you wish to change the value of <kbd>tenant_network_types</kbd>, edit the plugin configuration file accordingly on all nodes and restart the <kbd>neutron-server</kbd> service.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Flat networks</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>flat_networks</kbd> configuration option defines interfaces that support the use of untagged networks, commonly referred to as a native or access VLAN. This option requires that a provider label be specified. A <strong>provider label</strong> is an arbitrary label or name that is mapped to a physical interface or bridge on the host. These mappings will be discussed in further detail later in this chapter.</p>
+<p>In the following example, the <kbd>physnet1</kbd> interface has been configured to support a flat network:</p>
+<pre>flat_networks = physnet1 </pre>
+<p>Multiple interfaces can be defined using a comma-separated list:</p>
+<pre>flat_networks = physnet1,physnet2 </pre>
+<div class="packt_infobox">Due to the lack of an identifier to segregate untagged traffic on the same interface, an interface can only support a single flat network.</div>
+<p>In this environment, the <kbd>flat_networks</kbd> option can remain <em>unconfigured</em>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Network VLAN ranges</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>network_vlan_ranges</kbd> configuration option defines a range of VLANs that project networks will be associated with upon their creation when <kbd>tenant_network_types</kbd> is <kbd>vlan</kbd>. When the number of available VLANs reaches zero, tenants will no longer be able to create VLAN networks.</p>
+<p>In the following example, VLAN IDs <kbd>40</kbd> through <kbd>43</kbd> are available for tenant network allocation:</p>
+<pre>network_vlan_ranges = physnet1:40:43 </pre>
+<p>Non-contiguous VLANs can be allocated by using a comma-separated list:</p>
+<pre>network_vlan_ranges = physnet1:40:43,physnet1:51:55</pre>
+<p class="mce-root"/>
+<p>In this specific deployment, the provider label <kbd>physnet1</kbd> will be used with VLANs <kbd>40</kbd> through <kbd>43</kbd>. Those VLANs will be automatically assigned to <kbd>vlan</kbd> networks upon creation unless overridden by a user with the <kbd>admin</kbd> role.</p>
+<p>Update the ML2 configuration file on the <kbd>controller01</kbd> node and add the following   <kbd>network_vlan_ranges</kbd> to the <kbd>[ml2_type_vlan]</kbd> section:</p>
+<pre>[ml2_type_vlan]<br/>...<br/>network_vlan_ranges = physnet1:40:43</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">VNI ranges</h1>
+                </header>
+            
+            <article>
+                
+<p>When VXLAN networks are created, each network is assigned a unique segmentation ID that is used to encapsulate traffic. When the Linux bridge Mechanism driver is used, the segmentation ID is used when creating the respective VXLAN interface on each host.</p>
+<p>The <kbd>vni_ranges</kbd> configuration option is a comma-separated list of ID ranges that are available for project network allocation when <kbd>tunnel_type</kbd> is set to <kbd>vxlan</kbd>.</p>
+<p>In the following example, segmentation IDs <kbd>1</kbd> through <kbd>1000</kbd> are reserved for allocation to tenant networks upon creation:</p>
+<pre>vni_ranges = 1:1000 </pre>
+<p>The <kbd>vni_ranges</kbd> option supports non-contiguous IDs using a comma-separated list as follows:</p>
+<pre>vni_ranges = 1:1000,2000:2500 </pre>
+<p>Update the ML2 configuration file on the <kbd>controller01</kbd> node and add the following <kbd>vni_ranges</kbd> to the <kbd>[ml2_type_vxlan]</kbd> section:</p>
+<pre>[ml2_type_vxlan]<br/>...<br/>vni_ranges = 1:1000</pre>
+<div class="packt_tip">The 24-bit VNI field in the VXLAN header supports up to approximately 16 million unique identifiers.</div>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Security groups</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>enable_security_group</kbd> configuration option instructs Neutron to enable or disable security group-related API functions. The option is set to <kbd>true</kbd> by default.</p>
+<p>The <kbd>enable_ipset</kbd> configuration option instructs Neutron to enable or disable the <kbd>ipset</kbd> extension for iptables when the iptables firewall driver is used. The use of ipsets allows for the creation of firewall rules that match entire sets of addresses at once rather than having individual lines per address, making lookups very efficient compared to traditional linear lookups. The option is set to <kbd>true</kbd> by default.</p>
+<div class="packt_tip">If at any time the ML2 configuration file is updated, you must restart the <kbd>neutron-server</kbd> service and respective Neutron agent for the changes to take effect.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring the Linux bridge driver and agent</h1>
+                </header>
+            
+            <article>
+                
+<p>The Linux bridge Mechanism driver is included with the ML2 plugin, and was installed in <em><a href="bf508e37-ce8a-4116-89db-e8f8a6abf0f4.xhtml"><span class="ChapterrefPACKT">Chapter 3</span></a>,</em> <em>Installing Neutron</em>. The following sections will walk you through the configuration of OpenStack Networking to utilize the Linux bridge driver and agent.</p>
+<div class="packt_infobox">While the Linux bridge and Open vSwitch agents and drivers can coexist in the same environment, they should not be installed and configured simultaneously on the same host.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing the Linux bridge agent</h1>
+                </header>
+            
+            <article>
+                
+<p>To install the Neutron Linux bridge agent, issue the following command on <kbd>controller01</kbd> and <kbd>compute01</kbd>:</p>
+<pre># apt install neutron-plugin-linuxbridge-agent</pre>
+<div class="packt_tip">If prompted to overwrite existing configuration files, type <kbd>N</kbd> at the <kbd>[default=N]</kbd> prompt.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Updating the Linux bridge agent configuration file</h1>
+                </header>
+            
+            <article>
+                
+<p>The Linux bridge agent uses a configuration file located at <kbd>/etc/neutron/plugins/ml2/linuxbridge_agent<br/>
+.ini</kbd>. The most common options are as follows:</p>
+<pre>[linux_bridge]<br/>...<br/>physical_interface_mappings = ... 
+ 
+[vxlan]<br/>...<br/>enable_vxlan = ...<br/>vxlan_group = ...<br/>l2_population = ...<br/>local_ip = ...<br/>arp_responder = ... </pre>
+<pre>[securitygroup]<br/>...<br/>firewall_driver = ... </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Physical interface mappings</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>physical_interface_mappings</kbd> configuration option describes the mapping of an artificial label to a physical interface in the server. When networks are created, they are associated with an interface label, such as <kbd>physnet1</kbd>. The label <kbd>physnet1</kbd> is then mapped to a physical interface, such as <kbd>eth2</kbd>, by the <kbd>physical_interface_mappings</kbd> option. This mapping can be observed in the following example:</p>
+<pre>physical_interface_mappings = physnet1:eth2 </pre>
+<p>The chosen label(s) must be consistent between all nodes in the environment that are expected to handle traffic for a given network created with Neutron. However, the physical interface mapped to the label may be different. A difference in mappings is often observed when one node maps <kbd>physnet1</kbd> to a gigabit interface while another maps <kbd>physnet1</kbd> to a 10-gigabit interface.</p>
+<p>Multiple interface mappings are allowed, and can be added to the list using a comma-separated list:</p>
+<pre>physical_interface_mappings = physnet1:eth2,physnet2:bond2</pre>
+<p class="mce-root"/>
+<p>In this installation, the <kbd>eth2</kbd>interface will be utilized as the physical network interface, which means that traffic for any networks associated with <kbd>physnet1</kbd> will traverse <kbd>eth2</kbd>. The physical switch port connected to <kbd>eth2</kbd> must support 802.1q VLAN tagging if VLAN networks are to be created by tenants.</p>
+<p>Configure the Linux bridge agent to use <kbd>physnet1</kbd> as the physical interface label and <kbd>eth2</kbd> as the physical network interface by updating the ML2 configuration file accordingly on <kbd>controller01</kbd> and <kbd>compute01</kbd>:</p>
+<pre>[linux_bridge]<br/>...<br/>physical_interface_mappings = physnet1:eth2</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Enabling VXLAN</h1>
+                </header>
+            
+            <article>
+                
+<p>To enable support for VXLAN networks, the <kbd>enable_vxlan</kbd> configuration option must be set to<kbd>true</kbd>. Update the <kbd>enable_vxlan</kbd> configuration option in the <kbd>[vxlan]</kbd> section of the ML2 configuration file accordingly on <kbd>Controller01</kbd> and <kbd>compute01</kbd>:</p>
+<pre>[vxlan]<br/>...<br/>enable_vxlan = true</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">L2 population</h1>
+                </header>
+            
+            <article>
+                
+<p>To enable support for the L2 population driver, the <kbd>l2_population</kbd> configuration option must be set to <kbd>true</kbd>. Update the <kbd>l2_population</kbd> configuration option in the <kbd>[vxlan]</kbd> section of the ML2 configuration file accordingly on <kbd>controller01</kbd> and <kbd>compute01</kbd>:</p>
+<pre>[vxlan]<br/>...<br/>l2_population = true</pre>
+<p>A useful feature of the L2 population driver is its ARP responder functionality that helps avoid the broadcasting of ARP requests across the overlay network. Each <kbd>compute</kbd> node can proxy ARP requests from virtual machines and provide them with replies, all without that traffic leaving the host.</p>
+<p>To enable the ARP responder, update the following configuration option:</p>
+<pre>[vxlan]<br/>...<br/>arp_responder = true</pre>
+<p class="mce-root"/>
+<p>The ARP responder has known incompatibilities with the <kbd>allowed-address-pairs</kbd> extension on systems using the Linux bridge agent, however. The <kbd>vxlan</kbd> kernel module utilized by the Linux bridge agent does not support dynamic learning when ARP responder functionality is enabled. As a result, when an IP address moves between virtual machines, the forwarding database may not be updated with the MAC address and respective VTEP of the destination host as Neutron is not notified of this change. If allowed-address-pairs functionality is required, my recommendation is to disable the ARP responder until this behavior is changed.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Local IP</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>local_ip</kbd> configuration option specifies the local IP address on the node that will be used to build the overlay network between hosts. Refer to <em><a href="961d71d1-9804-4af7-ad1f-8716e6dd5ac6.xhtml"><span class="ChapterrefPACKT">Chapter 1</span></a>, Introduction to OpenStack Networking</em>, for ideas on how the overlay network should be architected. In this installation, all guest traffic through overlay networks will traverse a dedicated network over the <kbd>eth1</kbd> interface configured earlier in this chapter.</p>
+<p>Update the <kbd>local_ip</kbd> configuration option in the <kbd>[vxlan]</kbd> section of the ML2 configuration file accordingly on the <kbd>controller01</kbd> and <kbd>compute01</kbd> hosts:</p>
+<pre>[vxlan]<br/>...<br/>local_ip = 10.20.0.X</pre>
+<p>The following table provides the interfaces and addresses to be configured on each host. <a>Substitute for</a> <kbd>X</kbd> where appropriate:</p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td class="CDPAlignCenter CDPAlign" style="width: 221.618px">
+<p><strong>Hostname</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 257.382px">
+<p><strong>Interface</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 318px">
+<p><strong>IP address</strong></p>
+</td>
+</tr>
+<tr>
+<td style="width: 221.618px">
+<p><kbd>controller01</kbd></p>
+</td>
+<td style="width: 257.382px">
+<p>eth1</p>
+</td>
+<td style="width: 318px">
+<p>10.20.0.100</p>
+</td>
+</tr>
+<tr>
+<td style="width: 221.618px">
+<p><kbd>compute01</kbd></p>
+</td>
+<td style="width: 257.382px">
+<p>eth1</p>
+</td>
+<td style="width: 318px">
+<p>10.20.0.101</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Firewall driver</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>firewall_driver</kbd> configuration option instructs Neutron to use a particular firewall driver for security group functionality. There may be different firewall drivers configured based on the Mechanism driver in use.</p>
+<p>Update the ML2 configuration file on <kbd>controller01</kbd> and <kbd>compute01</kbd> and define the appropriate <kbd>firewall_driver</kbd> in the <kbd>[securitygroup]</kbd> section on a single line:</p>
+<pre>[securitygroup]<br/>...<br/>firewall_driver = iptables</pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mceNonEditable"/>
+<p class="mceNonEditable"/>
+<p>If you do not want to use a firewall, and want to disable the application of security group rules, set <kbd>firewall_driver</kbd> to <kbd>noop</kbd>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring the DHCP agent to use the Linux bridge driver</h1>
+                </header>
+            
+            <article>
+                
+<p>For Neutron to properly connect DHCP namespace interfaces to the appropriate network bridge, the DHCP agent on the <kbd>controller</kbd> node must be configured to use the Linux bridge interface driver.</p>
+<p>On the <kbd>controller</kbd> node, update the <kbd>interface_driver</kbd> configuration option in the Neutron DHCP agent configuration file at <kbd>/etc/neutron/dhcp_agent.ini</kbd><a> </a>to use the Linux bridge interface driver:</p>
+<pre>[DEFAULT]<br/>...<br/>interface_driver = linuxbridge</pre>
+<div class="packt_infobox">The interface driver will vary based on the plugin agent in use on the node hosting the DHCP agent.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Restarting services</h1>
+                </header>
+            
+            <article>
+                
+<p>Some services must be restarted for the changes made to take effect. The following services should be restarted on <kbd>controller01</kbd> and <kbd>compute01</kbd>:</p>
+<pre>     # systemctl restart neutron-linuxbridge-agent</pre>
+<p>The following services should be restarted on the <kbd>controller01</kbd> node:</p>
+<pre>     # systemctl restart neutron-server neutron-dhcp-agent </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Verifying Linux bridge agents</h1>
+                </header>
+            
+            <article>
+                
+<p>To verify the Linux bridge network agents have properly checked in, issue the <kbd>openstack network agent list</kbd> command on the <kbd>controller</kbd> node:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/5a1773ac-d29a-483a-98ec-a2630963e98b.png"/></div>
+<p>The Neutron Linux bridge agents on the <kbd>controller01</kbd> and <kbd>compute01</kbd> nodes should be visible in the output with a state of <kbd>UP</kbd>. If an agent is not present, or the state is <kbd>DOWN</kbd>, you will need to troubleshoot agent connectivity issues by observing log messages found in <kbd>/var/log/neutron/neutron-linuxbridge-agent.log</kbd> on the respective host.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, we discovered how Neutron leverages Linux bridges and virtual interfaces to provide network connectivity to instances. The Linux bridge driver supports many different network types, including tagged, untagged, and overlay networks, and I will demonstrate in later chapters how these differ when we launch instances on those networks.</p>
+<p>In the next chapter, you will learn the difference between a Linux bridge and Open vSwitch implementation and will be guided through the process of installing the Open vSwitch driver and agent on two additional <kbd>compute</kbd> nodes and a network node dedicated to distributed virtual routing functions.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

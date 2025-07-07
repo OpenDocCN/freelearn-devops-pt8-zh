@@ -1,0 +1,1227 @@
+<html><head></head><body>
+        <section>
+
+            <header>
+                <h1 class="header-title">Database Services</h1>
+            </header>
+
+            <article>
+                
+<p>In this chapter, we will cover:</p>
+<ul>
+<li>Creating a database with automatic failover</li>
+<li>Creating a NAT gateway</li>
+<li>Creating a database read-replica</li>
+<li>Promoting a read-replica to master</li>
+<li>Creating a one-time database backup</li>
+<li>Restoring a database from a snapshot</li>
+<li>Migrating a database</li>
+<li>Calculating DynamoDB performance</li>
+</ul>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Introduction</h1>
+            </header>
+
+            <article>
+                
+<p>Having a persistent storage service is a key component of effectively using the AWS cloud for your systems. By ensuring that you have a highly available, fault-tolerant location to store your application state in, you can stop depending on individual servers for your data.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Creating a database with automatic failover</h1>
+            </header>
+
+            <article>
+                
+<p>In this recipe, we're going to create a MySQL RDS database instance configured in multi-AZ mode to facilitate automatic failover.</p>
+<div class="CDPAlignCenter CDPAlign"><img class=" image-border" src="assets/image_06_001.png"/></div>
+<div class="packt_figure CDPAlignCenter CDPAlign packt_figref">Database with automatic failover</div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Getting ready</h1>
+            </header>
+
+            <article>
+                
+<p>The default VPC will work fine for this example. Once you are comfortable with creating databases, you may want to consider a VPC containing private subnets that you can use to segment your database away from the Internet and other resources (in the style of a three tier application). Either way, you'll need to note down the following:</p>
+<ul>
+<li>The ID of the VPC</li>
+<li>The CIDR range of the VPC</li>
+<li>The IDs of at least two subnets in your VPC. These subnets need to be in different Availability Zones, for example, <kbd>us-east-1a</kbd> and <kbd>us-east-1b</kbd></li>
+</ul>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How to do it...</h1>
+            </header>
+
+            <article>
+                
+<p>Create a new CloudFormation template. We're going to add a total of 12 parameters to it:</p>
+<ol>
+<li>The first three parameters will contain the values we mentioned in the <em>Getting ready</em> section:</li>
+</ol>
+<pre>
+      VPCId: <br/>        Type: AWS::EC2::VPC::Id <br/>        Description: VPC where DB will launch <br/>      SubnetIds: <br/>        Type: List&lt;AWS::EC2::Subnet::Id&gt; <br/>        Description: Subnets where the DB will launch (pick at least 2) <br/>      SecurityGroupAllowCidr: <br/>        Type: String <br/>        Description: Allow this CIDR block to access the DB <br/>        Default: "172.30.0.0/16"
+</pre>
+<ol start="2">
+<li>We're also going to add the database credentials as parameters. This is good practice as it means we're not storing any credentials in our infrastructure source code. Note that the password contains the <kbd>NoEcho</kbd> parameter set to <kbd>true</kbd>. This stops CloudFormation from outputting the password wherever the CloudFormation stack details are displayed:</li>
+</ol>
+<pre>
+      DBUsername: <br/>        Type: String <br/>        Description: Username to access the database <br/>        MinLength: 1 <br/>        AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*" <br/>        ConstraintDescription: must start with a letter, must<br/>          be alphanumeric <br/>      DBPassword: <br/>        Type: String <br/>        Description: Password to access the database <br/>        MinLength: 1 <br/>        AllowedPattern: "[a-zA-Z0-9]*" <br/>        NoEcho: true <br/>        ConstraintDescription: must be alphanumeric
+</pre>
+<ol start="3">
+<li>The next block of parameters pertains to cost and performance. They should be mostly self-explanatory. Refer to the AWS documentation on database instance types should you wish to change the instance class for this example. We're supplying a default value of 10 GB for the storage size and choosing a magnetic (<kbd>standard</kbd>) volume for the storage type. <kbd>gp2</kbd> offers better performance, but it costs a little more:</li>
+</ol>
+<pre>
+      DBInstanceClass: <br/>        Type: String <br/>        Description: The instance type to use for this database <br/>        Default: db.t2.micro <br/>      DBStorageAmount: <br/>        Type: Number <br/>        Description: Amount of storage to allocate (in GB) <br/><strong>        </strong>Default: 10 <br/>      DBStorageType: <br/>        Type: String <br/>        Description: Type of storage volume to use<br/>          (standard [magnetic] or gp2) <br/>        Default: standard <br/>        AllowedValues: <br/>          - standard <br/>          - gp2
+</pre>
+<ol start="4">
+<li>We need to set some additional parameters for our database. These are the MySQL engine version and port. Refer to the AWS documentation for a list of all the available versions. We are setting a default value for this parameter as the latest version of MySQL at the time of writing:</li>
+</ol>
+<pre>
+      DBEngineVersion: <br/>        Type: String <br/>        Description: DB engine version <br/>        Default: "5.7.11" <br/>      DBPort: <br/>        Type: Number <br/>        Description: Port number to allocate <br/>        Default: 3306 <br/>        MinValue: 1150 <br/>        MaxValue: 65535
+</pre>
+<ol start="5">
+<li>Finally, we are going to define some parameters relating to backup and availability. We want our database to run in <em>multi-AZ</em> mode, we set this to <kbd>true</kbd> by default. We also set a backup retention period of <kbd>1</kbd> day by default; you might want to choose a period larger than this. If you set this value to <kbd>0</kbd>, backups will be disabled (not recommended!):</li>
+</ol>
+<pre>
+      DBMultiAZ: <br/>        Type: String <br/>        Description: Should this DB be deployed in Multi-AZ configuration? <br/>        Default: true <br/>        AllowedValues: <br/>          - true <br/>          - false <br/>      DBBackupRetentionPeriod: <br/>        Type: Number <br/>        Description: How many days to keep backups (0 disables backups) <br/>        Default: 1 <br/>        MinValue: 0 <br/>        MaxValue: 35
+</pre>
+<ol start="6">
+<li>We're done with the parameters for this template; we can now go ahead and start defining our <kbd>Resources</kbd>. First of all, we want a security group for our DB to reside in. This security group allows inbound access to the database port from the CIDR range we've defined:</li>
+</ol>
+<pre>
+      ExampleDBSecurityGroup: <br/>        Type: AWS::EC2::SecurityGroup <br/>        Properties: <br/>          GroupDescription: Example security group for inbound access to DB <br/>          SecurityGroupIngress: <br/>            - IpProtocol: tcp <br/>              CidrIp: !Ref SecurityGroupAllowCidr <br/>              FromPort: !Ref DBPort <br/>              ToPort: !Ref DBPort <br/>          VpcId: !Ref VPCId
+</pre>
+<ol start="7">
+<li>Next, we need to define a <kbd>DBSubnetGroup</kbd> resource. This resource is used to declare which subnet(s) our DB will reside in. We define two subnets for this resource so that the primary and standby servers will reside in separate Availability Zones:</li>
+</ol>
+<pre>
+      ExampleDBSubnetGroup: <br/>        Type: AWS::RDS::DBSubnetGroup <br/>        Properties: <br/>          DBSubnetGroupDescription: Example subnet group for example DB <br/>          SubnetIds: <br/>            - Fn::Select: [ 0, Ref: SubnetIds ] <br/>            - Fn::Select: [ 1, Ref: SubnetIds ]
+</pre>
+<ol start="8">
+<li>Finally, we define our RDS instance resource. We specify it as being a MySQL database and the rest of the properties are made up of the parameters and resources that we've defined previously. Lots of <kbd>!Ref</kbd> is required here:</li>
+</ol>
+<pre>
+      ExampleDBInstance: <br/>        Type: AWS::RDS::DBInstance <br/>        Properties: <br/>          AllocatedStorage: !Ref DBStorageAmount <br/>          BackupRetentionPeriod: !Ref DBBackupRetentionPeriod <br/>          DBInstanceClass: !Ref DBInstanceClass <br/>          DBSubnetGroupName: !Ref ExampleDBSubnetGroup <br/>          Engine: mysql <br/>          EngineVersion: !Ref DBEngineVersion <br/>          MasterUsername: !Ref DBUsername <br/>          MasterUserPassword: !Ref DBPassword <br/>          MultiAZ: !Ref DBMultiAZ <br/>          StorageType: !Ref DBStorageType <br/>          VPCSecurityGroups: <br/>            - !GetAtt ExampleDBSecurityGroup.GroupId
+</pre>
+<ol start="9">
+<li>For good measure, we can add an output to this template that will return the hostname for this RDS database:</li>
+</ol>
+<pre>
+      Outputs: <br/>        ExampleDbHostname: <br/>          Value: !GetAtt ExampleDBInstance.Endpoint.Address
+</pre>
+<ol start="10">
+<li>You can provision the database via the CloudFormation web console or use a CLI command like so:</li>
+</ol>
+<pre>
+      <strong>aws cloudformation create-stack \ <br/>        --stack-name rds1 \ <br/>        --template-body \<br/>        file://06-create-database-with-automatic-failover.yaml \ <br/>        --parameters \ <br/>        ParameterKey=DBUsername,ParameterValue=&lt;username&gt; \ <br/>        ParameterKey=DBPassword,ParameterValue=&lt;password&gt;  \<br/>        ParameterKey=SubnetIds,"ParameterValue='&lt;subnet-id-a&gt;, \<br/>        &lt;subnet-id-b&gt;'" \ <br/>        ParameterKey=VPCId,ParameterValue=&lt;vpc-id&gt;</strong>
+</pre>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How it works...</h1>
+            </header>
+
+            <article>
+                
+<p>In a multi-AZ configuration, AWS will provision a standby MySQL instance in a separate Availability Zone. Changes to your database will be replicated to the standby DB instance in a synchronous fashion. If there is a problem with your primary DB instance AWS will automatically failover to the standby, promote it to be the primary DB, and provision a new standby.</p>
+<p>You don't have access to query standby databases directly. So you can't use it to handle all of your read queries, for example. If you wish to use additional database instances to increase read capacity, you'll need to provision a <em>read-replica</em>. We'll cover those in a separate recipe.</p>
+<p>Backups will always be taken from the standby instance, which means there is no interruption to your DB availability. This is not the case if you opted against deploying your DB in multi-AZ mode.</p>
+<p>When you deploy this example it will take roughly 20 minutes or more for the stack to report completion. This is because the RDS service needs to go through the following process in order to provision a fully working multi-AZ database:</p>
+<ul>
+<li>Provision the primary database</li>
+<li>Back up the primary database</li>
+<li>Provision the standby database using the backup from the primary</li>
+<li>Configure both databases for synchronous replication</li>
+</ul>
+<div class="packt_infobox"><br/>
+<span class="packt_screen">WARNING<br/></span> Be careful about making changes to your RDS configuration after you've started writing data to it, especially when using CloudFormation updates. Some RDS configuration changes require the database to be re-provisioned, which can result in data loss. We'd recommend using CloudFormation change sets, which will give you an opportunity to see which changes are about to cause destructive behavior. The CloudFormation RDS docs also provide some information on this.</div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">There's more...</h1>
+            </header>
+
+            <article>
+                
+<ul>
+<li>You can define a maintenance window for your RDS instance. This is the time period when AWS will perform maintenance tasks such as security patches or minor version upgrades. If you don't specify a maintenance window (which we don't in this example), one is chosen for you.</li>
+</ul>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Creating a NAT gateway</h1>
+            </header>
+
+            <article>
+                
+<p>Unless required, your instances should not be publicly exposed to the Internet. When your instances are on the Internet, you have to assume that they will be attacked at some stage.</p>
+<p>This means most of your workloads should run on instances in private subnets. Private subnets are those that are not connected directly to the Internet.</p>
+<p>In order to give your private instances access to the Internet you use <strong>network address translation</strong> (<strong>NAT</strong>). A NAT gateway allows your instances to initiate a connection to the Internet, without allowing connections from the Internet.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Getting ready</h1>
+            </header>
+
+            <article>
+                
+<p>For this recipe, you must have the following resources:</p>
+<ul>
+<li>A VPC with an <strong>Internet gateway</strong> (<strong>IGW</strong>)</li>
+<li>A public subnet</li>
+<li>A private subnet route table</li>
+</ul>
+<p>You will need the IDs for the public subnet and private subnet route table. Both of these resources should be in the same AZ.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How to do it...</h1>
+            </header>
+
+            <article>
+                
+<ol>
+<li>Start with the usual CloudFormation template version and description:</li>
+</ol>
+<pre>
+      AWSTemplateFormatVersion: "2010-09-09" <br/>      Description: Create NAT Gateway and associated route.
+</pre>
+<ol start="2">
+<li>The template must take the following required parameters:</li>
+</ol>
+<pre>
+      Parameters: <br/>        PublicSubnetId: <br/>          Description: Public Subnet ID to add the NAT Gateway to <br/>          Type: AWS::EC2::Subnet::Id <br/>        RouteTableId: <br/>          Description: The private subnet route table to add the NAT<br/>            Gateway route to <br/>          Type: String
+</pre>
+<ol start="3">
+<li>In the <kbd>Resources</kbd> section, define an Elastic IP that will be assigned to the NAT gateway:</li>
+</ol>
+<pre>
+      Resources: <br/>        EIP: <br/>          Type: AWS::EC2::EIP <br/>          Properties: <br/>            Domain: vpc
+</pre>
+<ol start="4">
+<li>Create the NAT gateway resource, assigning it the EIP you just defined in the public subnet:</li>
+</ol>
+<pre>
+        NatGateway: <br/>          Type: AWS::EC2::NatGateway <br/>          Properties: <br/>            AllocationId: !GetAtt EIP.AllocationId <br/>            SubnetId: !Ref PublicSubnetId
+</pre>
+<ol start="5">
+<li>Finally, define the route to the NAT gateway and associate it with the private subnet's route table:</li>
+</ol>
+<pre>
+      Route: <br/>        Type: AWS::EC2::Route <br/>        Properties: <br/>          RouteTableId: !Ref RouteTableId <br/>          DestinationCidrBlock: 0.0.0.0/0 <br/>          NatGatewayId: !Ref NatGateway
+</pre>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How it works...</h1>
+            </header>
+
+            <article>
+                
+<p>The parameters required for this recipe are as follows:</p>
+<ul>
+<li>A public subnet ID</li>
+<li>A private subnet route table ID</li>
+</ul>
+<p>The public subnet ID is needed to host the NAT gateway, as it must have Internet access. The private subnet route table will be updated with a route to the NAT gateway.</p>
+<p>Using the AWS NAT gateway service means that AWS takes care of hosting and securing the service for you. The service will be hosted redundantly in a single AZ.</p>
+<div class="packt_tip">You can use the recipe multiple times to deploy NAT gateways in each of your private subnets. Just make sure the public subnet and the private subnet are in the same AZ.</div>
+<p>To cater for the unlikely event of an AZ outage (unlikely, but possible) you should deploy a NAT gateway per subnet. This means if one NAT gateway goes offline, instances in the other AZ can continue to access the Internet as normal. You <em>are</em> deploying your application in multiple AZs, aren't you?</p>
+<p>This recipe will only work if you have created your own private subnets, as the default subnets in a new AWS account are all <em>public</em>. Instances in a public subnet have direct access to the Internet (via an IGW), so they do not need a NAT gateway.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">See also</h1>
+            </header>
+
+            <article>
+                
+<ul>
+<li>The <em>Building a secure network</em> recipe in <a href="de50c1bf-fc87-4674-9719-c55280a6b60d.xhtml"><span class="ChapterrefPACKT">Chapter 7</span></a>, <em>Networking</em></li>
+</ul>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Creating a database read-replica</h1>
+            </header>
+
+            <article>
+                
+<p>This recipe will show you how to create an RDS read-replica. You can use read-replicas in order to increase the performance of your application by off-loading database reads to a separate database instance. You can provision up to five read-replicas per source DB.</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class=" image-border" src="assets/image_06_002.png"/></div>
+<div class="packt_figure CDPAlignCenter CDPAlign packt_figref">Read-only database slaves</div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Getting ready</h1>
+            </header>
+
+            <article>
+                
+<p>You will need an RDS DB deployed with backup retention enabled. We are going to build upon the DB deployed in the previous <em>Creating a database with automatic failover</em> recipe.</p>
+<p>You're going to need the following values:</p>
+<ul>
+<li>The identifier for your source RDS instance, for example, <kbd>eexocwv5k5kv5z</kbd></li>
+<li>A unique identifier for the read-replicate we're going to create, for example, <kbd>read-replica-1</kbd></li>
+</ul>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How to do it...</h1>
+            </header>
+
+            <article>
+                
+<p>In the AWS CLI, type this command:</p>
+<pre>
+<strong>aws rds create-db-instance-read-replica \</strong><br/><strong>  --source-db-instance-identifier &lt;source-db-identifier&gt; \</strong><br/><strong>  --db-instance-identifier &lt;unique-identifier-for-replica&gt;</strong>
+</pre>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How it works...</h1>
+            </header>
+
+            <article>
+                
+<p>RDS will now go ahead and create a new read-replica for you.</p>
+<p>Some parameters are inherited from the source instance and can't be defined at the time of creation:</p>
+<ul>
+<li>Storage engine</li>
+<li>Storage size</li>
+<li>Security group</li>
+</ul>
+<p>The CLI command accepts some parameters that we could have defined, but didn't to keep things simple. They will instead be inherited from the source database. The main two are as follows:</p>
+<ul>
+<li><kbd>--db-instance-class</kbd>: The same class as the source instance is used</li>
+<li><kbd>--db-subnet-group-name</kbd>: The source instance's subnet group will be used and a subnet is chosen at random (hence, an Availability Zone is chosen at random)</li>
+</ul>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">There's more...</h1>
+            </header>
+
+            <article>
+                
+<ul>
+<li>Read-replicas are deployed in a single Availability Zone; there is no standby read-replica.</li>
+<li>It's not possible to enable backups on read-replicas during time of creation. This must be configured afterwards.</li>
+<li>The default storage type is <kbd>standard</kbd> (magnetic). You can increase performance by choosing <kbd>gp2</kbd> or using provisioned IOPS.</li>
+<li>It's possible to add MySQL indexes directly to a read-replica to further increase read performance. These indexes are not required to be present on the primary DB.</li>
+<li>Using read-replicas for availability purposes is more of a complimentary DR strategy and shouldn't be used in place of multi-AZ RDS. A multi-AZ configuration gives you the benefit of failure detection and automatic failover.</li>
+<li>It is possible to deploy a read-replica in an entirely different region.</li>
+<li>Unlike the replication between a primary and standby DB (which is synchronous), replication to a read-replica is asynchronous. This means that it's possible for a read-replica to fall behind the primary. Keep this in mind when sending time sensitive read queries to your read-replicas.</li>
+</ul>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Promoting a read-replica to master</h1>
+            </header>
+
+            <article>
+                
+<p>We're going to show you how to promote an RDS read-replica to be a primary instance. There are a few reasons you might like to do this:</p>
+<ul>
+<li>To handle a table migration that would typically cause a large amount of downtime, especially when messing with columns or indexes</li>
+<li>Because you need to implement sharding</li>
+<li>Recovery from failure, should you choose not to deploy your existing primary in multi-AZ mode (not recommended)</li>
+</ul>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Getting ready</h1>
+            </header>
+
+            <article>
+                
+<p>You're going to need the unique ID, which has been assigned to an RDS read-replica. If you followed the previous <em>Creating a database with automatic failover</em>, and <em>Creating a database read-replica</em> recipes, then you'll be all set.</p>
+<p>It's also a good idea to have backups enabled on this read-replica prior to promoting it. This shortens the promotion process because you won't need to wait for a backup to be taken. You'll want to set the backup retention period to a value between <kbd>1</kbd> and <kbd>8</kbd>.</p>
+<div class="packt_tip">Enabling backups on your read-replica will cause it to reboot!</div>
+<p>In order to enable backups, you can use the following CLI command:</p>
+<pre>
+<strong>aws rds modify-db-instance \</strong><br/><strong>  --db-instance-identifier &lt;identifier-for-read-replica&gt; \</strong><br/><strong>  --backup-retention-period &lt;days-to-keep-backups-for&gt; \</strong><br/><strong>  --apply-immediately</strong>
+</pre>
+<div class="packt_tip">You can drop the <kbd>--apply-immediately</kbd> parameter if you prefer to wait for the reboot to happen during the configured maintenance window. But you'll still want to wait until after the reboot happens before you continue with the promotion process.<br/>
+To ensure that you have the most up-to-date data before promotion you'll want to stop all write traffic to the current source primary DB before going ahead. It's also a good idea to make sure that the replication lag on your read-replica is <kbd>0</kbd> (you can check this in CloudWatch).</div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How to do it...</h1>
+            </header>
+
+            <article>
+                
+<ol>
+<li>Run the following command to promote your read-replica to a primary DB instance. This command will cause your read-replica to reboot:</li>
+</ol>
+<pre>
+<strong>      aws rds promote-read-replica \</strong><br/><strong>        --db-instance-identifier &lt;identifier-for-read-replica&gt;</strong>
+</pre>
+<ol start="2">
+<li>If you wish to then go ahead and configure your new primary RDS instance to run in a multi-AZ configuration then you'll need to run this additional command. Expect to wait a while for this operation to complete:</li>
+</ol>
+<pre>
+<strong>      aws rds modify-db-instance \</strong><br/><strong>        --db-instance-identifier &lt;identifier-for-new-primary&gt; \</strong><br/><strong>        --multi-az \</strong><br/><strong>        --apply-immediately</strong>
+</pre>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Creating a one-time database backup</h1>
+            </header>
+
+            <article>
+                
+<p>We're now going to show you how to make a one-off snapshot of your database. You might opt to do this if you have a specific requirement around keeping a point in time backup of your DB. You might also want to take a snapshot for the purpose of creating a new working copy of your dataset.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Getting ready</h1>
+            </header>
+
+            <article>
+                
+<p>In order to proceed you're going to need the following:</p>
+<ul>
+<li>The identifier for the RDS instance you wish to back up</li>
+<li>A unique identifier that you'd like to assign to this snapshot</li>
+</ul>
+<p>The snapshot identifier has some constraints:</p>
+<ul>
+<li>It needs to start with a letter</li>
+<li>It must not be longer than 255 characters</li>
+</ul>
+<div class="packt_infobox">If your primary database isn't running in a multi-AZ configuration then be aware that creating a snapshot will cause an outage. In a multi-AZ configuration the snapshot is taken on the standby instance so no outage occurs.</div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How to do it...</h1>
+            </header>
+
+            <article>
+                
+<p>Type the following AWS CLI command to initiate the creation of a snapshot. You'll need to wait for a few minutes for the snapshot to complete before you can use it:</p>
+<pre>
+<strong>aws rds create-db-snapshot \</strong><br/><strong>  --db-instance-identifier &lt;primary-rds-id&gt; \</strong><br/><strong>  --db-snapshot-identifier &lt;unique-id-for-snapshot&gt;</strong>
+</pre>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Restoring a database from a snapshot</h1>
+            </header>
+
+            <article>
+                
+<p>We'll now talk through how to restore a database from a snapshot. This process creates a new database that will retain a majority of the configuration of the database that the snapshot was taken from.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Getting ready</h1>
+            </header>
+
+            <article>
+                
+<p>You'll need the following pieces of information:</p>
+<ul>
+<li>The ID of the snapshot you wish to restore from</li>
+<li>A name or identifier that you wish to give to the database we're about to create</li>
+</ul>
+<div class="packt_tip">AWS does not allow RDS services in your account to share the same identifier. If the source database is still online you'll need to make sure to choose a different identifier (or rename the source database).</div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How to do it...</h1>
+            </header>
+
+            <article>
+                
+<ol start="1">
+<li>Type the following command:</li>
+</ol>
+<pre>
+<strong>      aws rds restore-db-instance-from-db-snapshot \</strong><br/><strong>        --db-snapshot-identifier &lt;name-of-snapshot-to-restore &gt; \</strong><br/><strong>        --db-instance-identifier &lt;name-for-new-db&gt; \</strong><br/><strong>        --db-subnet-group-name &lt;your-db-subnet-group&gt; \</strong><br/><strong>        --multi-az</strong>
+</pre>
+<ol start="2">
+<li>You may have noticed that this command creates a new database in the default security group. This happens because the <kbd>restore-db-instance-from-db-snapshot</kbd> doesn't accept a security group ID as a parameter. You'll have to run a second command to assign a nondefault security group to the new database:</li>
+</ol>
+<pre>
+<strong>      aws rds modify-db-instance \</strong><br/><strong>        --db-instance-identifier &lt;name-of-newly-restored-db&gt; \</strong><br/><strong>        --vpc-security-group-ids &lt;id-of-security-group&gt;</strong>
+</pre>
+<div class="packt_infobox">The <kbd>modify-db-instance</kbd> command will return an error unless the state of the target database is <kbd>available</kbd>.<br/>
+Also, security group names aren't valid with this command; you'll need to use a security group ID instead, for example, <kbd>sg-7603d50a</kbd>.</div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">There's more...</h1>
+            </header>
+
+            <article>
+                
+<p>The previous command includes the parameter for enabling multi-AZ on the new DB. If you'd like the new DB to be running in single-AZ mode only then can you simply remove this flag.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title"> Migrating a database</h1>
+            </header>
+
+            <article>
+                
+<p>In this recipe, we will use <strong>Database Migration Service</strong> (<strong>DMS</strong>) to move an external database into <strong>Relational Database Service</strong> (<strong>RDS</strong>).</p>
+<p>Unlike many of the other recipes, this will be performed manually through the web console.</p>
+<p>Most database migrations are one-off, and there are many steps involved. We suggest that you first perform the process manually via the console before automating it, if required (which you can do with the AWS CLI tool or SDKs).</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Getting ready</h1>
+            </header>
+
+            <article>
+                
+<p>For this recipe you will need the following:</p>
+<ul>
+<li>An external database</li>
+<li>An RDS database instance</li>
+</ul>
+<p>The source database in this example is called <strong>employees</strong>, so substitute your own database name as required.</p>
+<p>Both databases must be accessible from the replication instance that will be created as part of the recipe. The simplest way to do this is to allow access to the databases from the Internet, but obviously this has security implications.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How to do it...</h1>
+            </header>
+
+            <article>
+                
+<ol>
+<li>Navigate to the DMS console:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class=" image-border" src="assets/image_06_003.png"/></div>
+<ol start="2">
+<li>Click on <span class="packt_screen">Create Migration</span> to start the migration wizard:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class=" image-border" src="assets/image_06_004.png"/></div>
+<ol start="3">
+<li>Specify the details for your replication instance. Unless you have a specific VPC configuration, the defaults will be fine:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class=" image-border" src="assets/image_06_005.png"/></div>
+<ol start="4">
+<li>While waiting for the replication instance to be ready, fill out the source and target endpoint information, including server hostname and port, and the username and password to use when connecting:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class=" image-border" src="assets/image_06_006.png"/></div>
+<ol start="5">
+<li>Once the instance is ready, the interface will update and you can proceed:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class=" image-border" src="assets/image_06_007.png"/></div>
+<ol start="6">
+<li>In order to confirm and create the source and target endpoints, click on the <span class="packt_screen">Run test</span> button for each of your databases:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class=" image-border" src="assets/image_06_008.png"/></div>
+<ol start="7">
+<li>After the endpoints have been successfully tested and created, define your task. In this recipe, we will simply migrate the data (without ongoing replication):</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class=" image-border" src="assets/image_06_009.png"/></div>
+<ol start="8">
+<li>For simplicity, drop the tables in the target database (which should be empty) to ensure parity between the databases:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class=" image-border" src="assets/image_06_010.png"/></div>
+<ol start="9">
+<li>Finally, define the mappings between the two databases. In this case, we will migrate all the tables (by using the wildcard <kbd>%</kbd>) in the <span class="packt_screen">employees</span> database on the source:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class=" image-border" src="assets/image_06_011.png"/></div>
+<ol start="10">
+<li>Once you click <span class="packt_screen">Add selection rule</span> you will see your rule in the selection rules list:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class=" image-border" src="assets/image_06_012.png"/></div>
+<ol start="11">
+<li>Once the task is defined you have finished the wizard. You will then see the task being created:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class=" image-border" src="assets/image_06_013.png"/></div>
+<ol start="12">
+<li>Once the status of the task is <span class="packt_screen">Ready</span> you can select it and click on the <span class="packt_screen">Start/Resume</span> button:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class=" image-border" src="assets/image_06_014.png"/></div>
+<ol start="13">
+<li>When complete, you will see the task's details updated in the console:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class=" image-border" src="assets/image_06_015.png"/></div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How it works...</h1>
+            </header>
+
+            <article>
+                
+<p>At a high level, this is what the DMS architecture looks like:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img class="image-border" height="261" src="assets/B06236_06_16.png" width="429"/></div>
+<p>Both the <strong>Source</strong> and <strong>Target</strong> databases are external to <strong>DMS</strong>. They are represented internally by endpoint resources that are references to the databases. Endpoints can be reused between different tasks if needed.</p>
+<p>This recipe starts by defining the replication instance details. Keep in mind that the DMS migration process works best when the migration/transform between the two databases is kept <em>in memory</em>. This means that for larger jobs you should allocate a more powerful instance. If the process needs to temporarily write data to disk (such as swap) then the performance and throughput will be much lower. This can have flow-on effects, particularly for tasks that include ongoing replication.</p>
+<p>Next, the two endpoints are defined. It is very important to verify your endpoint configuration by using the built-in testing feature so that your tasks do not fail later in the process. Generally, if the connectivity test fails, it is one of two main issues:</p>
+<ul>
+<li>Network connectivity issues between the replication instance and the database. This is particularly an issue for on-premise databases, which are usually specifically restricted from being accessed externally.</li>
+<li>User permissions issues: For example, in the case of MySQL, the root user cannot be used to connect to the database externally, so this default user cannot be used.</li>
+</ul>
+<p>Defining the task involves defining your migration type. The recipe uses the simplest type; migrate tables. This means that the data will be copied between the two databases, and will be complete when the data is propagated. We also get to define the behavior on the target database. For simplicity, we have configured the task to drop the tables in the target database ensuring that the two databases look as similar as possible, even if the tables are renamed, or the table mappings change. For the task table mappings we use the wildcard symbol <kbd>%</kbd> to match all tables in the source database. Obviously, you could be more selective if you only wanted to match a subset of your data.</p>
+<p>Once the replication instance, endpoints, and task are defined the wizard ends and you are returned to the DMS console. After the task is finished creating it can be started.</p>
+<p>As it is a <em>migrate existing data-type</em> task, it will complete once all the data has been propagated to the target database.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">There's more...</h1>
+            </header>
+
+            <article>
+                
+<p>This is obviously a simple example of what DMS can do. There are other features and performance aspects that you should consider in more advanced scenarios.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Database engines</h1>
+            </header>
+
+            <article>
+                
+<p>While this example uses two MySQL databases, it is possible to migrate from one database engine to a complete database engine, for example, Oracle to MySQL. Unfortunately, this can be a complex process, and while this functionality is very useful it is beyond the scope of this recipe. Due to the differences in the various engines, there are some limitations on what you can migrate and transform.</p>
+<div class="packt_infobox">See the <em>AWS Schema Conversion Tool</em> documentation for more details on what can be migrated between different database engines.</div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Ongoing replication</h1>
+            </header>
+
+            <article>
+                
+<p>There are also some limits around the ongoing propagation of data—only table data can be migrated. Things such as indexes, users, and permissions cannot be replicated continually.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Multi-AZ</h1>
+            </header>
+
+            <article>
+                
+<p>For ongoing replication tasks, you may want to create a multi-AZ replication instance so that the impact of any interruptions of services are minimized. Obviously you will need to have a similarly configured (such as multi-AZ) RDS instance as your target to get the full benefit!</p>
+<div class="packt_tip">For best performance, when setting up your replication instance you should make sure it is in the <em>same</em> AZ as your target RDS instance.</div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Calculating DyanmoDB performance</h1>
+            </header>
+
+            <article>
+                
+<p><strong>DynamoDB</strong> (<strong>DDB</strong>) is the managed NoSQL database service from AWS.</p>
+<p>As DDB pricing is based on the amount of read and write capacity units provisioned, it is important to be able to calculate the requirements for your use case.</p>
+<p>This recipe uses a written formula to estimate the required <strong>read capacity units</strong> (<strong>RCU</strong>) and <strong>write capacity units</strong> (<strong>WCU</strong>) that should be allocated to you DDB table.</p>
+<p>It is also crucial to remember that while new partitions will be automatically added to a DDB table, they cannot be automatically taken away. This means that excessive partitioning can cause long-term impacts to your performance, so you should be aware of them.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Getting ready</h1>
+            </header>
+
+            <article>
+                
+<p>All of these calculations assume that you have chosen a good partition key for your data. A good partition key ensures the following:</p>
+<ul>
+<li>Data is evenly spread across all the available partitions</li>
+<li>Read and write activity is spread evenly in time</li>
+</ul>
+<p>Unfortunately, choosing a good partition key is very data-specific, and beyond the scope of this recipe.</p>
+<p>All reads are assumed to be strongly consistent.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How to do it...</h1>
+            </header>
+
+            <article>
+                
+<ol>
+<li>Start with the size of the items, in <strong>kilobytes</strong> (<strong>KB</strong>):</li>
+</ol>
+<p style="padding-left: 90px"><em>ItemSize = Size of the items (rows) in KB</em></p>
+<ol start="2">
+<li>Work out the required number of RCUs required by dividing the number by <em>4</em>, and rounding up:</li>
+</ol>
+<p style="padding-left: 90px"><em>RCU Per Item = ItemSize / 4 (rounded up)</em></p>
+<ol start="3">
+<li>Define the expected number of read operations per second. This is one of the numbers you will use to provision your table with:</li>
+</ol>
+<p style="padding-left: 90px"><em>Required RCU = Expected Number of Reads * RCU Per Item</em></p>
+<ol start="4">
+<li>Divide the number by <em>3,000</em> to calculate the number of DDB partitions required to reach the capacity:</li>
+</ol>
+<p style="padding-left: 90px"><em>Read Partitions = Required RCU / 3,000</em></p>
+<ol start="5">
+<li>Next, work out the write capacity required by dividing the item size by <em>1</em>, and rounding up:</li>
+</ol>
+<p style="padding-left: 90px"><em>WCU Per Item = ItemSize / 1 (rounded up)</em></p>
+<ol start="6">
+<li>Define the expected number of write operations per second. This is one of the numbers you will use to provision your table with:</li>
+</ol>
+<p style="padding-left: 90px"><em>Required WCU = Expected Number of Writes * WCU Per Item</em></p>
+<ol start="7">
+<li>Divide the number by <em>1,000</em> to calculate the number of DDB partitions required to reach the capacity:</li>
+</ol>
+<p style="padding-left: 90px"><em>Write Partitions = Required WCU / 1,000</em></p>
+<ol start="8">
+<li>Add these two values to get the capacity partitions required (rounding up to a whole number):</li>
+</ol>
+<p style="padding-left: 90px"><em>Capacity Partitions = Read Partitions + Write Partitions (rounded up)</em></p>
+<ol start="9">
+<li>Work out the minimum number of partitions required by the amount of data you plan to store:</li>
+</ol>
+<p style="padding-left: 90px"><em>Size Partitions = Total Size in GB / 10 (rounded up)</em></p>
+<ol start="10">
+<li>Once you have the partition requirements for your use case, take the maximum of your previous calculations:</li>
+</ol>
+<p style="padding-left: 90px"><em>Required Partitions = Maximum value between Capacity Partitions and Size Partitions</em></p>
+<ol start="11">
+<li>Since your allocated capacity is spread evenly across partitions, divide the RCU and WCU values to get the per-partition performance of your table:</li>
+</ol>
+<p style="padding-left: 90px"><em>Partition Read Throughput = Required RCU / Required Partitions</em></p>
+<p style="padding-left: 90px"><em>Partition Write Throughput = Required WCU / Required Partitions</em></p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">How it works...</h1>
+            </header>
+
+            <article>
+                
+<p>Behind the scenes, DDB throughput is controlled by the number of partitions that are allocated to your table. It is important to consider how your data will be spread across these partitions to ensure you get the performance you expect <em>and have paid for</em>.</p>
+<p>We start this recipe by calculating the size of the items in your database, for throughput purposes. DDB has a minimum size it will consider, and even if an operation uses less than this size, it is rounded up in terms of allocated throughput used. The minimum size depends on the type of operation:</p>
+<ul>
+<li>Read operations are calculated in 4-K blocks</li>
+<li>Write operations are calculated in 1-K blocks</li>
+</ul>
+<p>We then work out what the required RCU and WCU is, based on the expected number of operations. These values are what can then be used to provision the DDB table, as they represent the minimum required throughput (in optimal conditions).</p>
+<p>Once you have these values, you can use them to provision your table.</p>
+<p>Next, we calculate the throughput per partition key. These calculations rely on knowing what the performance of each partition is expected to be. The numbers 3,000 (for RCUs) and 1,000 (for WCUs) represent the capacity of a single DDB partition. By expressing the capacity in terms of partition performance (reads and writes) and adding them together we get the minimum number of partitions required from a capacity point of view.</p>
+<p>We then do the same calculation for total data size. Each DDB partition can handle up to 10 GB of data. Any more than that will need to be split between multiple partitions.</p>
+<div class="packt_infobox">The specific values for partition capacity (for reads, writes, and size) have been stable for a while, but may change in the future. Double-check that the current values are the same as used here for complete accuracy.</div>
+<p>Once we have the minimum partitions for both capacity and size, we take the highest value and work with that. This ensures we meet both the capacity and size requirements.</p>
+<p>Finally, we take the provisioned capacity and divide it by the number of partitions. This gives us the throughput performance for each partition key, which we can then use to confirm against our use case.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">There's more...</h1>
+            </header>
+
+            <article>
+                
+<p>There are many nuances to using DDB efficiently and effectively. Here are some of the more important/impactful things to note.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Burst capacity</h1>
+            </header>
+
+            <article>
+                
+<p>There is a burst capacity available to tables that go over their allocated capacity. Unused read and write capacity can be retained for up to five minutes (such as 300 seconds, for calculation purposes). Relying on this capacity is not good practice, and it will undoubtedly cause issues at some stage in the future.<br/></p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Metrics</h1>
+            </header>
+
+            <article>
+                
+<p>DDB tables automatically send data to CloudWatch metrics. This is the quickest and easiest way to confirm that your calculations and provision capacity are meeting your needs. It also helps you keep an eye on your usage to track your throughput needs over time. All metrics appear in the <em>AWS/DynamoDB</em> namespace. Some of the most interesting metrics for throughput calculations are as follows:</p>
+<ul>
+<li><kbd>ConsumedReadCapacityUnits</kbd></li>
+<li><kbd>ConsumedWriteCapacityUnits</kbd></li>
+<li><kbd>ReadThrottleEvents</kbd></li>
+<li><kbd>WriteThrottleEvents</kbd></li>
+</ul>
+<p>There are other metrics available; see the <em>Amazon DynamoDB Metrics and Dimensions</em> documentation for more details.</p>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    
+
+        <section>
+
+            <header>
+                <h1 class="header-title">Eventually consistent reads</h1>
+            </header>
+
+            <article>
+                
+<p>Using eventually consistent reads (as opposed to strongly consistent reads) <em>halves</em> the RCU requirements for calculation purposes. In this recipe, we have used strongly consistent reads because it works with all workloads, but you should confirm that your use case actually requires it. Use eventually consistent reads if it does not.</p>
+<div class="packt_tip">By reducing the required provisioned capacity for reads, you effectively reduce your <em>cost</em> for using DDB.</div>
+
+
+            </article>
+
+            <footer style="margin-top: 5em;">
+                
+            </footer>
+
+        </section>
+    </body></html>

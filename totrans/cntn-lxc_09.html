@@ -1,0 +1,621 @@
+<html><head></head><body><div class="appendix" title="Appendix&#xA0;A.&#xA0;LXC Alternatives to Docker and OpenVZ"><div class="titlepage"><div><div><h1 class="title"><a id="appA"/>Appendix A. LXC Alternatives to Docker and OpenVZ</h1></div></div></div><p>LXC is designed and ideally suited for running full system containers; this means that an LXC instance contains the filesystem of an entire operating system distribution, very similar to a virtual machine. Even though LXC can run a single process, or a replacement of the init system with a custom script, there are other container alternatives that are better suited for executing just a single, self-contained program. In this Appendix, we are going to look at two container implementation alternatives to LXC that can run side by side with LXC – Docker and OpenVZ.</p><div class="section" title="Building containers with OpenVZ"><div class="titlepage"><div><div><h1 class="title"><a id="ch09lvl1sec40"/>Building containers with OpenVZ</h1></div></div></div><p>OpenVZ is one of the oldest operating-system-level virtualization technologies, dating back to 2005. It is similar to LXC in the sense that it is geared toward running an entire operating system, rather than a single program such as Docker. Being a containerization technology, it shares the host OS kernel with no hypervisor layer. OpenVZ uses a patched version of the Red Hat kernel that is maintained separately from the Vanilla kernel.</p><p>Let's explore some of the OpenVZ features and see how they compare to LXC:</p><p>For this example deployment, we are going to use Debian Wheezy:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# lsb_release -rd</strong></span>
+<span class="strong"><strong>Description:      Debian GNU/Linux 7.8 (wheezy)</strong></span>
+<span class="strong"><strong>Release:    7.8</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>Start by adding the OpenVZ repository and key, then update the package index:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# cat &lt;&lt; EOF &gt; /etc/apt/sources.list.d/openvz-rhel6.list</strong></span>
+<span class="strong"><strong>deb http://download.openvz.org/debian wheezy main</strong></span>
+<span class="strong"><strong>EOF</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+<span class="strong"><strong>root@ovz:~# wget ftp://ftp.openvz.org/debian/archive.key</strong></span>
+<span class="strong"><strong>root@ovz:~# apt-key add archive.key</strong></span>
+<span class="strong"><strong>root@ovz:~# apt-get update</strong></span>
+</pre><p>Next, install the OpenVZ kernel:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# apt-get install linux-image-openvz-amd64</strong></span>
+</pre><p>If using GRUB, update the boot menu with the OpenVZ kernel; in this example, the kernel is added as menu item 2:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# cat /boot/grub/grub.cfg | grep menuentry</strong></span>
+<span class="strong"><strong>menuentry 'Debian GNU/Linux, with Linux 3.2.0-4-amd64' --class debian --class gnu-linux --class gnu --class os {</strong></span>
+<span class="strong"><strong>menuentry 'Debian GNU/Linux, with Linux 3.2.0-4-amd64 (recovery mode)' --class debian --class gnu-linux --class gnu --class os {</strong></span>
+<span class="strong"><strong>menuentry 'Debian GNU/Linux, with Linux 2.6.32-openvz-042stab120.11-amd64' --class debian --class gnu-linux --class gnu --class os {</strong></span>
+<span class="strong"><strong>menuentry 'Debian GNU/Linux, with Linux 2.6.32-openvz-042stab120.11-amd64 (recovery mode)' --class debian --class gnu-linux --class gnu --class os {</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+<span class="strong"><strong>root@ovz:~# vim /etc/default/grub</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>GRUB_DEFAULT=2</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@ovz:~# update-grub</strong></span>
+<span class="strong"><strong>Generating grub.cfg ...</strong></span>
+<span class="strong"><strong>Found linux image: /boot/vmlinuz-3.2.0-4-amd64</strong></span>
+<span class="strong"><strong>Found initrd image: /boot/initrd.img-3.2.0-4-amd64</strong></span>
+<span class="strong"><strong>Found linux image: /boot/vmlinuz-2.6.32-openvz-042stab120.11-amd64</strong></span>
+<span class="strong"><strong>Found initrd image: /boot/initrd.img-2.6.32-openvz-042stab120.11-amd64</strong></span>
+<span class="strong"><strong>done</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>We need to enable routing in the kernel and disable proxy ARP:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# cat /etc/sysctl.d/ovz.conf</strong></span>
+<span class="strong"><strong>net.ipv4.ip_forward = 1</strong></span>
+<span class="strong"><strong>net.ipv6.conf.default.forwarding = 1</strong></span>
+<span class="strong"><strong>net.ipv6.conf.all.forwarding = 1</strong></span>
+<span class="strong"><strong>net.ipv4.conf.default.proxy_arp = 0</strong></span>
+<span class="strong"><strong>net.ipv4.conf.all.rp_filter = 1</strong></span>
+<span class="strong"><strong>kernel.sysrq = 1</strong></span>
+<span class="strong"><strong>net.ipv4.conf.default.send_redirects = 1</strong></span>
+<span class="strong"><strong>net.ipv4.conf.all.send_redirects = 0</strong></span>
+<span class="strong"><strong>root@ovz2:~#</strong></span>
+<span class="strong"><strong>root@ovz:~# sysctl -p /etc/sysctl.d/ovz.conf</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>Now it's time to reboot the server, then check whether the OpenVZ is now loaded:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# reboot</strong></span>
+<span class="strong"><strong>root@ovz:~# uname -a</strong></span>
+<span class="strong"><strong>Linux ovz 2.6.32-openvz-042stab120.11-amd64 #1 SMP Wed Nov 16 12:07:16 MSK 2016 x86_64 GNU/Linux</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>Next, install the userspace tools:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# apt-get install vzctl vzquota ploop vzstats</strong></span>
+</pre><p>OpenVZ uses templates in a similar way to LXC. The templates are archived root filesystems and can be built with tools such as <code class="literal">debootstrap</code>. Let's download an Ubuntu template in the directory where OpenVZ expects them by default:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# cd /var/lib/vz/template/</strong></span>
+<span class="strong"><strong>root@ovz:/var/lib/vz/template# wget http://download.openvz.org/template/precreated/ubuntu-16.04-x86_64.tar.gz</strong></span>
+<span class="strong"><strong>root@ovz:/var/lib/vz/template#</strong></span>
+</pre><p>With the template archive in place, let's create a container:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:/var/lib/vz/template# vzctl create 1 --ostemplate ubuntu-16.04-x86_64 --layout simfs</strong></span>
+<span class="strong"><strong>Creating container private area (ubuntu-16.04-x86_64)</strong></span>
+<span class="strong"><strong>Performing postcreate actions</strong></span>
+<span class="strong"><strong>CT configuration saved to /etc/vz/conf/1.conf</strong></span>
+<span class="strong"><strong>Container private area was created</strong></span>
+<span class="strong"><strong>root@ovz:/var/lib/vz/template# </strong></span>
+</pre><p>We specify <code class="literal">simfs</code> as the type of the underlying container store, which will create the root filesystem on the host OS, similar to LXC and the default directory type. OpenVZ provides alternatives, such as Ploop, which creates an image file containing the containers filesystem.</p><p>Next, create a Linux bridge:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:/var/lib/vz/template# apt-get install bridge-utils</strong></span>
+<span class="strong"><strong>root@ovz:/var/lib/vz/template# brctl addbr br0</strong></span>
+</pre><p>To allow OpenVZ to connect its containers to the host bridge, create the following config file:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:/var/lib/vz/template# cat /etc/vz/vznet.conf</strong></span>
+<span class="strong"><strong>#!/bin/bash</strong></span>
+<span class="strong"><strong>EXTERNAL_SCRIPT="/usr/sbin/vznetaddbr"</strong></span>
+<span class="strong"><strong>root@ovz:/var/lib/vz/template#</strong></span>
+</pre><p>The file specifies an external script that will add the containers virtual interface to the bridge we created earlier.</p><p>Let's configure our container with a network interface, by specifying the name of the interfaces inside and outside the container, and the bridge they should be connected to:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:/var/lib/vz/template# vzctl set 1 --save --netif_add eth0,,veth1.eth0,,br0</strong></span>
+<span class="strong"><strong>CT configuration saved to /etc/vz/conf/1.conf</strong></span>
+<span class="strong"><strong>root@ovz:/var/lib/vz/template#</strong></span>
+</pre><p>List the available containers on the host by executing the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:/var/lib/vz/template# vzlist -a</strong></span>
+<span class="strong"><strong>CTID      NPROC STATUS    IP_ADDR      HOSTNAME</strong></span>
+<span class="strong"><strong> 1          - stopped      -               -</strong></span>
+<span class="strong"><strong>root@ovz:/var/lib/vz/template# cd</strong></span>
+</pre><p>To start our container, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# vzctl start 1</strong></span>
+<span class="strong"><strong>Starting container...</strong></span>
+<span class="strong"><strong>Container is mounted</strong></span>
+<span class="strong"><strong>Setting CPU units: 1000</strong></span>
+<span class="strong"><strong>Configure veth devices: veth1.eth0</strong></span>
+<span class="strong"><strong>Adding interface veth1.eth0 to bridge br0 on CT0 for CT1</strong></span>
+<span class="strong"><strong>Container start in progress...</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>Then, to attach, or enter the container, execute the following commands:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# vzctl enter 1</strong></span>
+<span class="strong"><strong>entered into CT 1</strong></span>
+<span class="strong"><strong>root@localhost:/# exit</strong></span>
+<span class="strong"><strong>logout</strong></span>
+<span class="strong"><strong>exited from CT 1</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>Manipulating the available container resources can be done on the fly, without the need for restarting the container, very much like with LXC. Let's set the memory to 1 GB:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# vzctl set 1 --ram 1G --save</strong></span>
+<span class="strong"><strong>UB limits were set successfully</strong></span>
+<span class="strong"><strong>CT configuration saved to /etc/vz/conf/1.conf</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>Every OpenVZ container has a config file, which is updated when passing the <code class="literal">--save</code> option to the <code class="literal">vzctl</code> tool. To examine it, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# cat /etc/vz/conf/1.conf | grep -vi "#" | sed '/^$/d'</strong></span>
+<span class="strong"><strong>PHYSPAGES="0:262144"</strong></span>
+<span class="strong"><strong>SWAPPAGES="0:512M"</strong></span>
+<span class="strong"><strong>DISKSPACE="2G:2.2G"</strong></span>
+<span class="strong"><strong>DISKINODES="131072:144179"</strong></span>
+<span class="strong"><strong>QUOTATIME="0"</strong></span>
+<span class="strong"><strong>CPUUNITS="1000"</strong></span>
+<span class="strong"><strong>NETFILTER="stateless"</strong></span>
+<span class="strong"><strong>VE_ROOT="/var/lib/vz/root/$VEID"</strong></span>
+<span class="strong"><strong>VE_PRIVATE="/var/lib/vz/private/$VEID"</strong></span>
+<span class="strong"><strong>VE_LAYOUT="simfs"</strong></span>
+<span class="strong"><strong>OSTEMPLATE="ubuntu-16.04-x86_64"</strong></span>
+<span class="strong"><strong>ORIGIN_SAMPLE="vswap-256m"</strong></span>
+<span class="strong"><strong>NETIF="ifname=eth0,bridge=br0,mac=00:18:51:A1:C6:35,host_ifname=veth1.eth0,host_mac=00:18:51:BF:1D:AC"</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>With the container running, ensure the virtual interface on the host is added to the bridge. Note that the bridge interface itself is in a <code class="literal">DOWN</code> state:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# brctl show</strong></span>
+<span class="strong"><strong>bridge name bridge id          STP enabled    interfaces</strong></span>
+<span class="strong"><strong>br0         8000.001851bf1dac  no             veth1.eth0</strong></span>
+<span class="strong"><strong>root@ovz:~# ip a s</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>4: br0: &lt;BROADCAST,MULTICAST&gt; mtu 1500 qdisc noop state DOWN</strong></span>
+<span class="strong"><strong>link/ether 00:18:51:bf:1d:ac brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>6: veth1.eth0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UNKNOWN</strong></span>
+<span class="strong"><strong>    link/ether 00:18:51:bf:1d:ac brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>    inet6 fe80::218:51ff:febf:1dac/64 scope link</strong></span>
+<span class="strong"><strong>      valid_lft forever preferred_lft forever</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>We can execute commands inside the container without the need to attach to it. Let's configure an IP address to the containers' interface:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# vzctl exec 1 "ifconfig eth0 192.168.0.5"</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>Bring the bridge interface on the host up and configure an IP address, so we can reach the container from the host:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# ifconfig br0 up</strong></span>
+<span class="strong"><strong>root@ovz:~# ifconfig br0 192.168.0.1</strong></span>
+</pre><p>Let's test connectivity:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# ping -c3 192.168.0.5</strong></span>
+<span class="strong"><strong>PING 192.168.0.5 (192.168.0.5) 56(84) bytes of data.</strong></span>
+<span class="strong"><strong>64 bytes from 192.168.0.5: icmp_req=1 ttl=64 time=0.037 ms</strong></span>
+<span class="strong"><strong>64 bytes from 192.168.0.5: icmp_req=2 ttl=64 time=0.036 ms</strong></span>
+<span class="strong"><strong>64 bytes from 192.168.0.5: icmp_req=3 ttl=64 time=0.036 ms</strong></span>
+<span class="strong"><strong>--- 192.168.0.5 ping statistics ---</strong></span>
+<span class="strong"><strong>3 packets transmitted, 3 received, 0% packet loss, time 1999ms</strong></span>
+<span class="strong"><strong>rtt min/avg/max/mdev = 0.036/0.036/0.037/0.005 ms</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>Let's enter the container and make sure the available memory is indeed 1 GB, as we set it up earlier:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# vzctl enter 1</strong></span>
+<span class="strong"><strong>entered into CT 1</strong></span>
+<span class="strong"><strong>root@localhost:/# free -g</strong></span>
+<span class="strong"><strong>total    used    free   shared  buff/cache   available</strong></span>
+<span class="strong"><strong>Mem:     1        0       0         0           0           0</strong></span>
+<span class="strong"><strong>Swap:    0        0       0</strong></span>
+<span class="strong"><strong>root@localhost:/# exit</strong></span>
+<span class="strong"><strong>logout</strong></span>
+<span class="strong"><strong>exited from CT 1</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>Notice how the OpenVZ container uses <code class="literal">init</code> to start all other processes, just like a virtual machine:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# ps axfww</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>3303 ?        Ss     0:00 init -z</strong></span>
+<span class="strong"><strong>3365 ?        Ss     0:00  \_ /lib/systemd/systemd-journald</strong></span>
+<span class="strong"><strong>3367 ?        Ss     0:00  \_ /lib/systemd/systemd-udevd</strong></span>
+<span class="strong"><strong>3453 ?        Ss     0:00  \_ /sbin/rpcbind -f -w</strong></span>
+<span class="strong"><strong>3454 ?        Ssl    0:00  \_ /usr/sbin/rsyslogd -n</strong></span>
+<span class="strong"><strong>3457 ?        Ss     0:00  \_ /usr/sbin/cron -f</strong></span>
+<span class="strong"><strong>3526 ?        Ss     0:00  \_ /usr/sbin/xinetd -pidfile /run/xinetd.pid -stayalive -inetd_compat -inetd_ipv6</strong></span>
+<span class="strong"><strong>3536 ?        Ss     0:00  \_ /usr/sbin/saslauthd -a pam -c -m /var/run/saslauthd -n 2</strong></span>
+<span class="strong"><strong>3540 ?        S      0:00  |   \_ /usr/sbin/saslauthd -a pam -c -m /var/run/saslauthd -n 2</strong></span>
+<span class="strong"><strong>3542 ?        Ss     0:00  \_ /usr/sbin/apache2 -k start</strong></span>
+<span class="strong"><strong>3546 ?        Sl     0:00  |   \_ /usr/sbin/apache2 -k start</strong></span>
+<span class="strong"><strong>3688 ?        Ss     0:00  \_ /usr/lib/postfix/sbin/master</strong></span>
+<span class="strong"><strong>3689 ?        S      0:00  |   \_ pickup -l -t unix -u -c</strong></span>
+<span class="strong"><strong>3690 ?        S      0:00  |   \_ qmgr -l -t unix -u</strong></span>
+<span class="strong"><strong>3695 ?        Ss     0:00  \_ /usr/sbin/sshd -D</strong></span>
+<span class="strong"><strong>3705 tty1     Ss+    0:00  \_ /sbin/agetty --noclear --keep-baud console 115200 38400 9600 vt220</strong></span>
+<span class="strong"><strong>3706 tty2     Ss+    0:00  \_ /sbin/agetty --noclear tty2 linux</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>We now know that all container implementations use cgroups to control system resources and OpenVZ is no exception. Let's see where the cgroup hierarchies are mounted:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# mount | grep cgroup</strong></span>
+<span class="strong"><strong>beancounter on /proc/vz/beancounter type cgroup (rw,relatime,blkio,name=beancounter)</strong></span>
+<span class="strong"><strong>container on /proc/vz/container type cgroup (rw,relatime,freezer,devices,name=container)</strong></span>
+<span class="strong"><strong>fairsched on /proc/vz/fairsched type cgroup (rw,relatime,cpuacct,cpu,cpuset,name=fairsched)</strong></span>
+<span class="strong"><strong>tmpfs on /var/lib/vz/root/1/sys/fs/cgroup type tmpfs (ro,nosuid,nodev,noexec,size=131072k,nr_inodes=32768,mode=755)</strong></span>
+<span class="strong"><strong>cgroup on /var/lib/vz/root/1/sys/fs/cgroup/systemd type cgroup (rw,nosuid,nodev,noexec,relatime,release_agent=/lib/systemd/systemd-cgroups-agent,name=systemd)</strong></span>
+<span class="strong"><strong>cgroup on /var/lib/vz/root/1/sys/fs/cgroup/memory type cgroup (rw,nosuid,nodev,noexec,relatime,memory)</strong></span>
+<span class="strong"><strong>cgroup on /var/lib/vz/root/1/sys/fs/cgroup/blkio type cgroup (rw,nosuid,nodev,noexec,relatime,blkio,name=beancounter)</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>The container we created earlier has an ID of <code class="literal">1</code> as we saw in the earlier example. We can grab the PIDs of all processes running inside the container by running the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# cat /proc/vz/fairsched/1/cgroup.procs</strong></span>
+<span class="strong"><strong>3303</strong></span>
+<span class="strong"><strong>3304</strong></span>
+<span class="strong"><strong>3305</strong></span>
+<span class="strong"><strong>3365</strong></span>
+<span class="strong"><strong>3367</strong></span>
+<span class="strong"><strong>3453</strong></span>
+<span class="strong"><strong>3454</strong></span>
+<span class="strong"><strong>3457</strong></span>
+<span class="strong"><strong>3526</strong></span>
+<span class="strong"><strong>3536</strong></span>
+<span class="strong"><strong>3540</strong></span>
+<span class="strong"><strong>3542</strong></span>
+<span class="strong"><strong>3546</strong></span>
+<span class="strong"><strong>3688</strong></span>
+<span class="strong"><strong>3689</strong></span>
+<span class="strong"><strong>3690</strong></span>
+<span class="strong"><strong>3695</strong></span>
+<span class="strong"><strong>3705</strong></span>
+<span class="strong"><strong>3706</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>We can also obtain the number of CPUs assigned to the container:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# cat /proc/vz/fairsched/1/cpu.nr_cpus</strong></span>
+<span class="strong"><strong>0</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>Let's assign two cores to the container with ID <code class="literal">1</code>:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# vzctl set 1 --save --cpus 2</strong></span>
+<span class="strong"><strong>UB limits were set successfully</strong></span>
+<span class="strong"><strong>Setting CPUs: 2</strong></span>
+<span class="strong"><strong>CT configuration saved to /etc/vz/conf/1.conf</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>Then ensure the change is visible in the same file:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# cat /proc/vz/fairsched/1/cpu.nr_cpus</strong></span>
+<span class="strong"><strong>2</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>The container's configuration file should also reflect the change:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# cat /etc/vz/conf/1.conf | grep -i CPUS</strong></span>
+<span class="strong"><strong>CPUS="2"</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>Using the <code class="literal">ps</code> command or, by reading the preceding system file, we can get the PID of the <code class="literal">init</code> process inside the container, in this example, <code class="literal">3303</code>. Knowing that PID, we can get the ID of the container by running the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# cat /proc/3303/status | grep envID</strong></span>
+<span class="strong"><strong>envID:      1</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>Since the root filesystem of the container is present on the host, migrating an OpenVZ instance is similar to LXC – we first stop the container, then archive the root filesystem, copy it to the new server, and extract it. We also need the config file for the container. Let's see an example of migrating OpenVZ container to a new host:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz:~# vzctl stop 1</strong></span>
+<span class="strong"><strong>Stopping container ...</strong></span>
+<span class="strong"><strong>Container was stopped</strong></span>
+<span class="strong"><strong>Container is unmounted</strong></span>
+<span class="strong"><strong>root@ovz:~#&#13;</strong></span>
+<span class="strong"><strong>root@ovz:~# tar -zcvf /tmp/ovz_container_1.tar.gz -C /var/lib/vz/private 1</strong></span>
+<span class="strong"><strong>root@ovz:~# scp  /tmp/ovz_container_1.tar.gz 10.3.20.31:/tmp/</strong></span>
+<span class="strong"><strong>root@ovz:~# scp /etc/vz/conf/1.conf 10.3.20.31:/etc/vz/conf/</strong></span>
+<span class="strong"><strong>root@ovz:~#</strong></span>
+</pre><p>On the second server, we extract the root filesystem:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz2:~# tar zxfv /tmp/ovz_container_1.tar.gz --numeric-owner -C /var/lib/vz/private</strong></span>
+<span class="strong"><strong>root@ovz2:~#</strong></span>
+</pre><p>With the config file and the filesystem in place, we can list the container by running the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz2:~# vzlist -a</strong></span>
+<span class="strong"><strong>stat(/var/lib/vz/root/1): No such file or directory</strong></span>
+<span class="strong"><strong>CTID      NPROC STATUS    IP_ADDR         HOSTNAME</strong></span>
+<span class="strong"><strong>1          - stopped       -               -</strong></span>
+<span class="strong"><strong>root@ovz2:~# </strong></span>
+</pre><p>Finally, to start the OpenVZ instance and ensure it's running on the new host, execute the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ovz2:~# vzctl start 1</strong></span>
+<span class="strong"><strong>Starting container...</strong></span>
+<span class="strong"><strong>stat(/var/lib/vz/root/1): No such file or directory</strong></span>
+<span class="strong"><strong>stat(/var/lib/vz/root/1): No such file or directory</strong></span>
+<span class="strong"><strong>stat(/var/lib/vz/root/1): No such file or directory</strong></span>
+<span class="strong"><strong>Initializing quota ...</strong></span>
+<span class="strong"><strong>Container is mounted</strong></span>
+<span class="strong"><strong>Setting CPU units: 1000</strong></span>
+<span class="strong"><strong>Setting CPUs: 2</strong></span>
+<span class="strong"><strong>Configure veth devices: veth1.eth0</strong></span>
+<span class="strong"><strong>Container start in progress...</strong></span>
+<span class="strong"><strong>root@ovz2:~# vzlist -a</strong></span>
+<span class="strong"><strong>CTID      NPROC STATUS    IP_ADDR         HOSTNAME</strong></span>
+<span class="strong"><strong>1         47 running       -               -</strong></span>
+<span class="strong"><strong>root@ovz2:~#</strong></span>
+</pre><p>OpenVZ does not have a centralized control daemon, which provides easier integration with init systems such as <code class="literal">upstart</code> or <code class="literal">systemd</code>. It's important to note that OpenVZ is the foundation for the Virtuozzo virtualization solution offered by the Virtuozzo company, and its latest iteration will be an ISO image of an entire operating system, instead of running a patched kernel with a separate toolset.</p><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="note40"/>Note</h3><p>For more information on the latest OpenVZ and Virtuozzo versions, visit <a class="ulink" href="https://openvz.org"><span>https://openvz.org</span></a>.</p></div></div></div></div>
+<div class="section" title="Building containers with Docker"><div class="titlepage"><div><div><h1 class="title"><a id="ch09lvl1sec41"/>Building containers with Docker</h1></div></div></div><p>The Docker project was released in 2013 and gained popularity quickly, surpassing that of OpenVZ and LXC. Large production deployments now run Docker, with various orchestration frameworks, such as Apache Mesos and Kubernetes, offering Docker integration.</p><p>Unlike LXC and OpenVZ, Docker is better suited for running single applications in a minimal container setup. It uses Docker Engine daemon, which controls the <code class="literal">containerd</code> process for managing the life cycle of the containers, thus making it harder to integrate with other init systems such as <code class="literal">systemd</code>.</p><p>Docker exposes a convenient API that various tools use, and makes it easy to provision containers from prebuilt images, hosted either on remote public or private repositories/registries.</p><p>We can run LXC and Docker containers on the same host without any problems, as they have clear separation. In the next section, we are going to explore most of Docker's features, by examining the life cycle of a Docker container and seeing how it compares to LXC.</p><p>Let's start by updating our server and installing the repo and key:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# apt-get update &amp;&amp; apt-get upgrade &amp;&amp; reboot</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@docker:~# apt-key adv --keyserver hkp://ha.pool.sks-keyservers.net:80 --recv-keys 58118E89F3A912897C070ADBF76221572C52609D</strong></span>
+<span class="strong"><strong>Executing: /tmp/tmp.Au9fc0rNu3/gpg.1.sh --keyserver</strong></span>
+<span class="strong"><strong>hkp://ha.pool.sks-keyservers.net:80</strong></span>
+<span class="strong"><strong>--recv-keys</strong></span>
+<span class="strong"><strong>58118E89F3A912897C070ADBF76221572C52609D</strong></span>
+<span class="strong"><strong>gpg: requesting key 2C52609D from hkp server ha.pool.sks-keyservers.net</strong></span>
+<span class="strong"><strong>gpg: key 2C52609D: public key "Docker Release Tool (releasedocker) &lt;docker@docker.com&gt;" imported</strong></span>
+<span class="strong"><strong>gpg: Total number processed: 1</strong></span>
+<span class="strong"><strong>gpg:               imported: 1  (RSA: 1)&#13;</strong></span>
+<span class="strong"><strong>root@docker:~# echo "deb https://apt.dockerproject.org/repo ubuntu-xenial main" | sudo tee /etc/apt/sources.list.d/docker.list</strong></span>
+<span class="strong"><strong>deb https://apt.dockerproject.org/repo ubuntu-xenial main</strong></span>
+<span class="strong"><strong>root@docker:~# apt-get update</strong></span>
+</pre><p>List the currently available package versions and install the latest candidate:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# apt-cache policy docker-engine</strong></span>
+<span class="strong"><strong>docker-engine:</strong></span>
+<span class="strong"><strong>  Installed: (none)</strong></span>
+<span class="strong"><strong>  Candidate: 1.12.4-0~ubuntu-xenial</strong></span>
+<span class="strong"><strong>  Version table:</strong></span>
+<span class="strong"><strong>     1.12.4-0~ubuntu-xenial 500</strong></span>
+<span class="strong"><strong>        500 https://apt.dockerproject.org/repo ubuntu-xenial/main amd64 Packages</strong></span>
+<span class="strong"><strong>     1.12.3-0~xenial 500</strong></span>
+<span class="strong"><strong>       500 https://apt.dockerproject.org/repo ubuntu-xenial/main amd64 Packages</strong></span>
+<span class="strong"><strong>    1.12.2-0~xenial 500</strong></span>
+<span class="strong"><strong>        500 https://apt.dockerproject.org/repo ubuntu-xenial/main amd64 Packages</strong></span>
+<span class="strong"><strong>    1.12.1-0~xenial 500</strong></span>
+<span class="strong"><strong>       500 https://apt.dockerproject.org/repo ubuntu-xenial/main amd64 Packages</strong></span>
+<span class="strong"><strong>     1.12.0-0~xenial 500</strong></span>
+<span class="strong"><strong>        500 https://apt.dockerproject.org/repo ubuntu-xenial/main amd64 Packages</strong></span>
+<span class="strong"><strong>     1.11.2-0~xenial 500</strong></span>
+<span class="strong"><strong>        500 https://apt.dockerproject.org/repo ubuntu-xenial/main amd64 Packages</strong></span>
+<span class="strong"><strong>     1.11.1-0~xenial 500</strong></span>
+<span class="strong"><strong>        500 https://apt.dockerproject.org/repo ubuntu-xenial/main amd64 Packages</strong></span>
+<span class="strong"><strong>     1.11.0-0~xenial 500</strong></span>
+<span class="strong"><strong>        500 https://apt.dockerproject.org/repo ubuntu-xenial/main amd64 Packages&#13;</strong></span>
+<span class="strong"><strong>root@docker:~# apt-get install linux-image-extra-$(uname -r) linux-image-extra-virtual</strong></span>
+<span class="strong"><strong>root@docker:~# apt-get install docker-engine</strong></span>
+</pre><p>Start the Docker services and ensure they are running:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# service docker start</strong></span>
+<span class="strong"><strong>root@docker:~# pgrep -lfa docker</strong></span>
+<span class="strong"><strong>24585 /usr/bin/dockerd -H fd://</strong></span>
+<span class="strong"><strong>24594 docker-containerd -l unix:///var/run/docker/libcontainerd/docker-containerd.sock --shim docker-containerd-shim --metrics-interval=0 --start-timeout 2m --state-dir /var/run/docker/libcontainerd/containerd --runtime docker-runc</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>With the Docker daemon running, let's list all available containers, of which we currently have none:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# docker ps</strong></span>
+<span class="strong"><strong>CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS              PORTS               NAMES</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>Let's find an Ubuntu image from the upstream public registry, by executing the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# docker search ubuntu</strong></span>
+<span class="strong"><strong>NAME      DESCRIPTION        STARS     OFFICIAL  &#13;
+AUTOMATED</strong></span>
+<span class="strong"><strong>ubuntu  Ubuntu is a Debian-based Linux operating s...   5200      [OK]</strong></span>
+<span class="strong"><strong>ubuntu-upstart  Upstart is an event-based replacement for ...   69        [OK]</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>We pick the official Ubuntu image for our container; to create it, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# docker create --tty --interactive ubuntu bash</strong></span>
+<span class="strong"><strong>Unable to find image 'ubuntu:latest' locally</strong></span>
+<span class="strong"><strong>latest: Pulling from library/ubuntu</strong></span>
+<span class="strong"><strong>af49a5ceb2a5: Pull complete</strong></span>
+<span class="strong"><strong>8f9757b472e7: Pull complete</strong></span>
+<span class="strong"><strong>e931b117db38: Pull complete</strong></span>
+<span class="strong"><strong>47b5e16c0811: Pull complete</strong></span>
+<span class="strong"><strong>9332eaf1a55b: Pull complete</strong></span>
+<span class="strong"><strong>Digest: sha256:3b64c309deae7ab0f7dbdd42b6b326261ccd6261da5d88396439353162703fb5</strong></span>
+<span class="strong"><strong>Status: Downloaded newer image for ubuntu:latest</strong></span>
+<span class="strong"><strong>ec66fcfb5960c0779d07243f2c1e4d4ac10b855e940d416514057a9b28d78d09</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>We should now have a cached Ubuntu image on our system:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# docker images</strong></span>
+<span class="strong"><strong>REPOSITORY   TAG     IMAGE ID       CREATED      SIZE</strong></span>
+<span class="strong"><strong>ubuntu       latest  4ca3a192ff2a  2 weeks ago   128.2 MB</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>Let's list the available container on the host again:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# docker ps --all</strong></span>
+<span class="strong"><strong>CONTAINER ID    IMAGE      COMMAND     CREATED           STATUS         PORTS         NAMES</strong></span>
+<span class="strong"><strong>ec66fcfb5960    ubuntu     "bash"     29 seconds ago      Created                 docker_container_1</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>Starting the Ubuntu Docker container is just as easy:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# docker start docker_container_1</strong></span>
+<span class="strong"><strong>docker_container_1</strong></span>
+<span class="strong"><strong>root@docker:~# docker ps</strong></span>
+<span class="strong"><strong>CONTAINER ID    IMAGE   COMMAND     CREATED             STATUS          PORTS     NAMES</strong></span>
+<span class="strong"><strong>ec66fcfb5960    ubuntu  "bash"   About a minute ago   Up 17 seconds         docker_container_1</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>By examining the process list, notice how we now have a single bash process running as a child of the <code class="literal">dockerd</code> and <code class="literal">docker-containerd</code> processes:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# ps axfww</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>24585 ?        Ssl    0:07 /usr/bin/dockerd -H fd://</strong></span>
+<span class="strong"><strong>24594 ?        Ssl    0:00  \_ docker-containerd -l unix:///var/run/docker/libcontainerd/docker-containerd.sock --shim docker-containerd-shim --metrics-interval=0 --start-timeout 2m --state-dir /var/run/docker/libcontainerd/containerd --runtime docker-runc</strong></span>
+<span class="strong"><strong>26942 ?        Sl     0:00      \_ docker-containerd-shim ec66fcfb5960c0779d07243f2c1e4d4ac10b855e940d416514057a9b28d78d09 /var/run/docker/libcontainerd/ec66fcfb5960c0779d07243f2c1e4d4ac10b855e940d416514057a9b28d78d09 docker-runc</strong></span>
+<span class="strong"><strong>26979 pts/1    Ss+    0:00          \_ bash</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>By attaching to the container, we can see that it is running a single bash process, unlike the full init system that LXC or OpenVZ use:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# docker attach docker_container_1</strong></span>
+<span class="strong"><strong>root@ec66fcfb5960:/# ps axfw</strong></span>
+<span class="strong"><strong>PID TTY    STAT   TIME   COMMAND</strong></span>
+<span class="strong"><strong>1   ?        Ss     0:00   bash</strong></span>
+<span class="strong"><strong>10   ?       R+     0:00   ps axfw&#13;</strong></span>
+<span class="strong"><strong>root@ec66fcfb5960:/# exit</strong></span>
+<span class="strong"><strong>exit</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>Notice that after exiting the container, it is terminated:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# docker attach docker_container_1</strong></span>
+<span class="strong"><strong>You cannot attach to a stopped container, start it first</strong></span>
+<span class="strong"><strong>root@docker:~# docker ps -a</strong></span>
+<span class="strong"><strong>CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS                      PORTS               NAMES</strong></span>
+<span class="strong"><strong>ec66fcfb5960        ubuntu              "bash"              &#13;
+3 minutes ago       Exited (0) 26 seconds ago                   docker_container_1</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>Let's start it back up again; we can either specify its name or ID, in the same manner as with OpenVZ, or libvirt LXC:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# docker start ec66fcfb5960</strong></span>
+<span class="strong"><strong>ec66fcfb5960&#13;</strong></span>
+<span class="strong"><strong>root@docker:~# docker ps</strong></span>
+<span class="strong"><strong>CONTAINER ID        IMAGE               COMMAND          CREATED             STATUS              PORTS               &#13;
+NAMES</strong></span>
+<span class="strong"><strong>ec66fcfb5960        ubuntu              "bash"              &#13;
+3 minutes ago       Up 2 seconds                            docker_container_1</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>To update the container's memory, execute the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# docker update --memory 1G docker_container_1</strong></span>
+<span class="strong"><strong>docker_container_1</strong></span>
+<span class="strong"><strong>root@docker:~# </strong></span>
+</pre><p>Inspect the memory settings of the container to make sure the memory was successfully updated:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# docker inspect docker_container_1 | grep -i memory</strong></span>
+<span class="strong"><strong>"Memory": 1073741824,</strong></span>
+<span class="strong"><strong>"KernelMemory": 0,</strong></span>
+<span class="strong"><strong>"MemoryReservation": 0,</strong></span>
+<span class="strong"><strong>"MemorySwap": 0,</strong></span>
+<span class="strong"><strong>"MemorySwappiness": -1,</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>Just like LXC and OpenVZ, the corresponding cgroup hierarchy was updated. We should be able to see the same memory amount in the cgroup file for the container ID:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# cat</strong></span>
+<span class="strong"><strong>/sys/fs/cgroup/memory/docker/ec66fcfb5960c0779d07243f2c1e4d4ac10b855e940d416514057a9b28d78d09/memory.limit_in_bytes</strong></span>
+<span class="strong"><strong>1073741824</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>Let's update the CPU shares:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# docker update --cpu-shares 512 docker_container_1</strong></span>
+<span class="strong"><strong>docker_container_1</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>Then, examine the setting in the cgroup file, replacing the container ID with the one running on your host:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# cat /sys/fs/cgroup/cpu/docker/ec66fcfb5960c0779d07243f2c1e4d4ac10b855e940d416514057a9b28d78d09/cpu.shares</strong></span>
+<span class="strong"><strong>512</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>Docker provides few ways of monitoring the container status and resource utilization, very much like LXC:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# docker top docker_container_1</strong></span>
+<span class="strong"><strong>UID                 PID                 PPID                C                   STIME               TTY                 TIME                CMD</strong></span>
+<span class="strong"><strong>root                27812               27774               0                   17:41               pts/1               00:00:00            bash&#13;</strong></span>
+<span class="strong"><strong>root@docker:~# docker stats docker_container_1</strong></span>
+<span class="strong"><strong>CONTAINER           CPU %               MEM USAGE / LIMIT   MEM %               NET I/O             BLOCK I/O           PIDS</strong></span>
+<span class="strong"><strong>docker_container_1   0.00%               1.809 MiB / 1 GiB   0.18%               648 B / 648 B       0 B / 0 B           1</strong></span>
+<span class="strong"><strong>^C</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>We can also run a command inside the containers' namespace without attaching to it:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# docker exec docker_container_1 ps ax</strong></span>
+<span class="strong"><strong>PID TTY    STAT   TIME COMMAND</strong></span>
+<span class="strong"><strong>1 ?        Ss+    0:00 bash</strong></span>
+<span class="strong"><strong>11 ?       Rs     0:00 ps ax</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>Copying a file from the host filesystem to that of the container is done with the following command; we saw similar examples with LXC and OpenVZ:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# touch /tmp/test_file</strong></span>
+<span class="strong"><strong>root@docker:~# docker cp /tmp/test_file docker_container_1:/tmp/</strong></span>
+<span class="strong"><strong>root@docker:~# docker exec docker_container_1 ls -la /tmp</strong></span>
+<span class="strong"><strong>total 8</strong></span>
+<span class="strong"><strong>drwxrwxrwt  2 root root 4096 Dec 14 19:39 .</strong></span>
+<span class="strong"><strong>drwxr-xr-x 36 root root 4096 Dec 14 19:39 ..</strong></span>
+<span class="strong"><strong>-rw-r--r--  1 root root    0 Dec 14 19:38 test_file</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>Moving the container between hosts is even easier with Docker; there's no need to manually archive the root filesystem:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# docker export docker_container_1 &gt; docker_container_1.tar</strong></span>
+<span class="strong"><strong>root@docker:~# docker import docker_container_1.tar</strong></span>
+<span class="strong"><strong>sha256:c86a93369be687f9ead4758c908fe61b344d5c84b1b70403ede6384603532aa9&#13;</strong></span>
+<span class="strong"><strong>root@docker:~# docker images</strong></span>
+<span class="strong"><strong>REPOSITORY        TAG           IMAGE ID           CREATED             SIZE</strong></span>
+<span class="strong"><strong>&lt;none&gt;           &lt;none&gt;        c86a93369be6     6 seconds ago       110.7 MB</strong></span>
+<span class="strong"><strong>ubuntu           latest        4ca3a192ff2a      2 weeks ago         128.2 MB</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>To delete local images, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# docker rmi c86a93369be6</strong></span>
+<span class="strong"><strong>Deleted:sha256:c86a93369be687f9ead4758c908fe61b344d5c84b1b70403ede6384603532aa9</strong></span>
+<span class="strong"><strong>Deleted:sha256:280a817cfb372d2d2dd78b7715336c89d2ac28fd63f7e9a0af22289660214d32</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>The Docker API exposes a way to define the software networks, similar to what we saw with libvirt LXC. Let's install the Linux bridge and see what is present on the Docker host:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# apt-get install bridge-utils</strong></span>
+<span class="strong"><strong>root@docker:~# brctl show</strong></span>
+<span class="strong"><strong>bridge name    bridge id         STP   enabled interfaces</strong></span>
+<span class="strong"><strong>docker0       8000.0242d6dd444c  no      vethf5b871d</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>Notice the <code class="literal">docker0</code> bridge, created by the Docker service. Let's list the networks that were automatically created:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# docker network ls</strong></span>
+<span class="strong"><strong>NETWORK ID          NAME           DRIVER          SCOPE</strong></span>
+<span class="strong"><strong>a243008cd6cd        bridge         bridge          local</strong></span>
+<span class="strong"><strong>24d4b310a2e1        host           host            local</strong></span>
+<span class="strong"><strong>1e8e35222e39        none           null            local</strong></span>
+<span class="strong"><strong>root@docker:~# </strong></span>
+</pre><p>To inspect the <code class="literal">bridge</code> network, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# docker network inspect bridge</strong></span>
+<span class="strong"><strong>[</strong></span>
+<span class="strong"><strong>{</strong></span>
+<span class="strong"><strong>    "Name": "bridge",</strong></span>
+<span class="strong"><strong>    "Id":"a243008cd6cd01375ef389de58bc11e1e57c1f3&#13;
+         e4965a53ea48866c0dcbd3665",</strong></span>
+<span class="strong"><strong>    "Scope": "local",</strong></span>
+<span class="strong"><strong>    "Driver": "bridge",</strong></span>
+<span class="strong"><strong>    "EnableIPv6": false,</strong></span>
+<span class="strong"><strong>    "IPAM": {</strong></span>
+<span class="strong"><strong>        "Driver": "default",</strong></span>
+<span class="strong"><strong>        "Options": null,</strong></span>
+<span class="strong"><strong>        "Config": [</strong></span>
+<span class="strong"><strong>        {</strong></span>
+<span class="strong"><strong>            "Subnet": "172.17.0.0/16"</strong></span>
+<span class="strong"><strong>         }</strong></span>
+<span class="strong"><strong>        ]</strong></span>
+<span class="strong"><strong>    },</strong></span>
+<span class="strong"><strong>        "Internal": false,</strong></span>
+<span class="strong"><strong>        "Containers": {</strong></span>
+<span class="strong"><strong>"ec66fcfb5960c0779d07243f2c1e4d4ac10b8&#13;
+               55e940d416514057a9b28d78d09": {</strong></span>
+<span class="strong"><strong>                "Name": "docker_container_1",</strong></span>
+<span class="strong"><strong>                "EndpointID":"27c07e8f24562ea333cdeb5c&#13;
+                    11015d13941c746b02b1fc18a766990b772b5935",</strong></span>
+<span class="strong"><strong>                "MacAddress": "02:42:ac:11:00:02",</strong></span>
+<span class="strong"><strong>                "IPv4Address": "172.17.0.2/16",</strong></span>
+<span class="strong"><strong>                "IPv6Address": ""</strong></span>
+<span class="strong"><strong>            }</strong></span>
+<span class="strong"><strong>        },</strong></span>
+<span class="strong"><strong>        "Options": {</strong></span>
+<span class="strong"><strong>            "com.docker.network.bridge.default_bridge": "true",</strong></span>
+<span class="strong"><strong>            "com.docker.network.bridge.enable_icc": "true",</strong></span>
+<span class="strong"><strong>            "com.docker.network.bridge.enable_ip_masquerade": &#13;
+                "true",</strong></span>
+<span class="strong"><strong>            "com.docker.network.bridge.host_binding_ipv4":  &#13;
+                "0.0.0.0",</strong></span>
+<span class="strong"><strong>            "com.docker.network.bridge.name": "docker0",</strong></span>
+<span class="strong"><strong>            "com.docker.network.driver.mtu": "1500"</strong></span>
+<span class="strong"><strong>        },</strong></span>
+<span class="strong"><strong>        "Labels": {}</strong></span>
+<span class="strong"><strong>    }</strong></span>
+<span class="strong"><strong>]</strong></span>
+<span class="strong"><strong>root@docker:~#</strong></span>
+</pre><p>Finally, to stop and delete the Docker container, execute the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@docker:~# docker stop docker_container_1</strong></span>
+<span class="strong"><strong>docker_container_1</strong></span>
+<span class="strong"><strong>root@docker:~#  docker rm docker_container_1</strong></span>
+</pre></div>
+<div class="section" title="Running unprivileged LXC containers"><div class="titlepage"><div><div><h1 class="title"><a id="ch09lvl1sec42"/>Running unprivileged LXC containers</h1></div></div></div><p>Let's briefly touch on security with LXC. Starting with LXC version 1.0, support for unprivileged containers was introduced, allowing for unprivileged users to run containers. The main security concern running LXC containers as root is that UID 0 inside the container is the same as UID 0 on the host; thus, breaking out of a container will grant you root privileges on the server.</p><p>In <a class="link" href="ch01.html" title="Chapter 1. Introduction to Linux Containers"><span>Chapter 1</span></a>, <span class="emphasis"><em>Introduction to Linux Containers</em></span>, we talked in detail about the user namespace and how it allows for a process inside the user namespace to have a different user and group ID than that of the default namespace. In the context of LXC, this allows for a process to run as root inside the container, while having the unprivileged ID on the host. To take advantage of this, we can create a mapping per container that will use a defined set of UIDs and GIDs between the host and the LXC container.</p><p>Let's look at an example of setting up and running a LXC container as an unprivileged user.</p><p>Start by updating your Ubuntu system and installing LXC:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# apt-get update&amp;&amp; apt-get upgrade</strong></span>
+<span class="strong"><strong>root@ubuntu:~# reboot</strong></span>
+<span class="strong"><strong>root@ubuntu:~# apt-get install lxc</strong></span>
+</pre><p>Next, create a new user and assign it a password:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# useradd -s /bin/bash -c 'LXC user' -m lxc_user</strong></span>
+<span class="strong"><strong>root@ubuntu:~# passwd lxc_user</strong></span>
+<span class="strong"><strong>Enter new UNIX password:</strong></span>
+<span class="strong"><strong>Retype new UNIX password:</strong></span>
+<span class="strong"><strong>passwd: password updated successfully</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Make a note of what the range of UIDs and GIDs on the system is for the new user we created:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cat /etc/sub{gid,uid} | grep lxc_user</strong></span>
+<span class="strong"><strong>lxc_user:231072:65536</strong></span>
+<span class="strong"><strong>lxc_user:231072:65536</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Note the name of the Linux bridge that was created:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# brctl show</strong></span>
+<span class="strong"><strong>bridge name bridge id         STP enabled interfaces</strong></span>
+<span class="strong"><strong>lxcbr0            8000.000000000000 no</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Specify how many virtual interfaces can be added to the bridge for a user, in this example, <code class="literal">50</code>:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cat /etc/lxc/lxc-usernet</strong></span>
+<span class="strong"><strong># USERNAME TYPE BRIDGE COUNT</strong></span>
+<span class="strong"><strong>lxc_user veth lxcbr0 50</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Next, as the <code class="literal">lxc_user</code>, create the directory structure and config files as follows:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# su - lxc_user</strong></span>
+<span class="strong"><strong>lxc_user@ubuntu:~$ pwd</strong></span>
+<span class="strong"><strong>/home/lxc_user</strong></span>
+<span class="strong"><strong>lxc_user@ubuntu:~$ mkdir -p .config/lxc</strong></span>
+<span class="strong"><strong>lxc_user@ubuntu:~$ cp /etc/lxc/default.conf .config/lxc/</strong></span>
+<span class="strong"><strong>lxc_user@ubuntu:~$ cat .config/lxc/default.conf</strong></span>
+<span class="strong"><strong>lxc.network.type = veth</strong></span>
+<span class="strong"><strong>lxc.network.link = lxcbr0</strong></span>
+<span class="strong"><strong>lxc.network.flags = up</strong></span>
+<span class="strong"><strong>lxc.network.hwaddr = 00:16:3e:xx:xx:xx</strong></span>
+<span class="strong"><strong>lxc.id_map = u 0 231072 65536</strong></span>
+<span class="strong"><strong>lxc.id_map = g 0 231072 65536</strong></span>
+<span class="strong"><strong>lxc_user@ubuntu:~$</strong></span>
+</pre><p>The preceding <code class="literal">id_map</code> options will map the range of virtual IDs for the <code class="literal">lxc_user</code>.</p><p>We can now create the container as usual:</p><pre class="programlisting">
+<span class="strong"><strong>lxc_user@ubuntu:~$ lxc-create --name user_lxc --template download</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>Distribution: ubuntu</strong></span>
+<span class="strong"><strong>Release: xenial</strong></span>
+<span class="strong"><strong>Architecture: amd64</strong></span>
+<span class="strong"><strong>Downloading the image index</strong></span>
+<span class="strong"><strong>Downloading the rootfs</strong></span>
+<span class="strong"><strong>Downloading the metadata</strong></span>
+<span class="strong"><strong>The image cache is now ready</strong></span>
+<span class="strong"><strong>Unpacking the rootfs</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>lxc_user@ubuntu:~$</strong></span>
+</pre><p>The container is in the stopped state; to start it, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>lxc_user@ubuntu:~$ lxc-ls -f</strong></span>
+<span class="strong"><strong>NAME     STATE   AUTOSTART GROUPS IPV4 IPV6</strong></span>
+<span class="strong"><strong>user_lxc STOPPED 0         -      -    -</strong></span>
+<span class="strong"><strong>lxc_user@ubuntu:~$ lxc-start --name user_lxc</strong></span>
+<span class="strong"><strong>lxc_user@ubuntu:~$ lxc-ls -f</strong></span>
+<span class="strong"><strong>NAME     STATE   AUTOSTART GROUPS IPV4 IPV6</strong></span>
+<span class="strong"><strong>user_lxc RUNNING 0         -      -    -</strong></span>
+<span class="strong"><strong>lxc_user@ubuntu:~$</strong></span>
+</pre><p>Notice that the processes in the container are owned by the <code class="literal">lxc_user</code> instead of root:</p><pre class="programlisting">
+<span class="strong"><strong>lxc_user@ubuntu:~$ ps axfwwu</strong></span>
+<span class="strong"><strong>lxc_user  4291  0.0  0.0  24448  1584 ?        Ss   19:13   0:00 /usr/lib/x86_64-linux-gnu/lxc/lxc-monitord /home/lxc_user/.local/share/lxc 5</strong></span>
+<span class="strong"><strong>lxc_user  4293  0.0  0.0  32892  3148 ?        Ss   19:13   0:00 [lxc monitor] /home/lxc_user/.local/share/lxc user_lxc</strong></span>
+<span class="strong"><strong>231072    4304  0.5  0.0  37316  5356 ?        Ss   19:13   0:00  \_ /sbin/init</strong></span>
+<span class="strong"><strong>231072    4446  0.1  0.0  35276  4056 ?        Ss   19:13   0:00      \_ /lib/systemd/systemd-journald</strong></span>
+<span class="strong"><strong>231176    4500  0.0  0.0 182664  3084 ?        Ssl  19:13   0:00      \_ /usr/sbin/rsyslogd -n</strong></span>
+<span class="strong"><strong>231072    4502  0.0  0.0  28980  3044 ?        Ss   19:13   0:00      \_ /usr/sbin/cron -f</strong></span>
+<span class="strong"><strong>231072    4521  0.0  0.0   4508  1764 ?        S    19:13   0:00      \_ /bin/sh /etc/init.d/ondemand background</strong></span>
+<span class="strong"><strong>231072    4531  0.0  0.0   7288   816 ?        S    19:13   0:00      |   \_ sleep 60</strong></span>
+<span class="strong"><strong>231072    4568  0.0  0.0  15996   856 ?        Ss   19:13   0:00      \_ /sbin/dhclient -1 -v -pf /run/dhclient.eth0.pid -lf /var/lib/dhcp/dhclient.eth0.leases -I -df /var/lib/dhcp/dhclient6.eth0.leases eth0</strong></span>
+<span class="strong"><strong>231072    4591  0.0  0.0  15756  2228 pts/1    Ss+  19:13   0:00      \_ /sbin/agetty --noclear --keep-baud pts/1 115200 38400 9600 vt220</strong></span>
+<span class="strong"><strong>231072    4592  0.0  0.0  15756  2232 pts/2    Ss+  19:13   0:00      \_ /sbin/agetty --noclear --keep-baud pts/2 115200 38400 9600 vt220</strong></span>
+<span class="strong"><strong>231072    4593  0.0  0.0  15756  2224 pts/0    Ss+  19:13   0:00      \_ /sbin/agetty --noclear --keep-baud pts/0 115200 38400 9600 vt220</strong></span>
+<span class="strong"><strong>231072    4594  0.0  0.0  15756  2228 pts/2    Ss+  19:13   0:00      \_ /sbin/agetty --noclear --keep-baud console 115200 38400 9600 vt220</strong></span>
+<span class="strong"><strong>231072    4595  0.0  0.0  15756  2232 ?        Ss+  19:13   0:00      \_ /sbin/agetty --noclear --keep-baud pts/3 115200 38400 9600 vt220</strong></span>
+<span class="strong"><strong>lxc_user@ubuntu:~$</strong></span>
+</pre><p>The root filesystem and config file location is different when running the container as a non root user:</p><pre class="programlisting">
+<span class="strong"><strong>lxc_user@ubuntu:~$ ls -la .local/share/lxc/user_lxc/</strong></span>
+<span class="strong"><strong>total 16</strong></span>
+<span class="strong"><strong>drwxrwx---  3   231072 lxc_user 4096 Dec 15 19:13 .&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x  3 lxc_user lxc_user 4096 Dec 15 19:13 ..</strong></span>
+<span class="strong"><strong>-rw-rw-r--  1 lxc_user lxc_user  845 Dec 15 19:13 config</strong></span>
+<span class="strong"><strong>drwxr-xr-x 21   231072   231072 4096 Dec 15 03:59 rootfs</strong></span>
+<span class="strong"><strong>-rw-rw-r--  1 lxc_user lxc_user    0 Dec 15 19:13 user_lxc.log</strong></span>
+<span class="strong"><strong>lxc_user@ubuntu:~$ cat .local/share/lxc/user_lxc/config | grep -vi "#" | sed '/^$/d'</strong></span>
+<span class="strong"><strong>lxc.include = /usr/share/lxc/config/ubuntu.common.conf</strong></span>
+<span class="strong"><strong>lxc.include = /usr/share/lxc/config/ubuntu.userns.conf</strong></span>
+<span class="strong"><strong>lxc.arch = x86_64</strong></span>
+<span class="strong"><strong>lxc.id_map = u 0 231072 65536</strong></span>
+<span class="strong"><strong>lxc.id_map = g 0 231072 65536</strong></span>
+<span class="strong"><strong>lxc.rootfs = /home/lxc_user/.local/share/lxc/user_lxc/rootfs</strong></span>
+<span class="strong"><strong>lxc.rootfs.backend = dir</strong></span>
+<span class="strong"><strong>lxc.utsname = user_lxc</strong></span>
+<span class="strong"><strong>lxc.network.type = veth</strong></span>
+<span class="strong"><strong>lxc.network.link = lxcbr0</strong></span>
+<span class="strong"><strong>lxc.network.flags = up</strong></span>
+<span class="strong"><strong>lxc.network.hwaddr = 00:16:3e:a7:f2:97</strong></span>
+<span class="strong"><strong>lxc_user@ubuntu:~$</strong></span>
+</pre></div>
+<div class="section" title="Summary"><div class="titlepage"><div><div><h1 class="title"><a id="ch09lvl1sec43"/>Summary</h1></div></div></div><p>In this chapter, we saw examples on how to deploy containers with alternative technologies to LXC such as OpenVZ and Docker.</p><p>OpenVZ is one of the oldest container solutions, and as of this writing it's being rebranded to Virtuozzo. The main difference between LXC and OpenVZ is the custom Linux kernel that OpenVZ runs on. It's based on the Red Hat kernels and soon will be shipped as a single installation ISO as compared to the packaged kernel and userspace tools we used in the earlier examples.</p><p>Docker is the de-facto standard and an adoption leader in the containerized world. Being one of the newer containerization technologies, its ease of use, and available API makes it an ideal solution for running microservices in a mass scale. Docker does not need a patched kernel to work, and the availability of centralized registries to store container images makes it a great choice in many scenarios.</p><p>We ended the chapter by showing an example of how to run unprivileged LXC containers. This feature is relatively new, and it's a step in the right direction when it comes to container security.</p></div></body></html>

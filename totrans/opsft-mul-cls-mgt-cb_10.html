@@ -1,0 +1,550 @@
+<html><head></head><body>
+		<div id="_idContainer193">
+			<h1 id="_idParaDest-196" class="chapter-number"><a id="_idTextAnchor204"/>10</h1>
+			<h1 id="_idParaDest-197"><a id="_idTextAnchor205"/>OpenShift GitOps – Argo CD</h1>
+			<p>In the previous chapter, we learned how to create and run a pipeline using Tekton to build and deploy an application. While Tekton is great for building and performing other actions that are usually related to <strong class="bold">continuous integration</strong> (<strong class="bold">CI</strong>), <strong class="bold">GitOps</strong> is becoming the norm for <strong class="bold">continuous deployment</strong> (<strong class="bold">CD</strong>) regarding Kubernetes-native applications. In this chapter, we will dive into GitOps and talk about one of the best tools for CD: <strong class="bold">Argo CD</strong>.</p>
+			<p>In this chapter, we will cover the following topics:</p>
+			<ul>
+				<li>What is GitOps?</li>
+				<li>What is Argo CD?</li>
+				<li>Application delivery model</li>
+				<li>Installing OpenShift GitOps</li>
+				<li>Configuring Argo CD against multiple clusters</li>
+				<li>Argo CD definitions and challenges</li>
+				<li>Argo CD main objects</li>
+				<li>Deploying an application using GitOps</li>
+				<li>Deploying to multiple clusters</li>
+			</ul>
+			<p>Let’s dive in!</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">The source code used in this chapter is available at <a href="https://github.com/PacktPublishing/OpenShift-Multi-Cluster-Management-Handbook/tree/main/chapter10">https://github.com/PacktPublishing/OpenShift-Multi-Cluster-Management-Handbook/tree/main/chapter10</a>.</p>
+			<h1 id="_idParaDest-198"><a id="_idTextAnchor206"/>What is GitOps?</h1>
+			<p>The term<a id="_idIndexMarker695"/> GitOps was first described by <em class="italic">Lexis Richardson</em>, CEO of <em class="italic">Weaveworks</em>, in 2017. At that time, he presented the <a id="_idIndexMarker696"/>four principles of GitOps, which are as follows:</p>
+			<ul>
+				<li><strong class="bold">The entire system is described declaratively</strong>: This means that any configuration of your application and infrastructure needs to be treated as code, but not as a set of instructions, as you would with scripts or automation code. Instead, you must use a set of facts that describes the desired state of your system. These declaration files are versioned in Git, which is your single source of truth. The great benefit of this principle is that you can easily deploy or roll back your applications and, more importantly, restore your environment quickly if a disaster occurs.</li>
+				<li><strong class="bold">The canonical desired system state is versioned in Git</strong>: Git is your source of truth. It needs to be the single place that triggers all the changes in your systems. Ideally, nothing should be done directly on the systems, but through configuration changes on Git that will be applied automatically using a tool such as Argo CD.</li>
+				<li><strong class="bold">Approved changes are automatically applied to the system</strong>: Since you have the desired state of your system stored in Git, any changes can be automatically applied to the system as they are pushed to the repository.</li>
+				<li><strong class="bold">Software agents ensure correctness and alert you about divergence</strong>: It is crucial to have tools in place that will ensure that your system is in the desired state, as described in Git. If any drift is detected, the tool needs to be able to self-heal the application and get it back to its desired state.</li>
+			</ul>
+			<p>GitOps became the norm for Kubernetes and cloud-native applications due to the following <a id="_idIndexMarker697"/>benefits:</p>
+			<ul>
+				<li><strong class="bold">Standard process and tools</strong>: Git workflows allow teams to work collaboratively and in a reproducible manner, avoiding issues regarding human-repetitive tasks.</li>
+				<li><strong class="bold">Robust and secure process</strong>: By working with <strong class="bold">pull requests</strong> (<strong class="bold">PRs</strong>) in Git, all the changes need to be reviewed and approved. You can also trace all changes <a id="_idIndexMarker698"/>in Git and revert them if needed.</li>
+				<li><strong class="bold">Auditable changes</strong>: All changes are tracked and easily auditable in Git history.</li>
+				<li><strong class="bold">Consistency</strong>: You can deploy the same application in multiple different clusters consistently:</li>
+			</ul>
+			<div>
+				<div id="_idContainer169" class="IMG---Figure">
+					<img src="image/B18015_10_01.jpg" alt="Figure 10.1 – GitOps workflow "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.1 – GitOps workflow</p>
+			<p>Now that you have a better understanding of what GitOps is, let’s start learning how to put GitOps workflows into practice.</p>
+			<h1 id="_idParaDest-199"><a id="_idTextAnchor207"/>What is Argo CD?</h1>
+			<p>In theory, it is possible to adopt GitOps without the need to use any specific tool. You could implement scripts and automation to deploy and manage your applications using declarative files from Git that describe your systems. However, that would be costly and time-consuming. The good news is that there are some great open source options for Kubernetes that are stable and work well. At the time of writing, the main tools for Kubernetes<a id="_idIndexMarker699"/> are <strong class="bold">Argo CD</strong> and <strong class="bold">Flux CD</strong>; both <a id="_idIndexMarker700"/>are great tools but in this book, we will explore Argo CD, which comes at <em class="italic">no additional cost with a Red Hat OpenShift subscription</em>.</p>
+			<p>In a nutshell, Argo CD is a tool that is capable of <em class="italic">reading</em> a set of <em class="italic">Kubernetes manifests, Helm charts, or Jsonnet files</em> stored in a Git repository and <em class="italic">applying</em> them to a Kubernetes namespace. Argo CD is not only able to apply manifests, though – it can also automate self-healing, object pruning, and other great capabilities, as we will explore in this chapter.</p>
+			<h1 id="_idParaDest-200"><a id="_idTextAnchor208"/>Application delivery model</h1>
+			<p>At this point, you<a id="_idIndexMarker701"/> may be wondering how OpenShift <a id="_idIndexMarker702"/>Pipelines (<strong class="bold">Tekton</strong>) and GitOps (<strong class="bold">Argo CD</strong>) are related. Tekton and Argo CD are complementary <a id="_idIndexMarker703"/>tools that are perfect together. While Tekton is a perfect fit for <em class="italic">CI</em> pipelines that run unit tests and build and generate container images, Argo CD is more appropriate for <em class="italic">continuous delivery</em> practice. The <a id="_idIndexMarker704"/>following diagram summarizes what a CI/CD pipeline with Tekton and Argo CD looks like:</p>
+			<div>
+				<div id="_idContainer170" class="IMG---Figure">
+					<img src="image/B18015_10_02.jpg" alt="Figure 10.2 – Application delivery model using Tekton and Argo CD "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.2 – Application delivery model using Tekton and Argo CD</p>
+			<p>CD with GitOps means that the actual state of the application should be monitored and that any changes need to be reverted to the application’s desired state, as described in the Git repository:</p>
+			<div>
+				<div id="_idContainer171" class="IMG---Figure">
+					<img src="image/B18015_10_03.jpg" alt="Figure 10.3 – Continuous delivery with GitOps "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.3 – Continuous delivery with GitOps</p>
+			<p>In this chapter, we <a id="_idIndexMarker705"/>will use our example from the previous chapter and use Argo CD to deploy the application and practice this application delivery model.</p>
+			<h1 id="_idParaDest-201"><a id="_idTextAnchor209"/>Installing OpenShift GitOps</h1>
+			<p>The<a id="_idIndexMarker706"/> installation process is simple and is similar to what we followed in the previous chapter regarding OpenShift Pipelines.</p>
+			<h2 id="_idParaDest-202"><a id="_idTextAnchor210"/>Prerequisites</h2>
+			<p>To install<a id="_idIndexMarker707"/> OpenShift GitOps, you will need an OpenShift cluster with cluster-admin permissions.</p>
+			<h2 id="_idParaDest-203"><a id="_idTextAnchor211"/>Installation</h2>
+			<p>Follow these steps:</p>
+			<ol>
+				<li>Access the <strong class="bold">OpenShift web console </strong>using the administrator’s perspective.</li>
+				<li>Navigate to <strong class="bold">Operators</strong> | <strong class="bold">OperatorHub</strong>:</li>
+			</ol>
+			<div>
+				<div id="_idContainer172" class="IMG---Figure">
+					<img src="image/B18015_10_04.jpg" alt="Figure 10.4 – OperatorHub "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.4 – OperatorHub</p>
+			<ol>
+				<li value="3">Search for <strong class="source-inline">OpenShift GitOps</strong> using the <em class="italic">Filter by keyword</em> box:</li>
+			</ol>
+			<div>
+				<div id="_idContainer173" class="IMG---Figure">
+					<img src="image/B18015_10_05.jpg" alt="Figure 10.5 – Red Hat OpenShift GitOps on OperatorHub "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.5 – Red Hat OpenShift GitOps on OperatorHub</p>
+			<ol>
+				<li value="4">Click <a id="_idIndexMarker708"/>on the <strong class="bold">Red Hat OpenShift GitOps</strong> tile and then the <strong class="bold">Install</strong> button to go to the <strong class="bold">Install</strong> screen:</li>
+			</ol>
+			<div>
+				<div id="_idContainer174" class="IMG---Figure">
+					<img src="image/B18015_10_06.jpg" alt="Figure 10.6 – Installing OpenShift GitOps "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.6 – Installing OpenShift GitOps</p>
+			<ol>
+				<li value="5">Now, select <strong class="bold">All namespaces on the cluster (default)</strong> for <strong class="bold">Installation mode</strong>. As<a id="_idIndexMarker709"/> such, the operator will be installed in the <strong class="source-inline">openshift-operators</strong> namespace and permits the operator to install OpenShift GitOps instances in any target namespace.</li>
+				<li>Select <strong class="bold">Automatic</strong> or <strong class="bold">Manual</strong> for the upgrade’s <strong class="bold">Approval Strategy</strong>. If you go for <strong class="bold">Automatic</strong>, upgrades will be performed automatically by the <strong class="bold">Operator Lifecycle Manager</strong> (<strong class="bold">OLM</strong>) as <a id="_idIndexMarker710"/>soon as they are released by Red Hat, while for <strong class="bold">Manual</strong>, you need to approve it before it can be applied.</li>
+				<li>Select an <strong class="bold">Update channel</strong>. The <strong class="bold">stable</strong> channel is recommended as it contains the latest stable and <em class="italic">supported</em> version of the operator.</li>
+				<li>Click the <strong class="bold">Install</strong> button:</li>
+			</ol>
+			<div>
+				<div id="_idContainer175" class="IMG---Figure">
+					<img src="image/B18015_10_07.jpg" alt="Figure 10.7 – Installing the operator "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.7 – Installing the operator</p>
+			<ol>
+				<li value="9">Wait up to 5 <a id="_idIndexMarker711"/>minutes until you see the following message:</li>
+			</ol>
+			<div>
+				<div id="_idContainer176" class="IMG---Figure">
+					<img src="image/B18015_10_08.jpg" alt="Figure 10.8 – Operator installed "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.8 – Operator installed</p>
+			<p>OpenShift GitOps (Argo CD) also has a CLI, which helps execute common tasks, such as updating the admin’s password, registering external clusters, and much more. Let’s learn how to install the <strong class="source-inline">argocd</strong> CLI.</p>
+			<h2 id="_idParaDest-204"><a id="_idTextAnchor212"/>Installing the argocd CLI</h2>
+			<p>The <strong class="source-inline">argocd</strong> CLI <a id="_idIndexMarker712"/>makes it easier to work with Argo CD. Through it, you can manage Argo CD projects, applications, cluster credentials, and more.</p>
+			<p>To install<a id="_idIndexMarker713"/> the <strong class="source-inline">argocd</strong> CLI, follow these steps:</p>
+			<ol>
+				<li value="1">Download the latest Argo CD binary file from <a href="https://github.com/argoproj/argo-cd/releases/latest">https://github.com/argoproj/argo-cd/releases/latest</a>.</li>
+				<li>If you are using Linux, download the CLI and add it to your path:<p class="source-code">$ sudo curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64</p><p class="source-code">$ sudo chmod +x /usr/local/bin/argocd</p></li>
+				<li>If everything went well, you will see the following output by running the <strong class="source-inline">argocd version</strong> command. Ignore the error message you see in the last line; it is an expected message as we haven’t logged in to any OpenShift cluster yet:<p class="source-code">$ argocd version</p><p class="source-code">argocd: v2.2.1+122ecef</p><p class="source-code">  BuildDate: 2021-12-17T01:31:40Z</p><p class="source-code">  GitCommit: 122ecefc3abfe8b691a08d9f3cecf9a170cc8c37</p><p class="source-code">  GitTreeState: clean</p><p class="source-code">  GoVersion: go1.16.11</p><p class="source-code">  Compiler: gc</p><p class="source-code">  Platform: linux/amd64</p><p class="source-code">FATA[0000] Argo CD server address unspecified</p></li>
+			</ol>
+			<p>Now, let’s learn how to configure Argo CD to deploy applications against multiple clusters.</p>
+			<h1 id="_idParaDest-205"><a id="_idTextAnchor213"/>Configuring Argo CD against multiple clusters</h1>
+			<p>If you <a id="_idIndexMarker714"/>are planning to use Argo CD to deploy applications to <em class="italic">external clusters</em>, you need to add the new cluster’s credentials using the <strong class="source-inline">argocd</strong> CLI. You can skip this step if you want to deploy applications in the same cluster where Argo CD is installed (the <strong class="source-inline">kubernetes.default.svc</strong> file already exists and should be used in this case).</p>
+			<p>To register new clusters, perform the following steps using the <strong class="source-inline">argocd</strong> CLI you installed previously:</p>
+			<ol>
+				<li value="1">Log into the new cluster we want to register:<p class="source-code">$ oc login -u &lt;user&gt; https://&lt;api-newcluster&gt;:6443</p></li>
+				<li>Now, log into the cluster where Argo CD is installed using <strong class="source-inline">oc login</strong>:<p class="source-code">$ oc login -u &lt;user&gt; https://&lt;api-argocluster&gt;:6443</p></li>
+				<li>At this point, you should have both clusters in your <strong class="source-inline">kubeconfig</strong> file:<p class="source-code">$ oc config get-contexts</p><p class="source-code">CURRENT NAME         CLUSTER    AUTHINFO NAMESPACE</p><p class="source-code">        newcluster   newcluster admin</p><p class="source-code">*       argocluster  argocluster</p></li>
+				<li>Set a different context for the new cluster:<p class="source-code">$ oc config set-context prd-cluster --cluster=newcluster --user=admin</p><p class="source-code">Context "prd-cluster" created.</p></li>
+				<li>Get the Argo CD public URL from the <strong class="source-inline">openshift-gitops</strong> namespace:<p class="source-code">$ oc get route openshift-gitops-server -n openshift-gitops -o jsonpath='{.spec.host}'</p></li>
+				<li>Get the administrator password:<p class="source-code">$ oc extract secret/openshift-gitops-cluster -n openshift-gitops --to=-</p></li>
+				<li>Log in using <strong class="source-inline">argocd</strong>:<p class="source-code">$ argocd login --insecure openshift-gitops-server-openshift-gitops.apps.example.com</p><p class="source-code">Username: admin</p><p class="source-code">Password:</p><p class="source-code">'admin:login' logged in successfully</p><p class="source-code">Context ' openshift-gitops-server-openshift-gitops.apps.example.com' updated</p></li>
+				<li>Now, add <a id="_idIndexMarker715"/>the new cluster to Argo CD:<p class="source-code">argocd cluster add prd-cluster -y</p><p class="source-code">INFO[0000] ServiceAccount "argocd-manager" created in namespace "kube-system"</p><p class="source-code">INFO[0000] ClusterRole "argocd-manager-role" created</p><p class="source-code">INFO[0001] ClusterRoleBinding "argocd-manager-role-binding" created</p><p class="source-code">Cluster 'h https://&lt;api-newcluster&gt;:6443' added</p></li>
+			</ol>
+			<p>With that, you are ready to deploy applications either into your local or remote cluster using Argo CD! But before we dive into application deployment, let’s check out some of the important aspects related to Argo CD.</p>
+			<h1 id="_idParaDest-206"><a id="_idTextAnchor214"/>Argo CD definitions and challenges</h1>
+			<p>Before<a id="_idIndexMarker716"/> we walk <a id="_idIndexMarker717"/>through the application deployment process, we need to discuss some important challenges related to GitOps, decisions, and standards.</p>
+			<h2 id="_idParaDest-207"><a id="_idTextAnchor215"/>GitHub repository structure</h2>
+			<p>The<a id="_idIndexMarker718"/> first important question that always comes up with GitOps is about the GitHub repository’s structure. Should I only use one repository for source code and the Kubernetes manifests? How should I deal with different configuration files for different environments, such as development, QA, and production?</p>
+			<p>Well, there are no right or wrong answers to these questions, as each option has its pros and cons. You need to find out which approach works best for you. My advice here is: try it! There is nothing better than practical experience, so use each model and find out which one fits best for your applications and teams. In the following sections, we’ll look at some of the most popular repository structures out there for GitOps-oriented applications.</p>
+			<h3>Mono-repository</h3>
+			<p>In this structure, you <a id="_idIndexMarker719"/>will have one repository for all your Kubernetes manifests and infrastructure-related files. Although there is not a single standard for this structure, you will probably have a repository similar to the following:</p>
+			<pre class="source-code">├── config <strong class="bold">#[1]</strong>
+├── environments <strong class="bold">#[2]</strong>
+│   ├── dev <strong class="bold">#[3]</strong>
+│   │   ├── apps <strong class="bold">#[4]</strong>
+│   │   │   └── app-1
+│   │   └── env <strong class="bold">#[5]</strong>
+│   └── qa <strong class="bold">#[6]</strong>
+│   │   ├── apps
+│   │   │   └── app-1
+│   │   └── env
+(...)</pre>
+			<p>Let’s look at this code in more detail:</p>
+			<ul>
+				<li><strong class="bold">#[1]</strong>: This folder contains the CI/CD pipelines, Argo CD, and other related configuration files that are common for any environment</li>
+				<li><strong class="bold">#[2]</strong>: This folder contains the manifests that are specific to each environment, such as development, QA, and production</li>
+				<li><strong class="bold">#[3]</strong>: These are the manifest files that are specific to the development environment</li>
+				<li><strong class="bold">#[4]</strong>: Here, you<a id="_idIndexMarker720"/> have the Kubernetes manifests to deploy the applications that are tracked and released in this repository</li>
+				<li><strong class="bold">#[5]</strong>: These are the cluster or infrastructure-related manifests for the development environment, such as <strong class="source-inline">RoleBinding</strong> permissions, <strong class="source-inline">Namespace</strong>, and so on</li>
+				<li><strong class="bold">#[6]</strong>: These are the manifest files that are specific to the QA environment</li>
+			</ul>
+			<p>The main benefit of this approach is its <strong class="bold">simplicity</strong>: in this approach, you only need to manage one repository for one or more applications, which makes it easier to manage branches, tags, <strong class="bold">PRs</strong>, and anything related to the application's manifests repository. However, the major con of this strategy is that all the contributors can read and make changes to the production manifests. That said, it might be <em class="italic">hard to detect unintentional changes to production</em>, especially with large PRs.</p>
+			<p>This leads us to the next approach, in which you have a different repository per environment.</p>
+			<h3>Repository per environment</h3>
+			<p>With this strategy, you<a id="_idIndexMarker721"/> will have multiple repositories, one for each environment. In other words, you will have one repository for <em class="italic">development</em> manifests, another one for <em class="italic">QA</em>, and so on. In this strategy, you will likely use PRs to promote changes between each environment and have a granular review process, which leads to a less error-prone process. In this strategy, you can also manage Git permissions according to each environment:</p>
+			<div>
+				<div id="_idContainer177" class="IMG---Figure">
+					<img src="image/B18015_10_09.jpg" alt="Figure 10.9 – One repository per environment "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.9 – One repository per environment</p>
+			<p>In this chapter, we<a id="_idIndexMarker722"/> will be using a mono-repository strategy and use Git push requests and PRs with multiple branches to mitigate the risk of unintentional changes.</p>
+			<p>Next, we will discuss another important aspect related to GitOps on Kubernetes: templating YAML files and avoiding duplication.</p>
+			<h2 id="_idParaDest-208"><a id="_idTextAnchor216"/>Templating Kubernetes manifests</h2>
+			<p>Whatever <a id="_idIndexMarker723"/>repository structure you decide to go for, one thing is certain: you will need to have separate files and folders for each environment you manage. So, how can you avoid duplicating YAML manifest files everywhere and turning your GitOps process into a nightmare?</p>
+			<p>Currently, the most popular options to do this are as follows:</p>
+			<ul>
+				<li><strong class="bold">Helm</strong>: Rely<a id="_idIndexMarker724"/> on Helm Charts and Helm Templates to package and deliver Kubernetes applications. Through Helm Templates, you can combine values with templates and generate valid Kubernetes manifest files as a result.</li>
+				<li><strong class="bold">Kustomize</strong>: With Kustomize, you<a id="_idIndexMarker725"/> can reuse existing manifest files using a patch strategy. It uses a hierarchical structure so that you can flexibly reuse shared configurations and create layers of configurations with only environment-specific parameters that will be overloaded with base parameters.</li>
+			</ul>
+			<p>While Helm is a great package tool, we are going to focus on Kustomize in this chapter due to the following reasons:</p>
+			<ul>
+				<li>Kustomize runs natively on Kubernetes and the OpenShift CLI (<strong class="source-inline">kubectl</strong>/<strong class="source-inline">oc</strong>)</li>
+				<li>It is declarative, which is an important factor for GitOps, as we mentioned previously</li>
+				<li>You can use a remote base in a repository as the starter set of the manifest and have the overlays stored in different repositories</li>
+			</ul>
+			<p>Let’s take a closer look at Kustomize.</p>
+			<h3>Kustomize</h3>
+			<p>Kustomize is <a id="_idIndexMarker726"/>composed of hierarchical layers of manifest files:</p>
+			<ul>
+				<li><strong class="source-inline">Base</strong>: This is a directory that contains the resources that are always reused as the base manifest files. These describe the application and objects declaratively.</li>
+				<li><strong class="source-inline">Overlays</strong>: This is a directory that only contains the configurations that are specific for each overlay. For instance, it is common to have an overlay for the development environment, another for QA, and so on. The configurations that reside in the <strong class="source-inline">overlay</strong> directories replace the values that are in the <strong class="source-inline">base</strong> directory.</li>
+			</ul>
+			<p>You can <a id="_idIndexMarker727"/>have multiple layers of bases and overlays – as many as you want. However, to maintain the legibility and maintainability of your application manifest files, it is not recommended to use several layers of manifest files. The following diagram shows an example of a base and two overlays that might be used with Kustomize:</p>
+			<p class="IMG---Figure"> </p>
+			<div>
+				<div id="_idContainer178" class="IMG---Figure">
+					<img src="image/B18015_10_10.jpg" alt="Figure 10.10 – Kustomize layers "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.10 – Kustomize layers</p>
+			<p>The following is a typical folder structure you’ll see when you’re using Kustomize:</p>
+			<pre class="source-code">├── base
+│   ├── deployment.yaml
+│   ├── kustomization.yaml
+│   ├── route.yaml
+│   └── service.yaml
+└── overlays
+    ├── dev
+    │   ├── deployment-patch.yaml
+    │   ├── kustomization.yaml
+    │   └── namespace.yaml
+    ├── prod
+    │   ├── deployment-patch.yaml
+    │   ├── kustomization.yaml
+    │   └── namespace.yaml
+    └── qa
+        ├── deployment-patch.yaml
+        ├── kustomization.yaml
+        └── namespace.yaml</pre>
+			<p>We will practice<a id="_idIndexMarker728"/> using Kustomize a bit more in this chapter when we deploy our example.</p>
+			<h2 id="_idParaDest-209"><a id="_idTextAnchor217"/>Managing secrets</h2>
+			<p>Last, but not <a id="_idIndexMarker729"/>least, the real challenge with Kubernetes is managing sensitive data using secrets. While secrets are somewhat safe, depending on how the permissions are set among users, they are not encrypted. This is a real problem when we think about storing those secrets in a GitHub repository. So, how can we handle secrets securely?</p>
+			<p>There are two ways to handle secrets:</p>
+			<ul>
+				<li>Use an external vault to store the secrets securely outside Git and the cluster</li>
+				<li>Encrypt the secret before saving it in Git using a sealed secret tool such as Bitnami Sealed Secrets</li>
+			</ul>
+			<p class="callout-heading">Notes</p>
+			<p class="callout">1. Secrets are presented in Base64 encoding. The following command, for instance, decrypts a secret named <strong class="source-inline">db-root-password</strong> that contains a password field:</p>
+			<p class="callout"><strong class="source-inline">oc get secret db-root-password –o jsonpath="{.data.password}" | base64 -d</strong></p>
+			<p class="callout">2. Bitnami Sealed Secrets allows you to encrypt your secret into a <strong class="source-inline">SealedSecret</strong> object and store it securely, even in a public GitHub repository, since it is encrypted using a public/private certificate. To learn more, check out the link in the <em class="italic">Further reading</em> section.</p>
+			<p>With that, we<a id="_idIndexMarker730"/> have discussed the main points that you need to think about regarding GitOps. They are important topics we decided to bring to you before our practical example but don’t get too worried about that yet – you will find out what works best for you and your team by practicing and learning from it. In the next section, we will introduce some of the main objects you will work with in Argo CD.</p>
+			<h1 id="_idParaDest-210"><a id="_idTextAnchor218"/>Argo CD main objects</h1>
+			<p>In this section, we<a id="_idIndexMarker731"/> will look at some of the main Argo CD objects you need to know about. Argo CD is quite simple and most of what you will do can be summarized in two objects: <strong class="bold">AppProject </strong>and <strong class="bold">Application</strong>.</p>
+			<p>In this section, we will not mention all the different objects Argo CD has since that is not the main focus of this book. Check out the <em class="italic">Further reading</em> section to learn more.</p>
+			<h2 id="_idParaDest-211"><a id="_idTextAnchor219"/>AppProject</h2>
+			<p>Projects <a id="_idIndexMarker732"/>allow you to group applications and structure them according to any group logic you need. Using projects, you can do the following:</p>
+			<ul>
+				<li>Limit the Git <em class="italic">source repositories</em> that can be used to deploy applications</li>
+				<li>Restrict the <em class="italic">clusters and namespaces destination</em> that the applications can be deployed to</li>
+				<li>Limit the type of objects that can be deployed (for example, Deployments, Secrets, DaemonSets, and so on)</li>
+				<li>Set roles to limit the permissions that are allowed by groups and/or JWTs</li>
+			</ul>
+			<p>When Argo CD is installed, it comes with a <strong class="source-inline">default</strong> project. If you don’t specify a project in your Argo CD application, the <strong class="source-inline">default</strong> option will be used. Creating additional projects is optional as you could use Argo CD’s <strong class="source-inline">default</strong> project instead. However, it is recommended to create additional projects to help you organize your Argo CD applications.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">There is no relationship between Argo CD’s default project and OpenShift’s default namespace. Although they have the same name, they are unrelated.</p>
+			<p>A typical <strong class="source-inline">AppProject</strong> specification looks as follows:</p>
+			<pre class="source-code">apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: clouds-api <strong class="bold">#[1]</strong>
+  namespace: openshift-gitops
+spec:
+  sourceRepos: <strong class="bold">#[2]</strong>
+    - '*'
+  destinations: <strong class="bold">#[3]</strong>
+    - namespace: '*'
+      server: '*'
+  clusterResourceWhitelist: <strong class="bold">#[4]</strong>
+    - group: '*'
+      kind: '*'</pre>
+			<p>Let’s look at<a id="_idIndexMarker733"/> this code in more detail:</p>
+			<ul>
+				<li><strong class="bold">[1]</strong>: The name of the project.</li>
+				<li><strong class="bold">[2]</strong>: The Git source repositories that are allowed. In this case, any source repository is allowed</li>
+				<li><strong class="bold">[3]</strong>: The destination clusters and namespaces that are allowed. In this case, any combination of clusters and namespaces is allowed</li>
+				<li><strong class="bold">[4]</strong>: The objects that can be deployed (for example, Deployments, Secrets, DaemonSets, and so on). In this case, there is no limitation</li>
+			</ul>
+			<p>Properly adjust the code pointed out to achieve manifest file.</p>
+			<h2 id="_idParaDest-212"><a id="_idTextAnchor220"/>Applications</h2>
+			<p>Applications<a id="_idIndexMarker734"/> represent application instances that have been deployed and managed by Argo CD. The specification of an application is composed of <strong class="source-inline">source</strong> and <strong class="source-inline">destination</strong>. <strong class="source-inline">source</strong> is where the Kubernetes manifests (Git repository) that specify the desired state of the application reside, while <strong class="source-inline">destination</strong> specifies the cluster and namespace where the application will be deployed. Besides that, you can also specify the synchronization policies you want Argo CD to apply.</p>
+			<p>The following is an example of an <strong class="source-inline">Application</strong> specification:</p>
+			<pre class="source-code">apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clouds-app-dev <strong class="bold">#[1]</strong>
+  namespace: openshift-gitops <strong class="bold">#[2]</strong>
+spec:
+  project: clouds-api <strong class="bold">#[3]</strong>
+  source: <strong class="bold">#[4]</strong>
+    repoURL: `https://github.com/PacktPublishing/OpenShift-Multi-Cluster-Management-Handbook.git'
+    path: chapter10/clouds-api-gitops/overlays/dev
+    targetRevision: dev
+  destination: <strong class="bold">#[5]</strong>
+    server: 'https://kubernetes.default.svc'
+    namespace: default
+  syncPolicy: <strong class="bold">#[6]</strong>
+    automated:
+      selfHeal: true</pre>
+			<p>Let’s look <a id="_idIndexMarker735"/>at this code in more detail:</p>
+			<ul>
+				<li><strong class="bold">[1]</strong>: Argo CD <strong class="source-inline">Application</strong> name.</li>
+				<li><strong class="bold">[2]</strong>: This is the namespace where Argo CD is installed. The default project for the OpenShift GitOps operator is <strong class="source-inline">openshift-gitops</strong>.</li>
+				<li><strong class="bold">[3]</strong>: This is the Argo CD project that you create using the <strong class="source-inline">AppProject</strong> object. Do not get it confused with the OpenShift project; they are unrelated.</li>
+				<li><strong class="bold">[4]</strong>: Git source repository information about where the Kubernetes manifests reside.</li>
+				<li><strong class="bold">[5]</strong>: The cluster and namespace where the application will be deployed.</li>
+				<li><strong class="bold">[6]</strong>: The synchronization policies that Argo CD will use. We will learn more about these policies in the next section.</li>
+			</ul>
+			<p class="callout-heading">Important Note</p>
+			<p class="callout">Argo CD’s namespace (<strong class="source-inline">openshift-gitops</strong>) has special privileges within the cluster to perform all the necessary activities. Due to that, you must protect access to this namespace to avoid unwanted deployments or changes.</p>
+			<h3>Syncing policies</h3>
+			<p>You <a id="_idIndexMarker736"/>can configure Argo CD to automatically synchronize your application when there is any drift between the desired state specified in the manifests in Git and the actual application state. You have the following options with Argo CD:</p>
+			<ul>
+				<li><strong class="bold">Self-Healing</strong>: When <a id="_idIndexMarker737"/>you set this option to <strong class="source-inline">true</strong>, Argo CD will automatically sync when it detects any differences between the manifests in Git and the actual state. By default, this flag is <strong class="source-inline">false</strong>.</li>
+				<li><strong class="bold">Pruning</strong>: As <a id="_idIndexMarker738"/>a precaution, automated sync will never delete a resource when it no longer exists in Git. Argo CD only prunes those resources with a manual sync. However, if you want to allow Argo CD to automatically prune objects that no longer exist in Git, you can set the <strong class="source-inline">prune</strong> flag to <strong class="source-inline">true</strong>.</li>
+			</ul>
+			<h3>Syncing the order</h3>
+			<p>For standard <a id="_idIndexMarker739"/>Kubernetes manifests, Argo CD already knows the correct order that needs to be applied to avoid precedence issues. For instance, consider an application that contains three manifests for namespace creation, deployment, and role bindings. In such a case, Argo CD will always apply the objects in the following order:</p>
+			<ol>
+				<li value="1">Namespace</li>
+				<li>Role bindings</li>
+				<li>Deployment</li>
+			</ol>
+			<p>That said, this is the kind of thing you don’t need to be worried about as Argo CD is smart enough to apply them in the correct order.</p>
+			<p>However, there<a id="_idIndexMarker740"/> are some other specific cases where you may need to specify objects’ precedence. Let’s say that you want to deploy an application composed of one StatefulSet to deploy a database and a deployment for an application that uses the database. In this case, you can use <strong class="bold">resource hooks</strong> to <a id="_idIndexMarker741"/>specify the correct order to apply the objects.</p>
+			<p>The following types of resource hooks can be used:</p>
+			<ul>
+				<li><strong class="source-inline">PreSync</strong>: Objects marked with <strong class="source-inline">PreSync</strong> are executed before any other manifests.</li>
+				<li><strong class="source-inline">Sync</strong>: This runs after <strong class="source-inline">PreSync</strong> is complete. You can also use <strong class="source-inline">sync-wave</strong> to set the sync precedence of the objects in the <strong class="source-inline">Sync</strong> phase.</li>
+				<li><strong class="source-inline">PostSync</strong>: Runs after all the <strong class="source-inline">Sync</strong> objects have been applied and are in a <strong class="source-inline">Healthy</strong> state.</li>
+				<li><strong class="source-inline">SyncFail</strong>: The manifests with this annotation will only be executed when a sync operation fails.</li>
+			</ul>
+			<p>The following is an example of a resource hook specification:</p>
+			<pre class="source-code">apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/sync-wave: "1"
+(.. omitted ..)</pre>
+			<p>There are different types of annotations that you can include in your manifests to perform more complex tasks. Check out the <em class="italic">Further reading</em> section to learn more.</p>
+			<p>With that, we have covered the most important concepts and theories behind GitOps and Argo CD. Now, without further ado, let’s look at our example and practice what we have discussed so far!</p>
+			<h1 id="_idParaDest-213"><a id="_idTextAnchor221"/>Deploying an application using GitOps</h1>
+			<p>In this <a id="_idIndexMarker742"/>practical exercise, we will build and deploy our sample application in three different namespaces to simulate an application life cycle <a id="_idIndexMarker743"/>composed of development, QA, and production environments. The following diagram shows the delivery model we will use in this exercise to practice Argo CD deployments. Use it as much as you want as a starting point to build a comprehensive and complex ALM workflow that’s suitable for your needs:</p>
+			<div>
+				<div id="_idContainer179" class="IMG---Figure">
+					<img src="image/B18015_10_11.jpg" alt="Figure 10.11 – Application delivery model using Tekton, Argo CD, and Git "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.11 – Application delivery model using Tekton, Argo CD, and Git</p>
+			<p>Once again, we <a id="_idIndexMarker744"/>are going to use the content we have prepared in this book’s GitHub repository. To do this, you must <em class="italic">fork this repository to your GitHub account</em>: <a href="https://github.com/PacktPublishing/OpenShift-Multi-Cluster-Management-Handbook">https://github.com/PacktPublishing/OpenShift-Multi-Cluster-Management-Handbook</a>. Once you have forked it, follow<a id="_idIndexMarker745"/> the instructions in this section to put this workflow into practice.</p>
+			<h2 id="_idParaDest-214"><a id="_idTextAnchor222"/>Building a new image version</h2>
+			<p>In this <a id="_idIndexMarker746"/>section, we will build a new container image version, 1.0, and push it to the OpenShift internal registry, as shown in the following diagram:</p>
+			<div>
+				<div id="_idContainer180" class="IMG---Figure">
+					<img src="image/B18015_10_12.jpg" alt="Figure 10.12 – Building a new image version "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.12 – Building a new image version</p>
+			<p>To do so, perform the following steps:</p>
+			<ol>
+				<li value="1">Clone the repository in your machine:<p class="source-code">$ GITHUB_USER=&lt;your_user&gt;</p><p class="source-code">$ git clone https://github.com/PacktPublishing/OpenShift-Multi-Cluster-Management-Handbook.git</p></li>
+				<li>Run the following script and follow the instructions to change the references from the original repository (<strong class="source-inline">PacktPublishing</strong>) to your forked repository:<p class="source-code">$ cd OpenShift-Multi-Cluster-Management-Handbook/chapter10</p><p class="source-code">$ ./change-repo-urls.sh</p><p class="source-code"># Go back to the root dir</p><p class="source-code">$ cd ..</p></li>
+				<li>Create a new branch for development:<p class="source-code">$ git checkout -b dev</p></li>
+				<li>Open the <strong class="source-inline">./sample-go-app/clouds-api/clouds.go</strong> file with your preferred<a id="_idIndexMarker747"/> text editor and change line 147 by adding <strong class="source-inline">version=1.0</strong> to it:<p class="source-code">$ vim ./sample-go-app/clouds-api/clouds.go</p><p class="source-code">func homePage(w http.ResponseWriter, r *http.Request) {</p><p class="source-code">fmt.Fprintf(w, "Welcome to the HomePage! <strong class="bold">Version=1.0</strong>")</p><p class="source-code">fmt.Println("Endpoint Hit: homePage")</p><p class="source-code">}</p></li>
+				<li>Commit and push change to the <strong class="source-inline">dev</strong> branch:<p class="source-code">$ git add ./sample-go-app/clouds-api/clouds.go</p><p class="source-code">$ git commit -m 'Version 1.0 changes'</p><p class="source-code">$ git push -u origin dev</p></li>
+				<li>Run the following command to deploy the required prerequisites and the pipeline that builds image version 1.0, which we will deploy in the development namespace shortly. Make sure that you are already logged into the OpenShift cluster (by using the <strong class="source-inline">oc login</strong> command):<p class="source-code">$ oc apply -k ./chapter10/config/cicd</p></li>
+				<li>Now, run the pipeline and check the logs:<p class="source-code">$ oc apply -f ./chapter10/config/cicd/pipelinerun/build-v1.yaml -n cicd</p><p class="source-code">$ tkn pipelinerun logs build-v1-pipelinerun -f -n cicd</p><p class="source-code">[fetch-repository : clone] + '[' false = true ']'</p><p class="source-code">[fetch-repository : clone] + '[' false = true ']'</p><p class="source-code">[fetch-repository : clone] + CHECKOUT_DIR=/workspace/output/</p><p class="source-code">[fetch-repository : clone] + '[' true = true ']'</p><p class="source-code">(.. omitted ..)</p><p class="source-code">[build-image : push] Writing manifest to image destination</p><p class="source-code">[build-image : push] Storing signatures</p><p class="source-code"> [build-image : digest-to-results] + cat /workspace/source/image-digest</p><p class="source-code">[build-image : digest-to-results] + tee /tekton/results/IMAGE_DIGEST</p><p class="source-code">[build-image : digest-to-results] sha256:5cc65974414ff904f28f92a0deda96b08f4ec5a98a09c59d81eb59459038b547</p></li>
+			</ol>
+			<p>With that, you <a id="_idIndexMarker748"/>have built the <strong class="source-inline">clouds-api:v1.0</strong> container image and pushed it to OpenShift’s internal registry. Now, let’s deploy this image using <strong class="bold">Kustomize</strong> and <strong class="bold">Argo CD</strong>.</p>
+			<h2 id="_idParaDest-215"><a id="_idTextAnchor223"/>Deploying in development</h2>
+			<p>In this <a id="_idIndexMarker749"/>section, we are going to use Kustomize to overwrite the image tag of the deployment YAML file so that it uses <strong class="source-inline">v1.0</strong>, which we built in the previous section. We will also create a new namespace for the development branch named <strong class="source-inline">clouds-api-dev</strong>.</p>
+			<p>The following diagram shows the steps we will perform:</p>
+			<div>
+				<div id="_idContainer181" class="IMG---Figure">
+					<img src="image/B18015_10_13.jpg" alt="Figure 10.13 – Deploying in development "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.13 – Deploying in development</p>
+			<p>Perform the<a id="_idIndexMarker750"/> following steps:</p>
+			<ol>
+				<li value="1">Change the image version of our development <strong class="source-inline">kustomization.yaml</strong> file. To do so, change line 18 from <strong class="source-inline">changeme</strong> to <strong class="source-inline">v1.0</strong>:<p class="source-code">$ vim ./chapter10/clouds-api-gitops/overlays/dev/kustomization.yaml</p><p class="source-code">apiVersion: kustomize.config.k8s.io/v1beta1</p><p class="source-code">kind: Kustomization</p><p class="source-code">commonLabels:</p><p class="source-code">  environment: dev</p><p class="source-code">namespace: clouds-api-dev</p><p class="source-code">bases:</p><p class="source-code">  - ../../base</p><p class="source-code">resources:</p><p class="source-code">  - namespace.yaml</p><p class="source-code">images:</p><p class="source-code">- name: quay.io/gfontana/clouds-api</p><p class="source-code">  newName: image-registry.openshift-image-registry.svc:5000/cicd/clouds-api</p><p class="source-code">  <strong class="bold">newTag: v1.0 # Change this line</strong></p></li>
+				<li>Alternatively, you <a id="_idIndexMarker751"/>may use the <strong class="source-inline">sed</strong> command to replace this line:<p class="source-code">sed -i 's/changeme/v1.0/' ./chapter10/clouds-api-gitops/overlays/dev/kustomization.yaml</p></li>
+				<li>Now, push this change to the <strong class="source-inline">dev</strong> branch:<p class="source-code">$ git add chapter10/clouds-api-gitops/overlays/dev/kustomization.yaml</p><p class="source-code">$ git commit -m 'updating kustomization file for v1.0'</p><p class="source-code">$ git push -u origin dev</p></li>
+				<li>Now, let’s create a new Argo CD project:<p class="source-code">$ oc apply -f ./chapter10/config/argocd/argocd-project.yaml</p></li>
+				<li>Create a new Argo CD application that will deploy the application in the development namespace:<p class="source-code">$ oc apply -f ./chapter10/config/argocd/argocd-app-dev.yaml</p></li>
+				<li>Get Argo CD’s URL and admin passwords using the following commands:<p class="source-code"># Get the Argo CD url:</p><p class="source-code">$ echo "$(oc  get route openshift-gitops-server -n openshift-gitops --template='https://{{.spec.host}}')"</p><p class="source-code"># Get the Admin password</p><p class="source-code">$ oc extract secret/openshift-gitops-cluster -n openshift-gitops --to=-</p></li>
+				<li>Access <a id="_idIndexMarker752"/>the Argo CD UI using the URL and admin user provided previously. You should see a new application there named <strong class="source-inline">clouds-app-dev</strong>:</li>
+			</ol>
+			<div>
+				<div id="_idContainer182" class="IMG---Figure">
+					<img src="image/B18015_10_14.jpg" alt="Figure 10.14 – The Argo CD application to deploy in development "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.14 – The Argo CD application to deploy in development</p>
+			<ol>
+				<li value="8">Click <strong class="bold">clouds-app-dev</strong> to learn more about the application:</li>
+			</ol>
+			<div>
+				<div id="_idContainer183" class="IMG---Figure">
+					<img src="image/B18015_10_15.jpg" alt="Figure 10.15 – The Argo CD application "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.15 – The Argo CD application</p>
+			<ol>
+				<li value="9">Run the <strong class="source-inline">curl</strong> command to check that version 1.0 of the application is running and has been <a id="_idIndexMarker753"/>successfully deployed by Argo CD:<p class="source-code">$ curl $(oc get route clouds-api -n <strong class="bold">clouds-api-dev</strong> --template='http://{{.spec.host}}')</p></li>
+			</ol>
+			<p>You should see the following response:</p>
+			<p class="source-code">Welcome to the HomePage! <strong class="bold">Version=1.0</strong></p>
+			<p>With that, our sample application is running in the development namespace. Now, let’s learn how to promote this application to the next stage: QA.</p>
+			<h2 id="_idParaDest-216"><a id="_idTextAnchor224"/>Promoting to QA</h2>
+			<p>We<a id="_idIndexMarker754"/> have application version 1.0 running in development. Now, let’s use Kustomize and Argo CD once more to deploy it in a new namespace that’s dedicated to QA, as shown in the following diagram:</p>
+			<div>
+				<div id="_idContainer184" class="IMG---Figure">
+					<img src="image/B18015_10_16.jpg" alt="Figure 10.16 – Promoting to QA "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.16 – Promoting to QA</p>
+			<p>Follow these<a id="_idIndexMarker755"/> steps:</p>
+			<ol>
+				<li value="1">Create a new branch for QA:<p class="source-code">$ git checkout -b qa</p></li>
+				<li>Create an overlay for QA by copying the <strong class="source-inline">dev</strong> overlay:<p class="source-code">$ cp -r ./chapter10/clouds-api-gitops/overlays/dev/ ./chapter10/clouds-api-gitops/overlays/qa/</p></li>
+				<li>Replace the references to <strong class="source-inline">dev</strong> with <strong class="source-inline">qa</strong>:<p class="source-code">$ sed -i 's/dev/qa/' ./chapter10/clouds-api-gitops/overlays/qa/namespace.yaml ./chapter10/clouds-api-gitops/overlays/qa/kustomization.yaml</p></li>
+				<li>Push the changes to Git:<p class="source-code">$ git add ./chapter10/clouds-api-gitops/overlays/qa</p><p class="source-code">$ git commit -m 'Promoting v1.0 to QA'</p><p class="source-code">$ git push -u origin qa</p></li>
+				<li>Deploy the manifest file to promote the environment using Argo CD:<p class="source-code">$ oc apply -f ./chapter10/config/argocd/argocd-app-qa.yaml</p></li>
+				<li>Access the Argo CD UI again. At this point, you should have two applications on Argo CD:</li>
+			</ol>
+			<div>
+				<div id="_idContainer185" class="IMG---Figure">
+					<img src="image/B18015_10_17.jpg" alt="Figure 10.17 – Argo CD applications "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.17 – Argo CD applications</p>
+			<ol>
+				<li value="7">Let’s <a id="_idIndexMarker756"/>access the application that is running in the QA namespace:<p class="source-code">$ curl $(oc get route clouds-api -n <strong class="bold">clouds-api-qa</strong> --template='http://{{.spec.host}}')</p></li>
+			</ol>
+			<p>You should see the same response that you saw previously:</p>
+			<p class="source-code">Welcome to the HomePage! <strong class="bold">Version=1.0</strong></p>
+			<p>With that, we have promoted our application to QA! Now, let’s learn how to move it to the last stage, which is the production environment.</p>
+			<h2 id="_idParaDest-217"><a id="_idTextAnchor225"/>Promoting to production</h2>
+			<p>For <a id="_idIndexMarker757"/>production, we are going to use a different approach – we are going to use PRs instead of simple Git pushes. We will use a temporary branch named <strong class="source-inline">pre-prod</strong> to commit the overlay manifests that will be used for production, as shown in the following diagram:</p>
+			<div>
+				<div id="_idContainer186" class="IMG---Figure">
+					<img src="image/B18015_10_18.jpg" alt="Figure 10.18 – Promoting to production "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.18 – Promoting to production</p>
+			<p>Follow<a id="_idIndexMarker758"/> these steps to promote version 1.0 of our application to production:</p>
+			<ol>
+				<li value="1">Create a new branch to prepare for production:<p class="source-code">$ git checkout -b pre-prod</p></li>
+				<li>Create an overlay for production, similar to what you did with QA:<p class="source-code">$ cp -r chapter10/clouds-api-gitops/overlays/dev/ chapter10/clouds-api-gitops/overlays/prod/</p><p class="source-code">$ sed -i 's/dev/prod/' ./chapter10/clouds-api-gitops/overlays/prod/namespace.yaml ./chapter10/clouds-api-gitops/overlays/prod/kustomization.yaml</p></li>
+				<li>Push the changes to the <strong class="source-inline">pre-prod</strong> branch:<p class="source-code">$ git add ./chapter10/clouds-api-gitops/overlays/prod</p><p class="source-code">$ git commit -m 'Promoting v1.0 to Prod'</p><p class="source-code">$ git push -u origin pre-prod</p></li>
+				<li>Now, create a PR on GitHub and merge it with the main branch. Access the <strong class="bold">Pull requests</strong> tab of <a id="_idIndexMarker759"/>your GitHub repository and click the <strong class="bold">New pull request</strong> button:</li>
+			</ol>
+			<div>
+				<div id="_idContainer187" class="IMG---Figure">
+					<img src="image/B18015_10_19.jpg" alt="Figure 10.19 – Creating a PR "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.19 – Creating a PR</p>
+			<ol>
+				<li value="5">Since you are working in the forked repository, GitHub suggests that you create a PR for the source repository (in this case, from <strong class="source-inline">PacktPublishing</strong>). We want to create a PR that goes from our <strong class="source-inline">pre-prod</strong> branch to the <strong class="source-inline">main</strong> branch, both in our forked repository. So, change the base repository to our forked repository:</li>
+			</ol>
+			<div>
+				<div id="_idContainer188" class="IMG---Figure">
+					<img src="image/B18015_10_20.jpg" alt="Figure 10.20 – Creating a PR "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.20 – Creating a PR</p>
+			<ol>
+				<li value="6">Then, select <strong class="source-inline">pre-prod</strong> in <a id="_idIndexMarker760"/>the <strong class="bold">compare</strong> field:</li>
+			</ol>
+			<div>
+				<div id="_idContainer189" class="IMG---Figure">
+					<img src="image/B18015_10_21.jpg" alt="Figure 10.21 – Creating a PR "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.21 – Creating a PR</p>
+			<ol>
+				<li value="7">Now, fill out the form and click <strong class="bold">Create pull request</strong>:</li>
+			</ol>
+			<div>
+				<div id="_idContainer190" class="IMG---Figure">
+					<img src="image/B18015_10_22.jpg" alt="Figure 10.22 – Creating a PR "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.22 – Creating a PR</p>
+			<ol>
+				<li value="8">In a<a id="_idIndexMarker761"/> real-life scenario, this PR would be reviewed, approved by peers, and then merged. We are still practicing at the moment, so let’s go ahead and click the <strong class="bold">Merge pull request</strong> button:</li>
+			</ol>
+			<div>
+				<div id="_idContainer191" class="IMG---Figure">
+					<img src="image/B18015_10_23.jpg" alt="Figure 10.23 – Approving the PR "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.23 – Approving the PR</p>
+			<ol>
+				<li value="9">The overlay manifests for version 1.0 of the production environment are already in the <strong class="source-inline">main</strong> branch of our Git repository. This means we can deploy it using Argo CD:<p class="source-code">$ git checkout main</p><p class="source-code">$ oc apply -f ./chapter10/config/argocd/argocd-app-prod.yaml</p></li>
+				<li>At this point, you should have three applications on Argo CD:</li>
+			</ol>
+			<div>
+				<div id="_idContainer192" class="IMG---Figure">
+					<img src="image/B18015_10_24.jpg" alt="Figure 10.24 – Argo CD applications "/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.24 – Argo CD applications</p>
+			<ol>
+				<li value="11">Let’s<a id="_idIndexMarker762"/> access the application to see version 1.0 of our application running in production:<p class="source-code">$ curl $(oc get route clouds-api -n <strong class="bold">clouds-api-prod</strong> --template='http://{{.spec.host}}')</p></li>
+			</ol>
+			<p>You should see the same response that you saw previously:</p>
+			<p class="source-code">Welcome to the HomePage! <strong class="bold">Version=1.0</strong></p>
+			<p>Congratulations! We have deployed our application using Argo CD into three different namespaces, each one representing a different environment: development, QA, and production. Since this book is intended to be about <em class="italic">multi-cluster</em>, we must learn how to do the same process but deploy into multiple clusters, instead of only one. In the next section, you will see that the process is the same, except you must change one parameter in Argo CD’s <strong class="source-inline">Application</strong> object.</p>
+			<h1 id="_idParaDest-218"><a id="_idTextAnchor226"/>Deploying to multiple clusters</h1>
+			<p>We learned <a id="_idIndexMarker763"/>how to register external clusters in the <em class="italic">Configuring Argo CD against multiple clusters</em> section. As soon as you have multiple external clusters registered to Argo CD, deploying an application to one of them is simple – you only need to refer to the external cluster you registered in the <strong class="source-inline">destination</strong> field of Argo CD’s <strong class="source-inline">Application</strong>. An example of this can be seen in the following manifest:</p>
+			<pre class="source-code">apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clouds-app-dev-external-cluster
+  namespace: openshift-gitops
+spec:
+  project: clouds-api
+  source:
+    repoURL: `https://github.com/PacktPublishing/OpenShift-Multi-Cluster-Management-Handbook'
+    path: chapter10/clouds-api-gitops/overlays/dev
+    targetRevision: dev
+  destination:
+    <strong class="bold">server: 'https://api.&lt;external-cluster&gt;:6443'</strong>
+    namespace: default
+  syncPolicy:
+    automated:
+      selfHeal: true</pre>
+			<p>You can create as many <strong class="source-inline">Application</strong> objects as you need, deploying only to the local cluster or including multiple external clusters. As you have seen, the deployment process itself is similar, regardless<a id="_idIndexMarker764"/> of whether you are deploying to a local or external cluster.</p>
+			<p class="callout-heading">Important Note</p>
+			<p class="callout">When you work with multiple clusters, you need to pay special attention to the <strong class="bold">container image registry</strong>. The <a id="_idIndexMarker765"/>OpenShift internal registry, as its name suggests, should only be used internally in a single cluster; it is not suitable for multiple clusters. In such a case, an enterprise container image registry is recommended. There are multiple options on the market, such as Nexus, Quay, Harbor, and many others. In this book, we will cover Quay in <a href="B18015_13.xhtml#_idTextAnchor275"><em class="italic">Chapter 13</em></a>, <em class="italic">OpenShift Plus – a Multi-Cluster Enterprise-Ready Solution</em>.</p>
+			<h1 id="_idParaDest-219"><a id="_idTextAnchor227"/>Summary</h1>
+			<p>In this chapter, you learned about various concepts related to <strong class="bold">GitOps</strong>. You also learned about <strong class="bold">Argo CD</strong> and how to install it on OpenShift and use it. You also built and deployed a sample application to three different namespaces to simulate the <em class="italic">development</em>, <em class="italic">QA</em>, and <em class="italic">production</em> environments. Finally, you learned that deploying to the local or external cluster is a similar process – you only need to change the destination server field.</p>
+			<p>Argo CD allows you to establish an efficient and robust application delivery model using GitOps, in which you ensure <em class="italic">consistency</em>, <em class="italic">auditable changes</em>, and a <em class="italic">secure process</em>, no matter where you are deploying your applications. And the best part is that there is no additional cost to use it since it is included in Red Hat OpenShift’s subscription. That said, if you are deploying containerized applications on OpenShift, I strongly recommend that you try OpenShift GitOps and use the concepts we explored in this chapter.</p>
+			<p>In the next chapter, we will explore a great tool that will help you deploy and manage several OpenShift clusters from a single unified interface – <strong class="bold">Red Hat Advanced Cluster Management</strong>. This tool allows you to monitor, manage, define, and enforce policies and deploy applications to several clusters.</p>
+			<p>Let’s move on and take a deep dive into Red Hat Advanced Cluster Management!</p>
+			<h1 id="_idParaDest-220"><a id="_idTextAnchor228"/>Further reading</h1>
+			<p>To find out more about the topics that were covered in this chapter, take a look at the following resources:</p>
+			<ul>
+				<li><em class="italic">A History of GitOps:</em> <a href="https://www.weave.works/blog/the-history-of-gitops ">https://www.weave.works/blog/the-history-of-gitops</a></li>
+				<li><em class="italic">Argo CD official documentation:</em> <a href="https://argo-cd.readthedocs.io/">https://argo-cd.readthedocs.io/</a></li>
+				<li><em class="italic">Great tutorial about</em> <strong class="bold">Kustomize</strong>: <a href="https://blog.stack-labs.com/code/kustomize-101/">https://blog.stack-labs.com/code/kustomize-101/</a></li>
+				<li><em class="italic">Bitnami’s Sealed Secrets overview:</em> <a href="https://github.com/bitnami-labs/sealed-secrets">https://github.com/bitnami-labs/sealed-secret</a>.</li>
+			</ul>
+		</div>
+		<div>
+			<div id="_idContainer194">
+			</div>
+		</div>
+</body></html>

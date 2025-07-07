@@ -1,0 +1,496 @@
+<html><head></head><body>
+<div id="sbo-rt-content"><div id="_idContainer260">
+<h1 class="chapter-number" id="_idParaDest-152"><a id="_idTextAnchor153"/>10</h1>
+<h1 id="_idParaDest-153"><a id="_idTextAnchor154"/>Implementing CI/CD for AWS</h1>
+<p>In this chapter, we are going to build an end-to-end solution, similar to the previous chapter, but it will target the <strong class="bold">Amazon Web Services</strong> (<strong class="bold">AWS</strong>) cloud platform, deploy the same applications, and promote them from a test environment to a production environment. This chapter showcases the flexibility of Azure Pipelines to adapt to your environment needs, no matter the destination, allowing for similar CI/CD capabilities with a different cloud provider and the ability to still be able to control the process all the <span class="No-Break">way through.</span></p>
+<p>We will cover the <span class="No-Break">following topics:</span></p>
+<ul>
+<li>Explaining the <span class="No-Break">solution architecture</span></li>
+<li>Building and packaging applications <span class="No-Break">and IaC</span></li>
+<li>Deploying a Python catalog service to <strong class="bold">Elastic Kubernetes </strong><span class="No-Break"><strong class="bold">Service</strong></span><span class="No-Break"> (</span><span class="No-Break"><strong class="bold">EKS</strong></span><span class="No-Break">)</span></li>
+<li>Deploying a Node.js cart service <span class="No-Break">to </span><span class="No-Break"><strong class="bold">Fargate</strong></span></li>
+<li>Deploying a .NET checkout service to <strong class="bold">Elastic Container </strong><span class="No-Break"><strong class="bold">Service</strong></span><span class="No-Break"> (</span><span class="No-Break"><strong class="bold">ECS</strong></span><span class="No-Break">)</span></li>
+<li>Deploying an Angular frontend app <span class="No-Break">to </span><span class="No-Break"><strong class="bold">Lightsail</strong></span></li>
+</ul>
+<p>Before we jump right in, let’s take care of some <span class="No-Break">technical requirements.</span></p>
+<h1 id="_idParaDest-154"><a id="_idTextAnchor155"/>Technical requirements</h1>
+<p>You can find the code for this chapter <span class="No-Break">at </span><a href="https://github.com/PacktPublishing/Implementing-CI-CD-Using-Azure-Pipelines/tree/main/ch10"><span class="No-Break">https://github.com/PacktPublishing/Implementing-CI-CD-Using-Azure-Pipelines/tree/main/ch10</span></a><span class="No-Break">.</span></p>
+<p>To complete the tasks described in this chapter, you will need <span class="No-Break">the following:</span></p>
+<ul>
+<li><strong class="bold">Access to an AWS account and service connection</strong>: It is assumed that you completed the <em class="italic">Access to an AWS account</em> and <em class="italic">Creating a service connection to AWS</em> sections in <a href="B18875_08.xhtml#_idTextAnchor103"><span class="No-Break"><em class="italic">Chapter 8</em></span></a>. If you skipped these, please go back and complete those steps to be able to complete <span class="No-Break">this chapter.</span></li>
+<li><strong class="bold">The sample repository imported</strong>: It is also assumed that you have already imported the sample repository from GitHub. If you haven’t done so, check out <a href="B18875_09.xhtml#_idTextAnchor135"><span class="No-Break"><em class="italic">Chapter 9</em></span></a> to learn how to <span class="No-Break">complete this.</span></li>
+</ul>
+<p class="callout-heading">Important note</p>
+<p class="callout">If at any moment you get stuck while working on the pipelines, review the complete code available in the <span class="No-Break"><strong class="bold">complete</strong></span><span class="No-Break"> branch.</span></p>
+<p>Now that we have the technical requirements covered, let’s review the <span class="No-Break">solution architecture.</span></p>
+<h1 id="_idParaDest-155"><a id="_idTextAnchor156"/>Explaining the solution architecture</h1>
+<p>For our <a id="_idIndexMarker493"/>solution, we will use the same fictitious Packt Store from <a href="B18875_09.xhtml#_idTextAnchor135"><span class="No-Break"><em class="italic">Chapter 9</em></span></a>. However, in this chapter, this has been adapted to host the applications in different <span class="No-Break">AWS services:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer253">
+<img alt="Figure 10.1 – Solution diagram" height="237" src="image/B18875_10_01.jpg" width="661"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.1 – Solution diagram</p>
+<p>We will implement Azure Pipelines by performing the following steps for <span class="No-Break">each application:</span></p>
+<ol>
+<li>Build and package the application and <span class="No-Break">corresponding IaC.</span></li>
+<li>Deploy to a <span class="No-Break">test environment.</span></li>
+<li>Deploy to a <span class="No-Break">production environment.</span></li>
+<li>Automate environment <span class="No-Break">deployment checks.</span></li>
+</ol>
+<p>The following diagram depicts the <span class="No-Break">CI/CD process:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer254">
+<img alt="Figure 10.2 – The CI/CD process" height="281" src="image/B18875_10_02.jpg" width="586"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.2 – The CI/CD process</p>
+<p>During this chapter, we will not <a id="_idIndexMarker494"/>cover any details about the code in the applications as that is not relevant to CI/CD. Instead, we will focus on the Azure Pipelines details that are needed to make <span class="No-Break">this work.</span></p>
+<p>To implement the CI/CD process, we will be taking advantage of multi-stage pipelines with environments and templates, as we did in the previous chapter. Let’s get started with the following pipeline definition in <strong class="source-inline">ch10/aws/aws-pipeline.yml</strong>. This can be found inside the <strong class="source-inline">Implementing-CI-CD-Using-Azure-Pipeline</strong> repository <span class="No-Break">we imported:</span></p>
+<pre class="source-code">
+# Multi-Stage pipeline
+trigger:
+- main
+pool:
+  vmImage: ubuntu-latest
+stages:
+- stage: build
+  displayName: Build
+  jobs:
+  - template: build-apps.yml
+  - template: build-iac.yml
+- stage: deployTest
+  displayName: Deploy Test
+  dependsOn: build
+  jobs:
+  - template: deploy.yml
+    parameters:
+      envName: awstest
+- stage: deployProduction
+  displayName: Deploy Production
+  dependsOn: deployTest
+  jobs:
+  - template: deploy.yml
+    parameters:
+      envName: awsproduction</pre> <p>As you can see, this pipeline definition is the same as what we used in the previous chapter, so it will work in the same way as the previous chapter. However, <strong class="source-inline">build-apps.yml</strong>, <strong class="source-inline">build-iac.yml</strong>, and <strong class="source-inline">deploy.yml</strong> will be different. Once the file is in the repository, add it as a new pipeline and rename it <strong class="source-inline">E2E-AWS</strong>. We will have to add some security configuration for everything to work at the end, such as approving the deployment to <a id="_idIndexMarker495"/>different environments, similar to what we did in <a href="B18875_09.xhtml#_idTextAnchor135"><span class="No-Break"><em class="italic">Chapter 9</em></span></a><span class="No-Break">.</span></p>
+<p>Let’s move on to the <span class="No-Break">build stage.</span></p>
+<h1 id="_idParaDest-156"><a id="_idTextAnchor157"/>Building and packaging applications and IaC</h1>
+<p>The applications in this solution are all container-enabled, as we saw in the previous chapter. So, in this chapter, we will go<a id="_idIndexMarker496"/> through the steps of building and pushing the container images to Amazon <strong class="bold">Elastic Container Registry</strong> (<strong class="bold">ECR</strong>) using the included <span class="No-Break"><strong class="source-inline">docker-compose.yml</strong></span><span class="No-Break"> file.</span></p>
+<p>Notice that the <strong class="source-inline">docker-compose.yml</strong> file remains the same, which means that building the applications with containers allows for flexibility and ease of deployment into <span class="No-Break">numerous destinations.</span></p>
+<p>First, let’s create the repositories that are needed <span class="No-Break">in ECR.</span></p>
+<h2 id="_idParaDest-157"><a id="_idTextAnchor158"/>Creating ECR repositories</h2>
+<p>By default, an <a id="_idIndexMarker497"/>ECR registry is available when you create an account in AWS, but you are responsible for creating the repositories for each of your images <span class="No-Break">in it.</span></p>
+<p>We can do this easily with the following AWS <span class="No-Break">CLI commands:</span></p>
+<pre class="console">
+aws ecr create-repository --repository-name packt-store-cart
+aws ecr create-repository --repository-name packt-store-catalog
+aws ecr create-repository --repository-name packt-store-checkout
+aws ecr create-repository --repository-name packt-store-frontend</pre> <p>With this in place, let’s move on and build the applications in <span class="No-Break">the pipeline.</span></p>
+<h2 id="_idParaDest-158"><a id="_idTextAnchor159"/>Creating the build apps job</h2>
+<p>Let’s create <a id="_idIndexMarker498"/>the <strong class="source-inline">e2e/pipelines/aws/build-apps.yml</strong> file with the content described in this section. We have broken it into two sections for <span class="No-Break">easier reading.</span></p>
+<p>The first section simply defines the parameters, job header, and the only step needed. This uses the <strong class="source-inline">AWSShellScript@1</strong> task for a custom script that needs to be running in the context of the AWS CLI. This must be authenticated with AWS via the service connection we <span class="No-Break">created previously:</span></p>
+<pre class="source-code">
+parameters:
+- name: awsConnection
+  type: string
+  default: ‹aws-packt'
+- name: location
+  type: string
+  default: ‹us-east-1›
+jobs:
+- job: BuildAndPushContainers
+  displayName: Build and Push Containers
+  steps:
+  - task: AWSShellScript@1
+    displayName: 'Build and Push Containers'
+    inputs:
+      awsCredentials: ${{ parameters.awsConnection }}
+      regionName: ${{ parameters.location }}
+      failOnStandardError: false
+      scriptType: 'inline'
+      inlineScript: |</pre> <p>With this in place, let’s<a id="_idIndexMarker499"/> describe the custom script that’s needed to log into ECR, build the containers, and tag and push each of them to ECR. The content of the script must be aligned properly with the preceding YAML within the <strong class="source-inline">inlineScript</strong> property for it to work correctly. This means that all lines must be exactly two spaces after the column where this property starts. It is only presented in this way in this chapter for ease <span class="No-Break">of reading:</span></p>
+<pre class="source-code">
+# Set variables for AWS Region and Account ID
+L="${{ parameters.location }}»
+ID=`aws sts get-caller-identity --query Account --output text`
+# Login to ECR
+aws ecr get-login-password | docker login --username AWS --password-stdin $ID.dkr.ecr.$L.amazonaws.com
+# Build images with docker-compose
+docker-compose build
+# Tag and push images to ECR
+declare -a services=("catalog" "cart" "checkout" "frontend")
+declare -a tags=("$(Build.BuildNumber)" "latest")
+for s in "${services[@]}"
+do
+  echo «Pushing images for $s"
+  for t in «${tags[@]}"
+  do
+    docker tag packt-store-$s:latest $ID.dkr.ecr.$L.amazonaws.com/packt-store-$s:$t
+    docker push $ID.dkr.ecr.$L.amazonaws.com/packt-store-$s:$t
+  done
+done</pre> <p>Let’s break this <a id="_idIndexMarker500"/>code <span class="No-Break">block down:</span></p>
+<ul>
+<li>The <strong class="source-inline">L</strong> and <strong class="source-inline">ID</strong> variables represent the AWS region and AWS account ID, both of which are needed to build the commands to log into ECR, tag images, and push them <span class="No-Break">to ECR</span></li>
+<li>Logging into ECR is a <span class="No-Break">two-step operation:</span><ol><li class="Alphabets">Retrieve a login token from the <span class="No-Break">ECR service.</span></li><li class="Alphabets">Use the <strong class="source-inline">docker login</strong> command, which allows you to use the <strong class="source-inline">docker</strong> and <strong class="source-inline">docker-compose</strong> utilities in the <span class="No-Break">next steps.</span></li></ol></li>
+<li>The build of the images uses the <strong class="source-inline">docker-compose build</strong> command, which in this context will use the existing <strong class="source-inline">docker-compose.yaml</strong> file in <span class="No-Break">the repository</span></li>
+<li>The last step is a loop over two arrays, defining the names of services and tags to use to apply the <strong class="source-inline">docker tag</strong> and <strong class="source-inline">docker </strong><span class="No-Break"><strong class="source-inline">push</strong></span><span class="No-Break"> commands</span></li>
+</ul>
+<p>You might be wondering why we didn’t use the <strong class="source-inline">DockerCompose@0</strong> task like we did in <a href="B18875_09.xhtml#_idTextAnchor135"><span class="No-Break"><em class="italic">Chapter 9</em></span></a>. The reason for this is the types of container registries supported by this task and the authentication mechanism supported by ECR in AWS. The <strong class="source-inline">DockerCompose@0</strong> task supports Azure Container Registry and the generic Docker Registry. For the latter, you could use a Docker Registry service connection, but the authorization tokens provided by ECR are short-lived, lasting only 12 hours. This would force you to update the service <span class="No-Break">connection periodically.</span></p>
+<p>Instead, this approach, which uses the <strong class="source-inline">AWSShellScript@1</strong> task and a custom script, takes advantage of the existing AWS service connection and negotiates a new password every time it runs, storing it locally during the build phase and making it possible to have a <a id="_idIndexMarker501"/><span class="No-Break">maintenance-free setup.</span></p>
+<p>Now that we have our container images available, let’s work to verify and package the infrastructure <span class="No-Break">as code.</span></p>
+<h2 id="_idParaDest-159"><a id="_idTextAnchor160"/>Verifying and packaging IaC</h2>
+<p>We <a id="_idIndexMarker502"/>learned how to work with AWS CloudFormation templates in the previous chapter, Now, we need to validate the templates and publish them as artifacts to <span class="No-Break">the pipeline.</span></p>
+<p>To do this, we will create a <strong class="source-inline">build-iac.yml</strong> file in the repository and add the following six segments <span class="No-Break">to it:</span></p>
+<ol>
+<li><strong class="bold">Parameters</strong>: These parameters will allow us to easily replace values when they’re called from the main <span class="No-Break"><strong class="source-inline">aws-pipeline.yaml</strong></span><span class="No-Break"> file:</span><pre class="source-code">
+parameters:
+- name: awsConnection
+  type: string
+  default: 'aws-packt'
+- name: region
+  type: string
+  default: 'us-east-1'</pre></li> <li><strong class="bold">Jobs</strong>: Here, we just add the header for the following segments, all of which are a series of steps to validate and publish the IaC artifacts that are required for the deployment of <span class="No-Break">each application:</span><pre class="source-code">
+jobs:
+- job: VerifyAndPackageIaC
+  displayName: Verify and Package IaC
+  steps:</pre></li> <li><strong class="bold">Catalog service IaC</strong>: Add the <span class="No-Break">following code:</span><pre class="source-code">
+    - script: docker run --rm -v $(pwd):/manifests stackrox/kube-linter lint /manifests --config /manifests/.kube-linter.yml
+      displayName: 'Lint Catalog Helm Chart'
+      workingDirectory: e2e/iac/helm-charts/catalog
+    - task: HelmInstaller@1
+      displayName: 'Install Helm'
+    - task: HelmDeploy@0
+      displayName: 'Package Catalog Helm Chart'
+      inputs:
+        command: package
+        chartPath: e2e/iac/helm-charts/catalog
+        destination: $(Build.ArtifactStagingDirectory)
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish Catalog Helm Chart'
+      inputs:
+        targetPath: $(Build.ArtifactStagingDirectory)
+        artifact: catalog-helm-chart
+        publishLocation: 'pipeline'</pre><p class="list-inset">Let’s<a id="_idIndexMarker503"/> break <span class="No-Break">it down:</span></p><ul><li>The script task with <strong class="source-inline">displayName</strong> <strong class="source-inline">'Lint Catalog Helm Chart'</strong> validates the <span class="No-Break">Helm chart</span></li><li>The <strong class="source-inline">HelmInstaller@1</strong> task installs the <span class="No-Break">Helm tool</span></li><li>The <strong class="source-inline">HelmDeploy@0</strong> task is used to package the <span class="No-Break">Helm chart</span></li><li>The <strong class="source-inline">PublishPipelineArtifact@1</strong> task is then used to publish the Helm chart artifact to be used <span class="No-Break">for deployment</span></li></ul></li> <li><strong class="bold">Cart service IaC</strong>: The following code <span class="No-Break">is added:</span><pre class="source-code">
+    - task: AWSCLI@1
+      displayName: 'Validate CloudFormation cart'
+      inputs:
+          awsCredentials: ${{parameters.awsConnection}}
+          regionName: ${{parameters.region}}
+          awsCommand: 'cloudformation'
+          awsSubCommand: 'validate-template'
+          awsArguments: '--template-body file://e2e/iac/aws/cart/template.json'
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish Artifacts cart'
+      inputs:
+        targetPath: 'e2e/iac/aws/cart'
+        artifact: cart-iac
+        publishLocation: 'pipeline'</pre><p class="list-inset">Let’s <a id="_idIndexMarker504"/>break <span class="No-Break">it down:</span></p><ul><li>The <strong class="source-inline">AWSCLI@1</strong> task is used to validate the AWS CloudFormation <span class="No-Break">stack template</span></li><li>The <strong class="source-inline">PublishPipelineArtifact@1</strong> task is then used to publish the AWS CloudFormation stack template artifact to be used <span class="No-Break">for deployment</span></li></ul></li> <li><strong class="bold">Checkout service IaC</strong>: Add the <span class="No-Break">following code:</span><pre class="source-code">
+    - task: AWSCLI@1
+      displayName: 'Validate CloudFormation checkout'
+      inputs:
+          awsCredentials: ${{parameters.awsConnection}}
+          regionName: ${{parameters.region}}
+          awsCommand: 'cloudformation'
+          awsSubCommand: 'validate-template'
+          awsArguments: '--template-body file://e2e/iac/aws/checkout/template.json'
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish Artifacts checkout'
+      inputs:
+        targetPath: 'e2e/iac/aws/checkout'
+        artifact: checkout-iac
+        publishLocation: 'pipeline'</pre><p class="list-inset">Let’s break <a id="_idIndexMarker505"/><span class="No-Break">it down:</span></p><ul><li>The <strong class="source-inline">AWSCLI@1</strong> task is used to validate the AWS CloudFormation <span class="No-Break">stack template</span></li><li>The <strong class="source-inline">PublishPipelineArtifact@1</strong> task is then used to publish the AWS CloudFormation stack template artifact to be used <span class="No-Break">for deployment</span></li></ul></li> <li><strong class="bold">Frontend application IaC</strong>: The code to be added is <span class="No-Break">as follows:</span><pre class="source-code">
+    - task: AWSCLI@1
+      displayName: 'Validate CloudFormation frontend'
+      inputs:
+          awsCredentials: ${{parameters.awsConnection}}
+          regionName: ${{parameters.region}}
+          awsCommand: 'cloudformation'
+          awsSubCommand: 'validate-template'
+          awsArguments: '--template-body file://e2e/iac/aws/frontend/template.json'
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish Artifacts frontend'
+      inputs:
+        targetPath: 'e2e/iac/aws/frontend'
+        artifact: frontend-iac
+        publishLocation: 'pipeline'</pre><p class="list-inset">Let’s break <span class="No-Break">it down:</span></p><ul><li>The <strong class="source-inline">AWSCLI@1</strong> task is used to validate the AWS CloudFormation <span class="No-Break">stack template</span></li><li>The <strong class="source-inline">PublishPipelineArtifact@1</strong> task is then used to publish the AWS <a id="_idIndexMarker506"/>CloudFormation stack template artifact to be used <span class="No-Break">for deployment</span></li></ul></li> </ol>
+<p>With our IaC artifacts build phase complete, we can move on to <span class="No-Break">environment deployments.</span></p>
+<h1 id="_idParaDest-160"><a id="_idTextAnchor161"/>Managing environments</h1>
+<p>In this section, we will learn about how to create environments and deploy IaC and applications to them. First, let’s configure <span class="No-Break">our environment.</span></p>
+<h2 id="_idParaDest-161"><a id="_idTextAnchor162"/>Configuring environments</h2>
+<p>As <a id="_idIndexMarker507"/>we did in <a href="B18875_09.xhtml#_idTextAnchor135"><span class="No-Break"><em class="italic">Chapter 9</em></span></a>, you will need to create two environments named <strong class="source-inline">awstest</strong> and <strong class="source-inline">awsproduction</strong> to complete this chapter. Once you have created these two environments, we can proceed with <span class="No-Break">the deployments.</span></p>
+<h2 id="_idParaDest-162"><a id="_idTextAnchor163"/>Deploying to environments</h2>
+<p>We will <a id="_idIndexMarker508"/>deploy these two environments by creating a <strong class="source-inline">deploy.yml</strong> file and start by adding the steps needed for each application. This file will start with the following content; we will be adding to it in every <span class="No-Break">section hereafter:</span></p>
+<pre class="source-code">
+parameters:
+- name: envName
+  type: string
+  default: 'test'
+- name: awsConnection
+  type: string
+  default: 'aws-packt'
+- name: location
+  type: string
+  default: 'us-east-1'
+- name: containerTag
+  type: string
+  default: '$(Build.BuildNumber)'</pre> <p>The <strong class="source-inline">parameters</strong> section defines all the values that can be reused within the pipeline definition, with <strong class="source-inline">envName</strong> being the only one used from the main pipeline, but this gives you the flexibility to change them <span class="No-Break">when needed.</span></p>
+<p>The <strong class="source-inline">jobs</strong> collection includes the <strong class="source-inline">deployment</strong> job type, which allows us to implement different <span class="No-Break">rollout strategies:</span></p>
+<pre class="source-code">
+jobs:
+- deployment: deployment_${{ parameters.envName }}
+  displayName: Deploy to ${{ parameters.envName }}
+  environment: ${{ parameters.envName }}
+  strategy:
+    runOnce:
+      deploy:
+        steps:</pre> <p>For simplicity, here, we use the <strong class="source-inline">runOnce</strong> strategy, but you can also use <strong class="source-inline">canary</strong> and <strong class="source-inline">rolling</strong> where <a id="_idIndexMarker509"/>appropriate. With this in place, let’s move on to <span class="No-Break">the applications.</span></p>
+<h3>Deploying the Python catalog service to EKS</h3>
+<p>Deploying to<a id="_idIndexMarker510"/> EKS has become increasingly complex recently. To make things easier, AWS recommends<a id="_idIndexMarker511"/> using <strong class="bold">eksctl</strong>, an open source CLI tool created by <strong class="bold">WeaveWorks</strong>. This <a id="_idIndexMarker512"/>is a simple CLI tool for creating clusters on EKS that’s written in <a id="_idIndexMarker513"/>the <strong class="bold">Go</strong> language and uses CloudFormation templates while following best practices. It handles creating or updating clusters, adding node groups, and other intermediary tasks to wait for cluster readiness that you would otherwise have to script yourself. To learn more about eksctl, go <span class="No-Break">to </span><a href="https://eksctl.io"><span class="No-Break">https://eksctl.io</span></a><span class="No-Break">.</span></p>
+<p>Every section from here on is displayed aligned to the left. However, in the <strong class="source-inline">deploy.yml</strong> file, they must be aligned so that they start in the same position as the last <span class="No-Break"><strong class="source-inline">steps:</strong></span><span class="No-Break"> instruction.</span></p>
+<p>Let’s add the following <span class="No-Break">three steps:</span></p>
+<ul>
+<li>The <strong class="source-inline">download</strong> task retrieves the catalog Helm chart <span class="No-Break">pipeline artifact:</span><pre class="source-code">
+- download: current
+  displayName: 'Download catalog helm chart'
+  artifact: catalog-helm-chart</pre></li> <li>The <strong class="source-inline">HelmInstaller@1</strong> task installs Helm in <span class="No-Break">the agent:</span><pre class="source-code">
+- task: HelmInstaller@1
+  displayName: 'Install Helm'
+  inputs:
+    helmVersionToInstall: 3.11.3</pre></li> <li>The <strong class="source-inline">AWSShellScript@1</strong> task<a id="_idIndexMarker514"/> is used to coordinate a series of steps in a custom script while using the existing AWS <span class="No-Break">service connection:</span><pre class="source-code">
+- task: AWSShellScript@1
+  displayName: 'Deploy catalog iac and container'
+  inputs:
+    awsCredentials: ${{ parameters.awsConnection }}
+    regionName: ${{ parameters.location }}
+    arguments: '${{ parameters.envName }}-catalog ${{ parameters.location }} ${{ parameters.containerTag }}'
+    disableAutoCwd: true
+    workingDirectory: '$(Pipeline.Workspace)/cart-iac'
+    failOnStandardError: true
+    scriptType: 'inline'
+    inlineScript: |
+      # Confirm Parameters
+      echo "SERVICE_NAME: $1"
+      echo "AWS_REGION: $2"
+      echo "CONTAINER_TAG: $3"
+      # Install EKSCTL
+      ARCH=amd64
+      PLATFORM=$(uname -s)_$ARCH
+      curl -sLO "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$PLATFORM.tar.gz"
+      tar -xzf eksctl_$PLATFORM.tar.gz -C /tmp &amp;&amp; rm eksctl_$PLATFORM.tar.gz
+      sudo mv /tmp/eksctl /usr/local/bin
+      # Create Cluster
+      eksctl create cluster -n $1 --version 1.27 -t t3.large -m 1 -M 2 --full-ecr-access
+      # Retrieve AWS Account ID
+      AWSACCOUNTID=`aws sts get-caller-identity --query Account --output text`
+      # Deploy Catalog App to EKS
+      helm upgrade --install --set image.tag=${{ parameters.containerTag }},image.repository=$AWSACCOUNTID.dkr.ecr.${{ parameters.location }}.amazonaws.com/packt-store-catalog --wait catalog $(Pipeline.Workspace)/catalog-helm-chart/packt-store-catalog-1.0.0.tgz
+      CATALOG_HOSTNAME=`kubectl get service catalog-packt-store-catalog -o json | jq -r ".status.loadBalancer.ingress[0].hostname"`
+      CATALOG_URL="http://$CATALOG_HOSTNAME:5050/"
+      echo "Catalog URL: $CATALOG_URL"
+      echo "##vso[task.setvariable variable=CatalogUrl;]$CATALOG_URL"</pre><p class="list-inset">The<a id="_idIndexMarker515"/> script does <span class="No-Break">the following:</span></p><ul><li>Installs the <span class="No-Break"><strong class="source-inline">eksctl</strong></span><span class="No-Break"> tool</span></li><li>Creates a simple <span class="No-Break">EKS cluster</span></li><li>Installs the catalog <span class="No-Break">Helm chart</span></li><li>Retrieves the hostname of the AWS Elastic Load Balancer that was created for the <span class="No-Break">catalog service</span></li><li>Sets an environment variable, <strong class="source-inline">CatalogUrl</strong>, with the properly formed URL of the catalog service to be used in the <span class="No-Break">frontend deployment</span></li></ul></li> </ul>
+<p>Alternatively, you<a id="_idIndexMarker516"/> could store the custom script in a shell script file in the repository, use the <strong class="source-inline">filePath</strong> option for the <strong class="source-inline">scriptType</strong> property, and provide the path to the file in the <strong class="source-inline">filePath</strong> property. Refer to <a href="https://docs.aws.amazon.com/vsts/latest/userguide/awsshell.xhtml">https://docs.aws.amazon.com/vsts/latest/userguide/awsshell.xhtml</a> for <span class="No-Break">more details.</span></p>
+<p>Now that we are done with the catalog service, it is time to move on to the <span class="No-Break">cart service.</span></p>
+<h3>Deploying the Node.js cart service to Lightsail</h3>
+<p>The <a id="_idIndexMarker517"/>cart service will be deployed to the Lightsail service, which is a compute resource that’s managed by AWS for <span class="No-Break">running containers.</span></p>
+<p>The following steps will allow you to complete <span class="No-Break">the deployment:</span></p>
+<ol>
+<li>The <strong class="source-inline">download</strong> task retrieves the catalog Helm chart <span class="No-Break">pipeline artifact:</span><pre class="source-code">
+- download: current
+  displayName: 'Download cart iac'
+  artifact: cart-iac</pre></li> <li>The <strong class="source-inline">CloudFormationCreateOrUpdateStack@1</strong> task creates the infrastructure required to run the service. The URL of the cart service will be automatically parsed and made available as an environment variable, in this case in the <span class="No-Break"><strong class="source-inline">CartUrl</strong></span><span class="No-Break"> variable:</span><pre class="source-code">
+- task: CloudFormationCreateOrUpdateStack@1
+  displayName: 'Create cart stack'
+  inputs:
+    awsCredentials: ${{ parameters.awsConnection }}
+    regionName: ${{ parameters.location }}
+    stackName: '${{ parameters.envName }}-cart'
+    templateSource: 'file'
+    templateFile: '$(Pipeline.Workspace)/cart-iac/template.json'
+    onFailure: 'DELETE'
+    captureStackOutputs: 'asVariables'
+    captureAsSecuredVars: false</pre></li> <li>The <strong class="source-inline">AWSShellScript@1</strong> task performs the application deployment by doing <span class="No-Break">the following:</span><ol><li class="Alphabets">Connecting the service to the <strong class="source-inline">packt-store-cart</strong> <span class="No-Break">private registry</span></li><li class="Alphabets">Creating a deployment with the corresponding <span class="No-Break">container version</span></li><li class="Alphabets">Waiting for the deployment to complete by checking <span class="No-Break">its state</span></li></ol><p class="list-inset">Let’s take<a id="_idIndexMarker518"/> a look at the code that’s used to do this. You will notice that it has been broken into sections for <span class="No-Break">easier understanding:</span></p><ul><li>The following lines simply echo the parameters to the console to confirm their values while the pipel<a id="_idTextAnchor164"/>ine <span class="No-Break">is running:</span><pre class="source-code">
+- task: AWSShellScript@1
+  displayName: 'Deploy cart container'
+  inputs:
+    awsCredentials: ${{ parameters.awsConnection }}
+    regionName: ${{ parameters.location }}
+    arguments: '${{ parameters.envName }}-cart ${{ parameters.location }} ${{ parameters.containerTag }}'
+    disableAutoCwd: true
+    workingDirectory: '$(Pipeline.Workspace)/cart-iac'
+    failOnStandardError: true
+    scriptType: 'inline'
+    inlineScript: |
+      # Confirm Parameters
+      echo "SERVICE_NAME: $1"
+      echo "AWS_REGION: $2"
+      echo "CONTAINER_TAG: $3"</pre></li><li>Adding<a id="_idIndexMarker519"/> private registry access requires executing a CLI command and waiting for a property to be updated to confirm that the principal ARN has been assigned. This requires executing another CLI command to check this every <span class="No-Break">5 seconds:</span><pre class="source-code">      # Add Private Registry Access
+      aws lightsail update-container-service --service-name $1 --region $2 --private-registry-access file://private-registry-access.json
+      echo "Waiting for container service to be ready..."
+      principal_arn=""
+      until [ "$principal_arn" != "" ]
+      do
+          sleep 5
+          principal_arn=`aws lightsail get-container-services --service-name $1 --region $2 --query "containerServices[0].privateRegistryAccess.ecrImagePullerRole.principalArn" --output text`
+      done
+      echo ""
+      echo "Principal ARN: $principal_arn"</pre></li><li>Applying the <strong class="bold">Elastic Container Policy</strong> (<strong class="bold">ECR</strong>) requires deleting any existing one<a id="_idIndexMarker520"/> and then setting the <span class="No-Break">new one:</span><pre class="source-code">      # Apply ECR policy
+      echo "Applying ECR policy..."
+      sed "s|IamRolePrincipalArn|$principal_arn|g" ecr-policy-template.json &gt; ecr-policy.json
+      # redirect stderr to /dev/null to avoid error if policy does not exist
+      aws ecr delete-repository-policy --repository-name packt-store-cart 2&gt;/dev/null
+      aws ecr set-repository-policy --repository-name packt-store-cart --policy-text file://ecr-policy.json
+      # Wait until container service is ready for update
+      state="UPDATING"
+      until [ "$state" != "UPDATING" ]
+      do
+          sleep 5
+          state=`aws lightsail get-container-services --service-name $1 --region $2 --query "containerServices[0].state" --output text`
+      done
+      echo ""</pre></li><li>The preceding section will execute a CLI command every 5 seconds to wait for the Lightsail service to complete updates before we can proceed further. This is required because the CLI command we executed previously to assign access to the private registry takes a while to complete. This will ensure that we don’t try to create a deployment while the service is <span class="No-Break">still updating.</span></li><li>Finally, while <a id="_idIndexMarker521"/>using a CLI command to create the deployment and waiting for it to complete in the pipeline, ensure any further steps that require the service to be running do <span class="No-Break">not fail:</span><pre class="source-code">      # Create Deployment
+      account_id=`aws sts get-caller-identity --query "Account" --output text`
+      sed "s|SERVICENAME|$1|g ; s|AWSACCOUNTID|$account_id|g ; s|AWSREGION|$2|g ; s|CONTAINERTAG|$3|g" deployment-template.json &gt; deployment.json
+      echo "Creating deployment..."
+      aws lightsail create-container-service-deployment --service-name $1 --region $2 --cli-input-json file://deployment.json
+      state="DEPLOYING"
+      until [ "$state" != "DEPLOYING" ]
+      do
+          sleep 5
+          state=`aws lightsail get-container-services --service-name $1 --region $2 --query "containerServices[0].state" --output text`
+      done
+      echo ""
+      if [ "$state" == "RUNNING" ]
+      then
+          echo "Deployment created successfully!"
+      else
+          echo "Deployment failed!"
+          exit 1
+      fi</pre></li></ul></li> </ol>
+<p>Now that we are done with the cart service, let’s move on to the <span class="No-Break">checkout service.</span></p>
+<h3>Deploying the .NET checkout service to ECS</h3>
+<p>For this, we <a id="_idIndexMarker522"/>must create a task execution IAM role. First, let’s create an <strong class="source-inline">ecs-tasks-trust-policy.json</strong> file with the <span class="No-Break">following content:</span></p>
+<pre class="source-code">
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "ecs-tasks.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}</pre> <p>The following commands will create an IAM role and attach a policy that’s needed to run the container image in the <span class="No-Break">private registry:</span></p>
+<pre class="console">
+aws iam create-role --role-name ecsTaskExecutionRole --assume-role-policy-document file://ecs-tasks-trust-policy.json
+aws iam attach-role-policy --role-name ecsTaskExecutionRole --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy</pre> <p>With this <a id="_idIndexMarker523"/>complete, we can move on to the content for the <span class="No-Break"><strong class="source-inline">deploy.yml</strong></span><span class="No-Break"> file:</span></p>
+<ol>
+<li>The <strong class="source-inline">download</strong> task retrieves the checkout IaC <span class="No-Break">pipeline artifact:</span><pre class="source-code">
+- download: current
+  displayName: 'Download checkout iac'
+  artifact: checkout-iac</pre></li> <li>The <strong class="source-inline">CloudFormationCreateOrUpdateStack@1</strong> task creates the infrastructure required to run <span class="No-Break">the service:</span><pre class="source-code">
+- task: CloudFormationCreateOrUpdateStack@1
+  displayName: 'Create checkout stack'
+  inputs:
+    awsCredentials: ${{ parameters.awsConnection }}
+    regionName: ${{ parameters.location }}
+    stackName: '${{ parameters.envName }}-checkout'
+    templateSource: 'file'
+    templateFile: '$(Pipeline.Workspace)/checkout-iac/template.json'
+    templateParametersSource: 'inline'
+    templateParameters: '[{"ParameterKey":"ContainerTag","ParameterValue":"${{ parameters.containerTag }}"}]'
+    onFailure: 'DELETE'
+    captureStackOutputs: 'asVariables'
+    captureAsSecuredVars: false</pre><p class="list-inset">The URL of the checkout service will become available via the outputs of this deployment, which are automatically parsed and made available as an environment <a id="_idIndexMarker524"/>variable, in this case in the <span class="No-Break"><strong class="source-inline">CheckoutUrl</strong></span><span class="No-Break"> variable.</span></p></li> </ol>
+<p>Now that we are done with the checkout service, it is time to move on to the <span class="No-Break">frontend application.</span></p>
+<h3>Deploying the Angular frontend to Fargate</h3>
+<p>The <a id="_idIndexMarker525"/>Angular frontend application will be deployed into an ECS with a Fargate backend, a serverless offering from AWS. This deployment is much simpler because it only requires creating the CloudFormation stack, which incorporates the definition of the container to deploy within <span class="No-Break">the template.</span></p>
+<p>Let’s add the following to the <strong class="source-inline">deploy.yml</strong> file and walk through <span class="No-Break">the steps:</span></p>
+<ol>
+<li>The <strong class="source-inline">download</strong> task retrieves the frontend IaC <span class="No-Break">pipeline artifact:</span><pre class="source-code">
+- download: current
+  displayName: 'Download frontend iac'
+  artifact: frontend-iac</pre></li> <li>The <strong class="source-inline">CloudFormationCreateOrUpdateStack@1</strong> task creates the infrastructure required to run the service and deploy <span class="No-Break">the application:</span><pre class="source-code">
+- task: CloudFormationCreateOrUpdateStack@1
+  displayName: 'Create frontend stack'
+  inputs:
+    awsCredentials: ${{ parameters.awsConnection }}
+    regionName: ${{ parameters.location }}
+    stackName: '${{ parameters.envName }}-frontend'
+    templateSource: 'file'
+    templateFile: '$(Pipeline.Workspace)/frontend-iac/template.json'
+    templateParametersSource: 'inline'
+    templateParameters: '[{"ParameterKey":"ContainerTag","ParameterValue":"${{ parameters.containerTag }}"}, {"ParameterKey":"CatalogUrl","ParameterValue":"$(CatalogUrl)"}, {"ParameterKey":"CartUrl","ParameterValue":"$(CartUrl)"}, {"ParameterKey":"CheckoutUrl","ParameterValue":"$(CheckoutUrl)"}]'
+    onFailure: 'DELETE'
+    captureStackOutputs: 'asVariables'
+    captureAsSecuredVars: false</pre><p class="list-inset">Notice the <a id="_idIndexMarker526"/>different notation when providing parameters to the template in the <strong class="source-inline">templateParameters</strong> property. This is due to the way these values become available in the context of pipeline execution. When injecting values into a task, there is a distinction between pipeline parameters and variables and how they are evaluated. The <strong class="source-inline">${{ parameters.name }}</strong> notation is only processed at compile time, before runtime starts. This would be your typical usage for parameters as they should not change <span class="No-Break">during runtime.</span></p><p class="list-inset">The <strong class="source-inline">$(variable)</strong> notation is processed during runtime before a task runs, which means it will be evaluated before each task is executed; any changes that are made to <a id="_idIndexMarker527"/>it through its execution will be reflected in its value. This would be your typical usage for variables. To learn more about <span class="No-Break">this, read</span></p><p class="list-inset"><em class="italic">Understand variable syntax</em>, which is available in the official documentation <span class="No-Break">at </span><a href="https://learn.microsoft.com/en-us/azure/devops/pipelines/process/variables"><span class="No-Break">https://learn.microsoft.com/en-us/azure/devops/pipelines/process/variables</span></a><span class="No-Break">.</span></p></li> </ol>
+<p>With all of this in place, it’s finally time to make it all work by adding <span class="No-Break">the pipeline.</span></p>
+<h1 id="_idParaDest-163"><a id="_idTextAnchor165"/>Adding the pipeline</h1>
+<p>Now<a id="_idIndexMarker528"/> that we have all the YAML files completed, it is time to put everything to work by adding a new pipeline. Follow <span class="No-Break">these steps:</span></p>
+<ol>
+<li>In the <strong class="bold">Pipelines</strong> section of your project, click on the <strong class="bold">New pipeline</strong> button, as shown in the <span class="No-Break">following screenshot:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer255">
+<img alt="Figure 10.3 – Adding the pipeline" height="174" src="image/B18875_10_03.jpg" width="698"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.3 – Adding the pipeline</p>
+<ol>
+<li value="2">Select the <strong class="bold">Azure Repos Git </strong><span class="No-Break"><strong class="bold">YAML</strong></span><span class="No-Break"> option:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer256">
+<img alt="Figure 10.4 – Adding a pipeline from Azure Repos Git YAML" height="592" src="image/B18875_10_04.jpg" width="688"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.4 – Adding a pipeline from Azure Repos Git YAML</p>
+<ol>
+<li value="3">Select<a id="_idIndexMarker529"/> the repository where you created <span class="No-Break">the pipeline:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer257">
+<img alt="Figure 10.5 – Selecting the repository to add the YAML pipeline from" height="488" src="image/B18875_10_05.jpg" width="745"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.5 – Selecting the repository to add the YAML pipeline from</p>
+<ol>
+<li value="4">Then, select the <strong class="bold">Existing Azure Pipelines YAML </strong><span class="No-Break"><strong class="bold">file</strong></span><span class="No-Break"> option:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer258">
+<img alt="Figure 10.6 – Selecting the Existing Azure Pipelines YAML file option" height="814" src="image/B18875_10_06.jpg" width="682"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.6 – Selecting the Existing Azure Pipelines YAML file option</p>
+<ol>
+<li value="5">Lastly, enter<a id="_idIndexMarker530"/> the <strong class="bold">Path</strong> to the pipeline file, <strong class="source-inline">/e2e/pipelines/aws/aws-pipeline.yml</strong>, and <span class="No-Break">click </span><span class="No-Break"><strong class="bold">Continue</strong></span><span class="No-Break">:</span></li>
+</ol>
+<div>
+<div class="IMG---Figure" id="_idContainer259">
+<img alt="Figure 10.7 – Select an existing YAML file" height="332" src="image/B18875_10_07.jpg" width="459"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 10.7 – Select an existing YAML file</p>
+<p>With the pipeline in place, you can trigger it manually or by making changes to the repository. Now that we’ve got this ready, let’s <span class="No-Break">wrap up.</span></p>
+<h1 id="_idParaDest-164"><a id="_idTextAnchor166"/>Wrapping up</h1>
+<p>If you completed all these steps, then you’ve deployed test and production environments, so it is time to clean up! You have deployed many resources into AWS throughout the chapter, so make sure you delete them if you do not want to keep paying for them. You can do this via the AWS console or the following AWS <span class="No-Break">CLI commands:</span></p>
+<pre class="console">
+eksctl delete cluster -n test-catalog
+aws cloudformation delete-stack --stack-name test-cart
+aws cloudformation delete-stack --stack-name test-checkout
+aws cloudformation delete-stack --stack-name test-frontend
+eksctl delete cluster -n production-catalog
+aws cloudformation delete-stack --stack-name production-cart
+aws cloudformation delete-stack --stack-name production-checkout
+aws cloudformation delete-stack --stack-name production-frontend</pre> <p>If you missed anything or got stuck and are having trouble putting the entire solution together, the pipeline definitions can be found in the GitHub repository mentioned in the <em class="italic">Technical requirements</em> section, in the <strong class="source-inline">e2e/pipelines/aws</strong> directory in the <span class="No-Break"><strong class="bold">complete</strong></span><span class="No-Break"> branch.</span></p>
+<p>Now, let’s recap what we have learned in <span class="No-Break">this chapter.</span></p>
+<h1 id="_idParaDest-165"><a id="_idTextAnchor167"/>Summary</h1>
+<p>In this chapter, we learned how to deploy containerized applications to different services in the AWS cloud. At the same time, we learned how containers allow for portability across cloud providers and the ability to take advantage of multiple services within the <span class="No-Break">same ecosystem.</span></p>
+<p>Next, we learned how to use AWS ECR and private repositories to manage all our container images and how the process to build and push those containers, although based on the same <strong class="source-inline">docker-compose</strong> tool, must be implemented differently depending on the <span class="No-Break">target platform.</span></p>
+<p>We also learned about the eksctl CLI tool, which makes it easier to provision and configure EKS clusters in AWS with best practices, as well as how to use Helm charts to deploy a containerized application to a Kubernetes-based service regardless of the <span class="No-Break">underlying infrastructure.</span></p>
+<p>Finally, we learned how to deploy to ECS with both Fargate (serverless) and EC2 (virtual machines) infrastructure, both with a very similar and simple application <span class="No-Break">deployment model.</span></p>
+<p>In the next chapter, you will learn about CI/CD for <span class="No-Break"><strong class="bold">cross-mobile applications</strong></span><span class="No-Break">.</span></p>
+</div>
+</div></body></html>

@@ -1,0 +1,834 @@
+<html><head></head><body><div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Managing EC2 with Systems Manager</h1>
+                </header>
+            
+            <article>
+                
+<p>EC2 instances have long been a core service provided by AWS and EC2 still continues to evolve with newer sets of features and instance types added every year. One such really awesome service added during AWS re:Invent 2016 was the EC2 Systems Manager!</p>
+<p>In this chapter, we will be learning a lot about the EC2 Systems Manager and its associated sub-services; namely:</p>
+<ul>
+<li><strong>Run Command</strong>: Service that allows you to execute commands directly on an EC2 Systems Manager enabled EC2 instance</li>
+<li><strong>State Manager</strong>: Allows you to specify a desired state for an EC2 Systems Manager enabled EC2 instance</li>
+<li><strong>Patch management</strong>: Provides administrators with the ability to manage the deployment of patches over EC2 instances</li>
+<li><strong>Automations</strong>: Allows administrators to automate the deployment of certain tasks</li>
+<li><strong>Inventory</strong>: Service that collects and manages a list of software inventory from your managed EC2 instances</li>
+</ul>
+<p>Sound exciting? Then what are we waiting for? Let's get started!</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Introducing EC2 Systems Manager</h1>
+                </header>
+            
+            <article>
+                
+<p>As the name suggests, EC2 Systems Manager is a management service that provides administrators and end users with the ability to perform a rich set of tasks on their EC2 instance fleet such as periodically patching the instances with a predefined set of baseline patches, tracking the instances' configurational state, and ensuring that the instance stays compliant with a state template, runs scripts and commands over your instance fleet with a single utility, and much, much more! The EC2 Systems Manager is also specifically designed to help administrators manage hybrid computing environments, all from the comfort and ease of the EC2 Systems Manager dashboard. This makes it super efficient and cost effective as it doesn't require a specialized set of software or third-party services, which cost a fortune, to manage your hybrid environments!</p>
+<p>But how does AWS achieve all of this in the first place? Well, it all begins with the concept of managed instances. A managed instance is a special EC2 instance that is governed and managed by the EC2 Systems Manager service. Each managed instance contains a <strong>Systems Manager</strong> (<strong>SSM</strong>) agent that is responsible for communicating and configuring the instance state back to the Systems Manager utility. Windows Server 2003–2012 R2 AMIs, Windows Server 2003–2012 R2 AMIs will automatically have the SSM agent installed. For Linux instances, however, the SSM agent is not installed by default. Let's quickly look at how to install this agent and set up our first Dev instance in AWS as a managed instance.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Getting started with the SSM agent</h1>
+                </header>
+            
+            <article>
+                
+<p>In this section, we are going to install and configure an SSM agent on a new Linux instance, which we shall call as a Dev instance, and then verify it's working by streaming the agent's log files to Amazon CloudWatch Logs. So let's get busy!</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Configuring IAM Roles and policies for SSM</h1>
+                </header>
+            
+            <article>
+                
+<p>First, we need to create and configure IAM Roles for our EC2 Systems Manager to process and execute commands over our EC2 instances. You can either use the Systems Manager's managed policies or alternatively create your own custom roles with specific permissions. For this part, we will be creating a custom role and policy.</p>
+<p>To get started, we first create a custom IAM policy for Systems Manager managed instances:</p>
+<ol>
+<li>Log in to your AWS account and select the <span class="packt_screen">IAM</span> option from the main dashboard, or alternatively, open the IAM console at <a href="https://console.aws.amazon.com/iam/">https://console.aws.amazon.com/iam/</a>.</li>
+<li>Next, from the navigation pane, select <span class="packt_screen">Policies</span>. This will bring up a list of existing policies currently provided and supported by AWS out of the box.</li>
+<li>Type <kbd>SSM</kbd> in the <span class="packt_screen">Policy Filter</span> to view the list of policies currently provided for SSM.</li>
+<li>Select the <span class="packt_screen">AmazonEC2RoleforSSM</span> policy and copy its contents to form a new policy document. Here is a snippet of the policy document for your reference:</li>
+</ol>
+<pre>{ 
+    "Version": "2012-10-17", 
+    "Statement": [ 
+        { 
+            "Effect": "Allow", 
+            "Action": [ 
+                "ssm:DescribeAssociation", 
+                  ..... SSM actions list  
+            ], 
+            "Resource": "*" 
+        }, 
+        { 
+            "Effect": "Allow", 
+            "Action": [ 
+                "ec2messages:AcknowledgeMessage", 
+                "ec2messages:DeleteMessage", 
+                "ec2messages:FailMessage", 
+                "ec2messages:GetEndpoint", 
+                "ec2messages:GetMessages", 
+                "ec2messages:SendReply" 
+            ], 
+            "Resource": "*" 
+        }, 
+        { 
+            "Effect": "Allow", 
+            "Action": [ 
+                "cloudwatch:PutMetricData" 
+            ], 
+            "Resource": "*" 
+        }, 
+        { 
+            "Effect": "Allow", 
+            "Action": [ 
+                "ec2:DescribeInstanceStatus" 
+            ], 
+            "Resource": "*" 
+        }, 
+        { 
+            "Effect": "Allow", 
+            "Action": [ 
+                "ds:CreateComputer", 
+                "ds:DescribeDirectories" 
+            ], 
+            "Resource": "*" 
+        }, 
+        { 
+            "Effect": "Allow", 
+            "Action": [ 
+                "logs:CreateLogGroup", 
+                "logs:CreateLogStream", 
+                ..... CloudWatch Log actions 
+            ], 
+            "Resource": "*" 
+        }, 
+        { 
+            "Effect": "Allow", 
+            "Action": [ 
+                "s3:PutObject", 
+                "s3:GetObject", 
+                "s3:AbortMultipartUpload", 
+                "s3:ListMultipartUploadParts", 
+                "s3:ListBucketMultipartUploads" 
+            ], 
+            "Resource": "*" 
+        }, 
+        { 
+            "Effect": "Allow", 
+            "Action": [ 
+                "s3:ListBucket" 
+            ], 
+            "Resource": "arn:aws:s3:::amazon-ssm-packages-*" 
+        } 
+    ] 
+} </pre>
+<ol start="5">
+<li>Once the policy is copied, go back to the <span class="packt_screen">Policies</span> dashboard and click on the <span class="packt_screen">Create policy</span> option. In the <span class="packt_screen">Create policy</span> wizard, select the <span class="packt_screen">Create Your Own Policy</span> option.</li>
+<li>Provide a suitable <span class="packt_screen">Policy Name</span> and paste the copied contents of the <span class="packt_screen">AmazonEC2RoleforSSM</span> policy into the <span class="packt_screen">Policy Document</span> section. You can now tweak the policy as per your requirements, but once completed, remember to select the <span class="packt_screen">Validate Policy</span> option to ensure the policy is semantically correct.</li>
+<li>Once completed, select <span class="packt_screen">Create Policy</span> to complete the process.</li>
+</ol>
+<p>With this step completed, you now have a custom IAM policy for System Manager managed instances.</p>
+<p>The next important policy that we need to create is the custom IAM user policy for our Systems Manager. This policy will essentially scope out which particular user can view the System Manager documents as well as perform actions on the selected managed instances using the System Manager's APIs:</p>
+<ol start="1">
+<li>Once again, log in to your AWS IAM dashboard and select the <span class="packt_screen">Policies</span> option as performed in the earlier steps.</li>
+<li>Type <kbd>SSM</kbd> again in the <span class="packt_screen">Policy Filter</span> and select the <span class="packt_screen">AmazonSSMFullAccess</span> policy. Copy its contents and create a custom SSM access policy by pasting the following snippet in the new policy's <span class="packt_screen">Policy Document</span> section:</li>
+</ol>
+<pre>{ 
+    "Version": "2012-10-17", 
+    "Statement": [ 
+        { 
+            "Effect": "Allow", 
+            "Action": [ 
+                "cloudwatch:PutMetricData", 
+                "ds:CreateComputer", 
+                "ds:DescribeDirectories", 
+                "ec2:DescribeInstanceStatus", 
+                "logs:*", 
+                "ssm:*", 
+                "ec2messages:*" 
+            ], 
+            "Resource": "*" 
+        } 
+    ] 
+} </pre>
+<ol start="3">
+<li>Remember to <em>validate</em> the policy before completing the creation process. You should now have two custom policies, as shown in the following screenshot:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img height="381" width="612" class=" image-border" src="Images/8702759c-645f-4e77-ac15-978e6db0705c.png"/></div>
+<p>With the policies created, we now simply create a new instance profile role, attach the full access policy to the new role, and finally verify the trust relationship between Systems Manager and the newly created role:</p>
+<ol start="1">
+<li>To create a new role, from the IAM management dashboard, select the <span class="packt_screen">Roles</span> option from the navigation pane.</li>
+<li>In the <span class="packt_screen">Create Role</span> wizard, select the <span class="packt_screen">EC2</span> option from the <span class="packt_screen">AWS service</span> role type, as shown in the following screenshot. Next, select the <span class="packt_screen">EC2</span> option as the <em>use case</em> for this activity and click on the <span class="packt_screen">Next: Permissions</span> button to continue:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img height="605" width="853" class=" image-border" src="Images/032e292e-dc33-46f4-8685-c5c172b2858c.png"/></div>
+<ol start="3">
+<li>In the <span class="packt_screen">Attach permissions policy</span> page, filter and select the <span class="packt_screen">ssm-managedInstances</span> policy that we created at the beginning of this exercise. Click on <span class="packt_screen">Review</span> once done.</li>
+<li>Finally, provide a suitable <span class="packt_screen">Role name</span> in the <span class="packt_screen">Review</span> page and click on <span class="packt_screen">Create role</span> to complete the procedure!</li>
+</ol>
+<p>With the role in place, we now need to verify that the IAM policy for your instance profile role includes <kbd>ssm.amazonaws.com</kbd> as a trusted entity:</p>
+<ol start="1">
+<li>To verify this, select the newly created role from the <span class="packt_screen">IAM Roles</span> page and click on the <span class="packt_screen">Trust relationships</span> tab.</li>
+<li>Here, choose the <span class="packt_screen">Edit Trust Relationship</span> option and paste the following snippet in the policy editor, as shown. Remember to add both <em>EC2 and SSM</em> as the trusted services and not just one of them:</li>
+</ol>
+<pre>{ 
+  "Version": "2012-10-17", 
+  "Statement": [ 
+    { 
+      "Sid": "", 
+      "Effect": "Allow", 
+      "Principal": { 
+        "Service": [ 
+          "ec2.amazonaws.com", 
+          "ssm.amazonaws.com" 
+        ] 
+      }, 
+      "Action": "sts:AssumeRole" 
+    } 
+  ] 
+} </pre>
+<ol start="3">
+<li>With the new trust policy in place, click on <span class="packt_screen">Update Trust Policy</span> to complete the process. Congratulations!</li>
+<li>You are almost done with configuring the Systems Manager! A final step remains, where we need to attach the second policy that we created (SSM full access) to one of our IAM users. In this case, I've attached the policy to one of my existing users in my AWS environment, however, you can always create a completely new user dedicated to the Systems Manager and assign it the SSM access policy as well.</li>
+</ol>
+<p>With the policies out of the way, we can now proceed with the installation and configuration of the SSM agent on our simple Dev instance.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Installing the SSM agent</h1>
+                </header>
+            
+            <article>
+                
+<p>As discussed at the beginning of the chapter, the Systems Manager or the SSM agent is a vital piece of software that needs to be installed and configured on your EC2 instances in order for Systems Manager to manage it. At the time of writing, SSM agent is supported on the following sets of operating systems:</p>
+<ul>
+<li><strong>Windows</strong>:
+<ul>
+<li>Windows Server 2003 (including R2)</li>
+<li>Windows Server 2008 (including R2)</li>
+<li>Windows Server 2012 (including R2)</li>
+<li>Windows Server 2016</li>
+</ul>
+</li>
+</ul>
+<ul>
+<li><strong>Linux</strong> (64-bit and 32-bit):
+<ul>
+<li>Amazon Linux 2014.09, 2014.03 or later</li>
+<li>Ubuntu Server 16.04 LTS, 14.04 LTS, or 12.04 LTS</li>
+<li>Red Hat Enterprise Linux (RHEL) 6.5 or later</li>
+<li>CentOS 6.3 or later</li>
+</ul>
+</li>
+<li><strong>Linux</strong> (64-bit only):
+<ul>
+<li>Amazon Linux 2015.09, 2015.03 or later</li>
+<li>Red Hat Enterprise Linux 7.x or later</li>
+<li>CentOS 7.1 or later</li>
+<li>SUSE Linux Enterprise Server 12 or higher</li>
+</ul>
+</li>
+</ul>
+<p>To install the agent on a brand new instance, such as the one we will create shortly, you simply need to ensure that the instance is provided with the necessary SSM IAM role that we created in the previous section, as well as to provide the following code snippet in the <span class="packt_screen">User data</span> section of your instance's configuration:</p>
+<pre>#!/bin/bash 
+cd /tmp                
+wget https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/debian_amd64/amazon-ssm-agent.deb 
+sudo dpkg -i amazon-ssm-agent.deb 
+sudo start amazon-ssm-agent </pre>
+<div class="packt_infobox">The user data script varies from OS to OS. In my case, the script is intended to run on an Ubuntu Server 14.04 LTS (HVM) instance. You can check your SSM agent install script at <a href="http://docs.aws.amazon.com/systems-manager/latest/userguide/sysman-install-ssm-agent.html#sysman-install-startup-linux">http://docs.aws.amazon.com/systems-manager/latest/userguide/sysman-install-ssm-agent.html#sysman-install-startup-linux</a>.</div>
+<p>Once the instance is up and running, SSH into the instance and verify whether your SSM agent is up and running or not using the following command. Remember, the following command will also vary based on the operating system that you select at launch time:</p>
+<pre><strong># sudo status amazon-ssm-agent</strong> </pre>
+<p>You should see the agent running, as shown in the following screenshot:</p>
+<div class="CDPAlignCenter CDPAlign"><img height="125" width="663" class=" image-border" src="Images/5695ebbb-2bb0-4863-8985-3e426062dc1e.png"/></div>
+<p>You can, optionally, even install the agent on an existing running EC2 instance by completing the following set of commands.</p>
+<p>For an instance running on the Ubuntu 16.04 LTS operating system, we first create a temporary directory to house the SSM agent installer:</p>
+<pre><strong># mkdir /tmp/ssm</strong> </pre>
+<p>Next, download the operating-specific SSM agent installer using the <kbd>wget</kbd> utility:</p>
+<pre><strong># wget https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/debian_amd64/amazon-ssm-agent.deb</strong> </pre>
+<p>Finally, execute the installer using the following command:</p>
+<pre><strong># sudo dpkg -i amazon-ssm-agent.deb</strong> </pre>
+<p>You can additionally verify the agent's execution by tailing either of these log files as well:</p>
+<pre><strong># sudo tail -f /var/log/amazon/ssm/amazon-ssm-agent.log  
+# sudo tail -f /var/log/amazon/ssm/errors.log</strong> </pre>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Configuring the SSM agent to stream logs to CloudWatch</h1>
+                </header>
+            
+            <article>
+                
+<p>This is a particularly useful option provided by the SSM agent, especially when you don't want to log in to each and every instance and troubleshoot issues. Integrating the SSM agent's logs with CloudWatch enables you to have all your logs captured and analyzed at one central location, which undoubtedly ends up saving a lot of time, but it also brings additional benefits such as the ability to configure alarms, view the various metrics using CloudWatch dashboard, and retain the logs for a much longer duration.</p>
+<p>But before we get to configuring the agent, we first need to create a separate log group within CloudWatch that will stream the agent logs from individual instances here:</p>
+<ol>
+<li>To do so, from the <span class="packt_screen">AWS Management Console</span>, select the <span class="packt_screen">CloudWatch</span> option, or alternatively, click on the following link to open your CloudWatch dashboard from <a href="https://console.aws.amazon.com/cloudwatch/">https://console.aws.amazon.com/cloudwatch/</a>.</li>
+<li>Next, select the <span class="packt_screen">Logs</span> option from the navigation pane. Here, click on <span class="packt_screen">Create log group</span> and provide a suitable name for your log group, as shown in the following screenshot:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img height="149" width="410" class=" image-border" src="Images/18b6d43f-6531-4631-b3c5-b3055ad2b118.png"/></div>
+<ol start="3">
+<li>Once completed, SSH back into your Dev instance and run the following command:</li>
+</ol>
+<pre style="padding-left: 60px"><strong># sudo cp /etc/amazon/ssm/seelog.xml.template /etc/amazon/ssm/seelog.xml</strong> </pre>
+<ol start="4">
+<li>Next, using your favorite editor, open the newly copied file and paste the following content in it. Remember to swap out the <kbd>&lt;CLOUDWATCH_LOG_GROUP_NAME&gt;</kbd> field with the name of your own log group:</li>
+</ol>
+<pre style="padding-left: 60px"># sudo vi /etc/amazon/ssm/seelog.xml 
+&lt;seelog minlevel="info" critmsgcount="500" maxinterval="100000000" 
+ mininterval="2000000" type="adaptive"&gt; 
+ &lt;exceptions&gt; 
+ &lt;exception minlevel="error" filepattern="test*"/&gt; 
+ &lt;/exceptions&gt; 
+ &lt;outputs formatid="fmtinfo"&gt; 
+ &lt;console formatid="fmtinfo"/&gt; 
+ &lt;rollingfile type="size" maxrolls="5" maxsize="30000000" 
+ filename="{{LOCALAPPDATA}}\Amazon\SSM\Logs\amazon-ssm-agent.log"/&gt; 
+ &lt;filter formatid="fmterror" levels="error,critical"&gt; 
+ &lt;rollingfile type="size" maxrolls="5" maxsize="10000000" 
+ filename="{{LOCALAPPDATA}}\Amazon\SSM\Logs\errors.log"/&gt; 
+ &lt;/filter&gt; 
+ &lt;custom name="cloudwatch_receiver" formatid="fmtdebug" data-log-group="&lt;CLOUDWATCH_LOG_GROUP_NAME&gt;"/&gt; 
+ &lt;/outputs&gt; 
+CODE: </pre>
+<ol start="5">
+<li>With the changes made, save and exit the editor. Now have a look at your newly created log group using the CloudWatch dashboard; you should see your SSM agent's error logs, if any, displayed there for easy troubleshooting.</li>
+</ol>
+<p>With this step completed, we have now successfully installed and configured our EC2 instance as a <span class="packt_screen">Managed Instance</span> in Systems Manager. To verify whether your instance has indeed been added, select the <span class="packt_screen">Managed Instance</span> option provided under the <span class="packt_screen">Systems Manager Shared Resources</span> section from the navigation pane of your EC2 dashboard; you should see your instance listed, as shown here:</p>
+<div class="CDPAlignCenter CDPAlign"><img height="374" width="718" class=" image-border" src="Images/f1c5c597-e96b-4903-bfec-b37f661e9d47.png"/></div>
+<p>In the next section, we will deep dive into the various features provided as a part of the Systems Manager, starting off with one of the most widely used: Run Command!</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Introducing Run Command</h1>
+                </header>
+            
+            <article>
+                
+<p>Run Command is an awesome feature of Systems Manager, which basically allows you to execute remote commands over your managed fleet of EC2 instances. You can perform a vast variety of automated administrative tasks, such as installing software or patching your operating systems, executing shell commands, managing local groups and users, and much more! But that's not all! The best part of using this feature is that it allows you to have a seamless experience when executing scripts, even over your on-premises Windows and Linux operating systems, whether they be running on VMware ESXi, Microsoft Hyper-V, or any other platforms. And the cost of all this? Well, it's absolutely free! You only pay for the EC2 instances and other AWS resources that you create and nothing more!</p>
+<p>Here's a brief list of a few commonly predefined commands provided by Run Command along with a short description:</p>
+<ul>
+<li><kbd>AWS-RunShellScript</kbd>: Executes shell scripts on remote Linux instances</li>
+<li><kbd>AWS-UpdateSSMAgent</kbd>: Used to update the Amazon SSM agent</li>
+<li><kbd>AWS-JoinDirectoryServiceDomain</kbd>: Used to join an instance to an AWS Directory</li>
+<li><kbd>AWS-RunPowerShellScript</kbd>: Executes PowerShell commands or scripts on Windows instances</li>
+<li><kbd>AWS-UpdateEC2Config</kbd>: Runs an update to the EC2Config service</li>
+<li><kbd>AWS-ConfigureWindowsUpdate</kbd>: Used to configure Windows Update settings</li>
+<li><kbd>AWS-InstallApplication</kbd>: Used to install, repair, or uninstall software on a Windows instance using an MSI package</li>
+<li><kbd>AWS-ConfigureCloudWatch</kbd>: Configures Amazon CloudWatch Logs to monitor applications and systems</li>
+</ul>
+<p>Before we proceed with the actual execution of the Run Commands, it is important to remember that the Run Command requires both the SSM agent as well as the right set of permissions and roles to work with. So if you haven't performed the SSM agent's installation or the setup of the IAM polices and roles, then now would be a good time to revisit this!</p>
+<p>In this section, let's look at a simple way of executing a simple set of commands for our newly added managed instance:</p>
+<ol>
+<li>To begin with, first log in to the <span class="packt_screen">AWS Management Console</span> and select the <span class="packt_screen">EC2</span> service from the main dashboard. Alternatively, you can even launch the EC2 dashboard via <a href="https://console.aws.amazon.com/ec2/">https://console.aws.amazon.com/ec2/</a>.</li>
+<li>Next, from the navigation pane, select the <span class="packt_screen">Run Command</span> option from the <span class="packt_screen">Systems Manager Services</span> section. You will be taken to the <span class="packt_screen">Run Command</span> dashboard where you will need to select the <span class="packt_screen">Run a command</span> option to get started.</li>
+<li>In the <span class="packt_screen">Run a command</span> page, the first thing we need to do is select a <span class="packt_screen">Command document</span> that we can work with. A command document is basically a statement or set of information about the command you want to run on your managed instances. For this scenario, we will select the <kbd>AWS-RunShellScript</kbd> command document to start with.</li>
+<li>In the next <span class="packt_screen">Select Targets by</span> section, you can optionally choose whether you wish to execute your command document manually by selecting individual instances or specify a particular group of instances identified by their <em>tag</em> name.</li>
+<li>The <span class="packt_screen">Execute on</span> criteria provides you with the option to select either the <span class="packt_screen">Targets</span> or <span class="packt_screen">Percent</span> of instances you wish to execute the command document on. Selecting <span class="packt_screen">Targets</span> allows you to specify the exact number of instances that should be allowed to execute the command document. The execution occurs on each instance one at a time. Alternatively, if you select the <span class="packt_screen">Percent</span> option, then you can provide a percentage value of the instances that should be allowed to run the command at a single time.</li>
+<li>You can optionally set the <span class="packt_screen">Stop after x errors</span> to halt the execution of your command document in case an instance encounters an error.</li>
+<li>Finally, you can paste your execution code or shell script in the <span class="packt_screen">Commands</span> section as shown in the following screenshot. In this case, we are running a simple script that will install and configure a Zabbix monitoring agent on our Dev instance for easy monitoring of our EC2 resources:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img height="449" width="727" class=" image-border" src="Images/a5246724-04a4-4584-8afd-49c127f8e9e7.png"/></div>
+<div class="packt_infobox">You can learn more about Zabbix and its features at <a href="https://www.zabbix.com/product">https://www.zabbix.com/product</a>.<a href="https://www.zabbix.com/product"/></div>
+<ol start="8">
+<li>Copy and paste the following code snippet or, alternatively, tweak it according to the EC2 instance operating system that you may have selected for this exercise:</li>
+</ol>
+<pre style="padding-left: 60px">sudo wget http://repo.zabbix.com/zabbix/3.2/ubuntu/pool/main/z/zabbix-release/zabbix-release_3.4-1+xenial_all.deb 
+sudo dpkg -i zabbix-release_3.4-1+xenial_all.deb 
+sudo apt-get update -y 
+sudo apt-get install zabbix-agent -y 
+ 
+sudo bash -c "cat &gt; /etc/zabbix/zabbix_agentd.conf &lt;&lt;EOF 
+PidFile=/var/run/zabbix/zabbix_agentd.pid 
+LogFile=/var/log/zabbix/zabbix_agentd.log 
+LogFileSize=0 
+Server=192.168.32.50 # Private IP of my Zabbix Server on EC2 
+ServerActive=192.168.32.50 # Private IP of my Zabbix Server on EC2 
+Include=/etc/zabbix/zabbix_agentd.d/*.conf 
+EOF" 
+ 
+sudo service zabbix-agent status 
+sudo service zabbix-agent restart </pre>
+<ol start="9">
+<li>The rest of the options provide other configurational items such as setting up an optional <em>working directory</em> where the commands get executed on the remote managed instances.</li>
+</ol>
+<p style="padding-left: 90px">Additionally, you can even choose to <span class="packt_screen">Enable SNS notifications</span> as well as write your command output logs to S3 using the <span class="packt_screen">Advanced Options</span> sections, as shown here:</p>
+<div class="CDPAlignCenter CDPAlign"><img height="166" width="492" class=" image-border" src="Images/d89394cd-20bf-4ca9-a585-6acabdcd41cf.png"/></div>
+<ol start="10">
+<li>Once the configuration items are filled in, simply select the <span class="packt_screen">Run</span> option to start the execution of your command document. During this time, Systems Manager will invoke the execution of your supplied commands over the list of managed instances that you provided. If there is an error during the execution, Systems Manager will halt the execution and display the <span class="packt_screen">Status</span> of your output as either <span class="packt_screen">Success</span> or <span class="packt_screen">Failed</span>.</li>
+</ol>
+<p>Simple isn't it? You can use this same mechanism to manage and execute commands remotely over your fleet of EC2 instances with ease and consistency and even leverage the AWS CLI to perform the same set of actions we have explored in this section.</p>
+<p>In the next section, we will be learning a bit about yet another really useful feature provided by Systems Manager: State Manager.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Working with State Manager</h1>
+                </header>
+            
+            <article>
+                
+<p><strong>State Manager</strong> is a powerful tool that helps to govern and manage the configuration of a managed system. For example, by using State Manager you can enforce a particular firewall rule for your fleet of managed instances and set that as the required <span class="packt_screen">State</span> that needs to be enforced at all times. If the rules change outside of State Manager, it will automatically revert to match the required state's configuration, thus maintaining compliance and enforcing standardization over your environment.</p>
+<p>Working with State Manager is quite simple and straightforward. You start off by selecting a state document (JSON based) that specifies the settings you need to configure or maintain your EC2 instances. These documents come predefined and you can create customized versions of them. With the document created, you can then select the individual managed instances, which can be either EC2 instances or even on-premises virtual machines, as well as specify a schedule for when and how often you wish to apply these states. It's that simple!</p>
+<p>But before we go ahead with the invocation of our State Manager, let's first understand the concept of state documents a bit better as these documents are the foundation on which your Systems Manager works.</p>
+<p>State documents are nothing more than simple JSON-based steps and parameters that define certain actions to be performed by Systems Manager. AWS provides dozens of such documents out of the box, which can be used to perform a variety of tasks such as patching your instances, configuring certain packages, configuring the CloudWatch Log agents, and much more! Additionally, you can even create your own custom document as well! There are three types of documents that are supported by Systems Manager:</p>
+<ul>
+<li><strong>Command</strong>: Command documents are leveraged by the Run Command to execute commands over your managed instances. Alternatively, State Manager uses the command documents to apply certain policies as well. These actions can be run on one or more targets at any point during the life cycle of an instance.</li>
+<li><strong>Policy</strong>: Used by the State Manager, policy documents are used to enforce a policy on your managed instances.</li>
+<li><strong>Automation</strong>: These documents are more often used by the automation service within Systems Manager to perform common maintenance and deployment tasks. We will be learning more about automation documents a bit later in this chapter.</li>
+</ul>
+<p>To view System Manager's predefined documents, from the EC2 dashboard navigation pane, select the <span class="packt_screen">Documents</span> option under the <span class="packt_screen">Systems Manager Shared Resources</span> section. Here you can use any of the predefined documents as per your requirements for State Manager, however let's quickly create a very simple custom document based on the <span class="packt_screen">aws:configurePackage</span> definition:</p>
+<ol>
+<li>To create your own document, select the <span class="packt_screen">Create Document</span> option from the <span class="packt_screen">Documents</span> dashboard as shown here:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img class=" image-border" src="Images/cec7da8e-5c35-45ff-9503-5e36501d5c67.png" width="821" height="156"/></div>
+<ol start="2">
+<li>In the <span class="packt_screen">Create Document</span> wizard, start off by providing a suitable <span class="packt_screen">Name</span> for your document. In this case, I've provided the name <kbd>yoyodev-ssm-configure-packages</kbd>. Do note that the name cannot contain any spaces.</li>
+<li>Next, from the <span class="packt_screen">Document Type</span> dropdown, select <span class="packt_screen">Command</span> as the option type and paste the following JSON code in the <span class="packt_screen">Content</span> section as shown here:</li>
+</ol>
+<pre>    <strong>{</strong>
+    <strong>      "schemaVersion": "2.0",</strong>
+    <strong>      "description": "Install or uninstall the latest version or specified version of LAMP stack.",</strong>
+    <strong>      "parameters": {</strong>
+    <strong>            "action": {</strong>
+    <strong>                  "description": "(Required) Specify whether or not to install or uninstall the package.",</strong>
+    <strong>                  "type": "String",</strong>
+    <strong>                  "allowedValues": [</strong>
+    <strong>                        "Install",</strong>
+    <strong>                        "Uninstall"</strong>
+    <strong>                  ]</strong>
+    <strong>            },</strong>
+    <strong>            "name": {</strong>
+    <strong>                  "description": "(Required) The LAMP package to install/uninstall.",</strong>
+    <strong>                  "type": "String",</strong>
+    <strong>                  "allowedValues": [</strong>
+    <strong>                        "apache2",</strong>
+    <strong>                        "mysql-server",</strong>
+    <strong>                        "php"</strong>
+    <strong>                  ]</strong>
+    <strong>            },</strong>
+    <strong>            "version": {</strong>
+    <strong>                  "description": "(Optional) A specific version of the package to install or uninstall.",</strong>
+    <strong>                  "type": "String",</strong>
+    <strong>                  "default": "",</strong>
+    <strong>                  "allowedPattern": "(^(?:(\\d+)\\.)(?:(\\d+)\\.)(\\d+)$|^$)"</strong>
+    <strong>            }</strong>
+    <strong>      },</strong>
+    <strong>      "mainSteps": [{</strong>
+    <strong>            "action": "aws:configurePackage",</strong>
+    <strong>            "name": "configurePackage",</strong>
+    <strong>            "inputs": {</strong>
+    <strong>                  "name": "{{ name }}",</strong>
+    <strong>                  "action": "{{ action }}",</strong>
+    <strong>                  "version": "{{ version }}"</strong>
+    <strong>            }</strong>
+    <strong>      }]</strong>
+    <strong>}</strong>
+  </pre>
+<ol start="4">
+<li>With the document pasted, you can now click on <span class="packt_screen">Create Document</span> to complete the document creation process.</li>
+</ol>
+<p>The document comprises two primary sections: a <kbd>parameters</kbd> section, which contains a list of actions to be performed by the document, followed by a <kbd>mainSteps</kbd> section that specifies the action, which in this case is the <kbd>aws:configurePackage</kbd> to be performed by the document. In this case, the document when invoked will ask the user to select either <kbd>apache2</kbd>, <kbd>mysql-server</kbd>, or <kbd>php</kbd> from the dropdown list followed by an optional version number of the software you select. You can then select whether you wish to install or uninstall this particular package from your fleet of managed EC2 instances and simply execute the document when done!</p>
+<p>Now that your custom document is created, let's quickly configure the State Manager to invoke it:</p>
+<ol>
+<li>From the <span class="packt_screen">Systems Manager Services</span> section in the EC2 navigation pane, select the <span class="packt_screen">State Manager</span>. In the State Manager dashboard, select the <span class="packt_screen">Create Association</span> option to get started with configuring State Manager.</li>
+<li>Provide a suitable <span class="packt_screen">Association Name</span> for your association. Note that this is an optional field and you can skip it if you want.</li>
+</ol>
+<ol start="3">
+<li>Next, from the <span class="packt_screen">Select Document</span> section, filter and select the custom document that we created in our earlier step. On selection, you will notice the subfields change according to what we provided as parameters in the document. Let's quickly configure this and create our association.</li>
+<li>In the <span class="packt_screen">Targets</span> section, select your Dev instance or any of your managed instances which you wish to associate with this State Manager. Finally, go ahead and configure the <span class="packt_screen">Schedule</span> that will trigger the association based on either a CRON or a rate schedule.</li>
+<li>Last but not the least, configure the <span class="packt_screen">Action</span> and select the appropriate package <span class="packt_screen">Name</span> from the <span class="packt_screen">Parameters</span> section as shown in the following screenshot:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img height="456" width="529" class=" image-border" src="Images/34bde6ea-fa5a-40ac-9f33-de2f940a6ee7.png"/></div>
+<ol start="6">
+<li>You can optionally enable the <span class="packt_screen">Write to S3</span> checkbox to log the State Manager's execution in your own custom S3 bucket. For this scenario, I have not selected this option.</li>
+<li>Finally, complete the State Manager's association process by selecting the <span class="packt_screen">Create Association</span> option.</li>
+</ol>
+<p>You can now view and modify your associations using the State Manager dashboard. Alternatively, you can even choose to enable your association immediately by selecting the <span class="packt_screen">Apply Association Now</span> option as well.</p>
+<p>In the next section, we will be looking at yet another simple and easy-to-use feature provided by Systems Manager that helps automate simple instance and deployment tasks, called System Manager Automation!</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Simplifying instance maintenance using System Manager Automation</h1>
+                </header>
+            
+            <article>
+                
+<p>System Manager Automation is a managed service that provides a single, centralized interface for executing and monitoring commonly occurring instance management tasks such as patching, performing backups, executing scripts, and much more. Let's first get started by understanding a few necessary prerequisites that are required to be configured in order for automation to work in your environments.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Working with automation documents</h1>
+                </header>
+            
+            <article>
+                
+<p>As discussed briefly during the introduction to the State Manager service, automation documents are simple JSON-based documents that are designed to help you get started with the automation service quickly and efficiently. You can leverage the predefined automation documents or, alternatively, create your own set. In this section, we will look at how to leverage an existing automation document to patch your Dev EC2 instance and create a new AMI from it:</p>
+<ol>
+<li>From the <span class="packt_screen">EC2 Management Console</span>, select the <span class="packt_screen">Documents</span> option from the <span class="packt_screen">Systems Manager Shared Resources</span> section.</li>
+<li>Using the <span class="packt_screen">Documents</span> dashboard, you can filter and view only the documents that have <span class="packt_screen">Automation</span> set as the <span class="packt_screen">Document Type</span>.</li>
+</ol>
+<ol start="3">
+<li>Select <span class="packt_screen">AWS-UpdateLinuxAmi</span> and click on the <span class="packt_screen">Content</span> tab to view the automation document as shown here:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img class=" image-border" src="Images/e1d2b27c-c047-4b57-a505-0bdd9ce72e45.png" width="789" height="353"/></div>
+<p>The <span class="packt_screen">AWS-UpdateLinuxAmi</span> document comprises five distinctive steps, each explained briefly here:</p>
+<ul>
+<li><strong>launchInstance:</strong> This step basically launches a new EC2 instance using your Systems Manager IAM instance profile as well as with a user data script that will install the latest copy of the SSM agent on this instance. The SSM agent is vital as it will enable the next steps to be executed using the Run Command as well as State Manger.</li>
+<li><strong>updateOSSoftware:</strong> With the instance launched and the SSM agent installed, the next step is responsible for updating the packages in your Linux instance. This is done by executing an update script that methodologically updates the packages and any other software that may be marked for upgrades. You also get the capability to include or exclude a particular set of packages from this step using the <kbd>IncludePackages</kbd> and <kbd>ExcludePackages</kbd> parameters respectively. If no packages are included, the program updates all available packages on the instance.</li>
+<li><strong>stopInstance:</strong> Once the instance is updated with the latest set of packages, the next action simply powers off the instance so that it can be prepped for the image creation process.</li>
+<li><strong>createImage:</strong> This step creates a new AMI from your updated Linux instance. The image contains a descriptive name that links it to the source ID and creation time of the image.</li>
+<li><strong>terminateInstance</strong>: The final step in the automation document, this step essentially cleans up the execution by terminating the running Linux instance.</li>
+</ul>
+<p>Let's look at few simple steps using which we can invoke this particular automation document manually using the automation dashboard.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Patching instances using automation</h1>
+                </header>
+            
+            <article>
+                
+<p>In this section, we will be manually invoking the <span class="packt_screen">AWS-UpdateLinuxAmi</span> automation document for patching our Linux instance and later creating a new AMI out of it:</p>
+<ol>
+<li>To do this, first select the <span class="packt_screen">Automations</span> option present under the <span class="packt_screen">Systems Manager Services</span> section.</li>
+<li>From the <span class="packt_screen">Automations</span> dashboard, select the <span class="packt_screen">Run automation document</span> option.</li>
+<li>From the <span class="packt_screen">Document name</span> field, select the <span class="packt_screen">AWS-UpdateLinuxAmi</span> document and populate the required fields in the <span class="packt_screen">Input parameters</span> section as described here:
+<ul>
+<li><kbd>SourceAmiId</kbd>: Provide the source Amazon Machine Image ID from which the new instance will be deployed.</li>
+<li><kbd>InstanceIamRole</kbd>: Provide the IAM role name that enables Systems Manager to manage the instance. We created this role earlier during the start of this chapter as a part of SSM's prerequisites.</li>
+<li><kbd>AutomationAssumeRole</kbd>: Provide the ARN of the IAM role that allows automation to perform the actions on your behalf.</li>
+<li><kbd>TargetAmiName</kbd>: This will be the name of the new AMI created as a part of this automation document. The default is a system-generated string including the source AMI ID and the creation time and date.</li>
+<li><kbd>InstanceType</kbd>: Specify the instance type of instance to launch for the AMI creation process. By default, the <em>t2.micro</em> instance type is selected.</li>
+<li><kbd>PreUpdateScript</kbd>: You can additionally provide the URL of a script to run before any updates are applied. This is an optional field.</li>
+<li><kbd>PostUpdateScript</kbd>: Provide an optional post update script URL of a script to run after package updates are applied.</li>
+<li><kbd>IncludePackages</kbd>: Include specific packages to be updated. By default, all available updates are applied.</li>
+<li><kbd>ExcludePackages</kbd>: Provide names of specific packages that you wish to exclude from the updates list.</li>
+</ul>
+</li>
+</ol>
+<ol start="4">
+<li>With the fields populated, simply select the <span class="packt_screen">Run automation</span> option as shown in the following screenshot:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img height="316" width="980" class=" image-border" src="Images/4819c1f5-bde9-4057-a149-a11fefa7f420.png"/></div>
+<ol start="5">
+<li>The automation document takes a couple of minutes to completely execute. You can verify the output of the execution using the <span class="packt_screen">Automations</span> dashboard as well.</li>
+<li>Simply select your automation job <span class="packt_screen">Execution ID</span> to view the progress of each individual step as shown in the following screenshot. Optionally, you can verify the output of each step by selecting the adjoining <span class="packt_screen">View Outputs</span> link as well:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img height="274" width="866" class=" image-border" src="Images/5314ef7f-ddf0-417f-b9ad-377db09075b1.png"/></div>
+<p>With this completed, you can now run similar automation tasks by creating your own automation documents and executing them using the steps mentioned herein. But what if you wanted to trigger these steps based on some events or schedules? Well, that's exactly what we will look into in the next section, <em>Triggering automation using CloudWatch schedules and events</em>.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Triggering automation using CloudWatch schedules and events</h1>
+                </header>
+            
+            <article>
+                
+<p>Although you can trigger automation documents manually, it's far better to either schedule or automate the execution of automation jobs using CloudWatch schedules and events.</p>
+<p>Let's first understand how you can leverage CloudWatch events to trigger simple notifications of Systems Manager Automation events. These events can be used to notify you of whether your automation task succeeded, failed, or simply timed out:</p>
+<ol>
+<li>First, log in to the CloudWatch dashboard. Alternatively, you can open CloudWatch via <a href="https://console.aws.amazon.com/cloudwatch/">https://console.aws.amazon.com/cloudwatch/</a>.</li>
+<li>Next, from the navigation pane, select the <span class="packt_screen">Events</span> option to bring up the <span class="packt_screen">Create rule</span> page. Here, select <span class="packt_screen">Event Pattern</span> from the <span class="packt_screen">Event Source</span> section.</li>
+<li>With this done, we now need to build our event source. To do so, from the <span class="packt_screen">Service Name</span> drop-down list, search and select the option <span class="packt_screen">EC2 Simple Systems Manager (SSM)</span>, as shown here:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img height="312" width="527" class=" image-border" src="Images/9a11327e-80a5-4ce8-a0eb-867f00653dbb.png"/></div>
+<ol start="4">
+<li>With the service selected, you can now opt to select a corresponding SSM <span class="packt_screen">Event Type</span> as well, for example in this case I wish to be notified when a particular <span class="packt_screen">Automation</span> task fails. So in the <span class="packt_screen">Event Type</span> drop-down list, I've selected the <span class="packt_screen">Automation</span> option. You can alternatively select other SSM services as well.</li>
+<li>Next, in the detail type section, I've opted to go for the <span class="packt_screen">EC2 Automation Execution Status-change Notification</span> option. Correspondingly, I've also selected <span class="packt_screen">Failed</span> as the <span class="packt_screen">Specific status(es)</span> for my event. This means that if and when a failed status event is generated as a result of an automation job, it will trigger a corresponding action which can be as simple as sending a notification using an SNS service or even triggering a corresponding Lambda function to perform some form of remediation action.</li>
+<li>Your <span class="packt_screen">Event Pattern Preview</span> should resemble something similar to the snippet here:</li>
+</ol>
+<pre>    <strong>{</strong>
+    <strong>  "source": [</strong>
+    <strong>    "aws.ssm"</strong>
+    <strong>  ],</strong>
+    <strong>  "detail-type": [</strong>
+    <strong>    "EC2 Automation Step Status-change Notification",</strong>
+    <strong>    "EC2 Automation Execution Status-change Notification"</strong>
+    <strong>  ]</strong>
+    <strong>}</strong>
+  </pre>
+<p>Similarly, you can even configure a CRON expression or fixed rate of execution of your automation jobs by selecting the <span class="packt_screen">Schedule</span> option in the <span class="packt_screen">Event Source</span> section:</p>
+<ol>
+<li>Provide a suitable <span class="packt_screen">Cron expression</span> depending on your requirements, for example, I wish to run the <span class="packt_screen">AWS-UpdateLinuxAmi</span> automation document every Sunday at 10 P.M. UTC. In this case, the CRON expression will become <kbd>0,18,?,*,SUN,*</kbd>.</li>
+<li>With the schedule configured, move on to the <span class="packt_screen">Targets</span> section and select the <span class="packt_screen">SSM Automation</span> option from the <span class="packt_screen">Targets</span> drop-down list as shown in the following screenshot:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img height="369" width="534" class=" image-border" src="Images/423dd317-ec1f-422a-b722-0665683cf405.png"/></div>
+<ol start="3">
+<li>Next, configure the <span class="packt_screen">AWS-UpdateLinuxAmi</span> parameters as we discussed earlier, and once the desired fields are populated, click on <span class="packt_screen">Add target*</span> to complete the configuration.</li>
+</ol>
+<p>With this step completed, you can now instantaneously trigger your automation jobs based on events as well as schedules, all powered by CloudWatch! Amazing isn't it?</p>
+<p>In the next and final section, we will be learning a bit about yet another simple and easy to use SSM service that enables you to manage and patch your instances with ease.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Managing instance patches using patch baseline and compliance</h1>
+                </header>
+            
+            <article>
+                
+<p>Regularly patching your instances with the right set of security patches is an important activity that can take up a lot of time and effort if performed manually on each individual instance. Luckily, AWS provides a really efficient and easy way of automating the patching of your managed instances using the concept of Patch Manager services, provided as an out-of-the-box capability with SSM.</p>
+<p>As an administrator, all you need to do is scan your instances for missing patches and leverage Patch Manager to automatically remediate the issues by installing the required set of patches. You can, alternatively, even schedule the patching of your managed instance or group of instances with the help of SSM's maintenance window tasks.</p>
+<p>In this section, we will explore a quick and easy way of creating a unique patch baseline for our Dev instances and later create and associate a maintenance window for this, all using the EC2 Management dashboard. So let's get started with this right away!</p>
+<p>First up, you will need to ensure that your instance has the required set of IAM Roles as well as the SSM agent installed and functioning as described at the beginning of this chapter. With these basics out of the way, we first need to configure the patch baseline with our set of required patches:</p>
+<ol>
+<li>To do so, launch your EC2 dashboard and select the <span class="packt_screen">Patch Baselines</span> option from the <span class="packt_screen">Systems Manager Services</span> section. Patch Manager includes a default patch baseline for each operating system supported by Patch Manager. This includes Windows Server 2003 to 2016, Ubuntu, RHEL, CentOS, SUSE, and even Amazon Linux as well. You can use these default patch baselines or alternatively you can create one based on your requirements. Here, let's quickly create a custom baseline for our Dev instances.</li>
+<li>Select the <span class="packt_screen">Create Patch Baseline</span> option to bring up the <span class="packt_screen">Create Patch Baseline</span> dashboard. Here, provide a suitable <span class="packt_screen">Name</span> for your custom baseline.</li>
+<li>From the <span class="packt_screen">Operating System</span>, select <span class="packt_screen">Ubuntu</span> as the OS choice. You will notice the patching rules change accordingly based on the OS type you select.</li>
+</ol>
+<ol start="4">
+<li>Next, in the <span class="packt_screen">Approval Rules</span> section, create suitable patch baseline rules depending on your requirements. For example, I wish to set the Python packages to an <span class="packt_screen">Important</span> priority and with a <span class="packt_screen">High</span> compliance level as well. Similarly, you can add up to 10 such rules for one baseline, as shown in the following screenshot:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img height="354" width="958" class=" image-border" src="Images/2b67929e-a4f1-47cc-bf45-075528e2e889.png"/></div>
+<ol start="5">
+<li>In the final section, <span class="packt_screen">Patch Exceptions</span>, you can optionally mention the <span class="packt_screen">Approved Packages</span>, <span class="packt_screen">Rejected Packages</span>, and the <span class="packt_screen">Compliance Level</span> for these patches collectively. In this case, I've left these values as their defaults and selected the <span class="packt_screen">Create Patch Baseline</span> option to complete the process.</li>
+</ol>
+<p>With your new patch baseline created, you now have the option to promote the same as the <span class="packt_screen">Default Baseline</span> by selecting the new baseline from the <span class="packt_screen">Patch Baselines</span> dashboard and clicking on the <span class="packt_screen">Set Default Patch Baseline</span> option from the <span class="packt_screen">Actions</span> tab.</p>
+<p>Moving on to the next part of this walkthrough, we will now go ahead and set up the maintenance window for our newly created patch baseline:</p>
+<ol>
+<li>To do so, select the <span class="packt_screen">Maintenance Windows</span> option from the <span class="packt_screen">Systems Manager Shared Resources</span> section. Click on <span class="packt_screen">Create maintenance window</span> to get started with the process.</li>
+<li>In the <span class="packt_screen">Create maintenance window</span> page, provide a suitable <span class="packt_screen">Name</span> for your window as well as an optional <span class="packt_screen">Description</span>.</li>
+</ol>
+<ol start="3">
+<li>Next, in the <span class="packt_screen">Specify schedule</span> section, you can opt to either use a <em>CRON scheduler</em> or a <em>rate expression</em> to define the schedule for your maintenance window. For this scenario, I've opted for the <span class="packt_screen">Cron schedule builder</span> option and provided a window that starts every Sunday at 12:00 UTC:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img height="361" width="484" class=" image-border" src="Images/81b5a47d-f1d1-4fb1-98dd-c782ef4c53a3.png"/></div>
+<ol start="4">
+<li>In the <span class="packt_screen">Duration</span> as well as the <span class="packt_screen">Stop initiating tasks</span> field, specify the timeline in hours that the maintenance window has to last for, as well as the number of hours before you want the system to stop initiating new tasks. Once all the required fields are populated, click on <span class="packt_screen">Create maintenance window</span> to complete the creation process.</li>
+</ol>
+<p>With the maintenance window created, we next need to add some targets for execution. Targets are individual EC2 instances or a group of EC2 instances that are identified by tags. To configure targets, select your newly created maintenance window then from the <span class="packt_screen">Actions</span> tab and select the option <span class="packt_screen">Register targets</span>:</p>
+<ol>
+<li>In the <span class="packt_screen">Register targets</span> page, provide a <span class="packt_screen">Target Name</span> for your maintenance window's target with an optional <span class="packt_screen">Description</span>.</li>
+<li>Next, select the target EC2 instances you wish to associate with this target by either opting to <span class="packt_screen">Specify Tags</span> or even by <span class="packt_screen">Manually Selecting Instances</span> as shown in the following screenshot. For this scenario, I've already provided the tag <em>OS:Linux</em> to my Dev instances; alternatively, you can manually select your instances as well:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img height="433" width="837" class=" image-border" src="Images/c7037cbf-c4e7-498a-ba2f-a310a72dfbc9.png"/></div>
+<ol start="3">
+<li>Once completed, select the <span class="packt_screen">Register targets</span> option to complete the process.</li>
+</ol>
+<p>With the target instances registered with our maintenance window, the final step left to take is associate the maintenance window with our patch baseline:</p>
+<ol>
+<li>In order to do this, we need to select the newly created <em>maintenance window</em>; from the <span class="packt_screen">Actions</span> tab, select the option <span class="packt_screen">Register run command task</span>.</li>
+<li>Here, in the <span class="packt_screen">Register run command task</span> page, fill in the required details such as a <em>name</em> for your new Run Command followed by an optional <span class="packt_screen">Description</span>.</li>
+<li>Next, from the <span class="packt_screen">Command document</span> section, select the <span class="packt_screen">AWS-RunPatchBaseline</span> document. You will also see the targeted instance associated with this Run Command already, as we configured it in our earlier steps.</li>
+<li>Finally, in the <span class="packt_screen">Parameters</span> section, select the appropriate IAM Role, provide a suitable count for the <em>Run Command to stop after</em> receiving a certain amount of errors, and last but not least, don't forget to select whether you wish to <span class="packt_screen">Install</span> or simply <span class="packt_screen">Scan</span> the target instances for the required set of patches.</li>
+<li>With all the fields completed, click on <span class="packt_screen">Register task</span> to complete this configuration.</li>
+</ol>
+<p>Awesome isn't it? With just a few simple clicks you have now set up an effective patch management solution for your Dev instances, and without the need for any specialized software or expertise! But before we wind up this chapter, let's look at one last simple and really useful service provided by Systems Manager, which helps collect and inventorize metadata about your AWS as well as on-premises instances.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Getting started with Inventory Management</h1>
+                </header>
+            
+            <article>
+                
+<p>Inventory Management or just Inventory is yet another managed service provided by Systems Manager that is responsible for collecting operating system, application, and instance metadata from your AWS instances as well as those present and managed by Systems Manager in your on-premises environments. You can use this service to query the inventory metadata for mapping, understanding, and remediating EC2 instances based on certain software or regulatory compliances.</p>
+<p>Let's look at a very simple example of enabling the inventory service for our Dev instance using the AWS Management dashboard:</p>
+<ol>
+<li>To begin with, you will require both the SSM agent as well as the required IAM Roles configured on your managed instance. Once this is completed, select the <span class="packt_screen">Managed Instances</span> option from the <span class="packt_screen">Systems Manager Shared Resources</span> section.</li>
+<li>Here, select your Dev instance and click on the <span class="packt_screen">Setup Inventory</span> option as shown in the following screenshot:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img class=" image-border" src="Images/d292fb3a-4e42-499f-b72b-fae080576b08.png" width="710" height="152"/></div>
+<ol start="3">
+<li>On the <span class="packt_screen">Setup Inventory</span> page, most of the options will be quite familiar to you by now, such as the <span class="packt_screen">Targets</span> and <span class="packt_screen">Schedule</span> sections, so I'm not going to dwell on them here again. The more important section here is the <span class="packt_screen">Parameters</span> section, using which you can choose to either <span class="packt_screen">Enable</span> or <span class="packt_screen">Disable</span> different types of inventory collections. For example, since we are working with Linux instances, I've chosen to disable the <em>Windows updates</em> parameters while keeping the rest enabled.</li>
+<li>The final field <span class="packt_screen">Write execution history to S3</span> basically allows you to write and store the inventory data centrally in an S3 bucket. This comes in really handy when you wish to collate your inventory data from multiple instances at a central location and then query this data either using services such as Amazon Athena or QuickInsights. Once completed, click on <span class="packt_screen">S</span><span class="packt_screen">etup Inventory</span> to complete the inventory setup process.</li>
+</ol>
+<p>You can now view the collected metadata of your EC2 instance by selecting it from the <span class="packt_screen">Managed Instances</span> page and clicking on the <span class="packt_screen">Inventory</span> tab. Here, choose between the various <span class="packt_screen">Inventory Types</span> drop-down lists to view your instance specific metadata. You can toggle between <span class="packt_screen">AWS:Application</span>, <span class="packt_screen">AWS:AWSComponent</span>, <span class="packt_screen">AWS:Network</span>, and <span class="packt_screen">AWS:InstanceDetailedInformation</span>, just to name a few.</p>
+<p>With this, we come towards the end of this chapter, but before we move on to the next chapter, here are a few key takeaways and points that you ought to try out!</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Planning your next steps</h1>
+                </header>
+            
+            <article>
+                
+<p>Well, we have covered a lot of new features and services in this chapter, however, there are still a few things that I would recommend you try out on your own. First up is the Parameter Store!</p>
+<p>The Parameter Store is yet another managed service provided by Systems Manager and is designed to store your instance's configuration data such as passwords, database strings, license codes, and so on, securely. You have the added option of storing the data either as plain text, or even in encrypted form, and later reference it in your automation documents or policy documents as variables rather than complete plain text. But that's not even the best part of it! Using Parameter Store, you can also reference your data across other AWS services such as EC2 Container Service and AWS Lambda, thus making this a centralized store for storing all your configurational and secure data.</p>
+<p>Another important feature that I would recommend using in your environments is Resource Data Sync. Resource Data Sync enables you to store your instance's metadata collected from different Systems Manager services in a centralized location. You can configure it to collect metadata from instance operating systems, applications, Microsoft Windows updates, network configurations, and much more! This comes in really handy in production environments where you want to analyze the software and patch compliances of your instances.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>Well, it has certainly been a long chapter, but we got to learn a lot and I hope that it helps you in your quest towards mastering AWS! Let's quickly recap what we have learned so far.</p>
+<p>We started off with a quick introduction to Systems Manager, followed by an in-depth look at how to install, configure and verify the SSM agents on your managed EC2 instances. We then gained an understanding of how to leverage the Run Command to perform certain types of executions on your managed instances, followed by a rundown of maintaining an instance's state configuration using State Manager. We also looked at working with automation documents and how you can effectively patch your instances using them. Towards the end of the chapter, we learned about patching your instances using Patch Manager and also learned how you can effectively inventorize your instance metadata using inventory manager.</p>
+<p>In the next chapter, we will be introducing two new services, which will help us to deploy our simple WordPress application to the cloud. So, stay tuned!</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  </body></html>

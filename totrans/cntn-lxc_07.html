@@ -1,0 +1,965 @@
+<html><head></head><body><div class="chapter" title="Chapter&#xA0;7.&#xA0;Monitoring and Backups in a Containerized World"><div class="titlepage"><div><div><h1 class="title"><a id="ch07"/>Chapter 7. Monitoring and Backups in a Containerized World</h1></div></div></div><p>In the previous chapter, we looked at a few examples of how to scale applications running inside LXC containers, by creating multiple instances behind a proxy service such as HAProxy. This ensures the application has enough resources and can withstand failures, thus achieving a level of high availability.</p><p>For applications running in a single LXC instance, it's often desirable to perform periodic backups of the container, which includes the root filesystem and the container's configuration file. Depending on the backing store, there are a few available options that we are going to explore in this chapter.</p><p>Using a highly available or shared backend store can help with quickly recovering from failed hosts, or when one needs to migrate LXC containers between servers. We are going to look at how to create containers on an <span class="strong"><strong>Internet Small Computer Systems Interface</strong></span> (<span class="strong"><strong>iSCSI</strong></span>) target and migrate LXC between servers. We are also going to look at an example of how to use GlusterFS as a shared filesystem to host the root filesystem of containers, thus creating active-passive LXC deployments.</p><p>We are also going to go over how to monitor LXC containers and the services running inside them, with various tools such as Monit and Sensu; we will end the chapter with an example of creating a simple autoscaling solution based on monitoring triggers.</p><p>In this chapter, we are going to explore the following topics:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Backing up LXC containers using <code class="literal">tar</code> and <code class="literal">rsync</code></li><li class="listitem" style="list-style-type: disc">Backing up LXC containers with the <code class="literal">lxc-copy</code> utility</li><li class="listitem" style="list-style-type: disc">Creating LXC containers using the iSCSI target as a backend store and demonstrating how to migrate containers if the primary server goes down</li><li class="listitem" style="list-style-type: disc">Demonstrating how to use GlusterFS as a shared filesystem for the root filesystem of containers and deploy active-passive LXC nodes</li><li class="listitem" style="list-style-type: disc">Looking into what metrics LXC exposes, and how to monitor, alert, and act on them</li></ul></div><div class="section" title="Backing up and migrating LXC"><div class="titlepage"><div><div><h1 class="title"><a id="ch07lvl1sec34"/>Backing up and migrating LXC</h1></div></div></div><p>Creating backups of LXC instances ensures that we can recover from events such as server crashes or corrupt backend stores. Backups also provide for a quick way of migrating instances between hosts or starting multiple similar containers, by just changing their config files.</p><div class="section" title="Creating LXC backup using tar and rsync"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec69"/>Creating LXC backup using tar and rsync</h2></div></div></div><p>In most use cases, we build containers from templates, or with tools such as debootstrap, which result in an entire root filesystem, for the instance. Creating backups in such cases is a matter of stopping the container, archiving its configuration file along with the actual root filesystem, then storing them on a remote server. Let's demonstrate this concept with a simple example:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Start by updating your Ubuntu distribution and installing LXC. For this example, we'll be using Ubuntu 16.04, but the instructions apply to any other Linux distribution:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# apt-get update &amp;&amp; apt-get -y upgrade &amp;&amp; reboot&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# lsb_release -cd&#13;</strong></span>
+<span class="strong"><strong>      Description: Ubuntu 16.04.1 LTS&#13;</strong></span>
+<span class="strong"><strong>      Codename: xenial&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# apt-get install -y lxc</strong></span>
+</pre></li><li class="listitem">Next, proceed by creating a container using the default directory backend store, and start it:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# lxc-create --name dir_container --template ubuntu&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# lxc-start --name dir_container</strong></span>
+</pre></li><li class="listitem">Install an application inside LXC, in this case, Nginx, and create a custom index file:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# lxc-attach --name dir_container&#13;</strong></span>
+<span class="strong"><strong>      root@dir_container:~# apt-get install -y nginx&#13;</strong></span>
+<span class="strong"><strong>      root@dir_container:~# echo "Original container" &gt; &#13;
+      /var/www/html/index.nginx-debian.html&#13;</strong></span>
+<span class="strong"><strong>      root@dir_container:~# exit&#13;</strong></span>
+<span class="strong"><strong>      exit&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">With the container running, ensure we can reach the HTTP service:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>      NAME STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>      dir_container RUNNING 0 - 10.0.3.107 -&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# curl 10.0.3.107&#13;</strong></span>
+<span class="strong"><strong>      Original container&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Notice how the container's filesystem and its configuration file are self-contained in the <code class="literal">/var/lib/lxc</code> directory:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# cd /var/lib/lxc&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc# ls -lah&#13;</strong></span>
+<span class="strong"><strong>      total 12K&#13;</strong></span>
+<span class="strong"><strong>      drwx------ 3 root root 4.0K Nov 15 16:28 .&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 42 root root 4.0K Nov 15 16:17 ..&#13;</strong></span>
+<span class="strong"><strong>      drwxrwx--- 3 root root 4.0K Nov 15 16:33 dir_container&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc# ls -la dir_container/&#13;</strong></span>
+<span class="strong"><strong>      total 16&#13;</strong></span>
+<span class="strong"><strong>      drwxrwx--- 3 root root 4096 Nov 15 16:33 .&#13;</strong></span>
+<span class="strong"><strong>      drwx------ 3 root root 4096 Nov 15 16:28 ..&#13;</strong></span>
+<span class="strong"><strong>      -rw-r--r-- 1 root root 712 Nov 15 16:33 config&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 21 root root 4096 Nov 15 16:38 rootfs&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc#</strong></span>
+</pre></li><li class="listitem">This is quite convenient for creating a backup using standard Linux utilities such as <code class="literal">tar</code> and <code class="literal">rsync</code>. Stop the container before we back it up:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc# lxc-stop --name dir_container&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>      NAME STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>      dir_container STOPPED 0 - - -&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc#</strong></span>
+</pre></li><li class="listitem">Create a <code class="literal">bzip</code> archive of the root filesystem and the configuration file, making sure to preserve the numeric owner IDs, so that we can later start it on a different server without creating user ID collisions:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc# tar --numeric-owner -jcvf &#13;
+      dir_container.tar.bz2 dir_container/&#13;</strong></span>
+<span class="strong"><strong>      ...&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc# file dir_container.tar.bz2&#13;</strong></span>
+<span class="strong"><strong>      dir_container.tar.bz2: bzip2 compressed data, block size = 900k&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc#</strong></span>
+</pre></li><li class="listitem">Next, copy the archive to a different server, in this case, <code class="literal">ubuntu-backup</code>, and delete the archive from the original server:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc# rsync -vaz dir_container.tar.bz2 &#13;
+      ubuntu-backup:/tmp&#13;</strong></span>
+<span class="strong"><strong>      sending incremental file list&#13;</strong></span>
+<span class="strong"><strong>      dir_container.tar.bz2&#13;</strong></span>
+<span class="strong"><strong>      sent 148,846,592 bytes received 35 bytes 9,603,008.19 bytes/sec&#13;</strong></span>
+<span class="strong"><strong>      total size is 149,719,493 speedup is 1.01&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc# rm -f dir_container.tar.bz2</strong></span>
+</pre></li></ol></div><p>With the archive on the destination server, we are now ready to restore it when needed.</p></div><div class="section" title="Restoring from the archived backup"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec70"/>Restoring from the archived backup</h2></div></div></div><p>To restore the container from the <code class="literal">bz2</code> backup, on the destination server, extract the archive in <code class="literal">/var/lib/lxc</code>:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu-backup:~# cd /var/lib/lxc&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu-backup:/var/lib/lxc# ls -la&#13;</strong></span>
+<span class="strong"><strong>total 8&#13;</strong></span>
+<span class="strong"><strong>drwx------ 2 root root 4096 Oct 21 16:56 .&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 42 root root 4096 Nov 15 16:48 ..&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu-backup:/var/lib/lxc#&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu-backup:/var/lib/lxc# tar jxfv /tmp/dir_container.tar.bz2&#13;</strong></span>
+<span class="strong"><strong>...&#13;
+&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu-backup:/var/lib/lxc# ls -la&#13;</strong></span>
+<span class="strong"><strong>total 12&#13;</strong></span>
+<span class="strong"><strong>drwx------ 3 root root 4096 Nov 15 16:59 .&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 42 root root 4096 Nov 15 16:48 ..&#13;</strong></span>
+<span class="strong"><strong>drwxrwx--- 3 root root 4096 Nov 15 16:33 dir_container&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu-backup:/var/lib/lxc#</strong></span>
+</pre><p>Notice how, after extracting the root filesystem and the configuration file, listing all containers will show the container we just restored, albeit in a stopped state:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu-backup:/var/lib/lxc# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>NAME STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>dir_container STOPPED 0 - - -&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu-backup:/var/lib/lxc#</strong></span>
+</pre><p>Let's start it and hit the HTTP endpoint, ensuring we get the same result back as with the original LXC instance:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu-backup:/var/lib/lxc# lxc-start --name dir_container&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu-backup:/var/lib/lxc# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>NAME STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>dir_container RUNNING 0 - 10.0.3.107 -&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu-backup:/var/lib/lxc# curl 10.0.3.107&#13;</strong></span>
+<span class="strong"><strong>Original container&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu-backup:/var/lib/lxc#</strong></span>
+</pre><p>To clean up, run the following commands:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu-backup:/var/lib/lxc# lxc-stop --name dir_container&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu-backup:/var/lib/lxc# lxc-destroy --name dir_container&#13;</strong></span>
+<span class="strong"><strong>Destroyed container dir_container&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu-backup:/var/lib/lxc# ls -la&#13;</strong></span>
+<span class="strong"><strong>total 8&#13;</strong></span>
+<span class="strong"><strong>drwx------ 2 root root 4096 Nov 15 17:01 .&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 42 root root 4096 Nov 15 16:48 ..&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu-backup:/var/lib/lxc#</strong></span>
+</pre></div><div class="section" title="Creating container backup using lxc-copy"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec71"/>Creating container backup using lxc-copy</h2></div></div></div><p>Regardless of the backend store of the container, we can use the <code class="literal">lxc-copy</code> utility to create a full copy of the LXC instance. Follow these steps for creating container backup:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">We start by specifying the name of the container on the original host we want to back up, and a name for the copy:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc# lxc-copy --name dir_container --newname &#13;
+      dir_container_backup&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc#</strong></span>
+</pre><p>This command created a new root filesystem and configuration file on the host:</p><pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc# ls -la&#13;</strong></span>
+<span class="strong"><strong>      total 16&#13;</strong></span>
+<span class="strong"><strong>      drwx------ 4 root root 4096 Nov 15 17:07 .&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 42 root root 4096 Nov 15 16:17 .. &#13;</strong></span>
+<span class="strong"><strong>      drwxrwx--- 3 root root 4096 Nov 15 16:33 dir_container&#13;</strong></span>
+<span class="strong"><strong>      drwxrwx--- 3 root root 4096 Nov 15 17:07 dir_container_backup&#13;</strong></span>
+<span class="strong"><strong>&#13;
+      root@ubuntu:/var/lib/lxc# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>      NAME STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>      dir_container STOPPED 0 - - -&#13;</strong></span>
+<span class="strong"><strong>      dir_container_backup STOPPED 0 - - -&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc#</strong></span>
+</pre></li><li class="listitem">Creating a full copy will update the configuration file of the new container with the newly specified name and location of the <code class="literal">rootfs</code>:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc# cat dir_container_backup/config | egrep &#13;
+      "rootfs|utsname"&#13;</strong></span>
+<span class="strong"><strong>      lxc.rootfs = /var/lib/lxc/dir_container_backup/rootfs&#13;</strong></span>
+<span class="strong"><strong>      lxc.rootfs.backend = dir&#13;</strong></span>
+<span class="strong"><strong>      lxc.utsname = dir_container_backup&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc#</strong></span>
+</pre><p>Notice the container's name and directory have changed from the original instance. Now we can archive and store remotely, as shown in the previous section, with <code class="literal">tar</code> and <code class="literal">rsync</code>. Using this method is convenient, if we need to ensure the name of the container and the location of its <code class="literal">rootfs</code> differ from the original, in the case where we would like to keep the backup on the same server, or on hosts with the same LXC name.</p></li><li class="listitem">Finally, to clean up, execute the following command:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc# lxc-destroy --name dir_container_backup&#13;</strong></span>
+<span class="strong"><strong>      Destroyed container dir_container_backup&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc# lxc-destroy --name dir_container&#13;</strong></span>
+<span class="strong"><strong>      Destroyed container dir_container&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/var/lib/lxc#</strong></span>
+</pre></li></ol></div></div><div class="section" title="Migrating LXC containers on an iSCSI target"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec72"/>Migrating LXC containers on an iSCSI target</h2></div></div></div><p>Moving containers from one host to another can be quite useful when performing server maintenance, or when redistributing server load. Cloud platforms such as OpenStack leverage schedulers that choose where an LXC instance should be created and tools to migrate them, based on certain criteria such as instance density, resource utilization, and others, as we'll see in the next chapter. Nevertheless, it helps to know how to manually migrate instances between hosts should the need arise.</p><p>Creating a backup or a copy of the container is easier when we use the default <code class="literal">dir</code> backing store with LXC; however, it is not as trivial when leveraging other types such as LVM, Btrfs, or ZFS, unless using a shared storage, such as GlusterFS, or iSCSI block devices, which we are going to explore next.</p><p>The iSCSI protocol has been around for a while, and lots of <span class="strong"><strong>Storage Area Networks</strong></span> (<span class="strong"><strong>SAN</strong></span>) solutions exist around it. It's a great way of providing access to block devices over a TCP/IP network.</p><div class="section" title="Setting up the iSCSI target"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec15"/>Setting up the iSCSI target</h3></div></div></div><p>The endpoint that exposes the block device is called the <span class="strong"><strong>target</strong></span>. Creating an iSCSI target on Linux is quite trivial. All we need is a block device. In the following example, we are going to use two servers; one will be the iSCSI target that exposes a block device, and the other will be the initiator server, which will connect to the target and use the presented block device as the location for the LXC containers' root filesystem and configuration files.</p><p>Follow these steps for setting up the iSCSI target:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Let's start by installing the necessary package on Ubuntu, and then demonstrate the same on CentOS:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu-backup:~# apt-get install -y iscsitarget&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu-backup:~#</strong></span>
+</pre></li><li class="listitem">With the package installed, enable the target functionality:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu-backup:~# sed -i   &#13;
+      's/ISCSITARGET_ENABLE=false/ISCSITARGET_ENABLE=true/g' &#13;
+      /etc/default/iscsitarget&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu-backup:~#</strong></span>
+</pre></li><li class="listitem">Next, let's create the target configuration file. The file is well-documented with comments; we are going to use a small subset of the available configuration options. We start by specifying an arbitrary identifier, <code class="literal">iqn.2001-04.com.example:lxc</code> in this example, a username and password, and, most importantly, the block device we are going to expose over iSCSI -<code class="literal">/dev/xvdb</code>. The iSCSI identifier is in the following form:<pre class="programlisting">      iqn.yyyy-mm.naming-authority:unique name</pre><p>The description of this identifier is as follows:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc"><code class="literal">yyyy-mm</code> : This is the year and month when the naming authority was established</li><li class="listitem" style="list-style-type: disc"><code class="literal">naming-authority</code>:  This is usually reverse syntax of the Internet domain name of the naming authority, or the domain name of the server</li><li class="listitem" style="list-style-type: disc"><code class="literal">unique name</code>: This is any name you would like to use</li></ul></div><p>With these in mind, the minimal working target configuration file is as follows:</p><pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu-backup:~# cat /etc/iet/ietd.conf&#13;</strong></span>
+<span class="strong"><strong>      Target iqn.2001-04.com.example:lxc&#13;</strong></span>
+<span class="strong"><strong>      IncomingUser lxc secret&#13;</strong></span>
+<span class="strong"><strong>      OutgoingUser&#13;</strong></span>
+<span class="strong"><strong>      Lun 0 Path=/dev/xvdb,Type=fileio&#13;</strong></span>
+<span class="strong"><strong>      Alias lxc_lun&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu-backup:~#</strong></span>
+</pre></li><li class="listitem">Next, specify which hosts or initiators are allowed to connect to the iSCSI target; replace the IP with that of the host that is going to connect to the target server:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu-backup:~# cat /etc/iet/initiators.allow&#13;</strong></span>
+<span class="strong"><strong>      iqn.2001-04.com.example:lxc 10.208.129.253&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu-backup:~#</strong></span>
+</pre></li><li class="listitem">Now, start the iSCSI target service:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu-backup:~# /etc/init.d/iscsitarget start&#13;</strong></span>
+<span class="strong"><strong>      [ ok ] Starting iscsitarget (via systemctl): iscsitarget.service.&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu-backup:~#</strong></span>
+</pre></li><li class="listitem">On CentOS, the process and configuration files are slightly different. To install the package, execute the following command:<pre class="programlisting">
+<span class="strong"><strong>      [root@centos ~]# yum install scsi-target-utils&#13;</strong></span>
+<span class="strong"><strong>      [root@centos ~]#</strong></span>
+</pre></li><li class="listitem">The configuration file has the following format:<pre class="programlisting">
+<span class="strong"><strong>      [root@centos ~]# cat /etc/tgt/targets.conf&#13;</strong></span>
+<span class="strong"><strong>      default-driver iscsi&#13;</strong></span>
+<span class="strong"><strong>      &lt;target iqn.2001-04.com.example:lxc&gt;&#13;</strong></span>
+<span class="strong"><strong>      backing-store /dev/xvdb&#13;</strong></span>
+<span class="strong"><strong>      initiator-address 10.208.5.176&#13;</strong></span>
+<span class="strong"><strong>      incominguser lxc secret&#13;</strong></span>
+<span class="strong"><strong>      &lt;/target&gt;&#13;</strong></span>
+<span class="strong"><strong>      [root@centos ~]#</strong></span>
+</pre></li><li class="listitem"> To start the service, run the following command:<pre class="programlisting">
+<span class="strong"><strong>      [root@centos ~]# service tgtd restart</strong></span>
+</pre></li><li class="listitem">Let's list the exposed target by running the following command:<pre class="programlisting">
+<span class="strong"><strong>      [root@centos ~]# tgt-admin --show&#13;</strong></span>
+<span class="strong"><strong>      Target 1: iqn.2001-04.com.example:lxc&#13;</strong></span>
+<span class="strong"><strong>      System information:&#13;</strong></span>
+<span class="strong"><strong>      Driver: iscsi&#13;</strong></span>
+<span class="strong"><strong>      State: ready&#13;</strong></span>
+<span class="strong"><strong>      I_T nexus information:&#13;</strong></span>
+<span class="strong"><strong>      LUN information:&#13;</strong></span>
+<span class="strong"><strong>      ...&#13;</strong></span>
+<span class="strong"><strong>      LUN: 1&#13;</strong></span>
+<span class="strong"><strong>      Type: disk &#13;</strong></span>
+<span class="strong"><strong>      SCSI ID: IET 00010001&#13;</strong></span>
+<span class="strong"><strong>      SCSI SN: beaf11&#13;</strong></span>
+<span class="strong"><strong>      Size: 80531 MB, Block size: 512&#13;</strong></span>
+<span class="strong"><strong>      Online: Yes&#13;</strong></span>
+<span class="strong"><strong>      Removable media: No&#13;</strong></span>
+<span class="strong"><strong>      Prevent removal: No&#13;</strong></span>
+<span class="strong"><strong>      Readonly: No&#13;</strong></span>
+<span class="strong"><strong>      SWP: No&#13;</strong></span>
+<span class="strong"><strong>      Thin-provisioning: No&#13;</strong></span>
+<span class="strong"><strong>      Backing store type: rdwr&#13;</strong></span>
+<span class="strong"><strong>      Backing store path: /dev/xvdb&#13;</strong></span>
+<span class="strong"><strong>      Backing store flags:&#13;</strong></span>
+<span class="strong"><strong>      Account information:&#13;</strong></span>
+<span class="strong"><strong>      ACL information:&#13;</strong></span>
+<span class="strong"><strong>      10.208.5.176&#13;</strong></span>
+<span class="strong"><strong>      [root@centos ~]#</strong></span>
+</pre></li></ol></div></div><div class="section" title="Setting up the iSCSI initiator"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec16"/>Setting up the iSCSI initiator</h3></div></div></div><p>The initiator is the server that will connect to the target and access the exposed block device over the iSCSI protocol.</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">To install the initiator tools on Ubuntu, run the following command:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# apt-get install -y open-iscsi</strong></span>
+</pre><p>On CentOS, the package name is different:</p><pre class="programlisting">
+<span class="strong"><strong>      [root@centos ~]# yum install iscsi-initiator-utils</strong></span>
+</pre></li><li class="listitem">Next, enable the service and start the iSCSI daemon:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# sed -i 's/node.startup = manual/node.startup = &#13;
+      automatic/g'   /etc/iscsi/iscsid.conf&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# /etc/init.d/open-iscsi restart&#13;</strong></span>
+<span class="strong"><strong>      [ ok ] Restarting open-iscsi (via systemctl): open-iscsi.service.&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">The <code class="literal">iscsiadm</code> command is the userspace tool that we can use from the initiating server to ask the target for available devices. From the initiator host, let's ask the target server we configured earlier what block devices are available:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# iscsiadm -m discovery -t sendtargets -p 10.208.129.201&#13;</strong></span>
+<span class="strong"><strong>      10.208.129.201:3260,1 iqn.2001-04.com.example:lxc&#13;</strong></span>
+<span class="strong"><strong>      192.237.179.19:3260,1 iqn.2001-04.com.example:lxc&#13;</strong></span>
+<span class="strong"><strong>      10.0.3.1:3260,1 iqn.2001-04.com.example:lxc&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre><p>From the preceding output, we can see that the target server presented one target identified by the <span class="strong"><strong>iSCSI Qualified Name</strong></span> (<span class="strong"><strong>IQN</strong></span>) of <code class="literal">iqn.2001-04.com.example:lxc</code>. In this case, the target server has three IP addresses, thus the three lines from the output.</p></li><li class="listitem">Earlier, we configured the target to use a username and a password. We need to configure the initiator host to present the same credentials to the target host in order to access the resources:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# iscsiadm -m node -T iqn.2001-04.com.example:lxc -p &#13;
+      10.208.129.201:3260 --op=update --name node.session.auth.authmethod &#13;
+      --value=CHAP&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# iscsiadm -m node -T iqn.2001-04.com.example:lxc -p   &#13;
+      10.208.129.201:3260 --op=update --name node.session.auth.username &#13;
+      --value=lxc&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# iscsiadm -m node -T iqn.2001-04.com.example:lxc -p&#13;
+      10.208.129.201:3260 --op=update --name node.session.auth.password &#13;
+      --value=secret&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">After updating the initiator's configuration, we can check that the credentials have been applied by examining the configuration file that was automatically created:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# cat &#13;
+      /etc/iscsi/nodes/iqn.2001-04.com.example\:lxc/10.208.129.201\,3260\,1&#13;
+      /default | grep auth&#13;</strong></span>
+<span class="strong"><strong>      node.session.auth.authmethod = CHAP&#13;</strong></span>
+<span class="strong"><strong>      node.session.auth.username = lxc&#13;</strong></span>
+<span class="strong"><strong>      node.session.auth.password = secret&#13;</strong></span>
+<span class="strong"><strong>      node.conn[0].timeo.auth_timeout = 45&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li></ol></div></div><div class="section" title="Logging in to the iSCSI target using the presented block device as rootfs for LXC"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec17"/>Logging in to the iSCSI target using the presented block device as rootfs for LXC</h3></div></div></div><p>With the initiator host configured, we are now ready to log in to the iSCSI target and use the presented block device:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">To log in, from the initiator host run the following command:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# iscsiadm -m node -T iqn.2001-04.com.example:lxc -p  &#13;
+      10.208.129.201:3260 --login&#13;</strong></span>
+<span class="strong"><strong>      Logging in to [iface: default, target: iqn.2001-04.com.example:lxc, &#13;
+      portal:10.208.129.201,3260] (multiple)&#13;</strong></span>
+<span class="strong"><strong>      Login to [iface: default, target: iqn.2001-04.com.example:lxc, &#13;
+      portal:10.208.129.201,3260] successful.&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Let's verify that the initiator host now contains an iSCSI session:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# iscsiadm -m session&#13;</strong></span>
+<span class="strong"><strong>      tcp: [2] 10.208.129.201:3260,1 iqn.2001-04.com.example:lxc &#13;
+      (non-flash)&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem"> The initiator host should now have a new block device available for use:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# ls -la /dev/disk/by-path/&#13;</strong></span>
+<span class="strong"><strong>      total 0&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 2 root root 60 Nov 15 20:23 .&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 6 root root 120 Nov 15 20:23 ..&#13;</strong></span>
+<span class="strong"><strong>      lrwxrwxrwx 1 root root 9 Nov 15 20:23 &#13;
+      ip-10.208.129.201:3260-iscsi-iqn.2001-04.com.example:lxc-lun-0 &#13;
+      -&gt; ../../sda&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">This new block device can be used as a regular storage device. Let's create a filesystem on it:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# mkfs.ext4 /dev/disk/by-path/ip-10.208.129.201\&#13;
+      :3260-iscsi-iqn.2001-04.com.example\:lxc-lun-0&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem"> With the filesystem present, let's use the block device as the default location for the LXC filesystem, by mounting it at <code class="literal">/var/lib/lxc</code>:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# mount /dev/disk/by-path/ip-10.208.129.201\&#13;
+      :3260-iscsi-iqn.2001-04.com.example\:lxc-lun-0 /var/lib/lxc&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# df -h | grep lxc&#13;</strong></span>
+<span class="strong"><strong>      /dev/sda 74G 52M 70G 1% /var/lib/lxc&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li></ol></div><p>Since we mounted the iSCSI device at the default location for the root filesystem of the LXC containers, next time we build one, its root filesystem will be on the iSCSI device. As we'll see shortly, this is useful if the initiator host needs to undergo maintenance, or becomes unavailable for whatever reason, because we can mount the same iSCSI target to a new host and just start the same containers there with no configuration changes on the LXC side.</p></div><div class="section" title="Building the iSCSI container"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec18"/>Building the iSCSI container</h3></div></div></div><p>Create a new LXC container as usual, start it, and ensure it's running:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-create --name iscsi_container --template ubuntu&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-start --name iscsi_container&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>NAME STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>iscsi_container RUNNING 0 - 10.0.3.162 -&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Even though the root filesystem is now on the new iSCSI block device, from the perspective of the host OS, nothing is different:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# ls -la /var/lib/lxc/iscsi_container/&#13;</strong></span>
+<span class="strong"><strong>total 16&#13;</strong></span>
+<span class="strong"><strong>drwxrwx--- 3 root root 4096 Nov 15 21:01 .&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 4 root root 4096 Nov 15 21:01 ..&#13;</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 root root 716 Nov 15 21:01 config&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 21 root root 4096 Nov 15 21:01 rootfs&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Since the <code class="literal">rootfs</code> of the container now resides on a block device that is remote, depending on the network connection between the LXC initiator host and the ISCSI target host, some latency might be present. In production deployments, an isolated low-latency network is preferred between the iSCSI target and the initiator hosts.</p><p>To migrate the container to a different host, we need to stop it, unmount the disk, then log out the block device from the iSCSI target:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-stop --name iscsi_container&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# umount /var/lib/lxc&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# iscsiadm -m node -T iqn.2001-04.com.example:lxc -p 10.208.129.201:3260 --logout&#13;</strong></span>
+<span class="strong"><strong>Logging out of session [sid: 6, target: iqn.2001-04.com.example:lxc, portal: 10.208.129.201,3260]&#13;</strong></span>
+<span class="strong"><strong>Logout of [sid: 6, target: iqn.2001-04.com.example:lxc, portal: 10.208.129.201,3260] successful.&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></div><div class="section" title="Restoring the iSCSI container"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec19"/>Restoring the iSCSI container</h3></div></div></div><p>To restore the iSCI container, follow these steps:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">On a new host that is configured as an initiator, we can log in the same target as we saw earlier:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu-backup:~# iscsiadm -m node -T iqn.2001-04.com.example:lxc&#13;
+      -p 10.208.129.201:3260 --login&#13;</strong></span>
+<span class="strong"><strong>      Logging in to [iface: default, target: iqn.2001-04.com.example:lxc, &#13;
+      portal: 10.208.129.201,3260] (multiple)&#13;</strong></span>
+<span class="strong"><strong>      Login to [iface: default, target: iqn.2001-04.com.example:lxc, &#13;
+      portal: 10.208.129.201,3260] successful.&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu-backup:~#</strong></span>
+</pre></li><li class="listitem">Ensure that a new block device has been presented after logging in to the iSCSI target:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu-backup:~# ls -la /dev/disk/by-path/&#13;</strong></span>
+<span class="strong"><strong>      total 0&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 2 root root 60 Nov 15 21:31 .&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 6 root root 120 Nov 15 21:31 ..&#13;</strong></span>
+<span class="strong"><strong>      lrwxrwxrwx 1 root root 9 Nov 15 21:31 ip-10.208.129.201:&#13;
+      3260-iscsi-iqn.2001-04.com.example:lxc-lun-0 -&gt; ../../sda&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu-backup:~#</strong></span>
+</pre><p>When logging in the iSCSI target on a new host, keep in mind that the name of the presented block device might be different from what it was on the original server.</p></li><li class="listitem">Next, mount the block device to the default location of LXC root filesystem:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu-backup:~# mount /dev/disk/by-path/ip-10.208.129.201\&#13;
+      :3260-iscsi-iqn.2001-04.com.example\:lxc-lun-0 /var/lib/lxc&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu-backup:~#</strong></span>
+</pre></li><li class="listitem">If we list all available containers now, we'll see that the container we created on the previous host is now present on the new server, just by mounting the iSCSI target:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu-backup:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>      NAME STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>      iscsi_container STOPPED 0 - - -&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu-backup:~#</strong></span>
+</pre></li><li class="listitem">Finally, we can start the container as usual:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu-backup:~# lxc-start --name iscsi_container&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu-backup:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>      NAME STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>      iscsi_container RUNNING 0 - 10.0.3.162 -&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu-backup:~#</strong></span>
+</pre></li></ol></div><p>If the container is configured with a static IP address, the same IP will be present on the new host; however, if the container obtains its network configuration dynamically, its IP might change. Keep this in mind if there is an associated A record in DNS for the container you are migrating.</p></div></div><div class="section" title="LXC active backup with replicated GlusterFS storage"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec73"/>LXC active backup with replicated GlusterFS storage</h2></div></div></div><p>In the previous section, we saw how to use a remote block device as a local storage for LXC by means of exporting it over iSCSI. We formatted the block device with a filesystem that does not allow shared access from multiple servers. If you log in the target device to more than one server and they try to write to it at the same time, corruption will occur. Using iSCSI devices on a single node to host the LXC containers provides for an excellent way of achieving a level of redundancy should the LXC server go down; we just log in the same block device on a new initiator server and start the containers. We can consider this as a form of cold backup, since there will be downtime while moving the iSCSI block device to the new host, logging in to it, and starting the container.</p><p>There's an alternative way, where we can use a shared filesystem that can be attached and accessed from multiple servers at the same time, with the same LXC containers running on multiple hosts, with different IP addresses. Let's explore this scenario using the scalable network filesystem GlusterFS as the remotely shared filesystem of choice.</p><div class="section" title="Creating the shared storage"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec20"/>Creating the shared storage</h3></div></div></div><p>GlusterFS has two main components - a server component that runs the GlusterFS daemon, which exports local block devices called <span class="strong"><strong>bricks</strong></span>, and a client component that connects to the servers with a custom protocol over TCP/IP network and creates aggregate virtual volumes that can then be mounted and used as a regular filesystem.</p><p>There are three types of volumes:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc"><span class="strong"><strong>Distributed</strong></span>: These are volumes that distribute files throughout the cluster</li><li class="listitem" style="list-style-type: disc"><span class="strong"><strong>Replicated</strong></span>: These are volumes that replicate data across two or more nodes in the storage cluster</li><li class="listitem" style="list-style-type: disc"><span class="strong"><strong>Striped</strong></span>: These stripe files across multiple storage nodes</li></ul></div><p>To achieve high availability of the LXC containers running on such shared volumes, we are going to use the replicated volumes on two GlusterFS servers. For this example, we are going to use a block device on each GlusterFS server with LVM.</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">On the first storage node, let's create the PV, the VG, and the LV on the <code class="literal">/dev/xvdb</code> block device:<pre class="programlisting">
+<span class="strong"><strong>      root@node1:~# pvcreate /dev/xvdb&#13;</strong></span>
+<span class="strong"><strong>      Physical volume "/dev/xvdb" successfully created&#13;</strong></span>
+<span class="strong"><strong>      root@node1:~# vgcreate vg_node /dev/xvdb&#13;</strong></span>
+<span class="strong"><strong>      Volume group "vg_node" successfully created&#13;</strong></span>
+<span class="strong"><strong>      root@node1:~# lvcreate -n node1 -L 10g vg_node&#13;</strong></span>
+<span class="strong"><strong>      Logical volume "node1" created.&#13;</strong></span>
+<span class="strong"><strong>      root@node1:~#</strong></span>
+</pre></li><li class="listitem">Next, let's create a filesystem on the LVM device and mount it. XFS performs quite well with GlusterFS:<pre class="programlisting">
+<span class="strong"><strong>      root@node1:~# mkfs.xfs -i size=512 /dev/vg_node/node1&#13;</strong></span>
+<span class="strong"><strong>      meta-data=/dev/vg_node/node1   isize=512       agcount=4,  &#13;
+      agsize=655360 blks&#13;</strong></span>
+<span class="strong"><strong>             =                       sectsz=512      attr=2, &#13;
+      projid32bit=1&#13;</strong></span>
+<span class="strong"><strong>             =                       crc=1           finobt=1, &#13;
+      sparse=0&#13;</strong></span>
+<span class="strong"><strong>        data =                       bsize=4096      blocks=2621440, &#13;
+      imaxpct=25&#13;</strong></span>
+<span class="strong"><strong>             =                       sunit=0         swidth=0 &#13;
+      blks&#13;</strong></span>
+<span class="strong"><strong>      naming =version 2              bsize=4096      ascii-ci=0 &#13;
+      ftype=1&#13;</strong></span>
+<span class="strong"><strong>      log    =internal log           bsize=4096      blocks=2560, &#13;
+      version=2&#13;</strong></span>
+<span class="strong"><strong>             =                       sectsz=512      sunit=0 blks, &#13;
+      lazy-count=1&#13;</strong></span>
+<span class="strong"><strong>      realtime =none                 extsz=4096      blocks=0, &#13;
+      rtextents=0&#13;</strong></span>
+<span class="strong"><strong>      root@node1:~# mount /dev/vg_node/node1 /mnt/&#13;</strong></span>
+<span class="strong"><strong>      root@node1:~# mkdir /mnt/bricks</strong></span>
+</pre></li><li class="listitem">Finally, let's install the GlusterFS service:<pre class="programlisting">
+<span class="strong"><strong>      root@node1:~# apt-get install -y glusterfs-server</strong></span>
+</pre><p>Repeat the preceding steps on the second GlusterFS node, replacing <code class="literal">node1</code> with <code class="literal">node2</code> as necessary.</p></li><li class="listitem">Once we have the GlusterFS daemon running on both nodes, it's time to probe from <code class="literal">node1</code> to see if we can see any peers:<pre class="programlisting">
+<span class="strong"><strong>      root@node1:~# gluster peer status&#13;</strong></span>
+<span class="strong"><strong>      Number of Peers: 0&#13;</strong></span>
+<span class="strong"><strong>      root@node1:~# gluster peer probe node2&#13;</strong></span>
+<span class="strong"><strong>      peer probe: success.&#13;</strong></span>
+<span class="strong"><strong>      root@node1:~# gluster peer status&#13;</strong></span>
+<span class="strong"><strong>      Number of Peers: 1&#13;</strong></span>
+<span class="strong"><strong>      Hostname: node2&#13;</strong></span>
+<span class="strong"><strong>      Uuid: 65a480ba-e841-41a2-8f28-9d8f58f344ce&#13;</strong></span>
+<span class="strong"><strong>      State: Peer in Cluster (Connected)&#13;</strong></span>
+<span class="strong"><strong>      root@node1:~#</strong></span>
+</pre><p>By probing from <code class="literal">node1</code>, we can now see that both <code class="literal">node1</code> and <code class="literal">node2</code> are part of a cluster.</p></li><li class="listitem">The next step is to create the replicated volume by specifying the mount path of the LV we created and mounted earlier. Since we are using two nodes in the storage cluster, the replication factor is going to be <code class="literal">2</code>. The following commands create the replicated volume, which will contain block devices from both <code class="literal">node1</code> and <code class="literal">node2</code> and list the created volume:<pre class="programlisting">
+<span class="strong"><strong>      root@node1:~# gluster volume create lxc_glusterfs replica 2 transport &#13;
+      tcp node1:/mnt/bricks/node1 node2:/mnt/bricks/node2&#13;</strong></span>
+<span class="strong"><strong>      volume create: lxc_glusterfs: success: please start the volume to &#13;
+      access data&#13;</strong></span>
+<span class="strong"><strong>      root@node1:~# gluster volume list&#13;</strong></span>
+<span class="strong"><strong>      lxc_glusterfs&#13;</strong></span>
+<span class="strong"><strong>      root@node1:~#</strong></span>
+</pre></li><li class="listitem">To start the newly created replicated volume, run the following commands:<pre class="programlisting">
+<span class="strong"><strong>      root@node1:~# gluster volume start lxc_glusterfs&#13;</strong></span>
+<span class="strong"><strong>      volume start: lxc_glusterfs: success</strong></span>
+</pre><p>To create and start the volume, we only need to run the preceding commands from one of the storage nodes.</p></li><li class="listitem">To obtain information about the new volume, run this command on any of the nodes:<pre class="programlisting">
+<span class="strong"><strong>      root@node1:~# gluster volume info</strong></span>
+<span class="strong"><strong>      Volume Name: lxc_glusterfs</strong></span>
+<span class="strong"><strong>      Type: Replicate</strong></span>
+<span class="strong"><strong>      Volume ID: 9f11dc99-19d6-4644-87d2-fa6e983bcb83</strong></span>
+<span class="strong"><strong>      Status: Started</strong></span>
+<span class="strong"><strong>      Number of Bricks: 1 x 2 = 2</strong></span>
+<span class="strong"><strong>      Transport-type: tcp</strong></span>
+<span class="strong"><strong>      Bricks:</strong></span>
+<span class="strong"><strong>      Brick1: node1:/mnt/bricks/node1</strong></span>
+<span class="strong"><strong>      Brick2: node2:/mnt/bricks/node2</strong></span>
+<span class="strong"><strong>      Options Reconfigured:</strong></span>
+<span class="strong"><strong>      performance.readdir-ahead: on</strong></span>
+<span class="strong"><strong>      root@node1:~#</strong></span>
+</pre><p>From the preceding output, notice both bricks from <code class="literal">node1</code> and <code class="literal">node2</code>. We can see them on both nodes as well:</p><pre class="programlisting">
+<span class="strong"><strong>      root@node1:~# ls -la /mnt/bricks/node1/&#13;</strong></span>
+<span class="strong"><strong>      total 0&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 4 root root 41 Nov 16 21:33 .&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 3 root root 19 Nov 16 21:33 ..&#13;</strong></span>
+<span class="strong"><strong>      drw------- 6 root root 141 Nov 16 21:34 .glusterfs&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 3 root root 25 Nov 16 21:33 .trashcan&#13;</strong></span>
+<span class="strong"><strong>      root@node1:~#</strong></span>
+</pre><p>We see the following on <code class="literal">node2</code>:</p><pre class="programlisting">
+<span class="strong"><strong>      root@node2:~# ls -la /mnt/bricks/node1/&#13;</strong></span>
+<span class="strong"><strong>      total 0&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 4 root root 41 Nov 16 21:33 .&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 3 root root 19 Nov 16 21:33 ..&#13;</strong></span>
+<span class="strong"><strong>      drw------- 6 root root 141 Nov 16 21:34 .glusterfs&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 3 root root 25 Nov 16 21:33 .trashcan&#13;</strong></span>
+<span class="strong"><strong>      root@node2:~#</strong></span>
+</pre></li></ol></div><p>We should see the same files because we are using the replicated volume. Creating files on one of the mounted volumes should appear on the other, although, as with the iSCSI setup earlier, the network latency is important, since the data needs to be transferred over the network.</p></div><div class="section" title="Building the GlusterFS LXC container"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec21"/>Building the GlusterFS LXC container</h3></div></div></div><p>With the GlusterFS cluster ready, let's use a third server to mount the replicated volume from the storage cluster and use it as the LXC root filesystem and configuration location:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">First, let's install the GlusterFS client:<pre class="programlisting">
+<span class="strong"><strong>      root@lxc1:~# apt-get install -y glusterfs-client attr</strong></span>
+</pre></li><li class="listitem">Next, mount the replicated volume from the storage cluster to the LXC host:<pre class="programlisting">
+<span class="strong"><strong>     root@lxc1:~# mount -t glusterfs node2:/lxc_glusterfs /var/lib/lxc</strong></span>
+</pre><p>In the preceding command, we are using <code class="literal">node2</code> as the target from which we are mounting; however, we can use <code class="literal">node1</code> in exactly the same way. The name of the target device we specify in the <code class="literal">lxc_glusterfs</code> mount command is what we specified as the name of the replicated volume earlier.</p></li><li class="listitem">Now that the replicated GlusterFS volume has been mounted to the default LXC location, let's create and start a container:<pre class="programlisting">
+<span class="strong"><strong>      root@lxc1:~# lxc-create --name glusterfs_lxc --template ubuntu&#13;</strong></span>
+<span class="strong"><strong>      root@lxc1:~# lxc-start --name glusterfs_lxc</strong></span>
+</pre></li><li class="listitem">Attach to the container and install Nginx so we can later test connectivity from multiple servers:<pre class="programlisting">
+<span class="strong"><strong>      root@lxc1:~# lxc-attach --name glusterfs_lxc&#13;</strong></span>
+<span class="strong"><strong>      root@glusterfs_lxc:~# apt-get -y install nginx&#13;</strong></span>
+<span class="strong"><strong>      ...&#13;</strong></span>
+<span class="strong"><strong>      root@glusterfs_lxc:~# echo "Nginx on GlusterFS LXC" &gt; &#13;
+      /var/www/html/index.nginx-debian.html&#13;</strong></span>
+<span class="strong"><strong>      root@glusterfs_lxc:~# exit&#13;</strong></span>
+<span class="strong"><strong>      exit&#13;</strong></span>
+<span class="strong"><strong>      root@lxc1:~#</strong></span>
+</pre></li><li class="listitem">Obtain the IP address of the container and ensure we can connect to Nginx from the host OS:<pre class="programlisting">
+<span class="strong"><strong>      root@lxc1:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>      NAME STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>      glusterfs_lxc RUNNING 0 - 10.0.3.184 -&#13;</strong></span>
+<span class="strong"><strong>      root@lxc1:~# curl 10.0.3.184&#13;</strong></span>
+<span class="strong"><strong>      Nginx on GlusterFS LXC&#13;</strong></span>
+<span class="strong"><strong>      root@lxc1:~#</strong></span>
+</pre></li><li class="listitem">With the container created, the root filesystem and configuration file will be visible on both storage nodes:<pre class="programlisting">
+<span class="strong"><strong>      root@node1:~# ls -la /mnt/bricks/node1/&#13;</strong></span>
+<span class="strong"><strong>      total 12&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 5 root root 62 Nov 16 21:53 .&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 3 root root 19 Nov 16 21:33 ..&#13;</strong></span>
+<span class="strong"><strong>      drw------- 261 root root 8192 Nov 16 21:54 .glusterfs&#13;</strong></span>
+<span class="strong"><strong>      drwxrwx--- 3 root root 34 Nov 16 21:53 glusterfs_lxc&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 3 root root 25 Nov 16 21:33 .trashcan&#13;</strong></span>
+<span class="strong"><strong>      root@node1:~#</strong></span>
+</pre></li><li class="listitem">The following will be visible on <code class="literal">node2</code>:<pre class="programlisting">
+<span class="strong"><strong>      root@node2:~# ls -la /mnt/bricks/node2/&#13;</strong></span>
+<span class="strong"><strong>      total 12&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 5 root root 62 Nov 16 21:44 .&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 3 root root 19 Nov 16 21:33 ..&#13;</strong></span>
+<span class="strong"><strong>      drw------- 261 root root 8192 Nov 16 21:44 .glusterfs&#13;</strong></span>
+<span class="strong"><strong>      drwxrwx--- 3 root root 34 Nov 16 21:47 glusterfs_lxc&#13;</strong></span>
+<span class="strong"><strong>      drwxr-xr-x 3 root root 25 Nov 16 21:33 .trashcan&#13;</strong></span>
+<span class="strong"><strong>      root@node2:~#</strong></span>
+</pre></li></ol></div><p>Depending on your network bandwidth and latency, replicating the data between both storage nodes might take some time. This will also affect how long it takes for the LXC container to build, start, and stop.</p></div><div class="section" title="Restoring the GlusterFS container"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec22"/>Restoring the GlusterFS container</h3></div></div></div><p>Let's create a second LXC host, install the GlusterFS client, and mount the replicated volume in the same way we did earlier:</p><pre class="programlisting">
+<span class="strong"><strong>root@lxc2:~# apt-get install -y glusterfs-client attr&#13;</strong></span>
+<span class="strong"><strong>root@lxc2:~# mount -t glusterfs node1:/lxc_glusterfs /var/lib/lxc&#13;</strong></span>
+<span class="strong"><strong>root@lxc2:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>NAME STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>glusterfs_lxc STOPPED 0 - - -&#13;</strong></span>
+<span class="strong"><strong>root@lxc2:~#</strong></span>
+</pre><p>Notice how, just by mounting the GlusterFS volume, the host now sees the container in a stopped state. This is exactly the same container as the running one on <code class="literal">node1</code> - same config and root filesystem, that is. Since we are using a shared filesystem, we can start the container on multiple hosts without worrying about data corruption, unlike the case with iSCSI:</p><pre class="programlisting">
+<span class="strong"><strong>root@lxc2:~# lxc-start --name glusterfs_lxc&#13;</strong></span>
+<span class="strong"><strong>root@lxc2:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>NAME STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>glusterfs_lxc RUNNING 0 - 10.0.3.184 -&#13;</strong></span>
+<span class="strong"><strong>root@lxc2:~#</strong></span>
+</pre><p>Since we are using DHCP to dynamically assign IP addresses to the containers, the same container on the new hosts gets a new IP. Notice how connecting to Nginx running in the container gives us the same result, since the container shares its filesystem and configuration file across multiple LXC nodes:</p><pre class="programlisting">
+<span class="strong"><strong>root@lxc2:~# curl 10.0.3.184&#13;</strong></span>
+<span class="strong"><strong>Nginx on GlusterFS LXC&#13;</strong></span>
+<span class="strong"><strong>root@lxc2:~#</strong></span>
+</pre><p>This setup in a sense implements a hot standby backup, where we can use both containers behind a proxy service such as HAProxy, with the second node only being used when the first node goes down, ensuring that any configuration changes are immediately available. As an alternative, both LXC containers can be used at the same time, but keep in mind that they'll write to the same filesystem, so the Nginx logs in this case will be written from both LXC containers on the <code class="literal">lxc1</code> and <code class="literal">lxc2</code> nodes.</p></div></div></div></div>
+<div class="section" title="Monitoring and alerting on LXC metrics"><div class="titlepage"><div><div><h1 class="title"><a id="ch07lvl1sec35"/>Monitoring and alerting on LXC metrics</h1></div></div></div><p>Monitoring LXC containers is not much different than monitoring a VM or a server - we can run a monitoring client inside the container, or on the actual host that runs LXC. Since the root filesystem of the containers is exposed on the host and LXC uses cgroups and namespaces, we can collect various information directly from the host OS, if we would rather not run a monitoring agent in the container. Before we look at two examples of LXC monitoring, let's first see how we can gather various metrics that we can monitor and alert on.</p><div class="section" title="Gathering container metrics"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec74"/>Gathering container metrics</h2></div></div></div><p>LXC provides a few simple tools that can be used to monitor the state of the container and its resource utilization. The information they provide, as you are going to see next, is not that verbose; however, we can utilize the cgroup filesystem and collect even more information from it. Let's explore each of these options.</p><div class="section" title="Using lxc-monitor to track container state"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec23"/>Using lxc-monitor to track container state</h3></div></div></div><p>The <code class="literal">lxc-monitor</code> tool can be used to track containers, state changes - when they start or stop.</p><p>To demonstrate this, open two terminals; in one, create a new container and in the other, run the <code class="literal">lxc-monitor</code> command. Start the container and observe the output in the second terminal:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-create --name monitor_lxc --template ubuntu&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-start --name monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-monitor --name monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>'monitor_lxc' changed state to [STARTING]&#13;</strong></span>
+<span class="strong"><strong>'monitor_lxc' changed state to [RUNNING]&#13;</strong></span>
+</pre><p>Stop the container and notice the state change:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-stop --name monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#&#13;</strong></span>
+<span class="strong"><strong>'monitor_lxc' changed state to [STARTING]&#13;</strong></span>
+<span class="strong"><strong>'monitor_lxc' changed state to [RUNNING]&#13;</strong></span>
+<span class="strong"><strong>'monitor_lxc' exited with status [0]&#13;</strong></span>
+<span class="strong"><strong>'monitor_lxc' changed state to [STOPPING]&#13;</strong></span>
+<span class="strong"><strong>'monitor_lxc' changed state to [STOPPED]&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# lxc-start --name monitor_lxc</strong></span>
+</pre></div><div class="section" title="Using lxc-top to obtain CPU and memory utilization"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec24"/>Using lxc-top to obtain CPU and memory utilization</h3></div></div></div><p>The <code class="literal">lxc-top</code> tool is similar to the standard <code class="literal">top</code> Linux command; it shows CPU, memory, and I/O utilization. To start it, execute the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-top --name monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>Container  CPU    CPU     CPU    BlkIO    Mem&#13;</strong></span>
+<span class="strong"><strong>Name               Used     Sys    User   &#13;
+Total    Used&#13;</strong></span>
+<span class="strong"><strong>monitor_lxc        0.52   0.26    0.16    0.00 &#13;
+12.71 MB&#13;</strong></span>
+<span class="strong"><strong>TOTAL 1 of 1       0.52   0.26    0.16    0.00 &#13;
+12.71 MB</strong></span>
+</pre></div><div class="section" title="Using lxc-info to gather container information"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec25"/>Using lxc-info to gather container information</h3></div></div></div><p>We can use the <code class="literal">lxc-info</code> tool to periodically poll for information such as CPU, memory, I/O, and network utilization:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-info --name monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>Name:        monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>State:       RUNNING&#13;</strong></span>
+<span class="strong"><strong>PID:         19967&#13;</strong></span>
+<span class="strong"><strong>IP:          10.0.3.88&#13;</strong></span>
+<span class="strong"><strong>CPU use:     0.53 seconds&#13;</strong></span>
+<span class="strong"><strong>BlkIO use:   0 bytes&#13;</strong></span>
+<span class="strong"><strong>Memory use:  12.74 MiB&#13;</strong></span>
+<span class="strong"><strong>KMem use:    0 bytes&#13;</strong></span>
+<span class="strong"><strong>Link:        veth8OX0PW&#13;</strong></span>
+<span class="strong"><strong>TX bytes:    1.34 KiB&#13;</strong></span>
+<span class="strong"><strong>RX bytes:    1.35 KiB&#13;</strong></span>
+<span class="strong"><strong>Total bytes: 2.69 KiB&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></div><div class="section" title="Leveraging cgroups to collect memory metrics"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec26"/>Leveraging cgroups to collect memory metrics</h3></div></div></div><p>In <span class="emphasis"><em><a class="link" href="ch01.html" title="Chapter 1. Introduction to Linux Containers">Chapter 1</a>,</em></span><span class="emphasis"><em>Introduction to Linux Containers</em></span> we explored cgroups in great details and saw how LXC creates a directory hierarchy in the cgroup virtual filesystem for each container it starts. To find where the cgroup hierarchy for the container we built earlier is, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# find /sys/fs/ -type d -name monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>/sys/fs/cgroup/freezer/lxc/monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>/sys/fs/cgroup/cpuset/lxc/monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>/sys/fs/cgroup/net_cls,net_prio/lxc/monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>/sys/fs/cgroup/devices/lxc/monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>/sys/fs/cgroup/perf_event/lxc/monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>/sys/fs/cgroup/hugetlb/lxc/monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>/sys/fs/cgroup/blkio/lxc/monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>/sys/fs/cgroup/pids/lxc/monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>/sys/fs/cgroup/memory/lxc/monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>/sys/fs/cgroup/cpu,cpuacct/lxc/monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>/sys/fs/cgroup/systemd/lxc/monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>We can use the files in the memory group to set and obtain metrics that we can monitor and alert on. For example, to set the memory of the container to 512 MB, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-cgroup --name monitor_lxc memory.limit_in_bytes 536870912&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#&#13;</strong></span>
+</pre><p>To read the current memory utilization for the container, execute the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cat /sys/fs/cgroup/memory/lxc/monitor_lxc/memory.usage_in_bytes&#13;</strong></span>
+<span class="strong"><strong>13361152&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>To collect more information about the container's memory, read from the following file:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cat /sys/fs/cgroup/memory/lxc/monitor_lxc/memory.stat&#13;</strong></span>
+<span class="strong"><strong>cache 8794112&#13;</strong></span>
+<span class="strong"><strong>rss 4833280&#13;</strong></span>
+<span class="strong"><strong>rss_huge 0&#13;</strong></span>
+<span class="strong"><strong>mapped_file 520192&#13;</strong></span>
+<span class="strong"><strong>dirty 0&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></div><div class="section" title="Using cgroups to collect CPU statistics"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec27"/>Using cgroups to collect CPU statistics</h3></div></div></div><p>To collect CPU usage, we can read from the <code class="literal">cpuacct</code> cgroup subsystem:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cat /sys/fs/cgroup/cpu,cpuacct/lxc/monitor_lxc/cpuacct.usage&#13;</strong></span>
+<span class="strong"><strong>627936278&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre></div><div class="section" title="Collecting network metrics"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec28"/>Collecting network metrics</h3></div></div></div><p>Each container creates a virtual interface on the host; the output from the <code class="literal">lxc-info</code> command earlier displayed it as <code class="literal">veth8OX0PW</code>. We can collect information about the packets sent and received, error rates, and so on, by running the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# ifconfig veth8OX0PW&#13;</strong></span>
+<span class="strong"><strong>veth8OX0PW Link encap:Ethernet HWaddr fe:4d:bf:3f:17:8f&#13;</strong></span>
+<span class="strong"><strong>           inet6 addr: fe80::fc4d:bfff:fe3f:178f/64 Scope:Link&#13;</strong></span>
+<span class="strong"><strong>           UP BROADCAST RUNNING MULTICAST MTU:1500 Metric:1&#13;</strong></span>
+<span class="strong"><strong>           RX packets:125645 errors:0 dropped:0 overruns:0 frame:0&#13;</strong></span>
+<span class="strong"><strong>           TX packets:129909 errors:0 dropped:0 overruns:0 carrier:0&#13;</strong></span>
+<span class="strong"><strong>           collisions:0 txqueuelen:1000&#13;</strong></span>
+<span class="strong"><strong>           RX bytes:20548005 (20.5 MB) TX bytes:116477293 (116.4 MB)&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Alternatively, we can connect to the container's network namespace and obtain the information that way. The following three commands demonstrate how to execute commands in the container's network namespace. Note the PID of <code class="literal">19967</code>; it can be obtained from the <code class="literal">lxc-info</code> command:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# mkdir -p /var/run/netns&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# ln -sf /proc/19967/ns/net /var/run/netns/monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# ip netns exec monitor_lxc ip a s&#13;</strong></span>
+<span class="strong"><strong>1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1&#13;</strong></span>
+<span class="strong"><strong>    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00&#13;</strong></span>
+<span class="strong"><strong>    inet 127.0.0.1/8 scope host lo&#13;</strong></span>
+<span class="strong"><strong>        valid_lft forever preferred_lft forever&#13;</strong></span>
+<span class="strong"><strong>    inet6 ::1/128 scope host&#13;</strong></span>
+<span class="strong"><strong>        valid_lft forever preferred_lft forever&#13;</strong></span>
+<span class="strong"><strong>17: eth0@if18: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP group default qlen 1000&#13;</strong></span>
+<span class="strong"><strong>    link/ether 00:16:3e:01:b7:8b brd ff:ff:ff:ff:ff:ff link-netnsid 0&#13;</strong></span>
+<span class="strong"><strong>        inet 10.0.3.88/24 brd 10.0.3.255 scope global eth0&#13;</strong></span>
+<span class="strong"><strong>    valid_lft forever preferred_lft forever&#13;</strong></span>
+<span class="strong"><strong>        inet6 fe80::216:3eff:fe01:b78b/64 scope link&#13;</strong></span>
+<span class="strong"><strong>    valid_lft forever preferred_lft forever&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Notice how we can see the network interfaces that are inside the LXC container, even though we ran the commands on the host.</p></div></div><div class="section" title="Simple container monitoring and alerting with Monit"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec75"/>Simple container monitoring and alerting with Monit</h2></div></div></div><p>Now that we've demonstrated how to gather various monitoring data points, let's actually set up a system to monitor and alert on them. In this section, we are going to install a simple monitoring solution utilizing the <code class="literal">monit</code> daemon. Monit is an easy-to-configure service that uses scripts that can be automatically executed, based on certain monitoring events and thresholds.</p><p>Let's look at a few examples next:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">To install <code class="literal">monit</code>, run the following command:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# apt-get install -y monit mailutils</strong></span>
+</pre></li><li class="listitem">Next, create a minimal configuration file. The config that is packaged with the installation is documented quite well:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# cd /etc/monit/&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/etc/monit# cat monitrc | grep -vi "#"&#13;</strong></span>
+<span class="strong"><strong>      set daemon 120&#13;</strong></span>
+<span class="strong"><strong>      set logfile /var/log/monit.log&#13;</strong></span>
+<span class="strong"><strong>      set idfile /var/lib/monit/id&#13;</strong></span>
+<span class="strong"><strong>      set statefile /var/lib/monit/state&#13;</strong></span>
+<span class="strong"><strong>      set eventqueue&#13;</strong></span>
+<span class="strong"><strong>      basedir /var/lib/monit/events&#13;</strong></span>
+<span class="strong"><strong>      slots 100&#13;</strong></span>
+<span class="strong"><strong>      set httpd port 2812 and&#13;</strong></span>
+<span class="strong"><strong>      allow admin:monit&#13;</strong></span>
+<span class="strong"><strong>      include /etc/monit/conf.d/*&#13;</strong></span>
+<span class="strong"><strong>      include /etc/monit/conf-enabled/*&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/etc/monit#</strong></span>
+</pre><p>The preceding config starts a web interface that can be reached on port <code class="literal">2812</code> with the specified credentials. It also defines two more directories where config files can be read.</p></li><li class="listitem">Next, let's create a monitoring configuration that checks whether a container is running. Executing a script, which we'll write next, performs the actual check:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:/etc/monit# cat conf.d/container_state.cfg&#13;</strong></span>
+<span class="strong"><strong>      check program container_status with path &#13;
+      "/etc/monit/container_running.sh &#13;
+      monitor_lxc"&#13;</strong></span>
+<span class="strong"><strong>      if status == 1&#13;</strong></span>
+<span class="strong"><strong>      then exec "/bin/bash -c '/etc/monit/alert.sh'"&#13;</strong></span>
+<span class="strong"><strong>      group lxc&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/etc/monit#</strong></span>
+</pre><p>The preceding configuration tells <code class="literal">monit</code> to run the <code class="literal">container_running.sh</code> script periodically and, if the exit status is <code class="literal">1</code>, to execute a second script called <code class="literal">alert.sh</code> that will alert us. Simple enough. The <code class="literal">container_running.sh</code> script follows:</p><pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:/etc/monit# cat container_running.sh&#13;</strong></span>
+<span class="strong"><strong>      #!/bin/bash&#13;</strong></span>
+<span class="strong"><strong>      CONTAINER_NAME=$1&#13;</strong></span>
+<span class="strong"><strong>      CONTAINER_STATE=$(lxc-info --state --name $CONTAINER_NAME &#13;
+      | awk '{print $2}')&#13;</strong></span>
+<span class="strong"><strong>      if [ "$CONTAINER_STATE" != "RUNNING" ]&#13;</strong></span>
+<span class="strong"><strong>      then&#13;</strong></span>
+<span class="strong"><strong>        exit 1&#13;</strong></span>
+<span class="strong"><strong>      else&#13;</strong></span>
+<span class="strong"><strong>        exit 0&#13;</strong></span>
+<span class="strong"><strong>      fi&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/etc/monit#</strong></span>
+</pre><p>We can see that we are utilizing the <code class="literal">lxc-info</code> command to check the status of the container. The <code class="literal">alert.sh</code> script is even simpler:</p><pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:/etc/monit# cat alert.sh&#13;</strong></span>
+<span class="strong"><strong>      #!/bin/bash&#13;</strong></span>
+<span class="strong"><strong>      echo "LXC container down" | mail -s "LXC container Alert" &#13;
+      youremail@example.com&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/etc/monit#</strong></span>
+</pre></li><li class="listitem">Reload the <code class="literal">monit</code> service and check the status of the new monitoring service that we named <code class="literal">container_status</code> earlier in the configuration file:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:/etc/monit# monit reload&#13;</strong></span>
+<span class="strong"><strong>      Reinitializing monit daemon&#13;</strong></span>
+<span class="strong"><strong>      The Monit daemon 5.16 uptime: 15h 43m&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/etc/monit# monit status container_status&#13;</strong></span>
+<span class="strong"><strong>      The Monit daemon 5.16 uptime: 15h 47m&#13;</strong></span>
+<span class="strong"><strong>      Program 'container_status'&#13;</strong></span>
+<span class="strong"><strong>      status Status ok&#13;</strong></span>
+<span class="strong"><strong>      monitoring status Monitored&#13;</strong></span>
+<span class="strong"><strong>      last started Fri, 18 Nov 2016 15:03:24&#13;</strong></span>
+<span class="strong"><strong>      last exit value 0&#13;</strong></span>
+<span class="strong"><strong>      data collected Fri, 18 Nov 2016 15:03:24&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/etc/monit#</strong></span>
+</pre><p>We can also connect to the web interface on port <code class="literal">2812</code> and see the newly defined monitoring target:</p><div class="mediaobject"><img alt="Simple container monitoring and alerting with Monit" src="graphics/image_07_001.jpg"/></div></li><li class="listitem">Let's stop the container and check the status of <code class="literal">monit</code>:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:/etc/monit# lxc-stop --name monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/etc/monit# monit status container_status&#13;</strong></span>
+<span class="strong"><strong>      The Monit daemon 5.16 uptime: 15h 53m&#13;</strong></span>
+<span class="strong"><strong>      Program 'container_status'&#13;</strong></span>
+<span class="strong"><strong>      status Status failed&#13;</strong></span>
+<span class="strong"><strong>      monitoring status Monitored&#13;</strong></span>
+<span class="strong"><strong>      last started Fri, 18 Nov 2016 15:09:24&#13;</strong></span>
+<span class="strong"><strong>      last exit value 1&#13;</strong></span>
+<span class="strong"><strong>      data collected Fri, 18 Nov 2016 15:09:24&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:/etc/monit#</strong></span>
+</pre><div class="mediaobject"><img alt="Simple container monitoring and alerting with Monit" src="graphics/image_07_002.jpg"/></div></li></ol></div><p>Notice from the output of the command and the web interface that the status of the <code class="literal">container_status</code> service is now <code class="literal">failed</code>. Since we set up <code class="literal">monit</code> to send an e-mail when the service we are monitoring is failing, check the mail log. You should have received an e-mail from <code class="literal">monit</code>, which will most likely end up in your <code class="literal">spam</code> folder:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/etc/monit# tail -5 /var/log/mail.log&#13;</strong></span>
+<span class="strong"><strong>Nov 18 15:13:51 ubuntu postfix/pickup[26069]: 8AB30177CB3: uid=0 from=&lt;root@ubuntu&gt;&#13;</strong></span>
+<span class="strong"><strong>Nov 18 15:13:51 ubuntu postfix/cleanup[31295]: 8AB30177CB3: message-id=&lt;20161118151351.8AB30177CB3@ubuntu&gt;&#13;</strong></span>
+<span class="strong"><strong>Nov 18 15:13:51 ubuntu postfix/qmgr[5392]: 8AB30177CB3: from=&lt;root@ubuntu&gt;, size=340, nrcpt=1 (queue active)&#13;</strong></span>
+<span class="strong"><strong>Nov 18 15:13:51 ubuntu postfix/smtp[31297]: 8AB30177CB3: to=&lt; youremail@example.com &gt;, relay=gmail-smtp-in.l.google.com[74.125.70.26]:25, delay=0.22, delays=0.01/0.01/0.08/0.13, dsn=2.0.0, status=sent (250 2.0.0 OK 1479482031 u74si2324555itu.40 - gsmtp)&#13;</strong></span>
+<span class="strong"><strong>Nov 18 15:13:51 ubuntu postfix/qmgr[5392]: 8AB30177CB3: removed&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/monit#</strong></span>
+</pre><p>For more information on Monit, refer to <a class="ulink" href="https://mmonit.com/monit/documentation/monit.html">https://mmonit.com/monit/documentation/monit.html</a>.</p><p>Monit is a quick and easy way to set up monitoring for LXC containers per server. It is agentless, and thanks to the exposed metrics from the cgroup hierarchies, it is easy to alert on various data points, without the need to attach or run anything extra in the containers.</p></div><div class="section" title="Container monitoring and alert triggers with Sensu"><div class="titlepage"><div><div><h2 class="title"><a id="ch07lvl2sec76"/>Container monitoring and alert triggers with Sensu</h2></div></div></div><p>Monit is a great tool for monitoring and alerting in a decentralized setup. However, for a more robust and feature-rich way of deploying centralized-based monitoring, other monitoring tools such as Sensu can be leveraged. There are two main ways to implement monitoring with Sensu - with an agent in each container, or on the LXC host with standalone checks collecting data from sources such as cgroups, in a way similar to Monit.</p><p>Sensu uses the client-server architecture, in the sense that the server publishes checks in a messaging queue that is provided by RabbitMQ, and the clients subscribe to the topic in that queue and execute checks and alerts based on set thresholds. State and historical data is stored in a Redis server.</p><p>Let's demonstrate a Sensu deployment with an agent inside the LXC container first, then move on to an agentless monitoring.</p><div class="section" title="Monitoring LXC containers with Sensu agent and server"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec29"/>Monitoring LXC containers with Sensu agent and server</h3></div></div></div><p>We need to install the required services that Sensu will use, Redis and RabbitMQ:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Let's start with the Redis server, and, once it's installed, ensure it's running:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# apt-get -y install redis-server&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# redis-cli ping&#13;</strong></span>
+<span class="strong"><strong>      PONG&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Installing RabbitMQ is just as easy:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# apt-get install -y rabbitmq-server</strong></span>
+</pre></li><li class="listitem">Once installed, we need to create the virtual host that the agents will be subscribing to and reading messages from:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# rabbitmqctl add_vhost /sensu&#13;</strong></span>
+<span class="strong"><strong>      Creating vhost "/sensu" ...&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Next, create a username and a password to connect to that topic:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# rabbitmqctl add_user sensu secret&#13;</strong></span>
+<span class="strong"><strong>      Creating user "sensu" ...&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# rabbitmqctl set_permissions -p &#13;
+      /sensu sensu ".*" ".*" ".*"&#13;</strong></span>
+<span class="strong"><strong>      Setting permissions for user "sensu" in vhost "/sensu" ...&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~#</strong></span>
+</pre></li><li class="listitem">Time to install the Sensu server and client:<pre class="programlisting">
+<span class="strong"><strong>      root@ubuntu:~# wget -q &#13;
+      https://sensu.global.ssl.fastly.net/apt/pubkey.gpg -O- &#13;
+      | sudo apt-key add -&#13;</strong></span>
+<span class="strong"><strong>      OK&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# echo &#13;
+      "deb https://sensu.global.ssl.fastly.net/apt sensu main" &#13;
+      | sudo tee /etc/apt/sources.list.d/sensu.list &#13;</strong></span>
+<span class="strong"><strong>      deb https://sensu.global.ssl.fastly.net/apt sensu main&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# apt-get update&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# apt-get install -y sensu&#13;</strong></span>
+<span class="strong"><strong>      root@ubuntu:~# cd /etc/sensu/conf.d/</strong></span>
+</pre></li></ol></div><p>At a minimum, we need five configuration files, one for the Sensu API endpoint, two that specify what transport we are using - RabbitMQ in this case - the Redis config file for Sensu, and a client config file, for the Sensu client running on the same server. The following config files are pretty much self-explanatory - we specify the IP addresses and ports of the RabbitMQ and Redis servers, along with the API service:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d# cat api.json&#13;</strong></span>
+<span class="strong"><strong>{&#13;</strong></span>
+<span class="strong"><strong>  "api": {&#13;</strong></span>
+<span class="strong"><strong>    "host": "localhost",&#13;</strong></span>
+<span class="strong"><strong>    "bind": "0.0.0.0",&#13;</strong></span>
+<span class="strong"><strong>    "port": 4567&#13;</strong></span>
+<span class="strong"><strong>  }&#13;</strong></span>
+<span class="strong"><strong>}&#13;
+&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d#&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d# cat transport.json&#13;</strong></span>
+<span class="strong"><strong>{&#13;</strong></span>
+<span class="strong"><strong>  "transport": {&#13;</strong></span>
+<span class="strong"><strong>    "name": "rabbitmq",&#13;</strong></span>
+<span class="strong"><strong>    "reconnect_on_error": true&#13;</strong></span>
+<span class="strong"><strong>  }&#13;</strong></span>
+<span class="strong"><strong>}&#13;
+&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d#&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d# cat rabbitmq.json&#13;</strong></span>
+<span class="strong"><strong>{&#13;</strong></span>
+<span class="strong"><strong>  "rabbitmq": {&#13;</strong></span>
+<span class="strong"><strong>    "host": "10.208.129.253",&#13;</strong></span>
+<span class="strong"><strong>    "port": 5672,&#13;</strong></span>
+<span class="strong"><strong>    "vhost": "/sensu",&#13;</strong></span>
+<span class="strong"><strong>    "user": "sensu",&#13;</strong></span>
+<span class="strong"><strong>    "password": "secret"&#13;</strong></span>
+<span class="strong"><strong>  }&#13;</strong></span>
+<span class="strong"><strong>}&#13;
+&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d#&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d# cat redis.json&#13;</strong></span>
+<span class="strong"><strong>{&#13;</strong></span>
+<span class="strong"><strong>  "redis": {&#13;</strong></span>
+<span class="strong"><strong>    "host": "localhost",&#13;</strong></span>
+<span class="strong"><strong>    "port": 6379&#13;</strong></span>
+<span class="strong"><strong>  }&#13;</strong></span>
+<span class="strong"><strong>}&#13;
+&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d# cat client.json&#13;</strong></span>
+<span class="strong"><strong>{&#13;</strong></span>
+<span class="strong"><strong>  "client": {&#13;</strong></span>
+<span class="strong"><strong>    "name": "ubuntu",&#13;</strong></span>
+<span class="strong"><strong>    "address": "127.0.0.1",&#13;</strong></span>
+<span class="strong"><strong>    "subscriptions": [&#13;</strong></span>
+<span class="strong"><strong>      "base"&#13;</strong></span>
+<span class="strong"><strong>    ],&#13;</strong></span>
+<span class="strong"><strong>    "socket": {&#13;</strong></span>
+<span class="strong"><strong>      "bind": "127.0.0.1",&#13;</strong></span>
+<span class="strong"><strong>      "port": 3030&#13;</strong></span>
+<span class="strong"><strong>    }&#13;</strong></span>
+<span class="strong"><strong>  }&#13;</strong></span>
+<span class="strong"><strong>}&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d#</strong></span>
+</pre><p>For more information on Sensu, refer to <a class="ulink" href="https://sensuapp.org/docs/">https://sensuapp.org/docs/</a>.</p><p>Before we start the Sensu server, we can install a web-based frontend called Uchiwa:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# apt-get install -y uchiwa</strong></span>
+</pre><p>In the configuration file, we specify the address and port of the Sensu API service - localhost and port <code class="literal">4567</code> - and the port Uchiwa will be listening on - <code class="literal">3000</code> - in this case:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d# cat /etc/sensu/uchiwa.json&#13;</strong></span>
+<span class="strong"><strong>{&#13;</strong></span>
+<span class="strong"><strong>  "sensu": [&#13;</strong></span>
+<span class="strong"><strong>    {&#13;</strong></span>
+<span class="strong"><strong>      "name": "LXC Containers",&#13;</strong></span>
+<span class="strong"><strong>      "host": "localhost",&#13;</strong></span>
+<span class="strong"><strong>      "ssl": false,&#13;</strong></span>
+<span class="strong"><strong>      "port": 4567,&#13;</strong></span>
+<span class="strong"><strong>      "path": "",&#13;</strong></span>
+<span class="strong"><strong>      "timeout": 5000&#13;</strong></span>
+<span class="strong"><strong>    }&#13;</strong></span>
+<span class="strong"><strong>  ],&#13;</strong></span>
+<span class="strong"><strong>  "uchiwa": {&#13;</strong></span>
+<span class="strong"><strong>    "port": 3000,&#13;</strong></span>
+<span class="strong"><strong>    "stats": 10,&#13;</strong></span>
+<span class="strong"><strong>    "refresh": 10000&#13;</strong></span>
+<span class="strong"><strong>  }&#13;</strong></span>
+<span class="strong"><strong>}&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d#</strong></span>
+</pre><p>With all of the configuration in place, let's start the Sensu services:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# /etc/init.d/sensu-server start&#13;</strong></span>
+<span class="strong"><strong>* Starting sensu-server [ OK ]&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# /etc/init.d/sensu-api start&#13;</strong></span>
+<span class="strong"><strong>* Starting sensu-api [ OK ]&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d# /etc/init.d/sensu-client start&#13;</strong></span>
+<span class="strong"><strong>* Starting sensu-client [ OK ]&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d#&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# /etc/init.d/uchiwa restart&#13;</strong></span>
+<span class="strong"><strong>uchiwa stopped.&#13;</strong></span>
+<span class="strong"><strong>uchiwa started.&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>With the Sensu server now fully configured, we need to attach to a container on the host and install the Sensu agent:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-attach --name monitor_lxc&#13;</strong></span>
+<span class="strong"><strong>root@monitor_lxc:~# apt-get install -y wget&#13;</strong></span>
+<span class="strong"><strong>root@monitor_lxc:~# wget -q https://sensu.global.ssl.fastly.net/apt/pubkey.gpg -O- | sudo apt-key add -&#13;</strong></span>
+<span class="strong"><strong>OK&#13;</strong></span>
+<span class="strong"><strong>root@monitor_lxc:~# echo "deb https://sensu.global.ssl.fastly.net/apt sensu main" | sudo tee /etc/apt/sources.list.d/sensu.list&#13;</strong></span>
+<span class="strong"><strong>deb https://sensu.global.ssl.fastly.net/apt sensu main&#13;</strong></span>
+<span class="strong"><strong>root@monitor_lxc:~# apt-get update&#13;</strong></span>
+<span class="strong"><strong>root@monitor_lxc:~# apt-get install -y sensu&#13;</strong></span>
+<span class="strong"><strong>root@monitor_lxc:/# cd /etc/sensu/conf.d/</strong></span>
+</pre><p>To configure the Sensu agent, we need to edit the client config, where we specify the IP address and the name of the container:</p><pre class="programlisting">
+<span class="strong"><strong>root@monitor_lxc:/etc/sensu/conf.d# cat client.json&#13;</strong></span>
+<span class="strong"><strong>{&#13;</strong></span>
+<span class="strong"><strong>  "client": {&#13;</strong></span>
+<span class="strong"><strong>    "name": "monitor_lxc",&#13;</strong></span>
+<span class="strong"><strong>    "address": "10.0.3.2",&#13;</strong></span>
+<span class="strong"><strong>    "subscriptions": ["base"]&#13;</strong></span>
+<span class="strong"><strong>  }&#13;</strong></span>
+<span class="strong"><strong>}&#13;</strong></span>
+<span class="strong"><strong>root@monitor_lxc:/etc/sensu/conf.d#</strong></span>
+</pre><p>We tell the agent how to connect to the RabbitMQ server on the host, by providing its IP address, port, and the credentials we created earlier:</p><pre class="programlisting">
+<span class="strong"><strong>root@monitor_lxc:/etc/sensu/conf.d# cat rabbitmq.json&#13;</strong></span>
+<span class="strong"><strong>{&#13;</strong></span>
+<span class="strong"><strong>  "rabbitmq": {&#13;</strong></span>
+<span class="strong"><strong>    "host": "10.0.3.1",&#13;</strong></span>
+<span class="strong"><strong>    "port": 5672,&#13;</strong></span>
+<span class="strong"><strong>    "vhost": "/sensu",&#13;</strong></span>
+<span class="strong"><strong>    "user": "sensu",&#13;</strong></span>
+<span class="strong"><strong>    "password": "secret"&#13;</strong></span>
+<span class="strong"><strong>  }&#13;</strong></span>
+<span class="strong"><strong>}&#13;</strong></span>
+<span class="strong"><strong>root@monitor_lxc:/etc/sensu/conf.d#</strong></span>
+</pre><p>Then, specify the transport mechanism:</p><pre class="programlisting">
+<span class="strong"><strong>root@monitor_lxc:/etc/sensu/conf.d# cat transport.json&#13;</strong></span>
+<span class="strong"><strong>{&#13;</strong></span>
+<span class="strong"><strong>  "transport": {&#13;</strong></span>
+<span class="strong"><strong>    "name": "rabbitmq",&#13;</strong></span>
+<span class="strong"><strong>    "reconnect_on_error": true&#13;</strong></span>
+<span class="strong"><strong>  }&#13;</strong></span>
+<span class="strong"><strong>}&#13;</strong></span>
+<span class="strong"><strong>root@monitor_lxc:/etc/sensu/conf.d#</strong></span>
+</pre><p>With the preceding three files in place, let's start the agent:</p><pre class="programlisting">
+<span class="strong"><strong>root@monitor_lxc:/etc/sensu/conf.d# /etc/init.d/sensu-client start&#13;</strong></span>
+<span class="strong"><strong>* Starting sensu-client [ OK ]&#13;</strong></span>
+<span class="strong"><strong>root@monitor_lxc:/etc/sensu/conf.d#</strong></span>
+</pre><div class="mediaobject"><img alt="Monitoring LXC containers with Sensu agent and server" src="graphics/image_07_003.jpg"/></div><p>To verify that all services are running normally and that the Sensu agent can connect to the server, we can connect to the Uchiwa interface on port 3000 using the host IP, as shown earlier.</p><p>While still attached to the LXC container, let's install a Sensu check. Sensu checks are available as gems, or can be written manually. Let's search the <code class="literal">gem</code> repository for any memory checks instead of writing our own:</p><pre class="programlisting">
+<span class="strong"><strong>root@monitor_lxc:/etc/sensu/conf.d# apt-get install -y rubygems&#13;</strong></span>
+<span class="strong"><strong>root@monitor_lxc:/etc/sensu/conf.d# gem search sensu | grep plugins | grep memory&#13;</strong></span>
+<span class="strong"><strong>sensu-plugins-memory (0.0.2)&#13;</strong></span>
+<span class="strong"><strong>sensu-plugins-memory-checks (1.0.2)&#13;</strong></span>
+<span class="strong"><strong>root@monitor_lxc:/etc/sensu/conf.d#</strong></span>
+</pre><p>Install the memory check and restart the agent:</p><pre class="programlisting">
+<span class="strong"><strong>root@monitor_lxc:/etc/sensu/conf.d# gem install sensu-plugins-memory-checks&#13;</strong></span>
+<span class="strong"><strong>root@monitor_lxc:/etc/sensu/conf.d# /etc/init.d/sensu-client restart&#13;</strong></span>
+<span class="strong"><strong>configuration is valid&#13;</strong></span>
+<span class="strong"><strong>* Stopping sensu-client [ OK ]&#13;</strong></span>
+<span class="strong"><strong>* Starting sensu-client [ OK ]&#13;</strong></span>
+<span class="strong"><strong>root@monitor_lxc:/etc/sensu/conf.d#</strong></span>
+</pre><p>On the Sensu server host (and not on the container), we need to define the new memory check so that the Sensu server can tell the agent to execute it. We do that by creating a new checks file:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d# cat check_memory.json&#13;
+{&#13;
+  "checks": {&#13;
+    "memory_check": {&#13;
+    "command": "/usr/local/bin/check-memory-percent.rb -w 80 -c 90",&#13;
+    "subscribers": ["base"],&#13;
+    "handlers": ["default"],&#13;
+    "interval": 300&#13;
+   }&#13;
+  }&#13;
+}&#13;
+root@ubuntu:/etc/sensu/conf.d#</strong></span>
+</pre><p>We specify the path and the name of the check that needs to be run from the Sensu agent, in this case, the Ruby script that we installed in the container from the <code class="literal">gem</code>. Restart the Sensu services for the changes to take effect:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d# /etc/init.d/sensu-server restart&#13;</strong></span>
+<span class="strong"><strong>configuration is valid&#13;</strong></span>
+<span class="strong"><strong>* Stopping sensu-server [ OK ]&#13;</strong></span>
+<span class="strong"><strong>* Starting sensu-server [ OK ]&#13;
+&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d# /etc/init.d/sensu-api restart&#13;</strong></span>
+<span class="strong"><strong>configuration is valid&#13;</strong></span>
+<span class="strong"><strong>* Stopping sensu-api [ OK ]&#13;</strong></span>
+<span class="strong"><strong>* Starting sensu-api [ OK ]&#13;
+&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d# /etc/init.d/uchiwa restart&#13;</strong></span>
+<span class="strong"><strong>Killing uchiwa (pid 15299) with SIGTERM&#13;</strong></span>
+<span class="strong"><strong>Waiting uchiwa (pid 15299) to die...&#13;</strong></span>
+<span class="strong"><strong>Waiting uchiwa (pid 15299) to die...&#13;</strong></span>
+<span class="strong"><strong>uchiwa stopped.&#13;</strong></span>
+<span class="strong"><strong>uchiwa started.&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d#</strong></span>
+</pre><p>Checking the Uchiwa interface, we can see that the memory check is now active:</p><div class="mediaobject"><img alt="Monitoring LXC containers with Sensu agent and server" src="graphics/image_07_004.jpg"/></div><p>We can install multiple Sensu check scripts from gems inside the LXC container; define them on the Sensu server just like we would on a normal server or a virtual machine, and end up with a full-fledged monitoring solution.</p><p>There are a few caveats when running an agent inside the container:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The agent consumes resources; if we are trying to run lightweight containers with a minimum amount of memory, this might not be the best solution.</li><li class="listitem" style="list-style-type: disc">When measuring CPU load, the load inside the container will reflect the general load on the host itself, since the containers are not isolated from the host by a hypervisor. The best way to measure CPU utilization is by obtaining the data from the cgroups, or with the <code class="literal">lxc-info</code> command on the host.</li><li class="listitem" style="list-style-type: disc">If using a shared root filesystem such as the one we saw in the previous chapter, monitoring the disk space inside the container might reflect the total space on the server.</li></ul></div><p>If running a Sensu agent inside the LXC container is not desired, we can perform standalone checks from the Sensu server on the same host instead. Let's explore this setup next.</p></div><div class="section" title="Monitoring LXC containers using standalone Sensu checks"><div class="titlepage"><div><div><h3 class="title"><a id="ch07lvl3sec30"/>Monitoring LXC containers using standalone Sensu checks</h3></div></div></div><p>On servers that run LXC containers, we can install the Sensu agent directly on the host OS, instead of inside each container, just like we did earlier in this chapter. We can also leverage Sensu's standalone checks, which provide a decentralized way of monitoring, meaning that the Sensu agent defines and schedules the checks instead of the Sensu server. This provides us with the benefit of not having to install agents and monitoring scripts inside the containers, and having the Sensu agents run the checks on each server.</p><p>Let's demonstrate how to create a standalone check on the LXC host we've been using so far:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d# cat check_memory_no_agent.json&#13;</strong></span>
+<span class="strong"><strong>{&#13;</strong></span>
+<span class="strong"><strong>  "checks": {&#13;</strong></span>
+<span class="strong"><strong>    "check_memory_no_agent": {&#13;</strong></span>
+<span class="strong"><strong>      "command": "check_memory_no_agent.sh -n monitor_lxc -w 943718400 &#13;
+      -e 1048576000",&#13;</strong></span>
+<span class="strong"><strong>      "standalone": true,&#13;</strong></span>
+<span class="strong"><strong>      "subscribers": [&#13;</strong></span>
+<span class="strong"><strong>        "base"&#13;</strong></span>
+<span class="strong"><strong>      ],&#13;</strong></span>
+<span class="strong"><strong>      "interval": 300&#13;</strong></span>
+<span class="strong"><strong>    }&#13;</strong></span>
+<span class="strong"><strong>  }&#13;</strong></span>
+<span class="strong"><strong>}&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d#</strong></span>
+</pre><p>The main difference when defining a standalone check is the presence of the <code class="literal">"standalone": true</code> stanza, as shown from the preceding output. In the command section of the check configuration, we specify what script to execute to perform the actual check and the thresholds it should alert on. The script can be anything, as long as it exits with error code <code class="literal">2</code> for Critical alerts, error code <code class="literal">1</code> for Warning, and <code class="literal">0</code> if all is OK.</p><p>This is a very simple bash script that uses the <code class="literal">memory.usage_in_bytes</code> cgroup file to collect metrics on the memory usage and alert on it if the specified threshold is reached:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/etc/sensu/conf.d# cd ../plugins/&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/plugins# cat check_memory_no_agent.sh&#13;</strong></span>
+<span class="strong"><strong>#!/bin/bash&#13;</strong></span>
+<span class="strong"><strong># Checks memory usage for an LXC container from cgroups&#13;</strong></span>
+<span class="strong"><strong>&#13;
+usage()&#13;</strong></span>
+<span class="strong"><strong>{&#13;</strong></span>
+<span class="strong"><strong>  echo "Usage: `basename $0` -n|--name monitor_lxc -w|--warning &#13;
+  5000 -e|--error 10000"&#13;</strong></span>
+<span class="strong"><strong>  exit 2&#13;</strong></span>
+<span class="strong"><strong>}&#13;</strong></span>
+<span class="strong"><strong>sanity_check()&#13;</strong></span>
+<span class="strong"><strong>{&#13;</strong></span>
+<span class="strong"><strong>  if [ "$CONTAINER_NAME" == "" ] || [ "$WARNING" == "" ] || [ "$ERROR" &#13;
+  == "" ]&#13;</strong></span>
+<span class="strong"><strong>  then&#13;</strong></span>
+<span class="strong"><strong>    usage&#13;</strong></span>
+<span class="strong"><strong>  fi&#13;</strong></span>
+<span class="strong"><strong>}&#13;</strong></span>
+<span class="strong"><strong>report_result()&#13;</strong></span>
+<span class="strong"><strong>{&#13;</strong></span>
+<span class="strong"><strong>  if [ "$MEMORY_USAGE" -ge "$ERROR" ]&#13;</strong></span>
+<span class="strong"><strong>  then&#13;</strong></span>
+<span class="strong"><strong>    echo "CRITICAL - Memory usage too high at $MEMORY_USAGE"&#13;</strong></span>
+<span class="strong"><strong>    exit 2&#13;</strong></span>
+<span class="strong"><strong>  elif [ "$MEMORY_USAGE" -ge "$WARNING" ]&#13;</strong></span>
+<span class="strong"><strong>  then&#13;</strong></span>
+<span class="strong"><strong>    echo "WARNING - Memory usage at $MEMORY_USAGE"&#13;</strong></span>
+<span class="strong"><strong>    exit 1&#13;</strong></span>
+<span class="strong"><strong>  else&#13;</strong></span>
+<span class="strong"><strong>    echo "Memory Usage OK at $MEMROY_USAGE"&#13;</strong></span>
+<span class="strong"><strong>    exit 0&#13;</strong></span>
+<span class="strong"><strong>  fi&#13;</strong></span>
+<span class="strong"><strong>}&#13;</strong></span>
+<span class="strong"><strong>get_memory_usage()&#13;</strong></span>
+<span class="strong"><strong>{&#13;</strong></span>
+<span class="strong"><strong>  declare -g -i MEMORY_USAGE=0&#13;</strong></span>
+<span class="strong"><strong>  MEMORY_USAGE=$(cat &#13;
+  /sys/fs/cgroup/memory/lxc/$CONTAINER_NAME/memory.usage_in_bytes)&#13;</strong></span>
+<span class="strong"><strong>}&#13;</strong></span>
+<span class="strong"><strong>main()&#13;</strong></span>
+<span class="strong"><strong>{&#13;</strong></span>
+<span class="strong"><strong>  sanity_check&#13;</strong></span>
+<span class="strong"><strong>  get_memory_usage&#13;</strong></span>
+<span class="strong"><strong>  report_result&#13;</strong></span>
+<span class="strong"><strong>}&#13;</strong></span>
+<span class="strong"><strong>while [[ $# &gt; 1 ]]&#13;</strong></span>
+<span class="strong"><strong>do&#13;</strong></span>
+<span class="strong"><strong>  key=$1&#13;
+&#13;</strong></span>
+<span class="strong"><strong>  case $key in&#13;</strong></span>
+<span class="strong"><strong>    -n|--name)&#13;</strong></span>
+<span class="strong"><strong>      CONTAINER_NAME=$2&#13;</strong></span>
+<span class="strong"><strong>      shift&#13;</strong></span>
+<span class="strong"><strong>  ;;&#13;</strong></span>
+<span class="strong"><strong>  -w|--warning)&#13;</strong></span>
+<span class="strong"><strong>    WARNING=$2&#13;</strong></span>
+<span class="strong"><strong>    shift&#13;</strong></span>
+<span class="strong"><strong>  ;;&#13;</strong></span>
+<span class="strong"><strong>  -e|--error)&#13;</strong></span>
+<span class="strong"><strong>    ERROR=$2&#13;</strong></span>
+<span class="strong"><strong>    shift&#13;</strong></span>
+<span class="strong"><strong>  ;;&#13;</strong></span>
+<span class="strong"><strong>  *)&#13;</strong></span>
+<span class="strong"><strong>    usage&#13;</strong></span>
+<span class="strong"><strong>  ;;&#13;</strong></span>
+<span class="strong"><strong>  esac&#13;</strong></span>
+<span class="strong"><strong>  shift&#13;</strong></span>
+<span class="strong"><strong>done&#13;</strong></span>
+<span class="strong"><strong>main&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/plugins#</strong></span>
+</pre><p>The preceding script, albeit simple, should be a good starting point for the reader to start writing more useful Sensu checks that operate on various LXC metrics. Looking at the script, we can see that it has three basic functions. First, it checks for the provided container name, and warning and error thresholds in the <code class="literal">sanitiy_check()</code> function. Then it gets the memory usage in bites from the cgroup file in the <code class="literal">get_memory_usage()</code> function, and finally, reports the results in the <code class="literal">report_result()</code> function, by returning the appropriate error code, as described earlier.</p><p>Change the permissions and the execution flag of the script, reload Sensu services, and make sure the check is showing in Uchiwa:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:/etc/sensu/plugins# chown sensu:sensu check_memory_no_agent.sh&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/plugins# chmod u+x check_memory_no_agent.sh&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/plugins# echo "sensu ALL=(ALL) NOPASSWD:ALL" &gt; /etc/sudoers.d/sensu&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:/etc/sensu/plugins# /etc/init.d/sensu-client restart</strong></span>
+</pre><div class="mediaobject"><img alt="Monitoring LXC containers using standalone Sensu checks" src="graphics/image_07_005.jpg"/></div><p>Just like Monit, Sensu provides handlers that get triggered when an alert is fired. This can be a custom script that sends an e-mail, makes a call to an external service such as PagerDuty, and so on. All of this provides the capability for an automated and proactive way of handling LXC alerts.</p><p>For more information on Sensu handlers, refer to the documentation at <a class="ulink" href="https://sensuapp.org/docs/latest/reference/handlers.html">https://sensuapp.org/docs/latest/reference/handlers.html</a>.</p></div></div></div>
+<div class="section" title="Simple autoscaling pattern with LXC, Jenkins, and Sensu"><div class="titlepage"><div><div><h1 class="title"><a id="ch07lvl1sec36"/>Simple autoscaling pattern with LXC, Jenkins, and Sensu</h1></div></div></div><p>In <a class="link" href="ch06.html" title="Chapter 6. Clustering and Horizontal Scaling with LXC">Chapter 6</a><span class="emphasis"><em>, Clustering and Horizontal Scaling with LXC</em></span>, we looked at how to horizontally scale services with LXC and HAProxy, by provisioning more containers on multiple hosts. In this chapter, we explored different ways of monitoring the resource utilization of LXC containers and triggering actions based on the alerts. With all of this knowledge in place, we can now implement a commonly used autoscaling pattern, as shown in the following diagram:</p><div class="mediaobject"><img alt="Simple autoscaling pattern with LXC, Jenkins, and Sensu" src="graphics/image_07_006.jpg"/></div><p>The pattern uses Jenkins as a build system, controlled by the Sensu alert handlers. When a Sensu agent running inside an LXC container receives a scheduled check from the Sensu server, for example, a memory check, it executes the script and returns either <code class="literal">OK</code>, <code class="literal">Warning</code>, or a <code class="literal">Critical</code> status, depending on the configured alert thresholds. If the <code class="literal">Critical</code> status is returned, then a configured Sensu handler, which can be as simple as a <code class="literal">curl</code> command, makes an API call to the Jenkins server, which in turn executes a preconfigured job. The Jenkins job can be a script that selects an LXC host from a list of hosts, based on a set of criteria that either builds a new container, or increases the available memory on the alerting LXC container, if possible. This is one of the simplest autoscaling design patterns, utilizing a monitoring system and a RESTful build service such as Jenkins.</p><p>In the next chapter, we are going to explore a full OpenStack deployment that utilizes a smart scheduler to select compute hosts on which to provision new LXC containers, based on available memory or just the number of already running containers.</p><p>We have already looked at some examples of how to implement most of the components and interactions in the preceding diagram. Let's quickly touch on Jenkins and set up a simple job that creates new LXC containers when called through the REST API remotely. The rest will be left to the reader to experiment with.</p><p>To install Jenkins on Ubuntu, run the following commands:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu: ~# wget -q -O - https://pkg.jenkins.io/debian/jenkins-ci.org.key | sudo apt-key add -&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# sh -c 'echo deb http://pkg.jenkins.io/debian-stable binary/ &gt; /etc/apt/sources.list.d/jenkins.list'&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# apt-get update&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# apt-get install jenkins</strong></span>
+</pre><p>Jenkins listens on port <code class="literal">8080</code>. The following two iptables rules forward port <code class="literal">80</code> to port <code class="literal">8080</code>, making it easier to connect:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports 8080&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~# iptables -t nat -I OUTPUT -p tcp -d 127.0.0.1 --dport 80 -j REDIRECT --to-ports 8080</strong></span>
+</pre><p>Make sure to add the <code class="literal">jenkins</code> user to the <code class="literal">sudoers</code> file:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cat /etc/sudoers | grep jenkins&#13;</strong></span>
+<span class="strong"><strong>jenkins ALL=(ALL) NOPASSWD:ALL&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Once installed, Jenkins will start and be accessible over HTTP. Open the Jenkins web page and paste the content of the following file as requested:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# cat /var/lib/jenkins/secrets/initialAdminPassword&#13;</strong></span>
+<span class="strong"><strong>32702ecf076e439c8d58c51f1247776d&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>After installing the recommended plugins, do the following:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Create a new job named <code class="literal">LXC Provision</code>.</li><li class="listitem">In <span class="strong"><strong>Build Triggers</strong></span>, select <span class="strong"><strong>Trigger builds remotely (e.g., from scripts)</strong></span> and type a random string, for example, <code class="literal">somesupersecrettoken</code>.</li><li class="listitem">In the <span class="strong"><strong>Build</strong></span> section, click on <span class="strong"><strong>Add build step</strong></span> and select <span class="strong"><strong>Execute shell</strong></span>.</li><li class="listitem">In the <span class="strong"><strong>Command</strong></span> window, add the following simple bash script:<pre class="programlisting">      set +x&#13;
+      echo "Building new LXC container"&#13;
+      sudo lxc-create --template ubuntu --name $(cat /dev/urandom | &#13;
+      tr -cd 'a-z' | head -c 10)</pre></li><li class="listitem">Finally, click on <span class="strong"><strong>Save</strong></span>.</li></ol></div><p>The Jenkins job should look similar to the following screenshot:</p><div class="mediaobject"><img alt="Simple autoscaling pattern with LXC, Jenkins, and Sensu" src="graphics/image_07_007.jpg"/></div><p>To trigger the job remotely, run the following, replacing the username, password, and IP address with those configured on your host:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# curl http://user:password@192.237.167.103:8080/job/LXC%20Provision/build?token=somesupersecrettoken&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>This will trigger the Jenkins job, which in turn will create a new LXC container with a random name:</p><pre class="programlisting">
+<span class="strong"><strong>root@ubuntu:~# lxc-ls -f&#13;</strong></span>
+<span class="strong"><strong>NAME STATE AUTOSTART GROUPS IPV4 IPV6&#13;</strong></span>
+<span class="strong"><strong>ifjvdlpvnv STOPPED 0 - - -&#13;</strong></span>
+<span class="strong"><strong>root@ubuntu:~#</strong></span>
+</pre><p>Now, all that is left is to create a Sensu handler (or a <code class="literal">monit</code> trigger script) for a check, or set of checks, which in turn can execute a similar <code class="literal">curl</code> command as the preceding one. Of course, this deployment is only meant to scratch the surface of what is possible by combining Sensu, Jenkins, and LXC for autoscaling services running inside containers.</p></div>
+<div class="section" title="Summary"><div class="titlepage"><div><div><h1 class="title"><a id="ch07lvl1sec37"/>Summary</h1></div></div></div><p>In this chapter, we looked at how to back up LXC containers using Linux native tools such as <code class="literal">tar</code> and <code class="literal">rsync</code>, and LXC utilities such as <code class="literal">lxc-copy</code>. We looked at examples of how to create cold and hot standby LXC container backups using the iSCSI target as the LXC root filesystem and configuration files store. We also looked at how to deploy a shared network filesystem using GlusterFS, and the benefits of running multiple containers on the same filesystem, but on different hosts.</p><p>We also touched on how to monitor the state, health, and resource utilization of LXC containers using tools such as Monit and Sensu, and how to trigger actions, such as running a script to act on those alerts.</p><p>Finally, we reviewed one of the common autoscaling patterns, combining several tools to automatically create new containers based on alert events.</p><p>In the next chapter, we are going to look at a complete OpenStack deployment, which will allow us to create LXC containers utilizing smart schedulers.</p></div></body></html>

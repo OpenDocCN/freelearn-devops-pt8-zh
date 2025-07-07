@@ -1,0 +1,807 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Developing with Cloud Run</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root">In this chapter, we'll look into the feature set of Cloud Run. As we saw in <a href="c29748cd-df95-4c66-9b16-cdb344d14be2.xhtml" target="_blank">Chapter 7</a>, <em>Introducing Cloud Run</em>, Cloud Run allows stateless containers to be provisioned and run on serverless infrastructure based on Google Cloud. In this chapter, we will focus on working with Cloud Run and how to use some of the available developer tools to develop serverless applications.</p>
+<p class="mce-root">Cloud Run is part of a wider ecosystem that provides us with the means to build web services at a wide scale. Interestingly, it can also exist within the Kubernetes ecosystem without changes needing to be made to the artifact configuration. If you have worked with Docker or Cloud Functions previously, much of the environment that supports Cloud Run will be familiar to you. At the time of writing, Cloud Run has just become generally available; however, some of the Google Cloud console components are still in alpha or beta stages and therefore are subject to change.</p>
+<p class="mce-root">The following topics will be covered in this chapter:</p>
+<ul>
+<li>Exploring the Cloud Run dashboard</li>
+<li>Developing <span>with Cloud Run</span></li>
+<li>Building a <strong>Representation State Transfer</strong> (<strong>REST</strong>) API</li>
+<li>Developer productivity</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Technical requirements</h1>
+                </header>
+            
+            <article>
+                
+<p>To complete the exercises in this chapter, you will need a Google Cloud Project or Qwiklabs account.</p>
+<p class="mce-root">You can find the code files for this chapter in this book's GitHub repository, under the <kbd>ch08</kbd> subdirectory, at <a href="https://github.com/PacktPublishing/Hands-on-Serverless-Computing-with-Google-Cloud/tree/master/ch08">https://github.com/PacktPublishing/Hands-on-Serverless-Computing-with-Google-Cloud/tree/master/ch08</a>.</p>
+<div class="mce-root packt_infobox">While you are going through the code snippets in the book, you will notice that, in a few instances, a few lines from the code/output have been removed and replaced with ellipses (<kbd>...</kbd>). The use of ellipses is only to show relevant code/output. The complete code is available on GitHub at the link mentioned previously.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Exploring the Cloud Run dashboard</h1>
+                </header>
+            
+            <article>
+                
+<p>The Cloud Run interface on Google Cloud has several options available. These options relate to the build process and include information such as build triggers and historical views of prior builds. Starting with the Cloud Run dashboard, this menu option relies on the builds that are triggered within the project. At the time of writing, the page is currently undergoing testing, so expect further changes as the product matures:</p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-838 image-border" src="assets/0762d5b7-714c-4344-a473-9f1684a39db1.png" style=""/></div>
+<p><span>If you are not familiar with Cloud Build triggers, we will cover them in more detail later in this chapter. For now, all you need to know is that they are a way to automatically initiate a build and will be key when you use Cloud Run.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Developing with Cloud Run</h1>
+                </header>
+            
+            <article>
+                
+<p>At its most basic, Cloud Run allows container-based HTTP endpoints to be spun up and run in the cloud. In the previous chapter, we learned about the basics of how to create containers and build a simple application that was compatible with that environment. Understanding containers allows us to take whatever runtime language we want and make an artifact around our use case. At this point, we will take the opportunity to build our first Cloud Run application so that we can become familiar with both the environment and the product.</p>
+<p>In this first exercise, we will call upon some existing code and revisit the static website example (refer <a href="971cc339-7cda-4366-8e3d-919ceaf75d4d.xhtml" target="_blank">Chapter 6</a>, <em>Cloud Functions Labs</em>. Here, we will explore how we can potentially package an existing application. Remember that, in this example, the application is based on Node.js and incorporates peer dependencies. Let's get started:</p>
+<ol>
+<li>To commence the project, we will need to retrieve the code from the GitHub repository using following command:</li>
+</ol>
+<pre class="mce-root" style="padding-left: 60px"><strong>git clone https://github.com/PacktPublishing/Hands-on-Serverless-Computing-with-Google-Cloud-Platform.git</strong><br/><strong>cd ch08</strong></pre>
+<p style="padding-left: 60px">The source code for the web application, which was initially built as a Cloud Functions application, will now transition to Cloud Run. First, we will take a look at the compatibility between the two products. It is important to note that we don't need to change the application as this was previously built using the Functions Framework.</p>
+<ol start="2">
+<li>We have already seen that creating a container requires the creation of a Dockerfile manifest. This example application runs on Node.js; thus, we can take a shortcut and use a preexisting manifest template that is compatible with this framework. Taking this approach means that we don't have to work out which packages are required and can quickly integrate them into our application requirements:</li>
+</ol>
+<pre class="mce-root" style="padding-left: 60px">FROM node:12-slim<br/>LABEL MAINTAINER Rich Rose<br/><br/># Create a work directory<br/>WORKDIR /usr/src/app<br/><br/># Add packages<br/>COPY package.json package*.json ./<br/>RUN npm install --only=production<br/><br/># Bundle app source<br/>COPY . .<br/><br/># Export application PORT<br/>EXPOSE 8080</pre>
+<ol start="3">
+<li>To establish compatibility with our web application, we need to update the manifest so that it is aware of the application configuration we desire. We will only need to make minimal changes in order to achieve compatibility with our application:</li>
+</ol>
+<pre style="padding-left: 60px">FROM node:12-slim<br/>LABEL MAINTAINER Rich Rose<br/><br/># Create a work directory<br/>WORKDIR /usr/src/app<br/><br/># Add packages<br/>COPY package.json package*.json ./<br/>RUN npm install --only=production<br/><br/># Bundle app source<br/>COPY . .<br/><br/># Export application PORT<br/>EXPOSE 8080<br/><br/># Create start command<br/>CMD ["npm", "start"]</pre>
+<p style="padding-left: 60px">First, we needed to install the peer dependencies (for example, <kbd>functions-framework</kbd> and <kbd>pug</kbd>).</p>
+<ol start="4">
+<li>To install the peer dependencies, run the following command:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>npm install @google-cloud/functions-framework</strong><br/><strong>npm install pug</strong></pre>
+<p style="padding-left: 60px">Doing so means we have these packages available within the image we created. Also, we correctly invocated the application by using the <kbd>npm start</kbd> command. Other than those changes, the manifest remains a pretty standard Node manifest. These changes are required to mirror the changes we might make when running via the command line.</p>
+<p style="padding-left: 60px">In the preceding example, one thing to point out is the port that's being specified is <kbd>8080</kbd>; this is the default network port associated with Cloud Run applications. At the time of writing, I understand that further work is being done to support the use of alternative ports. Once this feature is available, it seems practical that it would be possible to specify the port requirements at the point of deployment. Therefore, the inclusion of this line provides a potential benefit.</p>
+<ol start="5">
+<li>To build the image, we will be using Cloud Build rather than Docker. We are doing this because we will be utilizing the Google ecosystem to manage our artifacts. Feel free to continue to use Docker to build; you will need to tag and upload your image for the Google Container Registry to do so. As a refresher, Cloud Build allows us to securely perform continuous integration on Google Cloud. This means that the build process can take place either locally or in the cloud. Cloud Build uses the GCloud SDK to initiate builds and post the resulting artifact to the Container Registry. Building our image can be done with the following line, in which we build a Docker image and tag the resource:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>gcloud builds submit --tag gcr.io/[PROJECT-ID]/hello-cloudrun:1.0</strong></pre>
+<p style="padding-left: 60px">Once the build has been successfully concluded, we will be able to see the output of the preceding command in the Container Registry. Holding assets in the repository enables a wide range of sharing options, both internally and externally, in relation to the project.</p>
+<ol start="6">
+<li>Now that the container image exists, it is automatically added to the image repository. The next step is to deploy the code. This is as simple as referencing the artifact that we stored in our repository earlier. Note that to access the image that's been saved, you need to use the full tag that's been given to the object:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>gcloud run deploy hello-cloudrun --image gcr.io/$PROJECT_ID//hello-cloudrun:1.0 --platform managed --region us-central1 --allow-unauthenticated</strong></pre>
+<p class="mce-root">Once the application has been successfully deployed, it responds in much the same way as a Cloud Functions deployment. The critical thing to note is how little work was required to transition from a Cloud Function to Cloud Run, using a Dockerfile manifest. In this instance, the manifest is straightforward and doesn't require much additional consideration to get it running. At this point, when returning to the Cloud Run console, we can not only see the deployed application but some ancillary information. Let's take a moment to explore this new information.</p>
+<p class="mce-root">In this section, we had a brief tour of the Cloud Run interface and looked at the purpose of each of its components. Then, we built a simple container to render information on the screen. By doing this, we can develop our knowledge and skills by creating more compelling examples.</p>
+<p class="mce-root">When working with containers and, more specifically, Cloud Run, it is essential to be able to incorporate existing applications. Creating a use case that is both informative and genuinely educational is a hard task, so massive props to the Google Cloud Run team for the PDF example. If you have not seen this example before, I would highly recommend viewing the Next 19 serverless sessions as these perfectly illustrate the ease and power of Cloud Run (reference link):</p>
+<p><a href="https://www.youtube.com/playlist?list=PLIivdWyY5sqLYz6HIadOZHE9PsKX-0CF8">https://www.youtube.com/playlist?list=PLIivdWyY5sqLYz6HIadOZHE9PsKX-0CF8</a></p>
+<div class="packt_tip"><br/>
+To remove the existing service use the following command:<br/>
+<br/>
+<kbd><strong>gcloud run services delete hello-cloudrun --platform managed --region us-central1</strong><br/></kbd></div>
+<p class="mce-root">In the next section, we are going to adapt the example we looked at in this section in order to incorporate additional processing capability. Hopefully, this will highlight both the power and flexibility of the Google Cloud environment.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Building a Representation State Transfer (REST) API</h1>
+                </header>
+            
+            <article>
+                
+<p>Providing an extensible API presents us with an opportunity to integrate other software into our application. We have already looked at how the building blocks have been put together in terms of developing serverless applications. With Cloud Run, we can expand this knowledge and build extensible interfaces that can expose access to selected parts of an application. If you come from a GNU/Linux background, this will be abundantly clear and something you may take for granted. For others, it can be a moment of clarity where an application allows you to do more than expected. There are times in which we might not even know that an implementation supports an interface that's being used for a task.</p>
+<p>For this example, we will build a basic API that uses REST to demonstrate how Cloud Run can be used to meet this requirement. If you have not come across the term REST API, this typically refers to stateless operations, the most common of which are GET and POST. The API uses these operations to retrieve and send information using web resources.</p>
+<p>Our first example will build a fundamental REST API that's built on Cloud Run to provide access to backend data. It will have the following components:</p>
+<ul>
+<li class="mce-root"><strong>A basic API</strong>: Used to retrieve retail data.</li>
+<li class="mce-root"><strong>A list of goods available</strong>: The API will be provided with a code and retrieve the associated object information.</li>
+</ul>
+<p class="mce-root">From the preceding examples, it should be clear that the API provides us with a simple mechanism that we can use to retrieve information related to the data object. If we were to expand the data object, we would still be able to access this data, without any changes needing to be made to the API—<span>that is,</span> the power of abstracting information access away from the data so that it can be enhanced independently:</p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-839 image-border" src="assets/e3b47e58-16b6-473f-a25f-c998b5a0965b.png" style=""/></div>
+<p>From the preceding diagram, we can see that a number of API calls have been defined that will call the various endpoints. Each of the API endpoints has a specific job; for example, retrieving management reports, handling transactional information, and storing information in the data warehouse. Here, we can see that the <strong>Business Endpoint</strong> uses a post API call, which indicates that information is posted to the endpoint (perhaps a set of filter information) for further processing. Both the <strong>Retail</strong> and <strong>Finance</strong> endpoint calls use GET to pull back information for <strong>Transactions</strong> and <strong>Data Warehouse</strong>.</p>
+<p>The following are some general rules that help define good practices when building compelling REST APIs. The key principles we want to introduce are as follows:</p>
+<ul>
+<li style="font-weight: 400">Base URL</li>
+<li style="font-weight: 400">API consistency</li>
+<li style="font-weight: 400">Error handling</li>
+<li style="font-weight: 400">API versioning</li>
+</ul>
+<p class="mce-root">To understand the theory and general rules behind this a bit more, we will explore the aforementioned key principles. This will assist us when we design an API later in this chapter.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Base URL</h1>
+                </header>
+            
+            <article>
+                
+<p><span>We want the base URL to have significance to the name query. A good starting point is to consider what the base URL is meant to represent and how this can be modeled to be representative of the underlying data.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Requirements</h1>
+                </header>
+            
+            <article>
+                
+<p>At this juncture in the development cycle, it seems rather sensible to have the means to access all of the data collection. It would also seem helpful to be able to isolate an element within that collection using the same API call.</p>
+<p>If we consider these requirements, <span>the need for an intuitive base URL capable of meeting our requirements should become more apparent. In the following diagram, we can see how this API would work with the help of two queries:</span></p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-840 image-border" src="assets/d53dbf92-8f5f-4fa2-9c80-0e35cb6ac6af.png" style=""/></div>
+<p>Here, the queries do the following:</p>
+<ul>
+<li>Query A will be capable of gathering all the books stored in the collection.</li>
+<li>Query B will be capable of gathering a specific item from within the collection.</li>
+</ul>
+<p>The preceding diagram illustrates a situation in which the base URL encompasses two use cases for data access:</p>
+<ul>
+<li><kbd>/[collective noun]</kbd>: Access to a collection; for example, retrieve all books</li>
+<li><kbd>/[collective noun]/[element]</kbd>: Access to an element within the collection; for example, retrieve the books labeled <kbd>1234</kbd></li>
+</ul>
+<p>Using a collective noun to categorize the base URL allows us to access the full collection and individual items. Now, we have to simplify the base URL; our next consideration is how to achieve greater API consistency. In the next subsection, we will explore how to implement this using Cloud Run.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Implementing a base URL</h1>
+                </header>
+            
+            <article>
+                
+<p>Our first task is to implement a base URL. Fortunately, in our case, the job is relatively simple; however, it also illustrates the point we are trying to make. Let's get started:</p>
+<ol>
+<li>Within the <kbd>ch08</kbd> folder create a new directory called <kbd>baseURL</kbd> and move to it:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>npm init --yes</strong><br/><strong>npm install express</strong> </pre>
+<ol start="2">
+<li>Edit the generated <kbd>package.json</kbd> file and add the following line to the script section:</li>
+</ol>
+<pre style="padding-left: 60px">...<br/>"start", "node index.js",<br/><span>...</span></pre>
+<ol start="3">
+<li>Create a new file named <kbd>index.js</kbd> and add the following code:</li>
+</ol>
+<pre style="padding-left: 60px">const express = require('express');<br/>const app = express();<br/>const port = process.env.PORT || 8080;<br/><br/>app.listen(port, () =&gt; {<br/>  console.log('Pet Theory REST API listening on port', port);<br/>});<br/>app.get('/books', async (req, res) =&gt; {<br/>  res.json({status: 'running'});<br/>});</pre>
+<ol start="4">
+<li>Create a new file named <kbd>Dockerfile</kbd> and add the following content:</li>
+</ol>
+<pre style="padding-left: 60px">FROM node:12-slim<br/>WORKDIR /usr/src/app<br/>COPY package.json package*.json ./<br/>RUN npm install --only=production<br/>COPY . .<br/>CMD [ "npm", "start" ]</pre>
+<div class="packt_tip"><br/>
+Working in Cloud Shell provides a number of features that are easy to take for granted. One particular thing is the current project identifier. To get the value of this at the command line, do the following:<br/>
+<br/>
+<strong><kbd>gcloud config get-value project</kbd></strong><br/>
+<br/>
+Even better, you can assign it to an environment variable by doing the following:<br/>
+<br/>
+<strong><kbd>PROJECT_ID=$(gcloud config get-value project)</kbd></strong></div>
+<ol start="5">
+<li>Build an image based on the application (note that <kbd>$PROJECT_ID</kbd> is an environment variable that's been set to my Google Project Identifier):</li>
+</ol>
+<pre style="padding-left: 60px"><strong>gcloud builds submit --tag gcr.io/$PROJECT_ID/base-url</strong></pre>
+<ol start="6">
+<li>Deploy the image to Cloud Run. Take note of the <kbd>SERVICE_URL</kbd> that's returned from this command:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>gcloud run deploy base-url --image gcr.io/$PROJECT_ID/base-url --platform managed --region us-central1 --allow-unauthenticated</strong></pre>
+<ol start="7">
+<li>Once the app has been deployed, we can test our API from the Cloud Shell using the following command:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>curl [SERVICE_URL]/books</strong></pre>
+<p>From the preceding code, we can see that to implement a base URL, we need to choose something that complements our API. In this instance, the collective noun <kbd>books</kbd> also made for a good base URL.</p>
+<p>When considering how to develop a URL, it is worth considering the use case for the API and applying some logic in terms of determining how the schema can be sensibly applied. Now that we have defined our base URL, we can look at how to develop a consistent interface for the API.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">API consistency</h1>
+                </header>
+            
+            <article>
+                
+<p>The aim of API consistency is to simplify access to exposed information:</p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td style="width: 13.8614%">
+<p><strong>Resource</strong></p>
+</td>
+<td style="width: 21.9472%">
+<p><strong>POST</strong></p>
+</td>
+<td style="width: 13.8614%">
+<p><strong>GET</strong></p>
+</td>
+<td style="width: 16.0066%">
+<p><strong>PUT</strong></p>
+</td>
+<td style="width: 19.031%">
+<p><strong>DELETE</strong></p>
+</td>
+</tr>
+<tr>
+<td style="width: 13.8614%">
+<p><kbd>/books</kbd></p>
+</td>
+<td style="width: 21.9472%">
+<p>Create a new book</p>
+</td>
+<td style="width: 13.8614%">
+<p>List books</p>
+</td>
+<td style="width: 16.0066%">
+<p>Batch update</p>
+</td>
+<td style="width: 19.031%">
+<p>Delete the book collection</p>
+</td>
+</tr>
+<tr>
+<td style="width: 13.8614%">
+<p><kbd>/books/1111</kbd></p>
+</td>
+<td style="width: 21.9472%">
+<p>Invalid</p>
+</td>
+<td style="width: 13.8614%">
+<p>Show a book</p>
+</td>
+<td style="width: 16.0066%">
+<p>Invalid</p>
+</td>
+<td style="width: 19.031%">
+<p>Delete a book</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p><span>In our example, the collections and elements can be made accessible through the use of HTTP verbs, as shown in the preceding table.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Requirements</h1>
+                </header>
+            
+            <article>
+                
+<p><span>From the preceding information, note how the API is used in relation to the HTTP verb. For example, we know the following to be true:</span></p>
+<ul>
+<li><span>POST events are used for sending data.</span></li>
+<li><span>GET events are used for listing (querying) data.</span></li>
+<li><span>PUT events are used for batch updates.</span></li>
+<li><span>DELETE events are used for removing items.</span></li>
+</ul>
+<p><span>How would we use these capabilities in conjunction with our book API?</span> As shown in the preceding table, the API being presented provides a consistent interface for expected outcomes. However, what would an implementation of this look like? We will look at this in the next subsection.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Implementing API consistency</h1>
+                </header>
+            
+            <article>
+                
+<p>Consistency is something all API developers strive for. To achieve this, we need to consider how the API will be used. In our example, we will update the API to provide a GET request for all the books, as well as a single book. Let's get started:</p>
+<ol>
+<li>Edit the <kbd>index.js</kbd> file.</li>
+<li>Add the HTTP <kbd>GET ID</kbd>:</li>
+</ol>
+<pre style="padding-left: 60px">app.get ('/books/:id', async(req, res) =&gt; {<br/>  res.json({status: 'GET ID'});<br/>});</pre>
+<ol start="3">
+<li>Add the HTTP <kbd>POST</kbd>:</li>
+</ol>
+<pre style="padding-left: 60px">app.post ('/books', async(req, res) =&gt; {<br/>  res.json({status: 'POST'});<br/>});</pre>
+<ol start="4">
+<li>Add the HTTP <kbd>DELETE</kbd>:</li>
+</ol>
+<pre style="padding-left: 60px">app.delete ('/books', async(req, res) =&gt; {<br/>  res.json({status: 'DELETE'});<br/>});</pre>
+<ol start="5">
+<li>Add the HTTP <kbd>DELETE ID</kbd>:</li>
+</ol>
+<pre style="padding-left: 60px">app.delete ('/books/:id', async(req, res) =&gt; {<br/>  res.json({status: 'DELETE ID'});<br/>});</pre>
+<ol start="6">
+<li>Add the HTTP <kbd>PUT</kbd>:</li>
+</ol>
+<pre style="padding-left: 60px">app.put ('/books/:id', async(req, res) =&gt; {<br/>  res.json({status: 'PUT'});<br/>});</pre>
+<ol start="7">
+<li>Update the build image by running the following command:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>gcloud builds submit --tag gcr.io/$PROJECT_ID/base-url</strong></pre>
+<ol start="8">
+<li>Redeploy the image to Cloud Run using the following command:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>gcloud beta run deploy base-url --image gcr.io/$PROJECT_ID/base-url --platform managed --region us-central1 --allow-unauthenticated</strong> </pre>
+<p>Now, we can use the <kbd>curl</kbd> command to test the enhancements that were made to the API:</p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td>
+<p><strong>HTTP verb</strong></p>
+</td>
+<td>
+<p><strong>Test /books endpoint</strong></p>
+</td>
+<td>
+<p><strong>Test result</strong></p>
+</td>
+<td>
+<p><strong>Test /books/:id</strong></p>
+</td>
+<td><strong>Test result</strong></td>
+</tr>
+<tr>
+<td>
+<p><kbd>GET</kbd></p>
+</td>
+<td>
+<p><kbd>curl [SERVICE_URL]/books</kbd></p>
+</td>
+<td>
+<p><kbd>{"status":"GET"}</kbd></p>
+</td>
+<td>
+<p><kbd>curl [SERVICE_URL]/books/1111</kbd></p>
+</td>
+<td><kbd><span>{"status":"GET ID"}</span></kbd></td>
+</tr>
+<tr>
+<td>
+<p><kbd>POST</kbd></p>
+</td>
+<td>
+<p><kbd><span>curl --data "author=atwood" [SERVICE_URL]/books</span></kbd></p>
+</td>
+<td>
+<p><kbd><span>{"status":"POST"}</span></kbd></p>
+</td>
+<td>
+<p>N/A</p>
+</td>
+<td>N/A</td>
+</tr>
+<tr>
+<td>
+<p><kbd>PUT</kbd></p>
+</td>
+<td>
+<p>N/A</p>
+</td>
+<td>
+<p>N/A</p>
+</td>
+<td>
+<p><kbd><span>curl -X PUT --data "author=atwood" [SERVICE_URL]/books</span></kbd></p>
+</td>
+<td><kbd><span>{"status":"PUT"}</span></kbd></td>
+</tr>
+<tr>
+<td>
+<p><kbd>DELETE</kbd></p>
+</td>
+<td>
+<p><kbd><span>curl -X [SERVICE_URL]/books/1111</span></kbd></p>
+</td>
+<td>
+<p><kbd><span>{"status":"DELETE"}</span></kbd></p>
+</td>
+<td>
+<p><kbd><span>curl -X [SERVICE_URL]/books/1111</span></kbd></p>
+</td>
+<td><kbd>{"status":"DELETE ID"}</kbd></td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>From these changes, we can see that the API calls are now consistent in that a call to get an individual book or collection of books utilizes the same interface type. The commonality between interface calls provides continuity between calls so that the API developer is assured of the meaning of the call being made.</p>
+<p>Now that we know what makes up an API, let's move on to handling errors.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Error handling</h1>
+                </header>
+            
+            <article>
+                
+<p><span>Handling error situations in code can be quite a complex affair. There's a wealth of HTTP status codes, but that doesn't mean an API should use all of them. In many respects, it can be clearer if a subset is used instead to indicate an error has occurred.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Requirements</h1>
+                </header>
+            
+            <article>
+                
+<p>At a high level, there are three specific outcomes that most definitely need to be mapped, as follows:</p>
+<ul>
+<li style="font-weight: 400"><kbd>200</kbd>: The application is working as expected. Everything is OK.</li>
+<li style="font-weight: 400"><kbd>400</kbd>: The application is not working as expected. A client error has occurred; that is, bad client data.</li>
+<li style="font-weight: 400"><kbd>500</kbd>: The API is not working as expected. A server error has occurred; that is, a bad server process.</li>
+</ul>
+<p>This list can be expanded to include a more detailed analysis, but the preceding messages provide a good baseline for any further API development.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Error handling</h1>
+                </header>
+            
+            <article>
+                
+<p>It is important to have a consistent and clear understanding of the types of errors that are being managed by the API. In our example, we'll adopt the three outcomes we mapped previously. Let's get started:</p>
+<ol>
+<li>Amend each API call to incorporate the return of a <kbd>success</kbd> status call, as follows:</li>
+</ol>
+<pre style="padding-left: 60px">res.status(200).json("{status: 'PUT'}");<br/>...<br/>res.status(200).json("{status: 'GET'}");<br/>...</pre>
+<ol start="2">
+<li>Add a client- and server-side error response state (note that we don't have any server-side resources, so this code is just being used as an example):</li>
+</ol>
+<pre style="padding-left: 60px">app.use (function(req, res) {<br/>  if (some_server_side_test_fails)<br/>    res.status(500).send("Server Error");<br/>  else<br/>     res.status(404).send("Page not found");<br/>});</pre>
+<p>By making the preceding code changes, we can see that the status of an API call is more clearly defined when an appropriate status code is returned. Being able to implement a clear interface together with a consistent response allows developers to have confidence in the use of the code that's provided. The final part of this section will cover how to approach versioning.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">API versioning</h1>
+                </header>
+            
+            <article>
+                
+<p>A good rule of thumb is to always include a version number in the signature of the REST API to be released. Applying a version number to an API can be useful for managing defects and maintaining backward compatibility. There are a number of strategies that we can follow to include versioning within the URL; however, a good place to start is through the use of an ordinal number to signify the interface, as shown in the following example:</p>
+<pre>/v1/books</pre>
+<p>In the preceding example, we relate the API to <kbd>v1</kbd>, which means we can clearly see which version is being applied for the query. If we introduce a <kbd>v2</kbd> API, again, it is clear to a user of the API which version is in play without needing additional support. Version changes will often be made to maintain backward compatibility or signify changes to the underlying API. Presenting developers with an opportunity to update their code without breaking existing integrations will be imperative to anyone using the API.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Requirements</h1>
+                </header>
+            
+            <article>
+                
+<p>We want an API that enables multiple revisions of the API to coexist, like so:</p>
+<pre>(v1/books or /v2/books/1111)</pre>
+<p class="mce-root"><span>If we need to integrate alternative versions of an API, this is one approach that works well.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Express versioning with routing</h1>
+                </header>
+            
+            <article>
+                
+<p>Of course, we should also include versioning as part of our API. Here, we need to update the code to reflect that the code is based on <kbd>v1</kbd> of the book's API by utilizing an awesome feature of express called <strong>routing</strong>. Let's get started:</p>
+<ol>
+<li>Copy <kbd>index.js</kbd> to <kbd>bookapi_v1.js</kbd>.</li>
+<li>Edit the <kbd>index.js</kbd> file and add the following declaration:</li>
+</ol>
+<pre style="padding-left: 60px">const apiBooks_v1 = require("./bookapi_v1.js");</pre>
+<ol start="3">
+<li>Remove all <kbd>app.put</kbd>, <kbd>app.get</kbd>, <kbd>app.delete</kbd>, and <kbd>app.post</kbd> functions. Your code base should look like this:</li>
+</ol>
+<pre style="padding-left: 60px">const express = require('express');<br/>const app = express();<br/>const port = process.env.PORT || 8080;<br/>const apiBooks_v1 = require("./bookapi_v1.js");<br/><br/>app.listen(port, () =&gt; {<br/>  console.log('Pet Theory REST API listening on port', port);<br/>});<br/><br/>app.use (function(req, res) {<br/>  if (some_server_side_test_fails)<br/>    res.status(500).send("Server Error");<br/>  else<br/>     res.status(404).send("Page not found");<br/>});</pre>
+<p style="padding-left: 60px">Next, we need to update our code so that it references our new book version. Follow these steps to do so:</p>
+<ol>
+<li style="list-style-type: none">
+<ol>
+<li>Edit <kbd>bookapi_v1.js</kbd>.</li>
+<li>Remove all <kbd>app.listen</kbd> and <kbd>app.use</kbd> functions, as well as the <kbd>const</kbd> port definition.</li>
+<li>The file should now look like this:</li>
+</ol>
+</li>
+</ol>
+<pre style="padding-left: 120px">const express = require ('express');<br/><br/>app.put () {...}<br/><br/>app.delete() {...}<br/>...<br/>app.get(){...}</pre>
+<ol start="4">
+<li>Add a definition for the express <kbd>Router</kbd> after the <kbd>express</kbd> variable:</li>
+</ol>
+<pre style="padding-left: 60px">const bookapi_v1 = express.Router();</pre>
+<ol start="5">
+<li>Rename all <kbd>app.</kbd> to <kbd>bookapi_v1</kbd>.</li>
+<li>Add the following reference to the bottom of the file:</li>
+</ol>
+<pre style="padding-left: 60px">module.exports = bookapi_v1</pre>
+<p>Rebuild the image and deploy it. You will notice that you need to append the version to the URL; for example, <kbd>[SERVICE_URL]/v1/books</kbd>. Now that the API has been integrated into the query, it is much easier to ascertain which version is being called. As an API matures, it will likely incorporate additional features or replace existing ones. These changes may not always be backward compatible, meaning that API developers need to be made aware of any incompatibilities. Versioning is a good strategy if you wish to manage expectations and gain access to feature sets as the API is developed.</p>
+<p>At this point, you should have a really good understanding of the type of things to consider when creating your own API. In the next section, we will look at developing an application using Cloud Run.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Developer productivity</h1>
+                </header>
+            
+            <article>
+                
+<p>In our second example, we will investigate the development tools that accompany the Cloud Run environment. Creating a PDF is something most of us now take for granted, and it is one of the easiest ways to share documentation. Many businesses utilize a service that sends out invoices or similar information to their customer base.</p>
+<p>Similar to Cloud Functions, becoming familiar with the environment and establishing a development workflow can increase your levels of productivity. In this section, we will also take a look at how to integrate other developer tools such as Cloud Run, Cloud Build, Source Repositories, and Container Registry, as these can be hugely beneficial when developing on Google Cloud.</p>
+<p>Before we begin looking at the example, let's take a moment to explore a typical development workflow. For many developers, their workflow resembles something like the following:</p>
+<ul>
+<li>Code is held in a repository; for example, GitHub, Bitbucket, or Source Repository</li>
+<li>A build process is initiated</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Cloud Source Repository</h1>
+                </header>
+            
+            <article>
+                
+<p>The Cloud Source Repository is useful if you want to have a private repository for your code. However, it can also be used to mirror public repositories so that code assets are available within your project. Once the repository has been mirrored on Google Cloud, any commits that are pushed will be automatically synced to the Cloud Source Repository. This is important because it means you can continue to use your original repository and not be concerned about any maintenance tasks that ensure the repositories are kept in sync.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Cloud Build</h1>
+                </header>
+            
+            <article>
+                
+<p>Building source code is a dull activity. Whether it's a small or large component, the process is nothing more than a repetitive loop. Cloud Build, however, can take over this process and free up some of your time. While the main examples focus on building Dockerfile manifests, Cloud Build can actually build many other things (for example commands, <kbd>git</kbd>, <kbd>go</kbd>, <kbd>gcloud</kbd>, <kbd>gradle</kbd>, <kbd>kubectl</kbd>, and <kbd>npm</kbd>). Even better, it can be extended to build other things through the use of open source builders. Community builders are available for Helm, Flutter, and Android, and the list continues to grow.</p>
+<p><span>Build events are triggered by changes that are made in the repository, at which point a predefined series of processes commence.</span> <span>In the Cloud Build history page (also in its alpha stage), access to prior builds is available. The page incorporates a range of fields with representative data, such as Build, Source, Commit, Time/Date created, and the duration of the build. Additional information totaling 13 fields is available, as well as a filter that can be applied to build a report.</span></p>
+<p><span>The</span> <span class="packt_screen">Triggers</span> <span>page is where the magic happens; if you have used Cloud Build previously, this page will be very familiar to you. While currently in its beta stage, the page specifies two views for active and inactive repositories, respectively. Active repositories have triggers associated with them, while inactive artifact repositories do not. A typical trigger would be <strong>Push to any branch</strong>, meaning that every addition of new code to a branch within the specified repository will mean the generation of an event. This event is associated with a build process, which enables a wide variety of predefined and custom processing to occur. We will cover more on triggers later in this chapter.</span></p>
+<p><span>Finally, there is the</span> <span class="packt_screen">Settings</span> <span>page, which is where service account management details are available. In order to use Cloud Build, you will need the service account to be bound to the permissions within the project. In most instances, the need for additional service account permissions for further access requires IAM. Bear in mind that in addition to screen, the majority of roles can be managed directly from the IAM section of the Google Cloud Console.</span> <span>Previously, we examined some of the core fundamentals of working with containers on Google Cloud. To baseline our shared understanding of this, in the next section, we will start with a simple introduction to Cloud Run and see how we can incorporate this knowledge into further examples.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The continuous integration example</h1>
+                </header>
+            
+            <article>
+                
+<p>In the following example, we will create an instance in which we will build a development workflow that utilizes a repository and shows how simple it is to create such a workflow in Cloud Build. Let's imagine that some code exists in a repository and that we have a predefined trigger associated with it. Each time code is committed to the repository, a signal will be sent to Cloud Build to initiate the event related to the mirrored repository. In the preceding examples, we saw that a variety of languages are supported. In our case, we will initiate an action that's been defined within the Cloud Build environment that will replace having to start a build process from the local development machine manually. To invoke the automated build, we will have to push code to the repository, as would typically be the case.</p>
+<p>Our application is a simple one; the emphasis in this example will be on the tools rather than the code. In the <kbd>ch08</kbd> directory, change the current folder to be <kbd>node-ci</kbd>:</p>
+<pre><strong>cd node-ci</strong></pre>
+<p>In the directory, notice that there is a <kbd>cloudbuild.yaml</kbd> file. It is this file that ensures the build steps are performed. The contents of the file are outlined as follows:</p>
+<pre>steps:<br/>- name: 'gcr.io/cloud-builders/npm' <br/>  args: ['install']<br/>- name: 'gcr.io/cloud-builders/npm' <br/>  args: ['audit','fix']<br/>- name: 'gcr.io/cloud-builders/docker' <br/>  args: ['build', '-t', 'gcr.io/$PROJECT_ID/node-ci:0.1', '.']<br/>images:<br/>- 'gcr.io/$PROJECT_ID/node-ci:0.1'<br/>timeout: "600s"</pre>
+<div class="packt_tip">In the preceding example we omit tests as we haven't defined any. However if you want these to be included add the following line:<br/>
+<br/>
+<kbd>- name: 'gcr.io/cloud-builders/npm'</kbd><br/>
+<kbd>args: ['test']</kbd></div>
+<p>Note that three steps are defined in this file, all of which assist with our build process:</p>
+<ol>
+<li style="font-weight: 400"><strong>Npm package installation</strong>: Installs the dependency packages</li>
+<li style="font-weight: 400"><strong>Npm audit fix</strong>: Performs a check to see whether the packages can be automatically fixed</li>
+<li style="font-weight: 400"><strong>Docker build</strong>: Builds an image based on the node application using a Dockerfile</li>
+</ol>
+<p>The final line represents a timeout setting for the <kbd>cloudbuild.yaml</kbd> file and the build max duration. At the time of writing, this is set to 10 minutes. If we were to run the preceding commands, it would output a new build image based on the code given. We can manually invoke the builder from the command line, as follows:</p>
+<pre><strong>gcloud builds submit --config cloudbuild.yaml .</strong></pre>
+<p>However, we don't want to run a <kbd>build</kbd> command manually; it should be run automatically when we push the code to the repository.</p>
+<p>To ensure the repository responds in the way we want it to, we need to add the Google Cloud Build action. Back in the Google Cloud console, find the <span class="packt_screen">Cloud Build</span> option. From the resulting menu, choose the <span class="packt_screen">Triggers</span> option:</p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-903 image-border" src="assets/57b25748-57f7-4c78-ade1-f4a90ab269e2.png" style=""/></div>
+<p>If you haven't created a trigger before, the screen will look similar to this graphic (if you have existing triggers already configured they will be present in this screen).</p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-904 image-border" src="assets/cc4a4509-d8f7-4185-ab97-05e564892308.png" style=""/></div>
+<p>Creating a trigger makes a link between a source repository and Cloud Build. The following graphic illustrates the information required to create a new trigger. <span>The setup for the application is highly customisable, but let's take a base case for our example. First, we need to enable Google Cloud Build in our repository. In this example, note that the source repository being used is GitHub.</span></p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-841 image-border" src="assets/a26b7436-22fd-46f9-b61b-0b41d7d1fd7f.png" style=""/></div>
+<p>When you add the application, you will be asked for permission to access the repository, as well as which repositories should be granted access. It is important to remember that not all the repositories need to be made available to the application:</p>
+<div class="CDPAlignCenter CDPAlign"><img class="alignnone size-full wp-image-842 image-border" src="assets/47f19573-7348-4f3b-a193-beeb49a566dc.png" style=""/></div>
+<p>Now that we have granted access, in the Google Cloud, we can use Cloud Build (alpha) to create a new trigger event based on the repository we have just configured. Use the connect repository option and set up the application so that whenever a branch is updated, the trigger will be invoked. The default settings are based on any branch within a repository being updated, but this can be amended to a tag or pull request. In addition, the build configuration can also be changed from implementing the auto-detect feature to using either a Dockerfile or Cloud Build configuration file (YAML or JSON).</p>
+<p>Once you have set this up, update the code in order to push a change. You will see the backend code being triggered automatically. Congratulations! You have just become more productive by being able to automatically create an artifact by pushing code. In the next chapter, we will entertain a more intricate example of this workflow with multiple services.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, we looked into the critical aspects of Cloud Run and worked through some everyday use cases. During this process, we observed many essential concepts, such as how to incorporate Cloud Build and Container Registry developer tooling into our workflow. For those of you who were unfamiliar with these tools, hopefully, you now know enough to use them in your day-to-day tasks. Building on our introduction of containerized environments (for example, Docker), we learned how Cloud Run removes much of the complexity of deploying consistent and isolated code. Once the container has been built successfully, it can be deployed. As with Google's other serverless products, Cloud Run scales to zero.</p>
+<p>Support for serverless request/response messages is inherent in Cloud Run, so there is a consistent and straightforward method for developing components. Besides, adding a new language runtime can be achieved without distraction or negating the flexibility of the service. By utilizing the container artifact, Cloud Run can easily be enhanced to incorporate Kubernetes.</p>
+<p>In the next chapter, we will continue our Cloud Run journey and explore the key differences when working on the Kubernetes platform.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Questions</h1>
+                </header>
+            
+            <article>
+                
+<ol>
+<li style="font-weight: 400">What is a base URL?</li>
+<li style="font-weight: 400">Why is API versioning important?</li>
+<li style="font-weight: 400">What verbs would you expect to be available with a REST API?</li>
+<li style="font-weight: 400">When is it appropriate to return an HTTP status code of 4xx?</li>
+<li style="font-weight: 400">What is the maximum duration setting for a Cloud Build?</li>
+<li style="font-weight: 400">Cloud Build can be used for Android (True or False).</li>
+<li style="font-weight: 400">Where are the errors for Cloud Build shown?</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Further reading</h1>
+                </header>
+            
+            <article>
+                
+<ul>
+<li><strong>CI/CD on Google Cloud</strong>: <a href="https://cloud.google.com/docs/ci-cd/">https://cloud.google.com/docs/ci-cd/</a></li>
+<li><strong>Creating and managing build triggers</strong>: <a href="https://cloud.google.com/cloud-build/docs/running-builds/create-manage-triggers">https://cloud.google.com/cloud-build/docs/running-builds/create-manage-triggers</a></li>
+<li><strong>Creating GitHub app triggers</strong>: <a href="https://cloud.google.com/cloud-build/docs/create-github-app-triggers">https://cloud.google.com/cloud-build/docs/create-github-app-triggers</a></li>
+<li><strong>Google Cloud APIs</strong>: <a href="https://cloud.google.com/apis/docs/overview">https://cloud.google.com/apis/docs/overview</a></li>
+<li><strong>Google Cloud Podcast <span>–</span> HTTP/2, SPDY, and QUIC with Ilya Grigorik</strong>: <a href="https://www.gcppodcast.com/post/episode-6-http2-spdy-and-quic-with-ilya-grigorik/">https://www.gcppodcast.com/post/episode-6-http2-spdy-and-quic-with-ilya-grigorik/</a></li>
+<li><strong>Container Registry</strong>: <a href="https://cloud.google.com/container-registry/">https://cloud.google.com/container-registry/</a></li>
+<li><strong>Serverless Sessions - Google Cloud Next '19</strong>: <a href="https://www.youtube.com/playlist?list=PLIivdWyY5sqLYz6HIadOZHE9PsKX-0CF8">https://www.youtube.com/playlist?list=PLIivdWyY5sqLYz6HIadOZHE9PsKX-0CF8</a></li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

@@ -1,0 +1,1090 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Building Networks with Neutron</h1>
+                </header>
+            
+            <article>
+                
+<p>In the <em><a href="05786c3c-b24e-40dc-82a7-ed6072eca14f.xhtml">Chapter 4</a>, Virtual Network Infrastructure Using Linux Bridges</em>, and <em><a href="0763a131-4ab9-4b3e-8854-8646feae7937.xhtml"/><a href="0763a131-4ab9-4b3e-8854-8646feae7937.xhtml">Chapter 5</a>, Building a Virtual Switching Infrastructure Using Open vSwitch</em> , we laid down a virtual switching infrastructure that would support the OpenStack Neutron networking features that we have discussed in this book. In this chapter, we will build network resources on top of that foundation. These will be able to be consumed by instances.</p>
+<p>In this chapter, I will guide you through the following tasks:</p>
+<ul>
+<li>Managing networks using the CLI and dashboard</li>
+<li>Managing IPv4 subnets using the CLI and dashboard</li>
+<li>Managing subnet pools</li>
+<li>Creating ports</li>
+</ul>
+<p>Networks, subnets, and ports are the core resources of the Neutron API, which was introduced in <em><a href="bf508e37-ce8a-4116-89db-e8f8a6abf0f4.xhtml"><span class="ChapterrefPACKT">Chapter 3</span></a></em><span>, <em><span class="ItalicsPACKT">Installing Neutron</span></em>. The relationship between these core resources and instances and other virtual network devices can be observed in the following sections.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Network management in OpenStack</h1>
+                </header>
+            
+            <article>
+                
+<p>OpenStack can be managed in a variety of ways, including through the Horizon dashboard, the Neutron API, and the OpenStack CLI. A command-line client, provided by the <kbd><span class="CodeInTextPACKT">python-openstackclient</span></kbd> package, gives users the ability to execute commands from a shell that interfaces with the Neutron API. To enter the shell, type <kbd><span class="CodeInTextPACKT">openstack</span></kbd> in a terminal connected to the <kbd>controller</kbd> node, like so:</p>
+<pre>root@controller01:~# openstack <br/>(openstack)</pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>The <span class="CodeInTextPACKT"><kbd>openstack</kbd> </span>shell features tab completion and a <kbd><span class="CodeInTextPACKT">help</span></kbd> command that lists all of the available commands within the shell. Openstack-related commands can also be executed straight from the Linux command line by using the <kbd><span class="CodeInTextPACKT">openstack</span></kbd> client like so:</p>
+<pre># openstack network list<br/># openstack server create </pre>
+<p>The client provides a number of commands that assist with the creation, modification, and deletion of networks, subnets, and ports.</p>
+<div class="packt_infobox">The <kbd><span class="CodeInTextPACKT">openstack</span></kbd> client is preferred over the <kbd><span class="CodeInTextPACKT">neutron</span></kbd> client moving forward, but may not have complete command parity. The use of the <kbd><span class="CodeInTextPACKT">neutron</span></kbd> client should be limited.</div>
+<p>All <kbd><span class="CodeInTextPACKT">openstack</span></kbd> client commands can be determined by using the <kbd><span class="CodeInTextPACKT">--help</span></kbd> flag. The primary commands associated with network management that will be discussed in this chapter are listed in the following table:</p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td>
+<p class="TableColumnHeadingPACKT"><strong>Network Commands</strong></p>
+</td>
+<td>
+<p class="TableColumnHeadingPACKT"><strong>Description</strong></p>
+</td>
+</tr>
+<tr>
+<td>
+<p class="TableColumnContentPACKT"><kbd>network create</kbd></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Creates a new network</p>
+</td>
+</tr>
+<tr>
+<td>
+<p class="TableColumnContentPACKT"><kbd>network delete</kbd></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Deletes a network(s)</p>
+</td>
+</tr>
+<tr>
+<td>
+<p class="TableColumnContentPACKT"><kbd>network show</kbd></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Shows network details</p>
+</td>
+</tr>
+<tr>
+<td>
+<p class="TableColumnContentPACKT"><kbd>network list</kbd></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Lists networks</p>
+</td>
+</tr>
+<tr>
+<td>
+<p class="TableColumnContentPACKT CDPAlignLeft CDPAlign"><kbd>network set</kbd></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Sets network properties</p>
+</td>
+</tr>
+<tr>
+<td>
+<p class="TableColumnContentPACKT"><kbd>network unset</kbd></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Unsets network properties</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>Whether you've chosen a Linux bridge or Open vSwitch-based virtual networking infrastructure, the process to create, modify, and delete networks and subnets is the same. Behind the scenes, however, the process of connecting instances and other resources to the network differs greatly.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Provider and tenant networks</h1>
+                </header>
+            
+            <article>
+                
+<p>There are two categories of networks that can provide connectivity to instances and other network resources, including virtual routers:</p>
+<ul>
+<li>Provider networks</li>
+<li>Project or tenant networks, also known as self-service networks</li>
+</ul>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Every network created in Neutron, whether created by a regular user or a user with an <span class="CodeInTextPACKT">admin</span> <span>role, has <span class="KeyWordPACKT">provider attributes</span> that describe that network. Attributes that describe a network include the network's type, such as</span> <span class="CodeInTextPACKT">flat</span>, <span class="CodeInTextPACKT">VLAN</span>, <span class="CodeInTextPACKT">GRE</span>, <span class="CodeInTextPACKT">VXLAN,</span> or <span class="CodeInTextPACKT">local</span><span>, the physical network interface that the traffic will traverse, and the segmentation ID of the network. The difference between a provider and project or tenant network is in <span class="ItalicsPACKT">who</span> or <span class="ItalicsPACKT">what</span> sets those attributes and how they are managed within OpenStack.</span></p>
+<p><span>Provider networks can <span class="ItalicsPACKT">only</span> be created and managed by an OpenStack administrator, since they require knowledge and configuration of the physical network infrastructure.</span></p>
+<div class="packt_infobox">An OpenStack administrator refers to a user associated with the <kbd><span class="CodeInTextPACKT">admin</span></kbd> role in Keystone.</div>
+<p><span>When a provider network is created, the administrator must manually specify the provider attributes for the network in question. The administrator is expected to have some understanding of the physical network infrastructure and may be required to configure switch ports for proper operation. Provider networks allow for either virtual machine instances or virtual routers created by users to be connected to them. When a provider network is configured to act as an external network for Neutron routers, the provider network is known as an <strong><span class="KeyWordPACKT">external provider network</span></strong>. Provider networks are often configured as</span> <span class="CodeInTextPACKT">flat </span>or <span class="CodeInTextPACKT">vlan</span> networks, and utilize an external routing device to properly route traffic in and out of the cloud.</p>
+<p>Self-service networks, unlike provider networks, are created by users and are usually isolated from other networks in the cloud. The inability to configure the physical infrastructure means that tenants will likely connect their networks to Neutron routers when external connectivity is required. Tenants are unable to specify provider attributes manually and are restricted to creating networks whose attributes have been pre-defined by the administrator in the Neutron configuration files. More information on the configuration and use of Neutron routers begins in <em><a href="371886b8-4c2a-49e9-90b8-8fe79217adb4.xhtml"><span class="ChapterrefPACKT">Chapter 10</span></a><span>, <span class="ItalicsPACKT">Creating Standalone Routers with Neutron</span>.</span></em></p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Managing networks in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>To create networks using the OpenStack client, use the <span class="CodeInTextPACKT"><kbd>network create</kbd> </span>command that's shown here:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/2159c79e-e080-496a-b397-ec03c8f8e684.png" style="width:37.83em;height:18.50em;"/></div>
+<p>The <span class="CodeInTextPACKT"><kbd>--share</kbd> </span>and <kbd><span class="CodeInTextPACKT">--no-share</span></kbd> arguments<span> are used to share the network with all other projects, or limit the network to the owning project, respectively. By default, networks are <span class="ItalicsPACKT">not</span> shared and can only be used by the owning project. Neutron's RBAC functionality can be used to share a network between a subset of projects and will be discussed in <a href="b4632ba9-6a36-46da-b2ca-6e7f80a040bf.xhtml"/><a href="b4632ba9-6a36-46da-b2ca-6e7f80a040bf.xhtml"><em>Chapter 9</em></a>, <em>Role-Based Access Control</em>.</span></p>
+<p>The <span class="CodeInTextPACKT"><kbd>--enable</kbd> </span>and <kbd><span class="CodeInTextPACKT">--disable</span></kbd><span class="CodeInTextPACKT"> </span> <span>arguments</span> are used to enable or disable the administrative state of the network.</p>
+<p>The <span class="CodeInTextPACKT"><kbd>--availability-zone-hint</kbd> </span> <span>argument</span> is used to define the availability zone in which the network should be created. By default, all networks are placed in a single zone and all hosts within the environment are expected to have the capability of servicing traffic for the network. Network availability zones are an advanced networking topic that will be touched on in <a href="7d442e41-1f89-4339-9085-17ef6eace767.xhtml"><em><span class="ChapterrefPACKT">Chapter 14</span></em></a><span>, <em><span class="ItalicsPACKT">Advanced Networking Topics</span></em>.</span></p>
+<p>The <span class="CodeInTextPACKT"><kbd>--enable-port-security</kbd> </span>and <kbd><span class="CodeInTextPACKT">--disable-port-security</span></kbd><span class="CodeInTextPACKT"> </span> <span>arguments</span> are used to enable or disable port security on any port that's created from a given network. Port security refers to the use and support of security groups and MAC/ARP filtering on Neutron ports, and will be discussed further in <a href="240902fd-5108-446e-afa5-8122de12f0af.xhtml"><em><span class="ChapterrefPACKT">Chapter 8</span></em></a><span>, <em><span class="ItalicsPACKT">Managing Security Groups</span></em>.</span></p>
+<p>The <kbd><span class="CodeInTextPACKT">--qos-policy</span></kbd><span class="CodeInTextPACKT"> </span> <span>argument</span> is used to set a QoS policy on any port created in the network. The configuration and use of the Quality of Service extension is an advanced topic that is outside the scope of this book.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--external</span></kbd><span class="CodeInTextPACKT"> </span>and <kbd><span class="CodeInTextPACKT">--internal</span></kbd> <span>arguments</span><span> are used to specify whether the network is considered an <span class="ItalicsPACKT">external</span> provider network that's eligible for use as a gateway network or floating IP pool, or if it is only to be used <span class="ItalicsPACKT">internally</span> within the cloud. The default value for the</span> <span class="CodeInTextPACKT"><kbd>router:external</kbd></span> attribute of a network is <span class="CodeInTextPACKT"><kbd>false</kbd>,</span> or <kbd><span class="CodeInTextPACKT">internal</span></kbd>. For more information on Neutron routers, refer to <a href="371886b8-4c2a-49e9-90b8-8fe79217adb4.xhtml"><em><span class="ChapterrefPACKT">Chapter 10</span></em></a><span>, <em><span class="ItalicsPACKT">Creating Standalone Routers with Neutron</span></em>.</span></p>
+<p>The <kbd><span class="CodeInTextPACKT">--default</span></kbd> and <kbd><span class="CodeInTextPACKT">--no-default</span> </kbd> arguments are used to specify whether or not a network should act as the default external network for the cloud and are often used for the network auto-allocation feature that was introduced in Mitaka.</p>
+<div class="packt_infobox">The network auto-allocation features of Neutron require the <span class="CodeInTextPACKT">auto-allocated-topology</span>, <span class="CodeInTextPACKT">router</span>, <span class="CodeInTextPACKT">subnet_allocation</span>, and <span class="CodeInTextPACKT">external-net</span> extensions. Some of these are not enabled by default. For more information on these features, please refer to the upstream documentation that's available at <a href="https://docs.openstack.org/neutron/pike/admin/config-auto-allocation.html"><span class="URLPACKT">https://docs.openstack.org/neutron/pike/admin/config-auto-allocation.html</span></a>.</div>
+<p>The <kbd><span class="CodeInTextPACKT">--provider-network-type</span></kbd><span class="CodeInTextPACKT"> </span>argument defines the type of network being created. Available options include <span class="CodeInTextPACKT">flat</span>, <span class="CodeInTextPACKT">VLAN</span>, <span class="CodeInTextPACKT">local</span>, <span class="CodeInTextPACKT">GRE</span>, <span class="CodeInTextPACKT">geneve</span>, and <span class="CodeInTextPACKT">VXLAN</span>. For a network type to be functional, the corresponding type driver must be enabled in the ML2 configuration file and supported by the enabled mechanism driver.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--provider-physical-network</span></kbd><span class="CodeInTextPACKT"> </span>argument is used to specify the network interface that will be used to forward traffic through the host. The value specified here corresponds to the provider label defined by the <kbd><span class="CodeInTextPACKT">bridge_mappings</span></kbd> or <kbd><span class="CodeInTextPACKT">physical_interface_mappings</span></kbd> options that are set in the Neutron agent configuration file.</p>
+<p>The <span class="CodeInTextPACKT"><kbd>--provider-segment</kbd> </span>argument is used to specify a unique ID for the network that corresponds to the respective network type. If you are creating a VLAN-type network, the value used will correspond to the 802.1q VLAN ID which is mapped to the network and should be trunked to the host. If you are creating a GRE or VXLAN network, the value should be arbitrary, but unique; the integer is not used by any other network of the same type. This ID is used to provide network isolation via the GRE <span class="CodeInTextPACKT">key</span> or VXLAN. </p>
+<p><span class="CodeInTextPACKT">VNI </span>header fields for GRE and VXLAN networks, respectively. When the <span class="CodeInTextPACKT">provider-segment </span>parameter is not specified, one is automatically allocated from the tenant range that's specified in the plugin configuration file. Users have no visibility or option to specify a segment ID when creating networks. When all available IDs in the range that are available to projects are exhausted, users will no longer be able to create networks of that type.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--tag</span></kbd> and <kbd><span class="CodeInTextPACKT">--no-tag</span></kbd> arguments are used to apply or remove a tag from a network. Tags are label that are applied to a network resource which can be used by a client for filtering purposes.</p>
+<div class="packt_infobox">By default, provider attributes can only be set by users with the <span class="CodeInTextPACKT">admin</span> role in Keystone. Users without the <span class="CodeInTextPACKT">admin</span> role are beholden to values provided by Neutron based on configurations set in the ML2 and agent configuration files.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating a flat network in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p><span>If you recall from previous chapters, a flat network is a network in which <span class="ItalicsPACKT">no</span> 802.1q tagging takes place.</span></p>
+<p>The syntax to create a flat network can be seen here:</p>
+<pre>openstack network create<br/>--provider-network-type flat<br/>--provider-physical-network &lt;provider-physical-network&gt;<br/>&lt;name&gt; </pre>
+<p>The following is an example of using the <span class="CodeInTextPACKT">OpenStack</span> client to create a flat network by the name of <kbd><span class="CodeInTextPACKT">MyFlatNetwork</span></kbd>. The network will utilize an interface or bridge represented by the label <kbd><span class="CodeInTextPACKT">physnet1</span></kbd> and will be shared among all projects:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/ea1e8ada-d9d5-445a-af1a-b1505f048f70.png" style="width:40.50em;height:45.33em;"/></div>
+<p>In the preceding output, the project ID corresponds to the <span class="CodeInTextPACKT">admin </span>project where the user who executed the <kbd><span class="CodeInTextPACKT">network create</span></kbd> command was scoped. Since the network is shared, all projects can create instances and network resources that utilize the <kbd><span class="CodeInTextPACKT">MyFlatNetwork</span></kbd> network.</p>
+<p>Attempting to create an additional flat network using the same <kbd><span class="CodeInTextPACKT">provider-physical-network</span></kbd> name of <span class="CodeInTextPACKT"><kbd>physnet1</kbd> </span>will result in an error, as shown in the following screenshot:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/e841988c-0fa4-4960-b79f-de5abb68a17b.png"/></div>
+<p>Because there is only one untagged or native VLAN available on the interface, Neutron cannot create a second flat network and returns a <span class="CodeInTextPACKT"><kbd>Conflict</kbd></span> error. Given this limitation, flat networks are rarely utilized in favor of VLAN networks.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating a VLAN network in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>A VLAN network is one in which Neutron will tag traffic based on an 802.1q segmentation ID. The syntax used to create a VLAN network can be seen here:</p>
+<pre>openstack network create<br/>--provider-network-type vlan<br/>--provider-physical-network &lt;provider-physical-network&gt;<br/>--provider-segment &lt;provider-segment&gt;<br/>&lt;name&gt; </pre>
+<div class="packt_infobox">By default, only users with the <span class="CodeInTextPACKT">admin</span> role are allowed to specify provider attributes.</div>
+<p>Up to 4,096 VLANs can be defined on a single provider interface, though some of those may be reserved by the physical switching platform for internal use. The following is an example of using the O<span class="CodeInTextPACKT">penStack</span> client to create a VLAN network by the name of <kbd><span class="CodeInTextPACKT">MyVLANNetwork</span></kbd>.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>The network will utilize the bridge or interface represented by <kbd><span class="CodeInTextPACKT">physnet1</span></kbd><span class="CodeInTextPACKT">, </span>and the traffic will be tagged with a VLAN identifier of 300. The resulting output is as follows:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/e79faf73-f62c-41a7-a510-e2807816354a.png" style="width:32.33em;height:36.75em;"/></div>
+<p>To create an additional VLAN network that utilizes the provider interface, simply specify a different segmentation ID. In the following example, VLAN 301 is used for the new network, <span class="CodeInTextPACKT"><span class="packt_screen">MyVLANNetwork2</span></span>. The resulting output is as follows:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/952a82b0-caf1-42ed-b162-3592c6569dd8.png" style="width:37.75em;height:42.42em;"/></div>
+<div class="packt_tip">When using VLAN networks, don't forget to configure the physical switch port interface as a trunk. This configuration will vary between platforms and is outside the scope of this book.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating a local network in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>When an instance sends traffic on a local network,the traffic remains isolated to the instance and other interfaces connected to the same bridge and/or segment. Services such as DHCP and metadata might not be available to instances on local networks, especially if they are located on different nodes.</p>
+<p>To create a local network, use the following syntax:</p>
+<pre>openstack network create<br/>--provider-network-type local<br/>&lt;name&gt; </pre>
+<p>When using the Linux bridge driver, a bridge is created for the local network but no physical or tagged interface is added. Traffic is limited to any port connected to the bridge and will not leave the host. When using the Open vSwitch driver, instances are attached to the integration bridge and can only communicate with other instances in the same local VLAN.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Listing networks in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>To list networks known to Neutron, use the <kbd><span class="CodeInTextPACKT">openstack network list</span></kbd> command, as shown in the following screenshot:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/97459ad8-b4a5-49ff-a427-3884f06895de.png" style="width:35.33em;height:9.67em;"/></div>
+<p>The list output provides the network ID, network name, and any associated subnets. An OpenStack user with the <span class="CodeInTextPACKT">admin</span> <span>role can see <span class="ItalicsPACKT">all</span> networks, while regular users can see shared networks and networks within their respective projects.</span></p>
+<p>If tags are utilized, the results may be filtered using the following parameters:</p>
+<ul>
+<li><kbd><span class="CodeInTextPACKT"><span>--tags &lt;tag&gt;</span></span></kbd>: Lists networks which have all given tag(s)</li>
+<li><kbd><span class="CodeInTextPACKT">--any-tags &lt;tag&gt;</span></kbd>: Lists networks which have any given tag(s)</li>
+<li><kbd><span class="CodeInTextPACKT">--not-tags &lt;tag&gt;</span></kbd>: Excludes networks which have all given tag(s)</li>
+<li><kbd><span class="CodeInTextPACKT">--not-any-tags &lt;tag&gt;</span></kbd>: Excludes networks which have any given tag(s)</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Showing network properties in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>To show the properties of a network, use the <kbd><span class="CodeInTextPACKT">openstack network show</span></kbd> command, as shown here:</p>
+<pre>openstack network show &lt;network&gt; </pre>
+<p>The output of the preceding command can be observed in the following screenshot:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/37bb99a1-483c-4d58-9d74-33d5d1b8800f.png" style="width:36.92em;height:37.50em;"/></div>
+<p>Various properties of the network can be seen in the output, including the administrative state, default MTU, sharing status, and more. Network provider attributes are hidden from ordinary users and can only be seen by users with the <span class="CodeInTextPACKT">admin</span> role.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Updating network attributes in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>At times, it may be necessary to update the attributes of a network after it has been created. To update a network, use the <kbd><span class="CodeInTextPACKT">openstack network set</span></kbd> and <kbd><span class="CodeInTextPACKT">openstack network unset</span></kbd> commands as follows:</p>
+<pre>openstack network set<br/>[--name &lt;name&gt;]<br/>[--enable | --disable]<br/>[--share | --no-share]<br/>[--description &lt;description]<br/>[--enable-port-security | --disable-port-security]<br/>[--external | --internal]<br/>[--default | --no-default]<br/>[--qos-policy &lt;qos-policy&gt; | --no-qos-policy]<br/>[--tag &lt;tag&gt;] [--no-tag]<br/>&lt;network&gt;<br/><br/>openstack network unset<br/>[--tag &lt;tag&gt; | --all-tag]<br/>&lt;network&gt; </pre>
+<p>The <kbd><span class="CodeInTextPACKT">--name</span></kbd> arguments can be used to change the name of the network. The ID will remain the same.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--enable</span></kbd> and <kbd><span class="CodeInTextPACKT">-disable</span></kbd> arguments are used to enable or disable the administrative state of the network.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--share</span></kbd> and <kbd><span class="CodeInTextPACKT">--no-share</span></kbd> arguments are used to share the network with all other projects, or limit the network to the owning project, respectively. Once other projects have created ports in a shared network, it is not possible to revoke the shared state of the network until those ports have been deleted.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--enable-port-security</span></kbd> and <kbd><span class="CodeInTextPACKT">--disable-port-security</span></kbd> <span>arguments are used to enable or disable port security on any port created from the given network. Port security refers to the use and support of security groups and MAC/ARP filtering on Neutron ports, and will be discussed further in <a href="240902fd-5108-446e-afa5-8122de12f0af.xhtml"><em><span class="ItalicsPACKT">Chapter 8</span></em></a>, <em><span class="ItalicsPACKT">Managing Security Groups</span></em>.</span></p>
+<p>The <kbd><span class="CodeInTextPACKT">--external</span></kbd> and <kbd><span class="CodeInTextPACKT">--internal</span></kbd><span class="CodeInTextPACKT"> </span><span>arguments are used to specify whether the network is considered an an <span class="ItalicsPACKT">external</span> provider network that's eligible for use as a gateway network and floating IP pool, or if it is only to be used <span class="ItalicsPACKT">internally</span> within the cloud. The default value for the</span> <span class="CodeInTextPACKT"><kbd>router:external</kbd></span> attribute of a network is <span class="CodeInTextPACKT">false,</span> or <span class="CodeInTextPACKT">internal</span>.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--default</span></kbd> and<kbd><span class="CodeInTextPACKT">--no-default</span></kbd> arguments are used to specify whether or not a network should act as the default external network for the cloud.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--qos-policy</span></kbd> argument is used to set a QoS policy on any port created in the network.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--tag</span></kbd> argument, when used with the <span class="CodeInTextPACKT">set</span> command, will add the specified tag to the network. When used with the <span class="CodeInTextPACKT">unset</span> command, the specified tag will be removed from the network. Using <kbd><span class="CodeInTextPACKT">--all-tag</span></kbd> with the <span class="CodeInTextPACKT">unset</span> <span>command will remove <span class="ItalicsPACKT">all</span> tags from the network.</span></p>
+<p>Provider attributes are among those that cannot be changed once a network has been created. If a provider attribute such as <span class="CodeInTextPACKT"><kbd>segmentation_id</kbd></span> must be changed after the network has been created, you must delete and recreate the network.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Deleting networks in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>To delete a network, use the <kbd><span class="CodeInTextPACKT">openstack network delete</span></kbd> command and specify the ID or name of the network:</p>
+<pre>openstack network delete &lt;network&gt; [&lt;network&gt; ...] </pre>
+<p>To delete a network named <kbd><span class="CodeInTextPACKT">MySampleNetwork</span></kbd>, you can enter the following command:</p>
+<pre>openstack network delete MySampleNetwork </pre>
+<p>Alternatively, you can use the network's ID:</p>
+<pre>openstack network delete 3a342db3-f918-4760-972a-cb700d5b6d2c </pre>
+<p>Multiple networks can also be deleted simultaneously, like so:</p>
+<pre>openstack network delete MySampleNetwork MyOtherSampleNetwork</pre>
+<p>Neutron will successfully delete the network as long as ports utilized by instances, routers, floating IPs, load balancer virtual IPs, and other user-created ports have been deleted. Any Neutron-created port, like those used for DHCP namespaces, will be automatically deleted when the network is deleted.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating networks in the dashboard</h1>
+                </header>
+            
+            <article>
+                
+<p>Networks can be created in the Horizon dashboard, but the method of doing so may vary based on the role of the user. Users with the <span class="CodeInTextPACKT">admin</span> role have the ability to create networks on behalf of other projects and specify provider attributes, while users without the <span class="CodeInTextPACKT">admin</span> role are limited to creating networks in their respective projects and have the same capabilities that are available via the <span class="CodeInTextPACKT">OpenStack</span> client. Both methods are described in the following sections.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Via the Project panel</h1>
+                </header>
+            
+            <article>
+                
+<p><span>Users can create networks using a wizard located within the <span class="ScreenTextPACKT">Project</span> tab in the dashboard. To create a network,</span> login as the user in the <span class="CodeInTextPACKT">demo</span> project and perform the following steps:</p>
+<ol>
+<li> <span>Navigate to <span class="packt_screen"><span class="ScreenTextPACKT">Project</span> | <span class="ScreenTextPACKT">Network </span>| <span class="ScreenTextPACKT">Networks</span></span>:</span></li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/e4bb11c7-f5c8-45fb-b466-1a6ee0f2e134.png"/></div>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>In the preceding screenshot, notice that there are no actions available next to the networks that are currently defined. Even though the networks are shared, they are not modifiable by users and can only be modified by an administrator.</p>
+<ol start="2">
+<li> <span>Click</span> <span>the <span class="packt_screen"><span class="ScreenTextPACKT">Create Network</span></span> button in the upper right-hand corner of the screen. A window will appear that will allow you to specify network properties:</span></li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/9c1d240d-4664-4276-9ebc-23877ee86259.png" style="width:40.67em;height:18.42em;"/></div>
+<ol start="3">
+<li>From t<span>he <span class="ScreenTextPACKT"><span class="packt_screen">Network</span> </span>tab, you can define the <span class="ScreenTextPACKT">Network Name</span> and <span class="ScreenTextPACKT">Admin State </span>(on or off). Users creating networks within the dashboard are not required to create a subnet at the time the network is created. By unchecking the <span class="ScreenTextPACKT"><span class="packt_screen">Create Subnet</span></span> checkbox in the <span class="ScreenTextPACKT"><span class="packt_screen">Subnet</span></span> tab, the network creation process can be completed:</span></li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/2d905e4d-e2ab-4e8f-bca7-34f3f5559999.png" style="width:41.08em;height:18.75em;"/></div>
+<p>The process to create subnets within the dashboard will be explained later on in this chapter.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Via the Admin panel</h1>
+                </header>
+            
+            <article>
+                
+<p>Users with the <span class="CodeInTextPACKT">admin</span> role will notice additional functionality available within the dashboard. An <span class="ScreenTextPACKT">Admin</span> panel can be seen on the left-hand side of the dashboard, which allows users with the <span class="CodeInTextPACKT">admin</span> role to manipulate networks outside of their respective project. To create a network in the dashboard as a cloud administrator, login as the <span class="CodeInTextPACKT">admin</span> user and perform the following steps:</p>
+<ol>
+<li><span>Navigate to <span class="packt_screen"><span class="ScreenTextPACKT">Admin</span> | <span class="ScreenTextPACKT">Network </span>| <span class="ScreenTextPACKT">Networks</span></span>:</span></li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/a9aa41e9-14d7-45dd-a7b5-b20e481ccefc.png"/></div>
+<ol start="2">
+<li>Click <span>on <span class="ScreenTextPACKT"><span class="packt_screen">Create Network</span></span> in the upper right-hand corner of the screen. A wizard will appear that will allow you to specify network properties:</span></li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/25a9c8ea-4714-4162-99e7-14d528e52260.png" style="width:37.75em;height:28.42em;"/></div>
+<p><span>Various network attributes can be set from the wizard, including the network type, interface, and segmentation ID, if applicable. Other options include associating the network with a project, setting the administrative state, enabling sharing, creating a subnet, and enabling the network to be used as an external network for Neutron routers. When complete, click the <span class="ScreenTextPACKT"><span class="packt_screen">Create Network</span></span> button to create the network.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Subnet management in OpenStack</h1>
+                </header>
+            
+            <article>
+                
+<p><span>A subnet in Neutron is a Layer 3 object and can be an IPv4 or IPv6 address block defined using <span class="KeyWordPACKT">classless inter-domain routing</span> (<span class="KeyWordPACKT">CIDR</span>) notation. CIDR is a method of allocating IP addresses using <span class="KeyWordPACKT">variable-length subnet masking</span>, or <span class="KeyWordPACKT">VLSM</span>. Subnets have a direct relationship to networks and cannot exist without them.</span></p>
+<div class="packt_infobox">More information on CIDR and VLSM can be found on Wikipedia at <a href="http://en.wikipedia.org/wiki/Classless_Inter-Domain_Routing"><span class="URLPACKT">http://en.wikipedia.org/wiki/Classless_Inter-Domain_Routing</span></a>.</div>
+<p>The primary commands associated with subnet management that will be discussed in this chapter are listed in the following table:</p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td style="width: 389px">
+<p class="TableColumnHeadingPACKT"><strong>Subnet Commands</strong></p>
+</td>
+<td style="width: 429.49px">
+<p class="TableColumnHeadingPACKT"><strong>Description</strong></p>
+</td>
+</tr>
+<tr>
+<td style="width: 389px">
+<p class="TableColumnContentPACKT"><kbd>subnet create</kbd></p>
+</td>
+<td style="width: 429.49px">
+<p class="TableColumnContentPACKT">Creates a subnet</p>
+</td>
+</tr>
+<tr>
+<td style="width: 389px">
+<p class="TableColumnContentPACKT"><kbd>subnet delete</kbd></p>
+</td>
+<td style="width: 429.49px">
+<p class="TableColumnContentPACKT">Deletes a subnet(s)</p>
+</td>
+</tr>
+<tr>
+<td style="width: 389px">
+<p class="TableColumnContentPACKT"><kbd>subnet show</kbd></p>
+</td>
+<td style="width: 429.49px">
+<p class="TableColumnContentPACKT">Displays subnet details</p>
+</td>
+</tr>
+<tr>
+<td style="width: 389px">
+<p class="TableColumnContentPACKT"><kbd>subnet list</kbd></p>
+</td>
+<td style="width: 429.49px">
+<p class="TableColumnContentPACKT">Lists subnets</p>
+</td>
+</tr>
+<tr>
+<td style="width: 389px">
+<p class="TableColumnContentPACKT"><kbd>subnet set</kbd></p>
+</td>
+<td style="width: 429.49px">
+<p class="TableColumnContentPACKT">Sets subnet properties</p>
+</td>
+</tr>
+<tr>
+<td style="width: 389px">
+<p class="TableColumnContentPACKT"><kbd>subnet unset</kbd></p>
+</td>
+<td style="width: 429.49px">
+<p class="TableColumnContentPACKT">Unsets subnet properties</p>
+</td>
+</tr>
+<tr>
+<td style="width: 389px">
+<p class="TableColumnContentPACKT"><kbd>subnet pool create</kbd></p>
+</td>
+<td style="width: 429.49px">
+<p class="TableColumnContentPACKT">Creates a subnet pool</p>
+</td>
+</tr>
+<tr>
+<td style="width: 389px">
+<p class="TableColumnContentPACKT"><kbd>subnet pool delete</kbd></p>
+</td>
+<td style="width: 429.49px">
+<p class="TableColumnContentPACKT">Deletes a subnet pool(s)</p>
+</td>
+</tr>
+<tr>
+<td style="width: 389px">
+<p class="TableColumnContentPACKT"><kbd>subnet pool list</kbd></p>
+</td>
+<td style="width: 429.49px">
+<p class="TableColumnContentPACKT">Lists subnet pools</p>
+</td>
+</tr>
+<tr>
+<td style="width: 389px">
+<p class="TableColumnContentPACKT"><kbd>subnet pool set</kbd></p>
+</td>
+<td style="width: 429.49px">
+<p class="TableColumnContentPACKT">Sets subnet pool properties</p>
+</td>
+</tr>
+<tr>
+<td style="width: 389px">
+<p class="TableColumnContentPACKT"><kbd>subnet pool show</kbd></p>
+</td>
+<td style="width: 429.49px">
+<p class="TableColumnContentPACKT">Displays subnet pool details</p>
+</td>
+</tr>
+<tr>
+<td style="width: 389px">
+<p class="TableColumnContentPACKT"><kbd>subnet pool unset</kbd></p>
+</td>
+<td style="width: 429.49px">
+<p class="TableColumnContentPACKT">Unsets subnet pool properties</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Working with IPv4 addresses</h1>
+                </header>
+            
+            <article>
+                
+<p>A few examples of IPv4 addresses and subnets described using CIDR notation are as follows:</p>
+<ul>
+<li><kbd>192.168.100.50/24</kbd> represents the IP address <kbd>192.168.100.50</kbd>, its associated routing prefix <kbd>192.168.100.0</kbd>, and the subnet mask <kbd>255.255.255.0</kbd> (that is, 24 "1" bits). There are 256 total addresses in a /24, with 254 addresses available for use.</li>
+<li><kbd>172.16.1.200/23</kbd> represents the IP address <kbd>172.16.0.200</kbd>, its associated routing prefix <kbd>172.16.0.0</kbd>, and the subnet mask <kbd>255.255.254.0</kbd> (that is, 23 "1" bits). There are 512 total addresses in a /23, with 510 addresses available for use.</li>
+<li><kbd>10.0.10.4/22</kbd> represents the IP address <kbd>10.0.10.4</kbd>, its associated routing prefix <kbd>10.0.8.0</kbd>, and the subnet mask <kbd>255.255.252.0</kbd> (that is, 22 "1" bits). There are 1,024 total addresses in a /22, with 1,022 addresses available for use.</li>
+</ul>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p><span>Not every address in a subnet might be usable, as the first and last addresses are usually reserved as the network and broadcast addresses, respectively. As a result, Neutron will <span class="ItalicsPACKT">not</span> assign the first or last address of a subnet to network resources, including instances. Use the following formula to determine the total number of usable addresses in a subnet when sizing your network. The</span> <em><span class="CodeInTextPACKT">x</span></em> variable represents the number of host bits available in the subnet mask:</p>
+<pre>2ˆx-2 = number of useable addresses in a subnet </pre>
+<p><span>Keep in mind that when creating a subnet, it is important to plan ahead as the subnet mask, or CIDR, is currently <span class="ItalicsPACKT">not</span> an updatable attribute. When instances and other resources consume all of the available IP addresses in a subnet, devices can no longer be added to the network. To resolve this, a new subnet will need to be created and added to the existing network, or an entirely new network and subnet will need to be created. Depending on your network infrastructure, this might not be an easy change to implement.</span></p>
+<p><span>VLSM and CIDR, to an extent, are important when designing networks for use within an OpenStack cloud and will play an even more important role when we discuss the use of <span class="KeyWordPACKT">subnet pools</span> later on in this chapter.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Working with IPv6 addresses</h1>
+                </header>
+            
+            <article>
+                
+<p>IPv6 is a first-class citizen in OpenStack Networking, but is an advanced topic that will not be discussed in this chapter. All of the subnet-related commands described here will behave similarly when defining IPv6 subnets, but additional parameters may be required.</p>
+<div class="packt_infobox">For more information on IPv6 in Pike, please refer to the upstream documentation available at <a href="https://docs.openstack.org/neutron/pike/admin/config-ipv6.html"><span class="URLPACKT">https://docs.openstack.org/neutron/pike/admin/config-ipv6.html</span></a>.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating subnets in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>To create a subnet using the <span class="CodeInTextPACKT">OpenStack</span> client, use the <kbd><span class="CodeInTextPACKT">subnet create</span></kbd> command, as shown here:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/e4074f34-fdcd-43df-ba57-71d5fad14208.png" style="width:44.25em;height:21.92em;"/></div>
+<p>The <kbd>--<span class="CodeInTextPACKT">project</span></kbd> argument specifies the ID of the project that the subnet should be associated with and is only available to users with the <span class="CodeInTextPACKT">admin</span> role. This should be the same project associated with the parent network.</p>
+<p>The <kbd>--<span class="CodeInTextPACKT">project-domain</span></kbd><span class="CodeInTextPACKT"> </span> <span>argument</span> specifies the ID of the project domain that the subnet should be associated with and is only available to users with the <span class="CodeInTextPACKT">admin</span> role (this is not commonly used).</p>
+<p>The <kbd>--<span class="CodeInTextPACKT">subnet-pool</span></kbd> <span>argument</span> specifies the pool from which the subnet will obtain a CIDR.</p>
+<p>The <kbd>--<span class="CodeInTextPACKT">use-default-subnet-pool</span></kbd> <span>argument</span> instructs Neutron to choose the default subnet pool to obtain a CIDR. Using this parameter first requires the creation of at least one subnet pool.</p>
+<p>The <kbd>--<span class="CodeInTextPACKT">prefix-length</span></kbd><span class="CodeInTextPACKT"> </span> <span class="CodeInTextPACKT"><span>argument </span></span>specifies the prefix length for subnet allocation from the subnet pool.</p>
+<p>The <kbd>--<span class="CodeInTextPACKT">subnet-range</span></kbd> argument specifies the CIDR notation of the subnet being created. This option is required unless the subnet is associated with a subnet pool.</p>
+<p>The <kbd>--<span class="CodeInTextPACKT">dhcp</span></kbd> and <kbd><span class="CodeInTextPACKT">--no-dhcp</span></kbd> argument enable or disable DHCP services for the subnet, respectively. DHCP is enabled by default.</p>
+<div class="packt_infobox">DHCP is not required for network operation. Disabling DHCP simply means that instances attached to the subnet will not utilize DHCP for dynamic interface configuration. Instead, interfaces will need to be configured manually or by using scripts or other methods within the instance itself. Instances are still allocated IP addresses within the allocation pool range whether DHCP is disabled or enabled.</div>
+<p>The <span class="CodeInTextPACKT"><kbd>--gateway</kbd> </span>argument defines the gateway address for the subnet. The three possible options include <span class="CodeInTextPACKT">auto</span>, <span class="CodeInTextPACKT">none</span>, or an IP address of the user's choosing. When the subnet is attached to the instance side of a Neutron router, the router's interface will be configured with the address specified here. The address is then used as the default gateway for instances in the subnet. If the subnet is attached to the external side of a Neutron router, the address is used as the default gateway for the router itself. To see this behavior in action, refer to <a href="371886b8-4c2a-49e9-90b8-8fe79217adb4.xhtml"><em><span class="ChapterrefPACKT">Chapter 10</span></em></a><span><em>, <span class="ItalicsPACKT"><em>Creatin</em>g Standalone Routers with Neutron</span></em></span><span class="ChapterrefPACKT">. </span>If a gateway is not specified, Neutron defaults to <span class="CodeInTextPACKT">auto </span>and uses the first available address in the subnet.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--ip-version</span></kbd><span class="CodeInTextPACKT"> </span>argument specifies the version of the IP protocol represented by the subnet. Possible options are <span class="CodeInTextPACKT">4</span> for IPv4 and <span class="CodeInTextPACKT">6</span> for IPv6. The default is <span class="CodeInTextPACKT">4</span>.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--ipv6-ra-mode</span></kbd> argument defines the router advertisement mode for the subnet when IPv6 is used. Possible options include <kbd><span class="CodeInTextPACKT">dhcpv6-stateful</span></kbd>, <kbd><span class="CodeInTextPACKT">dhcpv6-stateless</span></kbd>, and <kbd><span class="CodeInTextPACKT">slaac</span></kbd>.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--ipv6-address-mode</span></kbd> argument defines the address mode for the subnet when IPv6 is used. Possible options include <kbd><span class="CodeInTextPACKT">dhcpv6-stateful</span></kbd>, <kbd><span class="CodeInTextPACKT">dhcpv6-stateless</span></kbd>, and <kbd><span class="CodeInTextPACKT">slaac</span></kbd>.</p>
+<div class="packt_infobox">Not all combinations of the <kbd><span class="CodeInTextPACKT">ipv6-ra-mode</span></kbd> and <kbd><span class="CodeInTextPACKT">ipv6-address-mode</span></kbd> arguments are valid. To review both valid and invalid use cases, please refer to the API guide at  <span><a href="https://docs.openstack.org/neutron/pike/admin/config-ipv6.html"><span class="URLPACKT">https://docs.openstack.org/neutron/pike/admin/config-ipv6.html</span></a>. </span>More information on IPv6 can be found in the appendix.</div>
+<p>The <kbd>--<span class="CodeInTextPACKT">network-segment</span></kbd> argument specifies the network segment to associate with the subnet.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--network</span></kbd> argument specifies the network the subnet should be associated with. Multiple subnets can be associated with a single network as long as the subnet range does not overlap with another subnet in the same network.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>The <kbd><span class="CodeInTextPACKT">--allocation-pool </span></kbd> argument specifies the range of IP addresses within the subnet that can be assigned to ports. IP addresses cannot be excluded from a single range. However, multiple allocation pools can be defined that exclude addresses. For example, to exclude <kbd>192.168.1.50-55</kbd> from <kbd>192.168.1.0/24</kbd>, the following syntax would be needed:</p>
+<pre>openstack subnet create MyFlatNetwork<br/>--subnet-range 192.168.1.0/24<br/>--allocation-pool start=192.168.1.2,end=192.168.1.49<br/>--allocation-pool start=192.168.1.56,end=192.168.1.254 </pre>
+<div class="packt_infobox">Depending on the type of network in use, it is possible for devices outside of OpenStack to coexist with instances in the same network and subnet. The allocation pool(s) should be defined so that addresses allocated to instances do not overlap with devices outside of the OpenStack cloud.</div>
+<p>The <kbd><span class="CodeInTextPACKT">--dns-nameserver</span></kbd> argument specifies a DNS name server for the subnet. This option can be repeated to set multiple name servers. However, the default maximum number of name servers is five per subnet and can be modified by updating the <kbd><span class="CodeInTextPACKT">max_dns_nameservers</span></kbd> configuration option in the <kbd><span class="CodeInTextPACKT">/etc/neutron/neutron.conf</span></kbd> file.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--host-route</span></kbd><span class="CodeInTextPACKT"> argument</span> specifies one or more static routes defined as <span class="CodeInTextPACKT">destinations </span>and <span class="CodeInTextPACKT">next hop</span> pairs to be injected into an instance's routing table via DHCP. This option can be used multiple times to specify multiple routes. The default maximum number of routes per subnet is 20 and can be modified by updating the <kbd><span class="CodeInTextPACKT">max_subnet_host_routes</span></kbd> configuration option in the <kbd><span class="CodeInTextPACKT">/etc/neutron/neutron.conf</span></kbd> file.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--tag</span></kbd> and <kbd><span class="CodeInTextPACKT">--no-tag</span></kbd> argument are used to apply or remove a tag from a subnet. Tags are labels that are applied to a network resource, which can be used by a client for filtering purposes.</p>
+<p>The <span class="CodeInTextPACKT">name</span> argument specifies the name of the subnet. While you can create multiple subnets with the same name, it is recommended that subnet names remain unique for easy identification.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating a subnet in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>To demonstrate this command in action, create a subnet within the <kbd><span class="CodeInTextPACKT">MyFlatNetwork</span></kbd> network with the following characteristics:</p>
+<ul>
+<li><span class="BoldPACKT">Name: </span><kbd><span class="KeyWordPACKT">MyFlatSubnet</span></kbd></li>
+<li><span class="KeyWordPACKT">Internet Protocol</span>: <kbd>IPv4</kbd></li>
+<li><span class="KeyWordPACKT">Subnet</span>: <kbd>192.168.100.0/24</kbd></li>
+<li><span class="KeyWordPACKT">Subnet mask</span>: <kbd>255.255.255.0</kbd></li>
+<li><span class="KeyWordPACKT">External gateway</span>: <kbd>192.168.100.1</kbd></li>
+<li><span class="KeyWordPACKT">DNS servers</span>: <kbd>8.8.8.8, 8.8.4.4</kbd></li>
+</ul>
+<p>To create the subnet and associate it with <kbd><span class="CodeInTextPACKT">MyFlatNetwork</span></kbd>, refer to the following screenshot:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/f9888dff-06fa-4f57-bdc6-88c89ab75d1d.png" style="width:41.33em;height:45.33em;"/></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Listing subnets in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>To list existing subnets, use the <kbd><span class="CodeInTextPACKT">openstack subnet list</span></kbd> command, as shown in the following screenshot:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/03f9ecdc-4b9d-4424-a18c-63b2c7c1bb24.png" style="width:61.75em;height:7.92em;"/></div>
+<p>By default, the command output provides the ID, name, CIDR notation, and associated networks of each subnet that are available to the user. Users with the <span class="CodeInTextPACKT">admin</span> role may see all subnets, while ordinary users are restricted to subnets within their project or subnets associated with shared networks. The <kbd><span class="CodeInTextPACKT">openstack subnet list</span></kbd> command also accepts filters that narrow down returned results.</p>
+<p>If tags are utilized, the results may be filtered using the following parameters:</p>
+<ul>
+<li><kbd><span class="CodeInTextPACKT">--tags &lt;tag&gt;</span></kbd><span>: Lists subnets which have all given tag(s)</span></li>
+<li><kbd><span class="CodeInTextPACKT">--any-tags &lt;tag&gt;</span></kbd>: Lists subnets which have any given tag(s)</li>
+<li><kbd><span class="CodeInTextPACKT">--not-tags &lt;tag&gt;</span></kbd>: Excludes subnets which have all given tag(s)</li>
+<li><kbd><span class="CodeInTextPACKT">--not-any-tags &lt;tag&gt;</span></kbd>: Excludes subnets which have any given tag(s)</li>
+</ul>
+<p>Additional details can be found by using the <kbd>-h</kbd> or <kbd>--help</kbd> options.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Showing subnet properties in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>To show the properties of a subnet, use the <kbd><span class="CodeInTextPACKT">openstack subnet show</span></kbd> command, as shown here:</p>
+<pre>openstack subnet show &lt;subnet&gt;</pre>
+<p>The output of the preceding command can be observed in the following screenshot:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/6bd064cb-14b9-43bc-9919-e546445da49d.png" style="width:34.08em;height:29.83em;"/></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Updating a subnet in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>To update a subnet in the CLI, use the <kbd><span class="CodeInTextPACKT">openstack subnet set</span></kbd> and <kbd><span class="CodeInTextPACKT">openstack subnet unset</span></kbd> commands as follows:</p>
+<pre>openstack subnet set<br/>[--name &lt;name&gt;] [--dhcp | --no-dhcp]<br/>[--gateway &lt;gateway&gt;]<br/>[--description &lt;description&gt;] [--tag &lt;tag&gt;]<br/>[--no-tag]<br/>[--allocation-pool start=&lt;ip-address&gt;,end=&lt;ip-address&gt;]<br/>[--no-allocation-pool]<br/>[--dns-nameserver &lt;dns-nameserver&gt;]<br/>[--no-dns-nameservers]<br/>[--host-route destination=&lt;subnet&gt;,gateway=&lt;ip-address&gt;]<br/>[--no-host-route] [--service-type &lt;service-type&gt;]<br/>&lt;subnet&gt;<br/><br/>openstack subnet unset<br/>[--allocation-pool start=&lt;ip-address&gt;,end=&lt;ip-address&gt;]<br/>[--dns-nameserver &lt;dns-nameserver&gt;]<br/>[--host-route destination=&lt;subnet&gt;,gateway=&lt;ip-address&gt;]<br/>[--service-type &lt;service-type&gt;]<br/>[--tag &lt;tag&gt; | --all-tag]<br/>&lt;subnet&gt; </pre>
+<p>The <span class="CodeInTextPACKT"><kbd>--name</kbd></span> argument specifies the updated name of the subnet.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--dhcp</span></kbd> and <kbd><span class="CodeInTextPACKT">--no-dhcp</span></kbd> arguments enable or disable DHCP services for the subnet, respectively.</p>
+<div class="packt_infobox">Instances that rely on DHCP to procure or renew an IP address lease might lose network connectivity over time if DHCP is disabled.</div>
+<p>The <kbd><span class="CodeInTextPACKT">--gateway</span></kbd>  argument defines the gateway address for the subnet. The two possible options when updating a subnet includes <span class="CodeInTextPACKT">none</span> or an IP address of the user's choosing.</p>
+<p>The <kbd><span class="CodeInTextPACKT">--tag</span></kbd> argument, when used with the <kbd><span class="CodeInTextPACKT">set</span></kbd> command, will add the specified tag to the subnet. When used with the <kbd><span class="CodeInTextPACKT">unset</span></kbd> command, the specified tag will be removed from the subnet. Using the <kbd><span class="CodeInTextPACKT">--all-tag</span></kbd> with the <kbd><span class="CodeInTextPACKT">unset</span></kbd> <span>command will remove <span class="ItalicsPACKT">all</span> tags from the subnet.</span></p>
+<p>The <kbd><span class="CodeInTextPACKT">--allocation-pool</span></kbd> argument, when used with the <kbd><span class="CodeInTextPACKT">set</span></kbd> command, adds the specified pool to the subnet. When used with the <kbd><span class="CodeInTextPACKT">unset</span></kbd> command, the specified pool will be removed from the subnet.</p>
+<p>The<kbd><span class="CodeInTextPACKT">--dns-nameserver</span></kbd> argument, when used with the <kbd><span class="CodeInTextPACKT">set</span></kbd> command, adds the specified DNS name server to the subnet. When used with the <kbd><span class="CodeInTextPACKT">unset</span></kbd> command, the specified DNS name server is removed from the subnet. Using <kbd><span class="CodeInTextPACKT">--no-name-servers</span></kbd> <span>will remove <span class="ItalicsPACKT">all</span> DNS name servers from the subnet.</span></p>
+<p>The <kbd><span class="CodeInTextPACKT">--host-route</span></kbd> argument, when used with the <kbd><span class="CodeInTextPACKT">set</span></kbd> command, adds the specified static route defined using <span class="CodeInTextPACKT">destination</span> and <span class="CodeInTextPACKT">next hop</span> pairs. When used with the <kbd><span class="CodeInTextPACKT">unset</span></kbd> command, the specified route is removed. Using <kbd><span class="CodeInTextPACKT">--no-host-route</span></kbd> with the <kbd><span class="CodeInTextPACKT">set</span></kbd> <span>command will remove <span class="ItalicsPACKT">all</span> host routes from the subnet.</span></p>
+<p>The <kbd><span class="CodeInTextPACKT">subnet</span></kbd> argument specifies the name of the subnet being modified.</p>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating subnets in the dashboard</h1>
+                </header>
+            
+            <article>
+                
+<p>Subnets can be created in the Horizon dashboard, but the method of doing so may vary depending on the role of the user. Users with the <span class="CodeInTextPACKT">admin</span> role have the ability to create subnets on behalf of other projects and specify other attributes that may not be available to ordinary users. Users without the <span class="CodeInTextPACKT">admin</span> role are limited to creating subnets in their respective projects and have the same capabilities that are available via the O<span class="CodeInTextPACKT">penStack</span> client. Both methods are described in the following sections.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Via the Project tab</h1>
+                </header>
+            
+            <article>
+                
+<p><span>Users can create subnets at the time of network creation using a wizard located within the <span class="ScreenTextPACKT">Project</span> tab in the dashboard. They can also add new subnets to existing networks. To create a network and subnet,</span> login as the user in the <span class="CodeInTextPACKT">demo</span> project and perform the following steps:</p>
+<ol>
+<li><span>Navigate to <span class="packt_screen"><span class="ScreenTextPACKT">Project </span>| <span class="ScreenTextPACKT">Network </span>| <span class="ScreenTextPACKT">Networks</span></span> and click on the <span class="ScreenTextPACKT"><span class="packt_screen">Create Network</span> </span>button:</span></li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/ef31bb1d-af00-41e2-b8c6-90552fc7a9b5.png"/></div>
+<ol start="2">
+<li>Clic<span>king on <span class="packt_screen"><span class="ScreenTextPACKT">Create Network</span></span> will open a window where you can specify the network and subnet details:</span></li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/207b02e5-b874-41e2-a3f0-b37dee817dae.png" style="width:50.67em;height:23.08em;"/></div>
+<ol start="3">
+<li>Clicking on the <span class="packt_screen">Subne</span><span class="packt_screen">t</span> tab or the <span class="packt_screen">Next</span> button will navigate you to a panel where subnet details are defined, including the name, network address, and gateway information:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/3abec4c5-fcfb-4ac8-bd6c-9abd4a3731f7.png" style="width:43.75em;height:26.42em;"/></div>
+<ol start="4">
+<li>Finally, clickin<span>g on <span class="ScreenTextPACKT"><span class="packt_screen">Subnet Details</span> </span>or <span class="ScreenTextPACKT"><span class="packt_screen">Next</span> </span>will navigate you to a panel where additional subnet details are defined, including <span class="packt_screen">Allocation pools</span>, <span class="packt_screen">DNS Name Servers</span>, and <span class="packt_screen">Host Routes</span>. Enter the details shown here and click on the blue <span class="ScreenTextPACKT"><span class="packt_screen">Create</span></span> button to complete the creation of the <span class="packt_screen">network</span> and <span class="packt_screen">subnet</span>:</span></li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/f5db4e1d-456e-42f2-82c3-c676520ce231.png" style="width:44.83em;height:37.25em;"/></div>
+<p><span>The ability to add additional subnets or delete a network entirely is provided within the menu located under the <span class="ScreenTextPACKT"><span class="packt_screen">Actions</span></span> column, as pictured in the following screenshot:</span></p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/e1adfda7-5736-44a0-b53f-47e61e9add76.png" style="width:81.42em;height:35.33em;"/></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Via the Admin tab</h1>
+                </header>
+            
+            <article>
+                
+<p>Users with the <span class="CodeInTextPACKT">admin</span> role will notice additional functionality available within the dashboard. An <span class="ScreenTextPACKT">Admin</span> panel can be seen on the left-hand side of the dashboard, which allows users with the <span class="CodeInTextPACKT">admin</span> role to manipulate subnets outside of their respective project.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>To create a subnet in the dashboard as a cloud administrator, login as the <span class="CodeInTextPACKT">admin</span> user and perform the following steps:</p>
+<ol>
+<li><span>Navigate to <span class="packt_screen"><span class="ScreenTextPACKT">Admin </span>| <span class="ScreenTextPACKT">Network </span>| <span class="ScreenTextPACKT">Networks</span></span>, and click on the name of the network you wish to add a subnet to:</span></li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/cb8cfcfb-71b9-4390-b938-07868dcac066.png"/></div>
+<ol start="2">
+<li>Clickin<span>g on <span class="ScreenTextPACKT"><span class="packt_screen">MyVLANNetwork</span></span> provides a list of details of the network, including the associated subnets and ports in their respective panels:</span></li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/c22b7656-5cab-4394-a5bc-92faaebb91e9.png"/></div>
+<ol start="3">
+<li> <span>To add a subnet to the network, click on the <span class="packt_screen">Subnet</span> tab and click on the <span class="ScreenTextPACKT"><span class="packt_screen">Create Subnet</span></span> button on the right-hand side:</span></li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/9e9a9fba-7ba9-44ce-8746-900d2f23d54c.png" style="width:54.25em;height:16.08em;"/></div>
+<ol start="4">
+<li> A wizard will appear that allows you to define the properties of the new subnet:</li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/49fa9466-d27a-42e4-859a-597cfe99f56a.png" style="width:52.58em;height:31.75em;"/></div>
+<ol start="5">
+<li>Clicking <span class="packt_screen">N</span><span><span class="ScreenTextPACKT"><span class="packt_screen">ext</span></span> reveals additional configuration options:</span></li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/26c7963e-35d8-4ef6-a808-8a751dd65436.png" style="width:49.17em;height:41.08em;"/></div>
+<ol start="6">
+<li>Cli<span>ck on the blue <span class="ScreenTextPACKT"><span class="packt_screen">Create</span></span> button to complete the creation of the subnet. The <span class="ScreenTextPACKT"><span class="packt_screen">Subnets</span></span> panel will be updated accordingly:</span></li>
+</ol>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/e3e63e8c-d1ab-4d4c-a7e9-82de1b653c94.png" style="width:68.75em;height:24.08em;"/></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Managing subnet pools</h1>
+                </header>
+            
+            <article>
+                
+<p>Subnet pools were introduced in the Kilo release of OpenStack and allow Neutron to control the assignment of IP address space upon subnet creation. Users can create subnet pools for use within their respective project only, or an administrator can create a subnet pool that is shared between projects. The use of subnet pools helps ensure that there is no IP address overlap between subnets and makes the creation of subnets easier for users. Subnet pools work best for self-service networks that are expected to be connected to Neutron routers and are ideal for cases where address scopes and Neutron's BGP Speaker functionality has been implemented.</p>
+<div class="packt_infobox">BGP stands for Border Gateway Protocol and is a dynamic routing protocol used to route traffic over the internet or within autonomous systems. For more information on BGP Speaker functionality in Neutron, please refer to the upstream documentation available at <a href="https://docs.openstack.org/neutron/pike/admin/config-bgp-dynamic-routing.html"><span class="URLPACKT">https://docs.openstack.org/neutron/pike/admin/config-bgp-dynamic-routing.html</span></a>.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating a subnet pool</h1>
+                </header>
+            
+            <article>
+                
+<p>To create a subnet pool, you will need the following information at a minimum:</p>
+<ul>
+<li>Subnet pool prefix in CIDR notation</li>
+<li>Subnet pool name</li>
+</ul>
+<div class="packt_infobox">Additional information can be provided based on your environment and can be determined using the <kbd><span class="CodeInTextPACKT">openstack subnet pool create -h</span></kbd> command.</div>
+<p>To demonstrate this command in action, create a subnet pool with the following characteristics:</p>
+<ul>
+<li><span class="BoldPACKT">Name:</span> <kbd><span class="KeyWordPACKT">MySubnetPool</span></kbd></li>
+<li><span class="KeyWordPACKT">Subnet Pool CIDR: </span><kbd>172.31.0.0/16</kbd></li>
+</ul>
+<p>To create the subnet pool, refer to the following screenshot:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/7c14b01a-ef6c-4300-aee2-3a6c13b9042b.png" style="width:38.25em;height:32.33em;"/></div>
+<p>The subnet pool <kbd><span class="CodeInTextPACKT">MySubnetPool</span></kbd> is now available for use, but only by the project that created it, as <span class="CodeInTextPACKT">shared</span> is <kbd><span class="CodeInTextPACKT">False</span></kbd>.</p>
+<div class="packt_tip">The default prefix length is 8, which is not ideal and will cause issues if users do not specify a prefix length when creating a subnet. Setting a default prefix length when creating the subnet pool is highly recommended.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating a subnet from a pool</h1>
+                </header>
+            
+            <article>
+                
+<p>To create a subnet from the subnet pool <kbd><span class="CodeInTextPACKT">MySubnetPool</span></kbd>, use the <kbd><span class="CodeInTextPACKT">openstack subnet create</span></kbd> command with the <kbd><span class="CodeInTextPACKT">--subnet-pool</span></kbd> argument. To demonstrate this command in action, create a subnet with the following characteristics:</p>
+<ul>
+<li><span class="BoldPACKT">Name: </span><kbd><span class="KeyWordPACKT">MySubnetFromPool</span></kbd></li>
+<li><span class="BoldPACKT">Network:</span> <kbd><span class="KeyWordPACKT">MyVLANNetwork2</span></kbd></li>
+<li><span class="KeyWordPACKT">Prefix Length:</span> <kbd>28</kbd></li>
+</ul>
+<p>To create the subnet, refer to the following screenshot:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/28de2501-cbf5-4752-8a87-e82353a315ea.png" style="width:27.67em;height:30.25em;"/></div>
+<p>As shown in the preceding screenshot, the subnet's CIDR was carved from the provided subnet pool, and all other attributes were automatically determined by Neutron.</p>
+<div class="packt_infobox">At the time of writing this book, the following bug may restrict the use of the O<span class="CodeInTextPACKT">penStack</span> client when providing a prefix length when creating subnets: <a href="https://bugs.launchpad.net/python-openstacksdk/+bug/1754062"><span class="URLPACKT">https://bugs.launchpad.net/python-openstacksdk/+bug/1754062</span></a>. If an error occurs, try the <span class="CodeInTextPACKT">Neutron</span> client instead.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Deleting a subnet pool</h1>
+                </header>
+            
+            <article>
+                
+<p>To delete a subnet pool, use the <kbd><span class="CodeInTextPACKT">openstack subnet pool delete</span></kbd> command, as shown here:</p>
+<pre>openstack subnet pool delete &lt;subnet-pool&gt; [&lt;subnet-pool&gt; ...] </pre>
+<p>Multiple subnet pools can be deleted simultaneously. Existing subnets that reference a subnet pool must be deleted before the subnet pool can be deleted.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Assigning a default subnet pool</h1>
+                </header>
+            
+            <article>
+                
+<p>A default subnet pool can be defined that allows users to create subnets without specifying a prefix or a subnet pool. At subnet creation, use both the <kbd><span class="CodeInTextPACKT">--default-prefix-length</span></kbd> and <span class="CodeInTextPACKT"><kbd>--default</kbd></span> arguments to make the subnet pool the default pool for a particular network. A subnet pool can also be updated to become the default subnet pool by using the same argument.</p>
+<p>The following command demonstrates setting <kbd><span class="CodeInTextPACKT">MySubnetPool</span></kbd> as the default subnet pool:</p>
+<pre># openstack subnet pool set --default MySubnetPool </pre>
+<p>No output is returned upon successful completion of the preceding command.</p>
+<p class="mce-root"/>
+<p>The following screenshot demonstrates the creation of a new subnet using the default subnet pool:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/9ca8f759-e36a-4d72-a1d3-75554780b5ec.png" style="width:35.92em;height:38.00em;"/></div>
+<p>As you can see, Neutron automatically carved out a /28 subnet from the default subnet pool and set basic attributes without user interaction. The subnet can now be attached to a Neutron router for use by instances.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Managing network ports in OpenStack</h1>
+                </header>
+            
+            <article>
+                
+<p>A port in Neutron is a logical connection of a virtual network interface to a subnet and network. Ports can be associated with virtual machine instances, DHCP servers, routers, firewalls, load balancers, and more. Ports can even be created simply to reserve IP addresses from a subnet. Neutron stores port relationships in the Neutron database and uses that information to build switching connections at the physical or virtual switch layer through the networking plugin and agent.</p>
+<p>The primary commands associated with port management are listed in the following table:</p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td class="CDPAlignCenter CDPAlign" style="width: 316px">
+<p class="TableColumnHeadingPACKT"><strong>Port Commands</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign" style="width: 422.066px">
+<p class="TableColumnHeadingPACKT"><strong>Description</strong></p>
+</td>
+</tr>
+<tr>
+<td style="width: 316px">
+<p class="TableColumnContentPACKT"><kbd>port create</kbd></p>
+</td>
+<td style="width: 422.066px">
+<p class="TableColumnContentPACKT">Creates a new port</p>
+</td>
+</tr>
+<tr>
+<td style="width: 316px">
+<p class="TableColumnContentPACKT"><kbd>port delete</kbd></p>
+</td>
+<td style="width: 422.066px">
+<p class="TableColumnContentPACKT">Deletes a port(s)</p>
+</td>
+</tr>
+<tr>
+<td style="width: 316px">
+<p class="TableColumnContentPACKT"><kbd>port list</kbd></p>
+</td>
+<td style="width: 422.066px">
+<p class="TableColumnContentPACKT">Lists ports</p>
+</td>
+</tr>
+<tr>
+<td style="width: 316px">
+<p class="TableColumnContentPACKT"><kbd>port set</kbd></p>
+</td>
+<td style="width: 422.066px">
+<p class="TableColumnContentPACKT">Sets port properties</p>
+</td>
+</tr>
+<tr>
+<td style="width: 316px">
+<p class="TableColumnContentPACKT"><kbd>port show</kbd></p>
+</td>
+<td style="width: 422.066px">
+<p class="TableColumnContentPACKT">Displays port details</p>
+</td>
+</tr>
+<tr>
+<td style="width: 316px">
+<p class="TableColumnContentPACKT"><kbd>port unset</kbd></p>
+</td>
+<td style="width: 422.066px">
+<p class="TableColumnContentPACKT">Unsets port properties</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p><span>When a port is created in OpenStack and associated with an instance or other virtual network device, it is bound to a Neutron agent on the respective node hosting the instance or device. Using details provided by the port, OpenStack services may construct a <span class="KeyWordPACKT">virtual machine interface</span> (</span><span class="CodeInTextPACKT">vif</span><span>) or <span class="KeyWordPACKT">virtual ethernet interface</span> (</span><span class="CodeInTextPACKT">veth</span>) on the host for use with a virtual machine, network namespace, or more depending on the application.</p>
+<p>To retrieve a list of all Neutron ports, use the <kbd><span class="CodeInTextPACKT">openstack port list</span></kbd> command, as shown in the following screenshot:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/a7533f21-6476-4354-87b3-3a2744895e73.png"/></div>
+<p>Users with the <span class="CodeInTextPACKT">admin</span> role will see all ports known to Neutron, while ordinary users will only see ports associated with their respective project.</p>
+<p>If tags are utilized, the results may be filtered using the following parameters:</p>
+<ul>
+<li><kbd><span class="CodeInTextPACKT">--tags &lt;tag&gt;</span></kbd><span>: Lists ports which have all given tag(s)</span></li>
+<li><kbd><span class="CodeInTextPACKT">--any-tags &lt;tag&gt;</span></kbd>: Lists ports which have any given tag(s)</li>
+<li><kbd><span class="CodeInTextPACKT">--not-tags &lt;tag&gt;</span></kbd>: Excludes ports which have all given tag(s)</li>
+<li><kbd><span class="CodeInTextPACKT">--not-any-tags &lt;tag&gt;</span></kbd>: Excludes ports which have any given tag(s)</li>
+</ul>
+<p>Use the <kbd><span class="CodeInTextPACKT">openstack port show</span></kbd> command to see the details of a particular port:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/a2b7feb7-867a-4fe6-84bd-0308636ae703.png" style="width:47.25em;height:37.42em;"/></div>
+<p>The port pictured in the preceding screenshot is owned by an interface that's used within a DHCP namespace, as represented by a <kbd><span class="CodeInTextPACKT">device_owner</span></kbd> of <kbd><span class="CodeInTextPACKT">network:dhcp</span></kbd>. The <kbd><span class="CodeInTextPACKT">network_id</span></kbd> field reveals the network to be <kbd><span class="CodeInTextPACKT">d51943ef-8061-4bdb-b684-8a7d2b7ce73b</span></kbd><span>, which is the</span> <kbd><span class="CodeInTextPACKT">MyFlatNetwork</span></kbd> network that we created earlier on in this chapter.</p>
+<p>We can use the <kbd><span class="CodeInTextPACKT">ip netns exec</span></kbd> command to execute commands within the DHCP namespace. If you recall, the DHCP namespace can be identified with the prefix <kbd><span class="CodeInTextPACKT">qdhcp-</span></kbd> and a suffix of the respective network ID. On the <kbd>controller01</kbd> node, run the <kbd><span class="CodeInTextPACKT">ip addr</span></kbd> command within the namespace to list its interfaces and their details:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/e93612ff-489b-4481-b8be-451039221515.png" style="width:59.83em;height:16.17em;"/></div>
+<p>In the DHCP namespace, the interface's MAC address corresponds to the port's <kbd><span class="CodeInTextPACKT">mac_address</span></kbd> field, while the name of the interface corresponds to the first 10 characters of the Neutron port <kbd>UUID</kbd>:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/160b0c62-f3a5-4e23-8790-6a2ed6d6bc1e.png" style="width:52.67em;height:8.75em;"/></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating a port</h1>
+                </header>
+            
+            <article>
+                
+<p>By creating a Neutron port manually, users have the ability to specify a particular fixed IP address, MAC address, security group, and more.</p>
+<p>To create a port, use the <kbd><span class="CodeInTextPACKT">openstack port create</span></kbd> command, as shown here:</p>
+<pre>openstack port create<br/>--network &lt;network&gt; [--description &lt;description&gt;]<br/>[--device &lt;device-id&gt;]<br/>[--mac-address &lt;mac-address&gt;]<br/>[--device-owner &lt;device-owner&gt;]<br/>[--vnic-type &lt;vnic-type&gt;] [--host &lt;host-id&gt;]<br/>[--dns-name dns-name]<br/>[--fixed-ip subnet=&lt;subnet&gt;,ip-address=&lt;ip-address&gt;]<br/>[--binding-profile &lt;binding-profile&gt;]<br/>[--enable | --disable] [--project &lt;project&gt;]<br/>[--project-domain &lt;project-domain&gt;]<br/>[--security-group &lt;security-group&gt; | --no-security-group]<br/>[--qos-policy &lt;qos-policy&gt;]<br/>[--enable-port-security | --disable-port-security]<br/>[--allowed-address ip-address=&lt;ip&gt;[,mac-address=&lt;mac&gt;]]<br/>[--tag &lt;tag&gt; | --no-tag]<br/>&lt;name&gt;</pre>
+<p>Once created, the port can then be associated with a virtual machine instance or other virtual network device. It can also be used to reserve an IP address in a subnet. In the next chapter, we will look at creating ports and associating them with instances in multiple ways.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>This chapter laid the foundation for creating networks and subnets that can be utilized by instances and other virtual and physical devices. Both the Horizon dashboard and the OpenStack command-line client can be used to manage networks, subnets, and ports, though the latter is recommended for most administrative tasks.</p>
+<p>For more information on network, subnet, and port attributes, as well as for guidance on how to use the Neutron API, refer to the OpenStack wiki at <span><a href="https://developer.openstack.org/api-ref/network/v2/index.html"><span class="URLPACKT">https://developer.openstack.org/api-ref/network/v2/index.html</span></a>.</span></p>
+<p>In the next chapter, we will learn the basics of creating instances and attaching them to networks. Some of the networks built in this chapter will be used to demonstrate the creation of ports that can be attached to instances with the end goal of end-to-end connectivity.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

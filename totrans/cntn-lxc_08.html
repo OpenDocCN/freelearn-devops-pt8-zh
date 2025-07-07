@@ -1,0 +1,1323 @@
+<html><head></head><body><div class="chapter" title="Chapter&#xA0;8.&#xA0;Using LXC with OpenStack"><div class="titlepage"><div><div><h1 class="title"><a id="ch08"/>Chapter 8. Using LXC with OpenStack</h1></div></div></div><p>In previous chapters, we looked at examples of common design patterns that help autoscale services running inside LXC containers by leveraging tools such as Jenkins, custom REST-based APIs, and monitoring tools. In this chapter, we'll explore a fully automated way of provisioning LXC containers on a set of servers, using OpenStack.</p><p>OpenStack is a cloud operating system that allows for the provisioning of virtual machines, LXC containers, load balancers, databases, and storage and network resources in a centralized, yet modular and extensible way. It's ideal for managing a set of compute resources (servers) and selecting the best candidate target to provision services on, based on criteria such as CPU load, memory utilization, and VM/container density, to name just a few.</p><p>In this chapter, we'll cover the following OpenStack components and services:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Deploying the Keystone identity service, which will provide a central directory of users and services, and a simple way to authenticate using tokens</li><li class="listitem" style="list-style-type: disc">Installing the Nova compute controller, which will manage a pool of servers and provision LXC containers on them</li><li class="listitem" style="list-style-type: disc">Configuring the Glance image repository, which will store the LXC images</li><li class="listitem" style="list-style-type: disc">Provisioning the Neutron networking service that will manage DHCP, DNS, and the network bridging on the compute hosts</li><li class="listitem" style="list-style-type: disc">Finally, we'll provision an LXC container using the libvirt OpenStack driver</li></ul></div><div class="section" title="Deploying OpenStack with LXC support on Ubuntu"><div class="titlepage"><div><div><h1 class="title"><a id="ch08lvl1sec38"/>Deploying OpenStack with LXC support on Ubuntu</h1></div></div></div><p>An OpenStack deployment may consist of multiple components that interact with each other through exposed APIs, or a message bus such as RabbitMQ, as shown in the following figure:</p><div class="mediaobject"><img alt="Deploying OpenStack with LXC support on Ubuntu" src="graphics/image_08_001.jpg"/></div><p>In this chapter, we'll deploy a minimum set of those components - Keystone, Glance, Nova, and Neutron - which will be sufficient to provision LXC containers and still take advantage of the scheduler logic and scalable networking that OpenStack provides.</p><p>For this tutorial, we are going to be using Ubuntu Xenial, and as of the time of this writing, the latest Newton OpenStack release. What is the name of that OpenStack release?</p><div class="section" title="Preparing the host"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec77"/>Preparing the host</h2></div></div></div><p>To simplify things, we are going to use a single server to host all services with a minimum of 16 GB of RAM. In production environments, it's a common approach to separate each service into its own set of servers, for scalability and high availability. By following the steps in this chapter, you can easily deploy on multiple hosts by replacing the IP addresses and hostnames as needed.</p><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="tip36"/>Tip</h3><p>If using multiple servers, you need to make sure the time is synchronized on all hosts using services such as <code class="literal">ntpd</code>.</p></div></div><p>Let's begin by ensuring we have the latest packages, and installing the repository that contains the Newton OpenStack release:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# apt install -y software-properties-common&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# add-apt-repository cloud-archive:newton&#13;</strong></span>
+<span class="strong"><strong>. . .&#13;</strong></span>
+<span class="strong"><strong>Press [ENTER] to continue or ctrl-c to cancel adding it&#13;</strong></span>
+<span class="strong"><strong>. . .&#13;</strong></span>
+<span class="strong"><strong>OK&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# apt update &amp;&amp; apt dist-upgrade -y&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# reboot&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# apt install -y python-openstackclient</strong></span>
+</pre><p>Make sure to add the name of the server, in this example, <code class="literal">controller</code>, to <code class="literal">/etc/hosts</code>.</p></div><div class="section" title="Installing the database service"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec78"/>Installing the database service</h2></div></div></div><p>The services we are going to deploy use a MariaDB database as their backend store. Install it by running the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# apt install -y mariadb-server python-pymysql</strong></span>
+</pre><p>A minimal configuration file should look like the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# cat /etc/mysql/mariadb.conf.d/99-openstack.cnf&#13;</strong></span>
+<span class="strong"><strong>[mysqld]&#13;</strong></span>
+<span class="strong"><strong>bind-address = 10.208.130.36&#13;</strong></span>
+<span class="strong"><strong>default-storage-engine = innodb&#13;</strong></span>
+<span class="strong"><strong>innodb_file_per_table&#13;</strong></span>
+<span class="strong"><strong>max_connections = 4096&#13;</strong></span>
+<span class="strong"><strong>collation-server = utf8_general_ci&#13;</strong></span>
+<span class="strong"><strong>character-set-server = utf8&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Replace the IP address the service binds to with whatever is on your server, then start the service and run the script that will secure the installation:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# service mysql restart&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# mysql_secure_installation</strong></span>
+</pre><p>The preceding command will prompt for a new root password. For simplicity, we'll use <code class="literal">lxcpassword</code> as a password for all services, for the rest of the chapter.</p><p>Verify that MySQL is set up correctly and that you can connect to it:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# mysql -u root -h 10.208.130.36 -p&#13;</strong></span>
+<span class="strong"><strong>Enter password: [lxcpassword]&#13;</strong></span>
+<span class="strong"><strong>Welcome to the MariaDB monitor. Commands end with; or \g.&#13;</strong></span>
+<span class="strong"><strong>Your MariaDB connection id is 47&#13;</strong></span>
+<span class="strong"><strong>Server version: 10.0.28-MariaDB-0ubuntu0.16.04.1 Ubuntu 16.04&#13;</strong></span>
+<span class="strong"><strong>Copyright (c) 2000, 2016, Oracle, MariaDB Corporation Ab and others.&#13;</strong></span>
+<span class="strong"><strong>Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; [quit]</strong></span>
+</pre></div><div class="section" title="Installing the message queue service"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec79"/>Installing the message queue service</h2></div></div></div><p>OpenStack supports the following message queues - RabbitMQ, Qpid, and ZeroMQ - which facilitate interprocess communication between services. We are going to use RabbitMQ:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# apt install -y rabbitmq-server</strong></span>
+</pre><p>Add a new user and password:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# rabbitmqctl add_user openstack lxcpassword&#13;</strong></span>
+<span class="strong"><strong>Creating user "openstack" ...&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#&#13;</strong></span>
+</pre><p>Also, grant permissions for that user:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# rabbitmqctl set_permissions openstack ".*" ".*" ".*"&#13;</strong></span>
+<span class="strong"><strong>Setting permissions for user "openstack" in vhost "/" ...&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre></div><div class="section" title="Installing the caching service"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec80"/>Installing the caching service</h2></div></div></div><p>The identity service Keystone caches authentication tokens using Memcached. To install it, execute the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# apt install -y memcached python-memcache</strong></span>
+</pre><p>Replace the localhost address with the IP address of your server:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# sed -i 's/127.0.0.1/10.208.130.36/g' /etc/memcached.conf</strong></span>
+</pre><p>The config file should look similar to the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# cat /etc/memcached.conf | grep -vi "#" | sed '/^$/d'&#13;</strong></span>
+<span class="strong"><strong>-d&#13;</strong></span>
+<span class="strong"><strong>logfile /var/log/memcached.log&#13;</strong></span>
+<span class="strong"><strong>-m 64&#13;</strong></span>
+<span class="strong"><strong>-p 11211&#13;</strong></span>
+<span class="strong"><strong>-u memcache&#13;</strong></span>
+<span class="strong"><strong>-l 10.208.130.36&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# service memcached restart</strong></span>
+</pre></div><div class="section" title="Installing and configuring the identity service"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec81"/>Installing and configuring the identity service</h2></div></div></div><p>The Keystone identity service provides a centralized point for managing authentication and authorization for the rest of the OpenStack components. Keystone also keeps a catalog of services and the endpoints they provide, which the user can locate by querying it.</p><p>To deploy Keystone, first create a database and grant permissions to the <code class="literal">keystone</code> user:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# mysql -u root -plxcpassword&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; CREATE DATABASE keystone;&#13;</strong></span>
+<span class="strong"><strong>Query OK, 1 row affected (0.01 sec)&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'localhost' IDENTIFIED BY 'lxcpassword';&#13;</strong></span>
+<span class="strong"><strong>Query OK, 0 rows affected (0.00 sec)&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'%' IDENTIFIED BY 'lxcpassword';&#13;</strong></span>
+<span class="strong"><strong>Query OK, 0 rows affected (0.01 sec)&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; exit&#13;</strong></span>
+<span class="strong"><strong>Bye&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Next, install the identity service components:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# apt install -y keystone</strong></span>
+</pre><p>The following is a minimal working configuration for Keystone:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# cat /etc/keystone/keystone.conf&#13;</strong></span>
+<span class="strong"><strong>[DEFAULT]&#13;</strong></span>
+<span class="strong"><strong>log_dir = /var/log/keystone&#13;</strong></span>
+<span class="strong"><strong>[assignment]&#13;</strong></span>
+<span class="strong"><strong>[auth]&#13;</strong></span>
+<span class="strong"><strong>[cache]&#13;</strong></span>
+<span class="strong"><strong>[catalog]&#13;</strong></span>
+<span class="strong"><strong>[cors]&#13;</strong></span>
+<span class="strong"><strong>[cors.subdomain]&#13;</strong></span>
+<span class="strong"><strong>[credential]&#13;</strong></span>
+<span class="strong"><strong>[database]&#13;</strong></span>
+<span class="strong"><strong>connection = mysql+pymysql://keystone:lxcpassword@controller/keystone&#13;</strong></span>
+<span class="strong"><strong>[domain_config]&#13;</strong></span>
+<span class="strong"><strong>[endpoint_filter]&#13;</strong></span>
+<span class="strong"><strong>[endpoint_policy]&#13;</strong></span>
+<span class="strong"><strong>[eventlet_server]&#13;</strong></span>
+<span class="strong"><strong>[federation]&#13;</strong></span>
+<span class="strong"><strong>[fernet_tokens]&#13;</strong></span>
+<span class="strong"><strong>[identity]&#13;</strong></span>
+<span class="strong"><strong>[identity_mapping]&#13;</strong></span>
+<span class="strong"><strong>[kvs]&#13;</strong></span>
+<span class="strong"><strong>[ldap]&#13;</strong></span>
+<span class="strong"><strong>[matchmaker_redis]&#13;</strong></span>
+<span class="strong"><strong>[memcache]&#13;</strong></span>
+<span class="strong"><strong>[oauth1]&#13;</strong></span>
+<span class="strong"><strong>[os_inherit]&#13;</strong></span>
+<span class="strong"><strong>[oslo_messaging_amqp]&#13;</strong></span>
+<span class="strong"><strong>[oslo_messaging_notifications]&#13;</strong></span>
+<span class="strong"><strong>[oslo_messaging_rabbit]&#13;</strong></span>
+<span class="strong"><strong>[oslo_messaging_zmq]&#13;</strong></span>
+<span class="strong"><strong>[oslo_middleware]&#13;</strong></span>
+<span class="strong"><strong>[oslo_policy]&#13;</strong></span>
+<span class="strong"><strong>[paste_deploy]&#13;</strong></span>
+<span class="strong"><strong>[policy]&#13;</strong></span>
+<span class="strong"><strong>[profiler]&#13;</strong></span>
+<span class="strong"><strong>[resource]&#13;</strong></span>
+<span class="strong"><strong>[revoke]&#13;</strong></span>
+<span class="strong"><strong>[role]&#13;</strong></span>
+<span class="strong"><strong>[saml]&#13;</strong></span>
+<span class="strong"><strong>[security_compliance]&#13;</strong></span>
+<span class="strong"><strong>[shadow_users]&#13;</strong></span>
+<span class="strong"><strong>[signing]&#13;</strong></span>
+<span class="strong"><strong>[token]&#13;</strong></span>
+<span class="strong"><strong>provider = fernet&#13;</strong></span>
+<span class="strong"><strong>[tokenless_auth]&#13;</strong></span>
+<span class="strong"><strong>[trust]&#13;</strong></span>
+<span class="strong"><strong>[extra_headers]&#13;</strong></span>
+<span class="strong"><strong>Distribution = Ubuntu&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>If you are using the same hostname and password as in this tutorial, no changes are required.</p><p>Next, populate the <code class="literal">keystone</code> database by running the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# su -s /bin/sh -c "keystone-manage db_sync" keystone&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Keystone uses tokens to authenticate and authorize users and services. There are different token formats available, such as UUID, PKI, and Fernet tokens. For this example deployment, we are going to use the Fernet tokens, which, unlike the other types, do not need to be persisted in a backend. To initialize the Fernet key repositories, run the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# keystone-manage fernet_setup --keystone-user keystone --keystone-group keystone&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# keystone-manage credential_setup --keystone-user keystone --keystone-group keystone&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="note37"/>Note</h3><p>For more information on the available identity tokens, refer to <a class="ulink" href="http://docs.openstack.org/admin-guide/identity-tokens.html">http://docs.openstack.org/admin-guide/identity-tokens.html</a>.</p></div></div><p>Perform the basic bootstrap process by executing the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# keystone-manage bootstrap --bootstrap-password lxcpassword --bootstrap-admin-url http://controller:35357/v3/ --bootstrap-internal-url http://controller:35357/v3/ --bootstrap-public-url http://controller:5000/v3/ --bootstrap-region-id RegionOne&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>We are going to use Apache with the WSGI module to drive Keystone. Add the following stanza in the Apache config file and restart it:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# cat /etc/apache2/apache2.conf&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>ServerName controller&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# service apache2 restart&#13;</strong></span>
+</pre><p>Delete the default SQLite database that Keystone ships with:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# rm -f /var/lib/keystone/keystone.db</strong></span>
+</pre><p>Let's create the administrative account by defining the following environment variables:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# export OS_USERNAME=admin&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# export OS_PASSWORD=lxcpassword&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# export OS_PROJECT_NAME=admin&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# export OS_USER_DOMAIN_NAME=default&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# export OS_PROJECT_DOMAIN_NAME=default&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# export OS_AUTH_URL=http://controller:35357/v3&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# export OS_IDENTITY_API_VERSION=3</strong></span>
+</pre><p>Time to create our first project in Keystone. Projects represent a unit of ownership, where all resources are owned by a project. The <code class="literal">service</code> project we are going to create next will be used by all the services we are going to deploy in this chapter:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack project create --domain default --description "LXC Project" service&#13;</strong></span>
+<span class="strong"><strong>+-------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+-------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| description | LXC Project |&#13;</strong></span>
+<span class="strong"><strong>| domain_id | default |&#13;</strong></span>
+<span class="strong"><strong>| enabled | True |&#13;</strong></span>
+<span class="strong"><strong>| id | 9a1a863fe41b42b2955b313f2cca0ef0 |&#13;</strong></span>
+<span class="strong"><strong>| is_domain | False |&#13;</strong></span>
+<span class="strong"><strong>| name | service |&#13;</strong></span>
+<span class="strong"><strong>| parent_id | default |&#13;</strong></span>
+<span class="strong"><strong>+-------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>To list the available projects, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack project list&#13;</strong></span>
+<span class="strong"><strong>+----------------------------------+---------+&#13;</strong></span>
+<span class="strong"><strong>| ID | Name |&#13;</strong></span>
+<span class="strong"><strong>+----------------------------------+---------+&#13;</strong></span>
+<span class="strong"><strong>| 06f4e2d7e384474781803395b24b3af2 | admin |&#13;</strong></span>
+<span class="strong"><strong>| 9a1a863fe41b42b2955b313f2cca0ef0 | service |&#13;</strong></span>
+<span class="strong"><strong>+----------------------------------+---------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Let's create an unprivileged project and user, which can be used by regular users instead of the OpenStack services:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack project create --domain default --description "LXC User Project" lxc&#13;</strong></span>
+<span class="strong"><strong>+-------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+-------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| description | LXC User Project |&#13;</strong></span>
+<span class="strong"><strong>| domain_id | default |&#13;</strong></span>
+<span class="strong"><strong>| enabled | True |&#13;</strong></span>
+<span class="strong"><strong>| id | eb9cdc2c2b4e4f098f2d104752970d52 |&#13;</strong></span>
+<span class="strong"><strong>| is_domain | False |&#13;</strong></span>
+<span class="strong"><strong>| name | lxc |&#13;</strong></span>
+<span class="strong"><strong>| parent_id | default |&#13;</strong></span>
+<span class="strong"><strong>+-------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# openstack user create --domain default --password-prompt lxc&#13;</strong></span>
+<span class="strong"><strong>User Password:&#13;</strong></span>
+<span class="strong"><strong>Repeat User Password:&#13;</strong></span>
+<span class="strong"><strong>+---------------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+---------------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| domain_id | default |&#13;</strong></span>
+<span class="strong"><strong>| enabled | True |&#13;</strong></span>
+<span class="strong"><strong>| id | 1e83e0c8ca194f2e9d8161eb61d21030 |&#13;</strong></span>
+<span class="strong"><strong>| name | lxc |&#13;</strong></span>
+<span class="strong"><strong>| password_expires_at | None |&#13;</strong></span>
+<span class="strong"><strong>+---------------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Next, create a <code class="literal">user</code> role, and associate it with the <code class="literal">lxc</code> project and the user we created in the previous two steps:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack role create user&#13;</strong></span>
+<span class="strong"><strong>+-----------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+-----------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| domain_id | None |&#13;</strong></span>
+<span class="strong"><strong>| id | 331c0b61e9784112874627264f03a058 |&#13;</strong></span>
+<span class="strong"><strong>| name | user |&#13;</strong></span>
+<span class="strong"><strong>+-----------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# openstack role add --project lxc --user lxc user&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Use the following file to configure  the <span class="strong"><strong>Web Service Gateway Interface</strong></span> (<span class="strong"><strong>WSGI</strong></span>) middleware pipeline for Keystone:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# cat /etc/keystone/keystone-paste.ini&#13;</strong></span>
+<span class="strong"><strong># Keystone PasteDeploy configuration file.&#13;</strong></span>
+<span class="strong"><strong>[filter:debug]&#13;</strong></span>
+<span class="strong"><strong>use = egg:oslo.middleware#debug&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[filter:request_id]&#13;</strong></span>
+<span class="strong"><strong>use = egg:oslo.middleware#request_id&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[filter:build_auth_context]&#13;</strong></span>
+<span class="strong"><strong>use = egg:keystone#build_auth_context&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[filter:token_auth]&#13;</strong></span>
+<span class="strong"><strong>use = egg:keystone#token_auth&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[filter:admin_token_auth]&#13;</strong></span>
+<span class="strong"><strong>use = egg:keystone#admin_token_auth&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[filter:json_body]&#13;</strong></span>
+<span class="strong"><strong>use = egg:keystone#json_body&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[filter:cors]&#13;</strong></span>
+<span class="strong"><strong>use = egg:oslo.middleware#cors&#13;</strong></span>
+<span class="strong"><strong>oslo_config_project = keystone&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[filter:http_proxy_to_wsgi]&#13;</strong></span>
+<span class="strong"><strong>use = egg:oslo.middleware#http_proxy_to_wsgi&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[filter:ec2_extension]&#13;</strong></span>
+<span class="strong"><strong>use = egg:keystone#ec2_extension&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[filter:ec2_extension_v3]&#13;</strong></span>
+<span class="strong"><strong>use = egg:keystone#ec2_extension_v3&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[filter:s3_extension]&#13;</strong></span>
+<span class="strong"><strong>use = egg:keystone#s3_extension&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[filter:url_normalize]&#13;</strong></span>
+<span class="strong"><strong>use = egg:keystone#url_normalize&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[filter:sizelimit]&#13;</strong></span>
+<span class="strong"><strong>use = egg:oslo.middleware#sizelimit&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[filter:osprofiler]&#13;</strong></span>
+<span class="strong"><strong>use = egg:osprofiler#osprofiler&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[app:public_service]&#13;</strong></span>
+<span class="strong"><strong>use = egg:keystone#public_service&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[app:service_v3]&#13;</strong></span>
+<span class="strong"><strong>use = egg:keystone#service_v3&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[app:admin_service]&#13;</strong></span>
+<span class="strong"><strong>use = egg:keystone#admin_service&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[pipeline:public_api]&#13;</strong></span>
+<span class="strong"><strong>pipeline = cors sizelimit http_proxy_to_wsgi osprofiler url_normalize request_id build_auth_context token_auth json_body ec2_extension public_service&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[pipeline:admin_api]&#13;</strong></span>
+<span class="strong"><strong>pipeline = cors sizelimit http_proxy_to_wsgi osprofiler url_normalize request_id build_auth_context token_auth json_body ec2_extension s3_extension admin_service&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[pipeline:api_v3]&#13;</strong></span>
+<span class="strong"><strong>pipeline = cors sizelimit http_proxy_to_wsgi osprofiler url_normalize request_id build_auth_context token_auth json_body ec2_extension_v3 s3_extension service_v3&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[app:public_version_service]&#13;</strong></span>
+<span class="strong"><strong>use = egg:keystone#public_version_service&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[app:admin_version_service]&#13;</strong></span>
+<span class="strong"><strong>use = egg:keystone#admin_version_service&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[pipeline:public_version_api]&#13;</strong></span>
+<span class="strong"><strong>pipeline = cors sizelimit osprofiler url_normalize public_version_service&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[pipeline:admin_version_api]&#13;</strong></span>
+<span class="strong"><strong>pipeline = cors sizelimit osprofiler url_normalize admin_version_service&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[composite:main]&#13;</strong></span>
+<span class="strong"><strong>use = egg:Paste#urlmap&#13;</strong></span>
+<span class="strong"><strong>/v2.0 = public_api&#13;</strong></span>
+<span class="strong"><strong>/v3 = api_v3&#13;</strong></span>
+<span class="strong"><strong>/ = public_version_api&#13;
+&#13;</strong></span>
+<span class="strong"><strong>[composite:admin]&#13;</strong></span>
+<span class="strong"><strong>use = egg:Paste#urlmap&#13;</strong></span>
+<span class="strong"><strong>/v2.0 = admin_api&#13;</strong></span>
+<span class="strong"><strong>/v3 = api_v3&#13;</strong></span>
+<span class="strong"><strong>/ = admin_version_api&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Let's test the configuration so far, by requesting a token for the <code class="literal">admin</code> and the <code class="literal">lxc</code> users:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack --os-auth-url http://controller:35357/v3 --os-project-domain-name default --os-user-domain-name default --os-project-name admin --os-username admin token issue&#13;</strong></span>
+<span class="strong"><strong>Password:&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# openstack --os-auth-url http://controller:5000/v3 --os-project-domain-name default --os-user-domain-name default --os-project-name lxc --os-username lxc token issue&#13;</strong></span>
+<span class="strong"><strong>Password:&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>We can create two files, which will contain the <code class="literal">admin</code> and <code class="literal">user</code> credentials we configured earlier:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# cat rc.admin&#13;</strong></span>
+<span class="strong"><strong>export OS_PROJECT_DOMAIN_NAME=default&#13;</strong></span>
+<span class="strong"><strong>export OS_USER_DOMAIN_NAME=default&#13;</strong></span>
+<span class="strong"><strong>export OS_PROJECT_NAME=admin&#13;</strong></span>
+<span class="strong"><strong>export OS_USERNAME=admin&#13;</strong></span>
+<span class="strong"><strong>export OS_PASSWORD=lxcpassword&#13;</strong></span>
+<span class="strong"><strong>export OS_AUTH_URL=http://controller:35357/v3&#13;</strong></span>
+<span class="strong"><strong>export OS_IDENTITY_API_VERSION=3&#13;</strong></span>
+<span class="strong"><strong>export OS_IMAGE_API_VERSION=2&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# cat rc.lxc&#13;</strong></span>
+<span class="strong"><strong>export OS_PROJECT_DOMAIN_NAME=default&#13;</strong></span>
+<span class="strong"><strong>export OS_USER_DOMAIN_NAME=default&#13;</strong></span>
+<span class="strong"><strong>export OS_PROJECT_NAME=lxc&#13;</strong></span>
+<span class="strong"><strong>export OS_USERNAME=lxc&#13;</strong></span>
+<span class="strong"><strong>export OS_PASSWORD=lxcpassword&#13;</strong></span>
+<span class="strong"><strong>export OS_AUTH_URL=http://controller:5000/v3&#13;</strong></span>
+<span class="strong"><strong>export OS_IDENTITY_API_VERSION=3&#13;</strong></span>
+<span class="strong"><strong>export OS_IMAGE_API_VERSION=2&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>To use the <code class="literal">admin</code> user, for example, source the file as follows:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# . rc.admin</strong></span>
+</pre><p>Notice the new environment variables:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# env | grep ^OS&#13;</strong></span>
+<span class="strong"><strong>OS_USER_DOMAIN_NAME=default&#13;</strong></span>
+<span class="strong"><strong>OS_IMAGE_API_VERSION=2&#13;</strong></span>
+<span class="strong"><strong>OS_PROJECT_NAME=admin&#13;</strong></span>
+<span class="strong"><strong>OS_IDENTITY_API_VERSION=3&#13;</strong></span>
+<span class="strong"><strong>OS_PASSWORD=lxcpassword&#13;</strong></span>
+<span class="strong"><strong>OS_AUTH_URL=http://controller:35357/v3&#13;</strong></span>
+<span class="strong"><strong>OS_USERNAME=admin&#13;</strong></span>
+<span class="strong"><strong>OS_PROJECT_DOMAIN_NAME=default&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>With the admin credentials loaded, let's request an authentication token that we can use later with the other OpenStack services:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack token issue&#13;</strong></span>
+<span class="strong"><strong>+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| expires | 2016-12-02 19:49:07+00:00 |&#13;</strong></span>
+<span class="strong"><strong>| id | gAAAAABYQcIj7eKEfCMTWY43EXZbqZ8UdeZ8CZIb2l2sqIFHFBV_bv6LHO4CFbFLdh7kUEw_Zk-MzQrl5mbq7g8RXPAZ31iBDpDie2-xIAMgRqsxkAh7PJ2kdhcHAxkBj-Uq65rHmjYmPZTUlUTONOP3_dId0_8DsdLkFWoardxG0FAotrlH-2s |&#13;</strong></span>
+<span class="strong"><strong>| project_id | 06f4e2d7e384474781803395b24b3af2 |&#13;</strong></span>
+<span class="strong"><strong>| user_id | 5c331f397597439faef5a1199cdf354f |&#13;</strong></span>
+<span class="strong"><strong>+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre></div><div class="section" title="Installing and configuring the image service"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec82"/>Installing and configuring the image service</h2></div></div></div><p>The image service provides an API for users to discover, register, and obtain images for virtual machines, or images that can be used as the root filesystem for LXC containers. Glance supports multiple storage backends, but for simplicity we are going to use the file store that will keep the LXC image directly on the filesystem.</p><p>To deploy Glance, first create a database and a user, like we did for Keystone:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# mysql -u root -plxcpassword&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; CREATE DATABASE glance;&#13;</strong></span>
+<span class="strong"><strong>Query OK, 1 row affected (0.00 sec)&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; GRANT ALL PRIVILEGES ON glance.* TO 'glance'@'localhost' IDENTIFIED BY 'lxcpassword';&#13;</strong></span>
+<span class="strong"><strong>Query OK, 0 rows affected (0.00 sec)&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; GRANT ALL PRIVILEGES ON glance.* TO 'glance'@'%' IDENTIFIED BY 'lxcpassword';&#13;</strong></span>
+<span class="strong"><strong>Query OK, 0 rows affected (0.00 sec)&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; exit&#13;</strong></span>
+<span class="strong"><strong>Bye&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Next, create the <code class="literal">glance</code> user and add it to the <code class="literal">admin</code> role:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack user create --domain default --password-prompt glance&#13;</strong></span>
+<span class="strong"><strong>User Password:&#13;</strong></span>
+<span class="strong"><strong>Repeat User Password:&#13;</strong></span>
+<span class="strong"><strong>+---------------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+---------------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| domain_id | default |&#13;</strong></span>
+<span class="strong"><strong>| enabled | True |&#13;</strong></span>
+<span class="strong"><strong>| id | ce29b972845d4d77978b7e7803275d53 |&#13;</strong></span>
+<span class="strong"><strong>| name | glance |&#13;</strong></span>
+<span class="strong"><strong>| password_expires_at | None |&#13;</strong></span>
+<span class="strong"><strong>+---------------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# openstack role add --project service --user glance admin&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Now it's time to create the <code class="literal">glance</code> service record:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack service create --name glance --description "OpenStack Image" image&#13;</strong></span>
+<span class="strong"><strong>+-------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+-------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| description | OpenStack Image |&#13;</strong></span>
+<span class="strong"><strong>| enabled | True |&#13;</strong></span>
+<span class="strong"><strong>| id | 2aa82fc0a0224baab8d259e4f5279907 |&#13;</strong></span>
+<span class="strong"><strong>| name | glance |&#13;</strong></span>
+<span class="strong"><strong>| type | image |&#13;</strong></span>
+<span class="strong"><strong>+-------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Create the Glance API endpoints in Keystone:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack endpoint create --region RegionOne image public http://controller:9292&#13;</strong></span>
+<span class="strong"><strong>+--------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+--------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| enabled | True |&#13;</strong></span>
+<span class="strong"><strong>| id | aa26c33d456d421ca3555e6523c7814f |&#13;</strong></span>
+<span class="strong"><strong>| interface | public |&#13;</strong></span>
+<span class="strong"><strong>| region | RegionOne |&#13;</strong></span>
+<span class="strong"><strong>| region_id | RegionOne |&#13;</strong></span>
+<span class="strong"><strong>| service_id | 2aa82fc0a0224baab8d259e4f5279907 |&#13;</strong></span>
+<span class="strong"><strong>| service_name | glance |&#13;</strong></span>
+<span class="strong"><strong>| service_type | image |&#13;</strong></span>
+<span class="strong"><strong>| url | http://controller:9292 |&#13;</strong></span>
+<span class="strong"><strong>+--------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>OpenStack supports multiregion deployments for achieving high availability; however, for simplicity, we are going to deploy all services in the same region:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack endpoint create --region RegionOne image internal http://controller:9292&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# openstack endpoint create --region RegionOne image admin http://controller:9292&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Now that Keystone knows about the <code class="literal">glance</code> service, let's install it:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# apt install -y glance</strong></span>
+</pre><p>Use the following two minimal configuration files, replacing the password and hostname as needed:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# cat /etc/glance/glance-api.conf&#13;</strong></span>
+<span class="strong"><strong>[DEFAULT]&#13;</strong></span>
+<span class="strong"><strong>[cors]&#13;</strong></span>
+<span class="strong"><strong>[cors.subdomain]&#13;</strong></span>
+<span class="strong"><strong>[database]&#13;</strong></span>
+<span class="strong"><strong>connection = mysql+pymysql://glance:lxcpassword@controller/glance&#13;</strong></span>
+<span class="strong"><strong>[glance_store]&#13;</strong></span>
+<span class="strong"><strong>stores = file,http&#13;</strong></span>
+<span class="strong"><strong>default_store = file&#13;</strong></span>
+<span class="strong"><strong>filesystem_store_datadir = /var/lib/glance/images/&#13;</strong></span>
+<span class="strong"><strong>[image_format]&#13;</strong></span>
+<span class="strong"><strong>disk_formats = ami,ari,aki,vhd,vhdx,vmdk,raw,qcow2,vdi,iso,root-tar&#13;</strong></span>
+<span class="strong"><strong>[keystone_authtoken]&#13;</strong></span>
+<span class="strong"><strong>auth_uri = http://controller:5000&#13;</strong></span>
+<span class="strong"><strong>auth_url = http://controller:35357&#13;</strong></span>
+<span class="strong"><strong>memcached_servers = controller:11211&#13;</strong></span>
+<span class="strong"><strong>auth_type = password&#13;</strong></span>
+<span class="strong"><strong>project_domain_name = default&#13;</strong></span>
+<span class="strong"><strong>user_domain_name = default&#13;</strong></span>
+<span class="strong"><strong>project_name = service&#13;</strong></span>
+<span class="strong"><strong>username = glance&#13;</strong></span>
+<span class="strong"><strong>password = lxcpassword&#13;</strong></span>
+<span class="strong"><strong>[matchmaker_redis]&#13;</strong></span>
+<span class="strong"><strong>[oslo_concurrency]&#13;</strong></span>
+<span class="strong"><strong>[oslo_messaging_amqp]&#13;</strong></span>
+<span class="strong"><strong>[oslo_messaging_notifications]&#13;</strong></span>
+<span class="strong"><strong>[oslo_messaging_rabbit]&#13;</strong></span>
+<span class="strong"><strong>[oslo_messaging_zmq]&#13;</strong></span>
+<span class="strong"><strong>[oslo_middleware]&#13;</strong></span>
+<span class="strong"><strong>[oslo_policy]&#13;</strong></span>
+<span class="strong"><strong>[paste_deploy]&#13;</strong></span>
+<span class="strong"><strong>flavor = keystone&#13;</strong></span>
+<span class="strong"><strong>[profiler]&#13;</strong></span>
+<span class="strong"><strong>[store_type_location_strategy]&#13;</strong></span>
+<span class="strong"><strong>[task]&#13;</strong></span>
+<span class="strong"><strong>[taskflow_executor]&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# cat /etc/glance/glance-registry.conf&#13;</strong></span>
+<span class="strong"><strong>[DEFAULT]&#13;</strong></span>
+<span class="strong"><strong>[database]&#13;</strong></span>
+<span class="strong"><strong>connection = mysql+pymysql://glance:GLANCE_DBPASS@controller/glance&#13;</strong></span>
+<span class="strong"><strong>[keystone_authtoken]&#13;</strong></span>
+<span class="strong"><strong>auth_uri = http://controller:5000&#13;</strong></span>
+<span class="strong"><strong>auth_url = http://controller:35357&#13;</strong></span>
+<span class="strong"><strong>memcached_servers = controller:11211&#13;</strong></span>
+<span class="strong"><strong>auth_type = password&#13;</strong></span>
+<span class="strong"><strong>project_domain_name = default&#13;</strong></span>
+<span class="strong"><strong>user_domain_name = default&#13;</strong></span>
+<span class="strong"><strong>project_name = service&#13;</strong></span>
+<span class="strong"><strong>username = glance&#13;</strong></span>
+<span class="strong"><strong>password = lxcpassword&#13;</strong></span>
+<span class="strong"><strong>[matchmaker_redis]&#13;</strong></span>
+<span class="strong"><strong>[oslo_messaging_amqp]&#13;</strong></span>
+<span class="strong"><strong>[oslo_messaging_notifications]&#13;</strong></span>
+<span class="strong"><strong>[oslo_messaging_rabbit]&#13;</strong></span>
+<span class="strong"><strong>[oslo_messaging_zmq]&#13;</strong></span>
+<span class="strong"><strong>[oslo_policy]&#13;</strong></span>
+<span class="strong"><strong>[paste_deploy]&#13;</strong></span>
+<span class="strong"><strong>flavor = keystone&#13;</strong></span>
+<span class="strong"><strong>[profiler]&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Populate the <code class="literal">glance</code> database by running the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# su -s /bin/sh -c "glance-manage db_sync" glance&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Start the Glance services:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# service glance-registry restart&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# service glance-api restart&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>We can build an image for the LXC containers by hand, as we saw in <a class="link" href="ch02.html" title="Chapter 2. Installing and Running LXC on Linux Systems">Chapter 2</a>, <span class="emphasis"><em>Installing and Running LXC on Linux Systems</em></span>, or download a prebuilt image from an Ubuntu repository. Let's download an image and extract it:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# wget http://uec-images.ubuntu.com/releases/precise/release/ubuntu-12.04-server-cloudimg-amd64.tar.gz&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# tar zxfv ubuntu-12.04-server-cloudimg-amd64.tar.gz&#13;</strong></span>
+<span class="strong"><strong>precise-server-cloudimg-amd64.img&#13;</strong></span>
+<span class="strong"><strong>precise-server-cloudimg-amd64-vmlinuz-virtual&#13;</strong></span>
+<span class="strong"><strong>precise-server-cloudimg-amd64-loader&#13;</strong></span>
+<span class="strong"><strong>precise-server-cloudimg-amd64-floppy&#13;</strong></span>
+<span class="strong"><strong>README.files&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>The file that contains the root filesystem has the <code class="literal">.img</code> extension. Let's add it to the image service:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack image create "lxc_ubuntu_12.04" --file precise-server-cloudimg-amd64.img --disk-format raw --container-format bare --public&#13;</strong></span>
+<span class="strong"><strong>+------------------+------------------------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+------------------+------------------------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| checksum | b5e5895e85127d9cebbd2de32d9b193c |&#13;</strong></span>
+<span class="strong"><strong>| container_format | bare |&#13;</strong></span>
+<span class="strong"><strong>| created_at | 2016-12-02T19:01:28Z |&#13;</strong></span>
+<span class="strong"><strong>| disk_format | raw |&#13;</strong></span>
+<span class="strong"><strong>| file | /v2/images/f344646d-d293-4638-bab4-86d461f38233/file |&#13;</strong></span>
+<span class="strong"><strong>| id | f344646d-d293-4638-bab4-86d461f38233 |&#13;</strong></span>
+<span class="strong"><strong>| min_disk | 0 |&#13;</strong></span>
+<span class="strong"><strong>| min_ram | 0 |&#13;</strong></span>
+<span class="strong"><strong>| name | lxc_ubuntu_12.04 |&#13;</strong></span>
+<span class="strong"><strong>| owner | 06f4e2d7e384474781803395b24b3af2 |&#13;</strong></span>
+<span class="strong"><strong>| protected | False |&#13;</strong></span>
+<span class="strong"><strong>| schema | /v2/schemas/image |&#13;</strong></span>
+<span class="strong"><strong>| size | 1476395008 |&#13;</strong></span>
+<span class="strong"><strong>| status | active |&#13;</strong></span>
+<span class="strong"><strong>| tags | |&#13;</strong></span>
+<span class="strong"><strong>| updated_at | 2016-12-02T19:01:41Z |&#13;</strong></span>
+<span class="strong"><strong>| virtual_size | None |&#13;</strong></span>
+<span class="strong"><strong>| visibility | public |&#13;</strong></span>
+<span class="strong"><strong>+------------------+------------------------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="note38"/>Note</h3><p>Note that LXC uses the <code class="literal">raw</code> disk and <code class="literal">bare</code> container formats.</p></div></div><p>The image is now stored at the location defined in the <code class="literal">glance-api.conf</code> as the <code class="literal">filesystem_store_datadir</code> parameter, as we saw in the preceding configuration example:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# ls -la /var/lib/glance/images/&#13;</strong></span>
+<span class="strong"><strong>total 1441804&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 2 glance glance 4096 Dec 2 19:01 .&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 4 glance glance 4096 Dec 2 18:53 ..&#13;</strong></span>
+<span class="strong"><strong>-rw-r----- 1 glance glance 1476395008 Dec 2 19:01 f344646d-d293-4638-bab4-86d461f38233&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Let's list the available images in Glance:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack image list&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+------------------+--------+&#13;</strong></span>
+<span class="strong"><strong>| ID | Name | Status |&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+------------------+--------+&#13;</strong></span>
+<span class="strong"><strong>| f344646d-d293-4638-bab4-86d461f38233 | lxc_ubuntu_12.04 | active |&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+------------------+--------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre></div><div class="section" title="Installing and configuring the compute service"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec83"/>Installing and configuring the compute service</h2></div></div></div><p>The OpenStack compute service manages a pool of compute resources (servers) and various virtual machines, or containers running on said resources. It provides a scheduler service that takes a request for a new VM or container from the queue and decides on which compute host to create and start it.</p><div class="note" style="" title="Note"><div class="inner"><h3 class="title"><a id="note39"/>Note</h3><p>For more information on the various Nova services, refer to: <a class="ulink" href="http://docs.openstack.org/developer/nova/">http://docs.openstack.org/developer/nova/</a>.</p></div></div><p>Let's begin by creating the <code class="literal">nova</code> database and user:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# mysql -u root -plxcpassword&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; CREATE DATABASE nova_api;&#13;</strong></span>
+<span class="strong"><strong>Query OK, 1 row affected (0.00 sec)&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; CREATE DATABASE nova;&#13;</strong></span>
+<span class="strong"><strong>Query OK, 1 row affected (0.00 sec)&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; GRANT ALL PRIVILEGES ON nova_api.* TO 'nova'@'localhost' IDENTIFIED BY 'lxcpassword';&#13;</strong></span>
+<span class="strong"><strong>Query OK, 0 rows affected (0.03 sec)&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; GRANT ALL PRIVILEGES ON nova_api.* TO 'nova'@'%' IDENTIFIED BY 'lxcpassword';&#13;</strong></span>
+<span class="strong"><strong>Query OK, 0 rows affected (0.00 sec)&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'localhost' IDENTIFIED BY 'lxcpassword';&#13;</strong></span>
+<span class="strong"><strong>Query OK, 0 rows affected (0.00 sec)&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'%' IDENTIFIED BY 'lxcpassword';&#13;</strong></span>
+<span class="strong"><strong>Query OK, 0 rows affected (0.00 sec)&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; exit&#13;</strong></span>
+<span class="strong"><strong>Bye&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Once the database is created and the user permissions granted, create the <code class="literal">nova</code> user and add it to the <code class="literal">admin</code> role in the identity service:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack user create --domain default --password-prompt nova&#13;</strong></span>
+<span class="strong"><strong>User Password:&#13;</strong></span>
+<span class="strong"><strong>Repeat User Password:&#13;</strong></span>
+<span class="strong"><strong>+---------------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+---------------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| domain_id | default |&#13;</strong></span>
+<span class="strong"><strong>| enabled | True |&#13;</strong></span>
+<span class="strong"><strong>| id | a1305c903548431a80b608fadf78f287 |&#13;</strong></span>
+<span class="strong"><strong>| name | nova |&#13;</strong></span>
+<span class="strong"><strong>| password_expires_at | None |&#13;</strong></span>
+<span class="strong"><strong>+---------------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# openstack role add --project service --user nova admin&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Next, create the <code class="literal">nova</code> service and endpoints:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack service create --name nova --description "OpenStack Compute" compute&#13;</strong></span>
+<span class="strong"><strong>+-------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+-------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| description | OpenStack Compute |&#13;</strong></span>
+<span class="strong"><strong>| enabled | True |&#13;</strong></span>
+<span class="strong"><strong>| id | 779d2feb591545cf9d2acc18765a0ca5 |&#13;</strong></span>
+<span class="strong"><strong>| name | nova |&#13;</strong></span>
+<span class="strong"><strong>| type | compute |&#13;</strong></span>
+<span class="strong"><strong>+-------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# openstack endpoint create --region RegionOne compute public http://controller:8774/v2.1/%\(tenant_id\)s&#13;</strong></span>
+<span class="strong"><strong>+--------------+-------------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+--------------+-------------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| enabled | True |&#13;</strong></span>
+<span class="strong"><strong>| id | cccfd4d817a24f9ba58128901cbbb473 |&#13;</strong></span>
+<span class="strong"><strong>| interface | public |&#13;</strong></span>
+<span class="strong"><strong>| region | RegionOne |&#13;</strong></span>
+<span class="strong"><strong>| region_id | RegionOne |&#13;</strong></span>
+<span class="strong"><strong>| service_id | 779d2feb591545cf9d2acc18765a0ca5 |&#13;</strong></span>
+<span class="strong"><strong>| service_name | nova |&#13;</strong></span>
+<span class="strong"><strong>| service_type | compute |&#13;</strong></span>
+<span class="strong"><strong>| url | http://controller:8774/v2.1/%(tenant_id)s |&#13;</strong></span>
+<span class="strong"><strong>+--------------+-------------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# openstack endpoint create --region RegionOne compute internal http://controller:8774/v2.1/%\(tenant_id\)s&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# openstack endpoint create --region RegionOne compute admin http://controller:8774/v2.1/%\(tenant_id\)s&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>It's time to install the Nova packages that will provide the API, the conductor, the console, and the scheduler services:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# apt install -y nova-api nova-conductor nova-consoleauth nova-novncproxy nova-scheduler</strong></span>
+</pre><p>The Nova packages we just installed provide the following services:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc"><code class="literal">nova-api</code>: This service accepts and responds to user requests through a RESTful API. We use that for creating, running, and stopping instances, and so on.</li><li class="listitem" style="list-style-type: disc"><code class="literal">nova-conductor</code>: This service sits between the <code class="literal">nova</code> database we created earlier and the <code class="literal">nova-compute</code> service, which runs on the compute nodes and creates the VMs and containers. We are going to install that service later in this chapter.</li><li class="listitem" style="list-style-type: disc"><code class="literal">nova-consoleauth</code>: This service authorizes tokens for users that want to use various consoles to connect to the VMs or containers.</li><li class="listitem" style="list-style-type: disc"><code class="literal">nova-novncproxy</code>: This service grants access to instances running VNC.</li><li class="listitem" style="list-style-type: disc"><code class="literal">nova-scheduler</code>: This service, as mentioned previously, makes decisions on where to provision a VM or LXC container.</li></ul></div><p>The following is a minimal functioning Nova configuration:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# cat /etc/nova/nova.conf&#13;</strong></span>
+<span class="strong"><strong>[DEFAULT]&#13;</strong></span>
+<span class="strong"><strong>dhcpbridge_flagfile=/etc/nova/nova.conf&#13;</strong></span>
+<span class="strong"><strong>dhcpbridge=/usr/bin/nova-dhcpbridge&#13;</strong></span>
+<span class="strong"><strong>log-dir=/var/log/nova&#13;</strong></span>
+<span class="strong"><strong>state_path=/var/lib/nova&#13;</strong></span>
+<span class="strong"><strong>force_dhcp_release=True&#13;</strong></span>
+<span class="strong"><strong>verbose=True&#13;</strong></span>
+<span class="strong"><strong>ec2_private_dns_show_ip=True&#13;</strong></span>
+<span class="strong"><strong>enabled_apis=osapi_compute,metadata&#13;</strong></span>
+<span class="strong"><strong>transport_url = rabbit://openstack:lxcpassword@controller&#13;</strong></span>
+<span class="strong"><strong>auth_strategy = keystone&#13;</strong></span>
+<span class="strong"><strong>my_ip = 10.208.132.45&#13;</strong></span>
+<span class="strong"><strong>use_neutron = True&#13;</strong></span>
+<span class="strong"><strong>firewall_driver = nova.virt.firewall.NoopFirewallDriver&#13;</strong></span>
+<span class="strong"><strong>[database]&#13;</strong></span>
+<span class="strong"><strong>connection = mysql+pymysql://nova:lxcpassword@controller/nova&#13;</strong></span>
+<span class="strong"><strong>[api_database]&#13;</strong></span>
+<span class="strong"><strong>connection = mysql+pymysql://nova:lxcpassword@controller/nova_api&#13;</strong></span>
+<span class="strong"><strong>[oslo_concurrency]&#13;</strong></span>
+<span class="strong"><strong>lock_path = /var/lib/nova/tmp&#13;</strong></span>
+<span class="strong"><strong>[libvirt]&#13;</strong></span>
+<span class="strong"><strong>use_virtio_for_bridges=True&#13;</strong></span>
+<span class="strong"><strong>[wsgi]&#13;</strong></span>
+<span class="strong"><strong>api_paste_config=/etc/nova/api-paste.ini&#13;</strong></span>
+<span class="strong"><strong>[keystone_authtoken]&#13;</strong></span>
+<span class="strong"><strong>auth_uri = http://controller:5000&#13;</strong></span>
+<span class="strong"><strong>auth_url = http://controller:35357&#13;</strong></span>
+<span class="strong"><strong>memcached_servers = controller:11211&#13;</strong></span>
+<span class="strong"><strong>auth_type = password&#13;</strong></span>
+<span class="strong"><strong>project_domain_name = default&#13;</strong></span>
+<span class="strong"><strong>user_domain_name = default&#13;</strong></span>
+<span class="strong"><strong>project_name = service&#13;</strong></span>
+<span class="strong"><strong>username = nova&#13;</strong></span>
+<span class="strong"><strong>password = lxcpassword&#13;</strong></span>
+<span class="strong"><strong>[vnc]&#13;</strong></span>
+<span class="strong"><strong>vncserver_listen = $my_ip&#13;</strong></span>
+<span class="strong"><strong>vncserver_proxyclient_address = $my_ip&#13;</strong></span>
+<span class="strong"><strong>[glance]&#13;</strong></span>
+<span class="strong"><strong>api_servers = http://controller:9292&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>With the config file in place, we can now populate the <code class="literal">nova</code> database:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# su -s /bin/sh -c "nova-manage api_db sync" nova&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# su -s /bin/sh -c "nova-manage db sync" nova&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Finally, start the compute services:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# service nova-api restart&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# service nova-consoleauth restart&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# service nova-scheduler restart&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# service nova-conductor restart&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# service nova-novncproxy restart&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Since we are going to use a single node for this OpenStack deployment, we need to install the <code class="literal">nova-compute</code> service. In production, we usually have a pool of compute servers that only run that service.</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# apt install -y nova-compute</strong></span>
+</pre><p>Use the following minimal configuration file, which will allow running <code class="literal">nova-compute</code> and the rest of the Nova services on the same server:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# cat /etc/nova/nova.conf&#13;</strong></span>
+<span class="strong"><strong>[DEFAULT]&#13;</strong></span>
+<span class="strong"><strong>dhcpbridge_flagfile=/etc/nova/nova.conf&#13;</strong></span>
+<span class="strong"><strong>dhcpbridge=/usr/bin/nova-dhcpbridge&#13;</strong></span>
+<span class="strong"><strong>log-dir=/var/log/nova&#13;</strong></span>
+<span class="strong"><strong>state_path=/var/lib/nova&#13;</strong></span>
+<span class="strong"><strong>force_dhcp_release=True&#13;</strong></span>
+<span class="strong"><strong>verbose=True&#13;</strong></span>
+<span class="strong"><strong>ec2_private_dns_show_ip=True&#13;</strong></span>
+<span class="strong"><strong>enabled_apis=osapi_compute,metadata&#13;</strong></span>
+<span class="strong"><strong>transport_url = rabbit://openstack:lxcpassword@controller&#13;</strong></span>
+<span class="strong"><strong>auth_strategy = keystone&#13;</strong></span>
+<span class="strong"><strong>my_ip = 10.208.132.45&#13;</strong></span>
+<span class="strong"><strong>use_neutron = True&#13;</strong></span>
+<span class="strong"><strong>firewall_driver = nova.virt.firewall.NoopFirewallDriver&#13;</strong></span>
+<span class="strong"><strong>compute_driver = libvirt.LibvirtDriver&#13;</strong></span>
+<span class="strong"><strong>[database]&#13;</strong></span>
+<span class="strong"><strong>connection = mysql+pymysql://nova:lxcpassword@controller/nova&#13;</strong></span>
+<span class="strong"><strong>[api_database]&#13;</strong></span>
+<span class="strong"><strong>connection = mysql+pymysql://nova:lxcpassword@controller/nova_api&#13;</strong></span>
+<span class="strong"><strong>[oslo_concurrency]&#13;</strong></span>
+<span class="strong"><strong>lock_path = /var/lib/nova/tmp&#13;</strong></span>
+<span class="strong"><strong>[libvirt]&#13;</strong></span>
+<span class="strong"><strong>use_virtio_for_bridges=True&#13;</strong></span>
+<span class="strong"><strong>[wsgi]&#13;</strong></span>
+<span class="strong"><strong>api_paste_config=/etc/nova/api-paste.ini&#13;</strong></span>
+<span class="strong"><strong>[keystone_authtoken]&#13;</strong></span>
+<span class="strong"><strong>auth_uri = http://controller:5000&#13;</strong></span>
+<span class="strong"><strong>auth_url = http://controller:35357&#13;</strong></span>
+<span class="strong"><strong>memcached_servers = controller:11211&#13;</strong></span>
+<span class="strong"><strong>auth_type = password&#13;</strong></span>
+<span class="strong"><strong>project_domain_name = default&#13;</strong></span>
+<span class="strong"><strong>user_domain_name = default&#13;</strong></span>
+<span class="strong"><strong>project_name = service&#13;</strong></span>
+<span class="strong"><strong>username = nova&#13;</strong></span>
+<span class="strong"><strong>password = lxcpassword&#13;</strong></span>
+<span class="strong"><strong>[vnc]&#13;</strong></span>
+<span class="strong"><strong>enabled = True&#13;</strong></span>
+<span class="strong"><strong>vncserver_listen = $my_ip&#13;</strong></span>
+<span class="strong"><strong>vncserver_proxyclient_address = $my_ip&#13;</strong></span>
+<span class="strong"><strong>novncproxy_base_url = http://controller:6080/vnc_auto.html&#13;</strong></span>
+<span class="strong"><strong>[glance]&#13;</strong></span>
+<span class="strong"><strong>api_servers = http://controller:9292&#13;</strong></span>
+<span class="strong"><strong>[libvirt]&#13;</strong></span>
+<span class="strong"><strong>virt_type = lxc&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Notice under the <code class="literal">libvirt</code> section how we specify LXC as the default virtualization type we are going to use. To enable LXC support in Nova, install the following package:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# apt install -y nova-compute-lxc</strong></span>
+</pre><p>The package provides the following configuration file:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# cat /etc/nova/nova-compute.conf&#13;</strong></span>
+<span class="strong"><strong>[DEFAULT]&#13;</strong></span>
+<span class="strong"><strong>compute_driver=libvirt.LibvirtDriver&#13;</strong></span>
+<span class="strong"><strong>[libvirt]&#13;</strong></span>
+<span class="strong"><strong>virt_type=lxc&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Restart the <code class="literal">nova-compute</code> service and list all available Nova services:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# service nova-compute restart&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# openstack compute service list&#13;</strong></span>
+<span class="strong"><strong>+----+------------------+------------+----------+---------+-------+----------------------------+&#13;</strong></span>
+<span class="strong"><strong>| ID | Binary | Host | Zone | Status | State | Updated At |&#13;</strong></span>
+<span class="strong"><strong>+----+------------------+------------+----------+---------+-------+----------------------------+&#13;</strong></span>
+<span class="strong"><strong>| 4 | nova-consoleauth | controller | internal | enabled | up | 2016-12-02T20:01:19.000000 |&#13;</strong></span>
+<span class="strong"><strong>| 5 | nova-scheduler | controller | internal | enabled | up | 2016-12-02T20:01:25.000000 |&#13;</strong></span>
+<span class="strong"><strong>| 6 | nova-conductor | controller | internal | enabled | up | 2016-12-02T20:01:26.000000 |&#13;</strong></span>
+<span class="strong"><strong>| 8 | nova-compute | controller | nova | enabled | up | 2016-12-02T20:01:22.000000 |&#13;</strong></span>
+<span class="strong"><strong>+----+------------------+------------+----------+---------+-------+----------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Be sure to verify that all four services are <code class="literal">enabled</code> and <code class="literal">up</code>. With all the Nova services configured and running, now it's time to move to the networking part of the deployment.</p></div><div class="section" title="Installing and configuring the networking service"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec84"/>Installing and configuring the networking service</h2></div></div></div><p>The networking component of OpenStack, codenamed Neutron, manages networks, IP addresses, software bridging, and routing. In the previous chapters, we had to create the Linux bridge, add ports to it, configure DHCP to assign IPs to the containers, and so on. Neutron exposes all of these functionalities through a convenient API and libraries that we can use.</p><p>Let's start by creating the database, user, and permissions:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# mysql -u root -plxcpassword&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; CREATE DATABASE neutron;&#13;</strong></span>
+<span class="strong"><strong>Query OK, 1 row affected (0.00 sec)&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; GRANT ALL PRIVILEGES ON neutron.* TO 'neutron'@'localhost' IDENTIFIED BY 'lxcpassword';&#13;</strong></span>
+<span class="strong"><strong>Query OK, 0 rows affected (0.00 sec)&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; GRANT ALL PRIVILEGES ON neutron.* TO 'neutron'@'%' IDENTIFIED BY 'lxcpassword';&#13;</strong></span>
+<span class="strong"><strong>Query OK, 0 rows affected (0.00 sec)&#13;</strong></span>
+<span class="strong"><strong>MariaDB [(none)]&gt; exit&#13;</strong></span>
+<span class="strong"><strong>Bye&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Next, create the <code class="literal">neutron</code> user and add it to the <code class="literal">admin</code> role in Keystone:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack user create --domain default --password-prompt neutron&#13;</strong></span>
+<span class="strong"><strong>User Password:&#13;</strong></span>
+<span class="strong"><strong>Repeat User Password:&#13;</strong></span>
+<span class="strong"><strong>+---------------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+---------------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| domain_id | default |&#13;</strong></span>
+<span class="strong"><strong>| enabled | True |&#13;</strong></span>
+<span class="strong"><strong>| id | 68867f6864574592b1a29ec293defb5d |&#13;</strong></span>
+<span class="strong"><strong>| name | neutron |&#13;</strong></span>
+<span class="strong"><strong>| password_expires_at | None |&#13;</strong></span>
+<span class="strong"><strong>+---------------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# openstack role add --project service --user neutron admin&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Create the <code class="literal">neutron</code> service and endpoints:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack service create --name neutron --description "OpenStack Networking" network&#13;</strong></span>
+<span class="strong"><strong>+-------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+-------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| description | OpenStack Networking |&#13;</strong></span>
+<span class="strong"><strong>| enabled | True |&#13;</strong></span>
+<span class="strong"><strong>| id | 8bd98d58bfb5410694cbf7b6163a71a5 |&#13;</strong></span>
+<span class="strong"><strong>| name | neutron |&#13;</strong></span>
+<span class="strong"><strong>| type | network |&#13;</strong></span>
+<span class="strong"><strong>+-------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# openstack endpoint create --region RegionOne network public http://controller:9696&#13;</strong></span>
+<span class="strong"><strong>+--------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+--------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| enabled | True |&#13;</strong></span>
+<span class="strong"><strong>| id | 4e2c1a8689b146a7b3b4207c63a778da |&#13;</strong></span>
+<span class="strong"><strong>| interface | public |&#13;</strong></span>
+<span class="strong"><strong>| region | RegionOne |&#13;</strong></span>
+<span class="strong"><strong>| region_id | RegionOne |&#13;</strong></span>
+<span class="strong"><strong>| service_id | 8bd98d58bfb5410694cbf7b6163a71a5 |&#13;</strong></span>
+<span class="strong"><strong>| service_name | neutron |&#13;</strong></span>
+<span class="strong"><strong>| service_type | network |&#13;</strong></span>
+<span class="strong"><strong>| url | http://controller:9696 |&#13;</strong></span>
+<span class="strong"><strong>+--------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# openstack endpoint create --region RegionOne network internal http://controller:9696&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# openstack endpoint create --region RegionOne network admin http://controller:9696&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p> 
+ With all the services and endpoints defined in the identity service, install the following packages:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# apt install -y neutron-server neutron-plugin-ml2 neutron-linuxbridge-agent neutron-l3-agent neutron-dhcp-agent neutron-metadata-agent</strong></span>
+</pre><p>The Neutron packages that we installed earlier provide the following services:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc"><code class="literal">neutron-server</code>: This package provides API to dynamically request and configure virtual networks</li><li class="listitem" style="list-style-type: disc"><code class="literal">neutron-plugin-ml2</code>: This is a framework that enables the use of various network technologies, such as the Linux bridge, Open vSwitch, GRE, and VXLAN, which we saw in earlier chapters</li><li class="listitem" style="list-style-type: disc"><code class="literal">neutron-linuxbridge-agent</code>: This provides the Linux bridge plugin agent</li><li class="listitem" style="list-style-type: disc"><code class="literal">neutron-l3-agent</code>: This performs forwarding and NAT functionality between software-defined networks by creating virtual routers</li><li class="listitem" style="list-style-type: disc"><code class="literal">neutron-dhcp-agent</code>: This controls the DHCP service that assigns IP addresses to the instances running on the compute nodes</li><li class="listitem" style="list-style-type: disc"><code class="literal">neutron-metadata-agent</code>: This is a service that passes instance metadata to Neutron</li></ul></div><p>The following is a minimal working configuration file for Neutron:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# cat /etc/neutron/neutron.conf&#13;</strong></span>
+<span class="strong"><strong>[DEFAULT]&#13;</strong></span>
+<span class="strong"><strong>core_plugin = ml2&#13;</strong></span>
+<span class="strong"><strong>service_plugins = router&#13;</strong></span>
+<span class="strong"><strong>allow_overlapping_ips = True&#13;</strong></span>
+<span class="strong"><strong>transport_url = rabbit://openstack:lxcpassword@controller&#13;</strong></span>
+<span class="strong"><strong>auth_strategy = keystone&#13;</strong></span>
+<span class="strong"><strong>notify_nova_on_port_status_changes = True&#13;</strong></span>
+<span class="strong"><strong>notify_nova_on_port_data_changes = True&#13;</strong></span>
+<span class="strong"><strong>[agent]&#13;</strong></span>
+<span class="strong"><strong>root_helper = sudo /usr/bin/neutron-rootwrap /etc/neutron/rootwrap.conf&#13;</strong></span>
+<span class="strong"><strong>[cors]&#13;</strong></span>
+<span class="strong"><strong>[cors.subdomain]&#13;</strong></span>
+<span class="strong"><strong>[database]&#13;</strong></span>
+<span class="strong"><strong>connection = mysql+pymysql://neutron:lxcpassword@controller/neutron&#13;</strong></span>
+<span class="strong"><strong>[keystone_authtoken]&#13;</strong></span>
+<span class="strong"><strong>auth_uri = http://controller:5000&#13;</strong></span>
+<span class="strong"><strong>auth_url = http://controller:35357&#13;</strong></span>
+<span class="strong"><strong>memcached_servers = controller:11211&#13;</strong></span>
+<span class="strong"><strong>auth_type = password&#13;</strong></span>
+<span class="strong"><strong>project_domain_name = default&#13;</strong></span>
+<span class="strong"><strong>user_domain_name = default&#13;</strong></span>
+<span class="strong"><strong>project_name = service&#13;</strong></span>
+<span class="strong"><strong>username = neutron&#13;</strong></span>
+<span class="strong"><strong>password = lxcpassword&#13;</strong></span>
+<span class="strong"><strong>[matchmaker_redis]&#13;</strong></span>
+<span class="strong"><strong>[nova]&#13;</strong></span>
+<span class="strong"><strong>auth_url = http://controller:35357&#13;</strong></span>
+<span class="strong"><strong>auth_type = password&#13;</strong></span>
+<span class="strong"><strong>project_domain_name = default&#13;</strong></span>
+<span class="strong"><strong>user_domain_name = default&#13;</strong></span>
+<span class="strong"><strong>region_name = RegionOne&#13;</strong></span>
+<span class="strong"><strong>project_name = service&#13;</strong></span>
+<span class="strong"><strong>username = nova&#13;</strong></span>
+<span class="strong"><strong>password = lxcpassword&#13;</strong></span>
+<span class="strong"><strong>[oslo_concurrency]&#13;</strong></span>
+<span class="strong"><strong>[oslo_messaging_amqp]&#13;</strong></span>
+<span class="strong"><strong>[oslo_messaging_notifications]&#13;</strong></span>
+<span class="strong"><strong>[oslo_messaging_rabbit]&#13;</strong></span>
+<span class="strong"><strong>[oslo_messaging_zmq]&#13;</strong></span>
+<span class="strong"><strong>[oslo_policy]&#13;</strong></span>
+<span class="strong"><strong>[qos]&#13;</strong></span>
+<span class="strong"><strong>[quotas]&#13;</strong></span>
+<span class="strong"><strong>[ssl]&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>We need to define what network extension we are going to support and the type of network. All this information is going to be used when creating the LXC container and its configuration file, as we'll see later:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# cat /etc/neutron/plugins/ml2/ml2_conf.ini&#13;</strong></span>
+<span class="strong"><strong>[DEFAULT]&#13;</strong></span>
+<span class="strong"><strong>[ml2]&#13;</strong></span>
+<span class="strong"><strong>type_drivers = flat,vlan,vxlan&#13;</strong></span>
+<span class="strong"><strong>tenant_network_types = vxlan&#13;</strong></span>
+<span class="strong"><strong>mechanism_drivers = linuxbridge,l2population&#13;</strong></span>
+<span class="strong"><strong>extension_drivers = port_security&#13;</strong></span>
+<span class="strong"><strong>[ml2_type_flat]&#13;</strong></span>
+<span class="strong"><strong>flat_networks = provider&#13;</strong></span>
+<span class="strong"><strong>[ml2_type_geneve]&#13;</strong></span>
+<span class="strong"><strong>[ml2_type_gre]&#13;</strong></span>
+<span class="strong"><strong>[ml2_type_vlan]&#13;</strong></span>
+<span class="strong"><strong>[ml2_type_vxlan]&#13;</strong></span>
+<span class="strong"><strong>vni_ranges = 1:1000&#13;</strong></span>
+<span class="strong"><strong>[securitygroup]&#13;</strong></span>
+<span class="strong"><strong>enable_ipset = True&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Define the interface that will be added to the software bridge and that the IP the bridge will be bound to. In this case, we are using the <code class="literal">eth1</code> interface and its IP address:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# cat /etc/neutron/plugins/ml2/linuxbridge_agent.ini&#13;</strong></span>
+<span class="strong"><strong>[DEFAULT]&#13;</strong></span>
+<span class="strong"><strong>[agent]&#13;</strong></span>
+<span class="strong"><strong>[linux_bridge]&#13;</strong></span>
+<span class="strong"><strong>physical_interface_mappings = provider:eth1&#13;</strong></span>
+<span class="strong"><strong>[securitygroup]&#13;</strong></span>
+<span class="strong"><strong>enable_security_group = True&#13;</strong></span>
+<span class="strong"><strong>firewall_driver = neutron.agent.linux.iptables_firewall.IptablesFirewallDriver&#13;</strong></span>
+<span class="strong"><strong>[vxlan]&#13;</strong></span>
+<span class="strong"><strong>enable_vxlan = True&#13;</strong></span>
+<span class="strong"><strong>local_ip = 10.208.132.45&#13;</strong></span>
+<span class="strong"><strong>l2_population = True&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>We specify the bridge driver for the L3 agent as follows:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# cat /etc/neutron/l3_agent.ini&#13;</strong></span>
+<span class="strong"><strong>[DEFAULT]&#13;</strong></span>
+<span class="strong"><strong>interface_driver = neutron.agent.linux.interface.BridgeInterfaceDriver&#13;</strong></span>
+<span class="strong"><strong>[AGENT]&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>The configuration file for the DHCP agent should look similar to the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# cat /etc/neutron/dhcp_agent.ini&#13;</strong></span>
+<span class="strong"><strong>[DEFAULT]&#13;</strong></span>
+<span class="strong"><strong>interface_driver = neutron.agent.linux.interface.BridgeInterfaceDriver&#13;</strong></span>
+<span class="strong"><strong>dhcp_driver = neutron.agent.linux.dhcp.Dnsmasq&#13;</strong></span>
+<span class="strong"><strong>enable_isolated_metadata = True&#13;</strong></span>
+<span class="strong"><strong>[AGENT]&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Finally, the configuration for the metadata agent is as follows:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# cat /etc/neutron/metadata_agent.ini&#13;</strong></span>
+<span class="strong"><strong>[DEFAULT]&#13;</strong></span>
+<span class="strong"><strong>nova_metadata_ip = controller&#13;</strong></span>
+<span class="strong"><strong>metadata_proxy_shared_secret = lxcpassword&#13;</strong></span>
+<span class="strong"><strong>[AGENT]&#13;</strong></span>
+<span class="strong"><strong>[cache]&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>We need to update the configuration file for the Nova services. The new complete files should look as follows this; replace the IP address as needed:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# cat /etc/nova/nova.conf&#13;</strong></span>
+<span class="strong"><strong>[DEFAULT]&#13;</strong></span>
+<span class="strong"><strong>dhcpbridge_flagfile=/etc/nova/nova.conf&#13;</strong></span>
+<span class="strong"><strong>dhcpbridge=/usr/bin/nova-dhcpbridge&#13;</strong></span>
+<span class="strong"><strong>log-dir=/var/log/nova&#13;</strong></span>
+<span class="strong"><strong>state_path=/var/lib/nova&#13;</strong></span>
+<span class="strong"><strong>force_dhcp_release=True&#13;</strong></span>
+<span class="strong"><strong>verbose=True&#13;</strong></span>
+<span class="strong"><strong>ec2_private_dns_show_ip=True&#13;</strong></span>
+<span class="strong"><strong>enabled_apis=osapi_compute,metadata&#13;</strong></span>
+<span class="strong"><strong>transport_url = rabbit://openstack:lxcpassword@controller&#13;</strong></span>
+<span class="strong"><strong>auth_strategy = keystone&#13;</strong></span>
+<span class="strong"><strong>my_ip = 10.208.132.45&#13;</strong></span>
+<span class="strong"><strong>use_neutron = True&#13;</strong></span>
+<span class="strong"><strong>firewall_driver = nova.virt.firewall.NoopFirewallDriver&#13;</strong></span>
+<span class="strong"><strong>compute_driver = libvirt.LibvirtDriver&#13;</strong></span>
+<span class="strong"><strong>scheduler_default_filters = RetryFilter, AvailabilityZoneFilter, RamFilter, ComputeFilter, ComputeCapabilitiesFilter, ImagePropertiesFilter, ServerGroupAntiAffinityFilter, ServerGroupAffinityFilter&#13;</strong></span>
+<span class="strong"><strong>[database]&#13;</strong></span>
+<span class="strong"><strong>connection = mysql+pymysql://nova:lxcpassword@controller/nova&#13;</strong></span>
+<span class="strong"><strong>[api_database]&#13;</strong></span>
+<span class="strong"><strong>connection = mysql+pymysql://nova:lxcpassword@controller/nova_api&#13;</strong></span>
+<span class="strong"><strong>[oslo_concurrency]&#13;</strong></span>
+<span class="strong"><strong>lock_path = /var/lib/nova/tmp&#13;</strong></span>
+<span class="strong"><strong>[libvirt]&#13;</strong></span>
+<span class="strong"><strong>use_virtio_for_bridges=True&#13;</strong></span>
+<span class="strong"><strong>[wsgi]&#13;</strong></span>
+<span class="strong"><strong>api_paste_config=/etc/nova/api-paste.ini&#13;</strong></span>
+<span class="strong"><strong>[keystone_authtoken]&#13;</strong></span>
+<span class="strong"><strong>auth_uri = http://controller:5000&#13;</strong></span>
+<span class="strong"><strong>auth_url = http://controller:35357&#13;</strong></span>
+<span class="strong"><strong>memcached_servers = controller:11211&#13;</strong></span>
+<span class="strong"><strong>auth_type = password&#13;</strong></span>
+<span class="strong"><strong>project_domain_name = default&#13;</strong></span>
+<span class="strong"><strong>user_domain_name = default&#13;</strong></span>
+<span class="strong"><strong>project_name = service&#13;</strong></span>
+<span class="strong"><strong>username = nova&#13;</strong></span>
+<span class="strong"><strong>password = lxcpassword&#13;</strong></span>
+<span class="strong"><strong>[vnc]&#13;</strong></span>
+<span class="strong"><strong>enabled = True&#13;</strong></span>
+<span class="strong"><strong>vncserver_listen = $my_ip&#13;</strong></span>
+<span class="strong"><strong>vncserver_proxyclient_address = $my_ip&#13;</strong></span>
+<span class="strong"><strong>novncproxy_base_url = http://controller:6080/vnc_auto.html&#13;</strong></span>
+<span class="strong"><strong>[glance]&#13;</strong></span>
+<span class="strong"><strong>api_servers = http://controller:9292&#13;</strong></span>
+<span class="strong"><strong>[libvirt]&#13;</strong></span>
+<span class="strong"><strong>virt_type = lxc&#13;</strong></span>
+<span class="strong"><strong>[neutron]&#13;</strong></span>
+<span class="strong"><strong>url = http://controller:9696&#13;</strong></span>
+<span class="strong"><strong>auth_url = http://controller:35357&#13;</strong></span>
+<span class="strong"><strong>auth_type = password&#13;</strong></span>
+<span class="strong"><strong>project_domain_name = default&#13;</strong></span>
+<span class="strong"><strong>user_domain_name = default&#13;</strong></span>
+<span class="strong"><strong>region_name = RegionOne&#13;</strong></span>
+<span class="strong"><strong>project_name = service&#13;</strong></span>
+<span class="strong"><strong>username = neutron&#13;</strong></span>
+<span class="strong"><strong>password = lxcpassword&#13;</strong></span>
+<span class="strong"><strong>service_metadata_proxy = True&#13;</strong></span>
+<span class="strong"><strong>metadata_proxy_shared_secret = lxcpassword&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Populate the <code class="literal">neutron</code> database:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# su -s /bin/sh -c "neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugins/ml2/ml2_conf.ini upgrade head" neutron&#13;</strong></span>
+<span class="strong"><strong>INFO [alembic.runtime.migration] Context impl MySQLImpl.&#13;</strong></span>
+<span class="strong"><strong>INFO [alembic.runtime.migration] Will assume non-transactional DDL.&#13;</strong></span>
+<span class="strong"><strong>Running upgrade for neutron ...&#13;</strong></span>
+<span class="strong"><strong>INFO [alembic.runtime.migration] Context impl MySQLImpl.&#13;</strong></span>
+<span class="strong"><strong>INFO [alembic.runtime.migration] Will assume non-transactional DDL.&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>OK&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Finally, start all networking services and restart <code class="literal">nova-compute</code>:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# service nova-api restart&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# service neutron-server restart&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# service neutron-linuxbridge-agent restart&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# service neutron-dhcp-agent restart&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# service neutron-metadata-agent restart&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# service neutron-l3-agent restart&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# service nova-compute restart</strong></span>
+</pre><p>Let's verify the Neutron services are running:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack network agent list&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+--------------------+------------+-------------------+-------+-------+---------------------------+&#13;</strong></span>
+<span class="strong"><strong>| ID | Agent Type | Host | Availability Zone | Alive | State | Binary |&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+--------------------+------------+-------------------+-------+-------+---------------------------+&#13;</strong></span>
+<span class="strong"><strong>| 2a715a0d-5593-4aba-966e-6ae3b2e02ba2 | L3 agent | controller | nova | True | UP | neutron-l3-agent |&#13;</strong></span>
+<span class="strong"><strong>| 2ce176fb-dc2e-4416-bb47-1ae44e1f556f | Linux bridge agent | controller | None | True | UP | neutron-linuxbridge-agent |&#13;</strong></span>
+<span class="strong"><strong>| 42067496-eaa3-42ef-bff9-bbbbcbf2e15a | DHCP agent | controller | nova | True | UP | neutron-dhcp-agent |&#13;</strong></span>
+<span class="strong"><strong>| fad2b9bb-8ee7-468e-b69a-43129338cbaa | Metadata agent | controller | None | True | UP | neutron-metadata-agent |&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+--------------------+------------+-------------------+-------+-------+---------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre></div><div class="section" title="Defining the LXC instance flavor, generating a key pair, and creating security groups"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec85"/>Defining the LXC instance flavor, generating a key pair, and creating security groups</h2></div></div></div><p>Before we can create an LXC instance, we need to define its flavour - CPU, memory, and disk size. The following creates a flavor named <code class="literal">lxc.medium</code> with one virtual CPU, 1 GB RAM, and 5 GB disk:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack flavor create --id 0 --vcpus 1 --ram 1024 --disk 5 lxc.medium&#13;</strong></span>
+<span class="strong"><strong>+----------------------------+------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+----------------------------+------------+&#13;</strong></span>
+<span class="strong"><strong>| OS-FLV-DISABLED:disabled | False |&#13;</strong></span>
+<span class="strong"><strong>| OS-FLV-EXT-DATA:ephemeral | 0 |&#13;</strong></span>
+<span class="strong"><strong>| disk | 5 |&#13;</strong></span>
+<span class="strong"><strong>| id | 0 |&#13;</strong></span>
+<span class="strong"><strong>| name | lxc.medium |&#13;</strong></span>
+<span class="strong"><strong>| os-flavor-access:is_public | True |&#13;</strong></span>
+<span class="strong"><strong>| properties | |&#13;</strong></span>
+<span class="strong"><strong>| ram | 1024 |&#13;</strong></span>
+<span class="strong"><strong>| rxtx_factor | 1.0 |&#13;</strong></span>
+<span class="strong"><strong>| swap | |&#13;</strong></span>
+<span class="strong"><strong>| vcpus | 1 |&#13;</strong></span>
+<span class="strong"><strong>+----------------------------+------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>In order to SSH to the LXC containers, we can have the SSH keys managed and installed during the instance provisioning, if we don't want them to be baked inside the actual image. To generate the SSH key pair and add it to OpenStack, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# ssh-keygen -q -N ""</strong></span>
+</pre><p>Enter the file in which to save the key (<code class="literal">/root/.ssh/id_rsa</code>):</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack keypair create --public-key ~/.ssh/id_rsa.pub lxckey&#13;</strong></span>
+<span class="strong"><strong>+-------------+-------------------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+-------------+-------------------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| fingerprint | 84:36:93:cc:2f:f0:f7:ba:d5:73:54:ca:2e:f0:02:6d |&#13;</strong></span>
+<span class="strong"><strong>| name | lxckey |&#13;</strong></span>
+<span class="strong"><strong>| user_id | 3a04d141c07541478ede7ea34f3e5c36 |&#13;</strong></span>
+<span class="strong"><strong>+-------------+-------------------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>To list the new key pair we just added, execute the following:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack keypair list&#13;</strong></span>
+<span class="strong"><strong>+--------+-------------------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Name | Fingerprint |&#13;</strong></span>
+<span class="strong"><strong>+--------+-------------------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| lxckey | 84:36:93:cc:2f:f0:f7:ba:d5:73:54:ca:2e:f0:02:6d |&#13;</strong></span>
+<span class="strong"><strong>+--------+-------------------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>By default, once a new LXC container is provisioned, iptables will disallow access to it. Let's create two security groups that will allow ICMP and SSH, so we can test connectivity and connect to the instance:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack security group rule create --proto icmp default&#13;</strong></span>
+<span class="strong"><strong>+-------------------+--------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+-------------------+--------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| created_at | 2016-12-02T20:30:14Z |&#13;</strong></span>
+<span class="strong"><strong>| description | |&#13;</strong></span>
+<span class="strong"><strong>| direction | ingress |&#13;</strong></span>
+<span class="strong"><strong>| ethertype | IPv4 |&#13;</strong></span>
+<span class="strong"><strong>| headers | |&#13;</strong></span>
+<span class="strong"><strong>| id | 0e17e0ab-4495-440a-b8b9-0a612f9eccae |&#13;</strong></span>
+<span class="strong"><strong>| port_range_max | None |&#13;</strong></span>
+<span class="strong"><strong>| port_range_min | None |&#13;</strong></span>
+<span class="strong"><strong>| project_id | 488aecf07dcb4ae6bc1ebad5b76fbc20 |&#13;</strong></span>
+<span class="strong"><strong>| project_id | 488aecf07dcb4ae6bc1ebad5b76fbc20 |&#13;</strong></span>
+<span class="strong"><strong>| protocol | icmp |&#13;</strong></span>
+<span class="strong"><strong>| remote_group_id | None |&#13;</strong></span>
+<span class="strong"><strong>| remote_ip_prefix | 0.0.0.0/0 |&#13;</strong></span>
+<span class="strong"><strong>| revision_number | 1 |&#13;</strong></span>
+<span class="strong"><strong>| security_group_id | f21f3d3c-27fe-4668-bca4-6fc842dcb690 |&#13;</strong></span>
+<span class="strong"><strong>| updated_at | 2016-12-02T20:30:14Z |&#13;</strong></span>
+<span class="strong"><strong>+-------------------+--------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# openstack security group rule create --proto tcp --dst-port 22 default&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre></div><div class="section" title="Creating the networks"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec86"/>Creating the networks</h2></div></div></div><p>Let's start by creating a new network called <code class="literal">nat</code> in Neutron:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack network create nat&#13;</strong></span>
+<span class="strong"><strong>+---------------------------+--------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+---------------------------+--------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| admin_state_up | UP |&#13;</strong></span>
+<span class="strong"><strong>| availability_zone_hints | |&#13;</strong></span>
+<span class="strong"><strong>| availability_zones | |&#13;</strong></span>
+<span class="strong"><strong>| created_at | 2016-12-02T20:32:53Z |&#13;</strong></span>
+<span class="strong"><strong>| description | |&#13;</strong></span>
+<span class="strong"><strong>| headers | |&#13;</strong></span>
+<span class="strong"><strong>| id | 66037974-d24b-4615-8b93-b0de18a4561b |&#13;</strong></span>
+<span class="strong"><strong>| ipv4_address_scope | None |&#13;</strong></span>
+<span class="strong"><strong>| ipv6_address_scope | None |&#13;</strong></span>
+<span class="strong"><strong>| mtu | 1450 |&#13;</strong></span>
+<span class="strong"><strong>| name | nat |&#13;</strong></span>
+<span class="strong"><strong>| port_security_enabled | True |&#13;</strong></span>
+<span class="strong"><strong>| project_id | 488aecf07dcb4ae6bc1ebad5b76fbc20 |&#13;</strong></span>
+<span class="strong"><strong>| project_id | 488aecf07dcb4ae6bc1ebad5b76fbc20 |&#13;</strong></span>
+<span class="strong"><strong>| provider:network_type | vxlan |&#13;</strong></span>
+<span class="strong"><strong>| provider:physical_network | None |&#13;</strong></span>
+<span class="strong"><strong>| provider:segmentation_id | 53 |&#13;</strong></span>
+<span class="strong"><strong>| revision_number | 3 |&#13;</strong></span>
+<span class="strong"><strong>| router:external | Internal |&#13;</strong></span>
+<span class="strong"><strong>| shared | False |&#13;</strong></span>
+<span class="strong"><strong>| status | ACTIVE |&#13;</strong></span>
+<span class="strong"><strong>| subnets | |&#13;</strong></span>
+<span class="strong"><strong>| tags | [] |&#13;</strong></span>
+<span class="strong"><strong>| updated_at | 2016-12-02T20:32:53Z |&#13;</strong></span>
+<span class="strong"><strong>+---------------------------+--------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Next, define the DNS server, the default gateway, and the subnet range that will be assigned to the LXC container:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack subnet create --network nat --dns-nameserver 8.8.8.8 --gateway 192.168.0.1 --subnet-range 192.168.0.0/24 nat&#13;</strong></span>
+<span class="strong"><strong>+-------------------+--------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+-------------------+--------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| allocation_pools | 192.168.0.2-192.168.0.254 |&#13;</strong></span>
+<span class="strong"><strong>| cidr | 192.168.0.0/24 |&#13;</strong></span>
+<span class="strong"><strong>| created_at | 2016-12-02T20:36:14Z |&#13;</strong></span>
+<span class="strong"><strong>| description | |&#13;</strong></span>
+<span class="strong"><strong>| dns_nameservers | 8.8.8.8 |&#13;</strong></span>
+<span class="strong"><strong>| enable_dhcp | True |&#13;</strong></span>
+<span class="strong"><strong>| gateway_ip | 192.168.0.1 |&#13;</strong></span>
+<span class="strong"><strong>| headers | |&#13;</strong></span>
+<span class="strong"><strong>| host_routes | |&#13;</strong></span>
+<span class="strong"><strong>| id | 0e65fa94-be69-4690-b3fe-406ea321dfb3 |&#13;</strong></span>
+<span class="strong"><strong>| ip_version | 4 |&#13;</strong></span>
+<span class="strong"><strong>| ipv6_address_mode | None |&#13;</strong></span>
+<span class="strong"><strong>| ipv6_ra_mode | None |&#13;</strong></span>
+<span class="strong"><strong>| name | nat |&#13;</strong></span>
+<span class="strong"><strong>| network_id | 66037974-d24b-4615-8b93-b0de18a4561b |&#13;</strong></span>
+<span class="strong"><strong>| project_id | 488aecf07dcb4ae6bc1ebad5b76fbc20 |&#13;</strong></span>
+<span class="strong"><strong>| project_id | 488aecf07dcb4ae6bc1ebad5b76fbc20 |&#13;</strong></span>
+<span class="strong"><strong>| revision_number | 2 |&#13;</strong></span>
+<span class="strong"><strong>| service_types | [] |&#13;</strong></span>
+<span class="strong"><strong>| subnetpool_id | None |&#13;</strong></span>
+<span class="strong"><strong>| updated_at | 2016-12-02T20:36:14Z |&#13;</strong></span>
+<span class="strong"><strong>+-------------------+--------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Update the subnet's information in Neutron:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# neutron net-update nat --router:external&#13;</strong></span>
+<span class="strong"><strong>Updated network: nat&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#&#13;</strong></span>
+</pre><p>As the <code class="literal">lxc</code> user, create a new software router:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# . rc.lxc&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# openstack router create router&#13;</strong></span>
+<span class="strong"><strong>+-------------------------+--------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| Field | Value |&#13;</strong></span>
+<span class="strong"><strong>+-------------------------+--------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| admin_state_up | UP |&#13;</strong></span>
+<span class="strong"><strong>| availability_zone_hints | |&#13;</strong></span>
+<span class="strong"><strong>| availability_zones | |&#13;</strong></span>
+<span class="strong"><strong>| created_at | 2016-12-02T20:38:08Z |&#13;</strong></span>
+<span class="strong"><strong>| description | |&#13;</strong></span>
+<span class="strong"><strong>| external_gateway_info | null |&#13;</strong></span>
+<span class="strong"><strong>| flavor_id | None |&#13;</strong></span>
+<span class="strong"><strong>| headers | |&#13;</strong></span>
+<span class="strong"><strong>| id | 45557fac-f158-40ef-aeec-496de913d5a5 |&#13;</strong></span>
+<span class="strong"><strong>| name | router |&#13;</strong></span>
+<span class="strong"><strong>| project_id | b0cc5ccc12eb4d6b98aadd784540f575 |&#13;</strong></span>
+<span class="strong"><strong>| project_id | b0cc5ccc12eb4d6b98aadd784540f575 |&#13;</strong></span>
+<span class="strong"><strong>| revision_number | 2 |&#13;</strong></span>
+<span class="strong"><strong>| routes | |&#13;</strong></span>
+<span class="strong"><strong>| status | ACTIVE |&#13;</strong></span>
+<span class="strong"><strong>| updated_at | 2016-12-02T20:38:08Z |&#13;</strong></span>
+<span class="strong"><strong>+-------------------------+--------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>As the admin user, add the subnet we created earlier as an interface to the router:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# . rc.admin&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# neutron router-interface-add router nat&#13;</strong></span>
+<span class="strong"><strong>Added interface be0f1e65-f086-41fd-b8d0-45ebb865bf0f to router router.&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Let's list the network namespaces that were created:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# ip netns&#13;</strong></span>
+<span class="strong"><strong>qrouter-45557fac-f158-40ef-aeec-496de913d5a5 (id: 1)&#13;</strong></span>
+<span class="strong"><strong>qdhcp-66037974-d24b-4615-8b93-b0de18a4561b (id: 0)&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>To show the ports on the software router and the default gateway for the LXC containers, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# neutron router-port-list router&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+------+-------------------+------------------------------------------------------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| id | name | mac_address | fixed_ips |&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+------+-------------------+------------------------------------------------------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| be0f1e65-f086-41fd-b8d0-45ebb865bf0f | | fa:16:3e:a6:36:7c | {"subnet_id": "0e65fa94-be69-4690-b3fe-406ea321dfb3", "ip_address": "192.168.0.1"} |&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+------+-------------------+------------------------------------------------------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre></div><div class="section" title="Provisioning LXC container with OpenStack"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec87"/>Provisioning LXC container with OpenStack</h2></div></div></div><p>Before we launch our LXC container with OpenStack, let's double-check we have all the requirements in place.</p><p>Start by listing the available networks:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack network list&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+------+--------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| ID | Name | Subnets |&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+------+--------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| 66037974-d24b-4615-8b93-b0de18a4561b | nat | 0e65fa94-be69-4690-b3fe-406ea321dfb3 |&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+------+--------------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Display the compute flavors we can choose from:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack flavor list&#13;</strong></span>
+<span class="strong"><strong>+----+------------+------+------+-----------+-------+-----------+&#13;</strong></span>
+<span class="strong"><strong>| ID | Name | RAM | Disk | Ephemeral | VCPUs | Is Public |&#13;</strong></span>
+<span class="strong"><strong>+----+------------+------+------+-----------+-------+-----------+&#13;</strong></span>
+<span class="strong"><strong>| 0 | lxc.medium | 1024 | 5 | 0 | 1 | True |&#13;</strong></span>
+<span class="strong"><strong>+----+------------+------+------+-----------+-------+-----------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Next, list the available images:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack image list&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+------------------+--------+&#13;</strong></span>
+<span class="strong"><strong>| ID | Name | Status |&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+------------------+--------+&#13;</strong></span>
+<span class="strong"><strong>| 417e72b5-7b85-4555-835d-ce442e21aa4f | lxc_ubuntu_12.04 | active |&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+------------------+--------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Also, display the default security group we created earlier:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack security group list&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+---------+------------------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| ID | Name | Description | Project |&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+---------+------------------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>| f21f3d3c-27fe-4668-bca4-6fc842dcb690 | default | Default security group | 488aecf07dcb4ae6bc1ebad5b76fbc20 |&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+---------+------------------------+----------------------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Now load the <span class="strong"><strong>Network Block Device</strong></span> (<span class="strong"><strong>NBD</strong></span>) kernel module, as Nova expects it:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# modprobe nbd</strong></span>
+</pre><p>Finally, to provision LXC container with OpenStack, we execute the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack server create --flavor lxc.medium --image lxc_ubuntu_12.04 --nic net-id=66037974-d24b-4615-8b93-b0de18a4561b --security-group default --key-name lxckey lxc_instance&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>Notice how we specified the instance flavor, the image name, the ID of the network, the security group, the key-pair name, and the name of the instance.</p><p>Make sure to replace the IDs with the output returned on your system.</p><p>To list the LXC container, its status, and assigned IP address, run the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack server list&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+--------------+--------+-----------------+------------------+&#13;</strong></span>
+<span class="strong"><strong>| ID | Name | Status | Networks | Image Name |&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+--------------+--------+-----------------+------------------+&#13;</strong></span>
+<span class="strong"><strong>| a86f8f56-80d7-4d36-86c3-827679f21ec5 | lxc_instance | ACTIVE | nat=192.168.0.3 | lxc_ubuntu_12.04 |&#13;</strong></span>
+<span class="strong"><strong>+--------------------------------------+--------------+--------+-----------------+------------------+&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>As we saw earlier in this chapter, OpenStack uses the libvirt driver to provision LXC containers. We can use the <code class="literal">virsh</code> command we used in <a class="link" href="ch02.html" title="Chapter 2. Installing and Running LXC on Linux Systems">Chapter 2</a><span class="emphasis"><em>, Installing and Running LXC on Linux Systems</em></span>, to list the LXC containers on the host:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# virsh --connect lxc:// list --all&#13;</strong></span>
+<span class="strong"><strong>Id Name State&#13;</strong></span>
+<span class="strong"><strong>----------------------------------------------------&#13;</strong></span>
+<span class="strong"><strong>16225 instance-00000002 running&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p> 
+ If we list the processes on the host, we can see that the <code class="literal">libvirt_lxc</code> parent process spawned the init process for the container:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# ps axfw&#13;</strong></span>
+<span class="strong"><strong>...&#13;</strong></span>
+<span class="strong"><strong>16225 ? S 0:00 /usr/lib/libvirt/libvirt_lxc --name instance-00000002 --console 23 --security=apparmor --handshake 26 --veth vnet0&#13;</strong></span>
+<span class="strong"><strong>16227 ? Ss 0:00 \_ /sbin/init&#13;</strong></span>
+<span class="strong"><strong>16591 ? S 0:00 \_ upstart-socket-bridge --daemon&#13;</strong></span>
+<span class="strong"><strong>16744 ? Ss 0:00 \_ dhclient3 -e IF_METRIC=100 -pf /var/run/dhclient.eth0.pid -lf /var/lib/dhcp/dhclient.eth0.leases -1 eth0&#13;</strong></span>
+<span class="strong"><strong>17692 ? S 0:00 \_ upstart-udev-bridge --daemon&#13;</strong></span>
+<span class="strong"><strong>17696 ? Ss 0:00 \_ /sbin/udevd --daemon&#13;</strong></span>
+<span class="strong"><strong>17819 ? S 0:00 | \_ /sbin/udevd --daemon&#13;</strong></span>
+<span class="strong"><strong>18108 ? Ss 0:00 \_ /usr/sbin/sshd -D&#13;</strong></span>
+<span class="strong"><strong>18116 ? Ss 0:00 \_ dbus-daemon --system --fork --activation=upstart&#13;</strong></span>
+<span class="strong"><strong>18183 ? Ss 0:00 \_ cron&#13;</strong></span>
+<span class="strong"><strong>18184 ? Ss 0:00 \_ atd&#13;</strong></span>
+<span class="strong"><strong>18189 ? Ss 0:00 \_ /usr/sbin/irqbalance&#13;</strong></span>
+<span class="strong"><strong>18193 ? Ss 0:00 \_ acpid -c /etc/acpi/events -s /var/run/acpid.socket&#13;</strong></span>
+<span class="strong"><strong>18229 pts/0 Ss+ 0:00 \_ /sbin/getty -8 38400 tty1&#13;</strong></span>
+<span class="strong"><strong>18230 ? Ssl 0:00 \_ whoopsie&#13;</strong></span>
+<span class="strong"><strong>18317 ? Sl 0:00 \_ rsyslogd -c5&#13;</strong></span>
+<span class="strong"><strong>19185 ? Ss 0:00 \_ /sbin/getty -8 38400 tty4&#13;</strong></span>
+<span class="strong"><strong>19186 ? Ss 0:00 \_ /sbin/getty -8 38400 tty2&#13;</strong></span>
+<span class="strong"><strong>19187 ? Ss 0:00 \_ /sbin/getty -8 38400 tty3&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>The location of the container's configuration file and disk is as follows:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# cd /var/lib/nova/instances/&#13;</strong></span>
+<span class="strong"><strong>root@controller:/var/lib/nova/instances# ls -la a86f8f56-80d7-4d36-86c3-827679f21ec5/&#13;</strong></span>
+<span class="strong"><strong>total 12712&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 3 nova nova 4096 Dec 2 20:52 .&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 5 nova nova 4096 Dec 2 20:52 ..&#13;</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 nova nova 0 Dec 2 20:52 console.log&#13;</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 nova nova 13041664 Dec 2 20:57 disk&#13;</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 nova nova 79 Dec 2 20:52 disk.info&#13;</strong></span>
+<span class="strong"><strong>-rw-r--r-- 1 nova nova 1534 Dec 2 20:52 libvirt.xml&#13;</strong></span>
+<span class="strong"><strong>drwxr-xr-x 2 nova nova 4096 Dec 2 20:52 rootfs&#13;</strong></span>
+<span class="strong"><strong>root@controller:/var/lib/nova/instances#</strong></span>
+</pre><p>Let's examine the container's configuration file:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:/var/lib/nova/instances# cat a86f8f56-80d7-4d36-86c3-827679f21ec5/libvirt.xml&#13;</strong></span>
+<span class="strong"><strong>&lt;domain type="lxc"&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;uuid&gt;a86f8f56-80d7-4d36-86c3-827679f21ec5&lt;/uuid&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;name&gt;instance-00000002&lt;/name&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;memory&gt;1048576&lt;/memory&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;vcpu&gt;1&lt;/vcpu&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;metadata&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;nova:instance &#13;
+      &gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;nova:package version="14.0.1"/&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;nova:name&gt;lxc_instance&lt;/nova:name&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;nova:creationTime&gt;2016-12-02 20:52:52&lt;/nova:creationTime&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;nova:flavor name="lxc.medium"&gt;&#13;</strong></span>
+<span class="strong"><strong>        &lt;nova:memory&gt;1024&lt;/nova:memory&gt;&#13;</strong></span>
+<span class="strong"><strong>        &lt;nova:disk&gt;5&lt;/nova:disk&gt;&#13;</strong></span>
+<span class="strong"><strong>        &lt;nova:swap&gt;0&lt;/nova:swap&gt;&#13;</strong></span>
+<span class="strong"><strong>        &lt;nova:ephemeral&gt;0&lt;/nova:ephemeral&gt;&#13;</strong></span>
+<span class="strong"><strong>        &lt;nova:vcpus&gt;1&lt;/nova:vcpus&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;/nova:flavor&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;nova:owner&gt;&#13;</strong></span>
+<span class="strong"><strong>        &lt;nova:user uuid="3a04d141c07541478ede7ea34f3e5c36"&gt;&#13;
+          admin&#13;
+        &lt;/nova:user&gt;&#13;</strong></span>
+<span class="strong"><strong>        &lt;nova:project uuid="488aecf07dcb4ae6bc1ebad5b76fbc20"&gt;&#13;
+          admin&#13;
+        &lt;/nova:project&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;/nova:owner&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;nova:root type="image" uuid="417e72b5-7b85-4555-835d-ce442e21aa4f"/&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;/nova:instance&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;/metadata&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;os&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;type&gt;exe&lt;/type&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;cmdline&gt;console=tty0 console=ttyS0 console=ttyAMA0&lt;/cmdline&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;init&gt;/sbin/init&lt;/init&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;/os&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;cputune&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;shares&gt;1024&lt;/shares&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;/cputune&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;clock offset="utc"/&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;devices&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;filesystem type="mount"&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;source dir="/var/lib/nova/instances/&#13;
+      a86f8f56-80d7-4d36-86c3-827679f21ec5/rootfs"/&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;target dir="/"/&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;/filesystem&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;interface type="bridge"&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;mac address="fa:16:3e:4f:e5:b5"/&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;source bridge="brq66037974-d2"/&gt;&#13;</strong></span>
+<span class="strong"><strong>      &lt;target dev="tapf2073410-64"/&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;/interface&gt;&#13;</strong></span>
+<span class="strong"><strong>    &lt;console type="pty"/&gt;&#13;</strong></span>
+<span class="strong"><strong>  &lt;/devices&gt;&#13;</strong></span>
+<span class="strong"><strong>&lt;/domain&gt;&#13;</strong></span>
+<span class="strong"><strong>root@controller:/var/lib/nova/instances#</strong></span>
+</pre><p>We've seen similar configuration files for the libvirt containers we built in earlier chapters.</p><p>With the networking managed by Neutron, we should see the bridge and the container's interface added as a port:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:/var/lib/nova/instances# brctl show&#13;</strong></span>
+<span class="strong"><strong>bridge name      bridge id         STP enabled      interfaces&#13;</strong></span>
+<span class="strong"><strong>brq66037974-d2   8000.02d65d01c617  no              tap4e3afc26-88&#13;</strong></span>
+<span class="strong"><strong>                                                    tapbe0f1e65-f0&#13;</strong></span>
+<span class="strong"><strong>                                                    tapf2073410-64&#13;</strong></span>
+<span class="strong"><strong>                                                    vxlan-53&#13;</strong></span>
+<span class="strong"><strong>virbr0           8000.5254004e7712  yes             virbr0-nic&#13;</strong></span>
+<span class="strong"><strong>root@controller:/var/lib/nova/instances#</strong></span>
+</pre><p>Let's configure an IP address on the bridge interface and allow NAT connectivity to the container:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:/var/lib/nova/instances# ifconfig brq66037974-d2 192.168.0.1&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# iptables -A POSTROUTING -t nat -s 192.168.0.0/24 ! -d 192.168.0.0/24 -j MASQUERADE&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>To connect to the LXC container using SSH and the key pair we generated earlier, execute the following command:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:/var/lib/nova/instances# ssh ubuntu@192.168.0.3</strong></span>
+<span class="strong"><strong>Welcome to Ubuntu 12.04.5 LTS (GNU/Linux 4.4.0-51-generic x86_64)</strong></span>
+<span class="strong"><strong>ubuntu@lxc-instance:~$ ifconfig</strong></span>
+<span class="strong"><strong>eth0 Link encap:Ethernet HWaddr fa:16:3e:4f:e5:b5</strong></span>
+<span class="strong"><strong>inet addr:192.168.0.3 Bcast:192.168.0.255 Mask:255.255.255.0</strong></span>
+<span class="strong"><strong>inet6 addr: fe80::f816:3eff:fe4f:e5b5/64 Scope:Link</strong></span>
+<span class="strong"><strong>UP BROADCAST RUNNING MULTICAST MTU:1450 Metric:1</strong></span>
+<span class="strong"><strong>RX packets:290 errors:0 dropped:0 overruns:0 frame:0</strong></span>
+<span class="strong"><strong>TX packets:340 errors:0 dropped:0 overruns:0 carrier:0</strong></span>
+<span class="strong"><strong>collisions:0 txqueuelen:1000</strong></span>
+<span class="strong"><strong>RX bytes:35038 (35.0 KB) TX bytes:36830 (36.8 KB)</strong></span>
+<span class="strong"><strong>lo Link encap:Local Loopback</strong></span>
+<span class="strong"><strong>inet addr:127.0.0.1 Mask:255.0.0.0</strong></span>
+<span class="strong"><strong>inet6 addr: ::1/128 Scope:Host</strong></span>
+<span class="strong"><strong>UP LOOPBACK RUNNING MTU:65536 Metric:1</strong></span>
+<span class="strong"><strong>RX packets:0 errors:0 dropped:0 overruns:0 frame:0</strong></span>
+<span class="strong"><strong>TX packets:0 errors:0 dropped:0 overruns:0 carrier:0</strong></span>
+<span class="strong"><strong>collisions:0 txqueuelen:1</strong></span>
+<span class="strong"><strong>RX bytes:0 (0.0 B) TX bytes:0 (0.0 B)</strong></span>
+<span class="strong"><strong>ubuntu@lxc-instance:~$ exit</strong></span>
+<span class="strong"><strong>logout</strong></span>
+<span class="strong"><strong>Connection to 192.168.0.3 closed.</strong></span>
+<span class="strong"><strong>root@controller:/var/lib/nova/instances# cd</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre><p>  Finally, to delete the LXC container using OpenStack, run the following commands:</p><pre class="programlisting">
+<span class="strong"><strong>root@controller:~# openstack server delete lxc_instance&#13;</strong></span>
+<span class="strong"><strong>root@controller:~# openstack server list&#13;</strong></span>
+<span class="strong"><strong>root@controller:~#</strong></span>
+</pre></div></div></div>
+<div class="section" title="Summary"><div class="titlepage"><div><div><h1 class="title"><a id="ch08lvl1sec39"/>Summary</h1></div></div></div><p>In this chapter, we looked at an example of a basic OpenStack deployment using only the identity service Keystone for storing a catalog of services, and authentication and authorization, the Nova compute services for provisioning the LXC instance, the image service Glance, which stores the LXC container images, and the networking services with Neutron that created the bridge and assigned the IP address to our container.</p><p>A full production-ready deployment would consist of multiple controller nodes that run the aforementioned services, along with a pool of compute servers to provision the containers on.</p><p>OpenStack with LXC is a great way to create and manage multitenant cloud environments, running various software applications in a centralized and highly scalable way.</p></div></body></html>

@@ -1,0 +1,586 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Managing Code</h1>
+                </header>
+            
+            <article>
+                
+<p>Code management has gone a lot of changes over the lifetime of Puppet. In earlier versions of Puppet, code management was largely left to individual users. Most users started by simply editing code directly on the Puppet Master. One organization that I worked for created Yum RPMs for every module, allowing us to roll back and forth between individual modules on multiple Puppet Masters, prior to the introduction of Puppet environments. Many users stored their Puppet code in Git or subversion and checked the code out to directories in the Puppet Master.</p>
+<p>Each of these models comes with significant overhead management, and two solutions have risen to the top of the Puppet community during the transition from Puppet 2 to Puppet 3: Puppet Librarian and r10k. Puppet Librarian manages code like a Ruby bundle file, bringing in all the listed modules and dependencies with a single command. Automatic dependency management from the Forge has some issues, as well. Some modules include dependency lists for all operating systems, including ones that are not in your infrastructure. Some modules do not receive updates for a period of time, linking to old versions of a dependency while your organization is using a newer version. Finally, dependencies in Puppet modules are often listed as a range of versions rather than a single version, and if these modules are used across multiple manifests, it can be difficult to resolve conflicts.</p>
+<p>Some users of Puppet Librarian use <kbd>puppet-librarian-simple</kbd>, which does not manage dependencies. Although <kbd>puppet-librarian-simple</kbd> is easier to install than r10k, it does not maintain feature parity with r10k; r10k has become the most commonly used code management solution, for both enterprise and open source users. r10k allows users to point to a remote repository that contains a set of instructions to build a Puppet environment. Puppet Enterprise comes with an expansion to r10k, known as Puppet Code Manager.</p>
+<p>This chapter will cover the following topics:</p>
+<ul>
+<li>Efficiently managing code</li>
+<li>Code Manager</li>
+<li>Git</li>
+<li>r10k</li>
+<li>Control repository</li>
+<li>Installing and using r10k</li>
+<li>Multitenant control repository</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Efficiently managing code</h1>
+                </header>
+            
+            <article>
+                
+<p>Although writing code directly to the disk on a Puppet Master is the easiest way to get started with Puppet, it is the least efficient model for managing infrastructure changes with Puppet. Manual changes leave the users to manage the following issues individually:</p>
+<ul>
+<li>Backup and recovery</li>
+<li>Change management</li>
+<li>Replication of Puppet Masters</li>
+<li>Replication of Puppet environments</li>
+</ul>
+<p>Without code management, backups are often performed via disk snapshots, or by simply bundling code and moving it to a separate location in case of emergencies. Manual code placement leaves the organization responsible for maintaining a cadence and process for backing up and restoring, and for change management. Without any code management, replication of code to Puppet Masters and Puppet environments is a fully manual process, which leaves all Puppet code testing and implementation to dangerous manual processes, instead of processes within a controlled environment.</p>
+<p>Although placing code in RPMs can solve the backup and recovery issue, change management, and the replication of Puppet Masters, it struggles with Puppet environments. An RPM has to be created for each Puppet environment, and this creates a confusing set of build files that consistently place code in multiple environments. Also, RPMs do not lend themselves to short-lived environments that are used to test individual code features.</p>
+<p>Using Code Manager or r10k to manage code drastically simplifies these problems. Code is never written directly to the disk; instead, a list of requirements is pulled from one remote repository, and all relevant code is placed on the Puppet Master. One of the primary benefits of this model is that every change in code can be versioned in Git, and each change can be explicitly referenced (by tag, branch, or commit hash) and placed on the master. All of the code is always stored remotely, and is not reliant on the Puppet Master itself for backup and recovery. Rollbacks are now as easy as changing a single file in a remote repository. Code management also allows for the scaling of multiple Puppet Masters, with both long-lived and short-lived Puppet environments.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Code Manager</h1>
+                </header>
+            
+            <article>
+                
+<p>Code Manager provides Enterprise RBAC and additional code distribution features to r10k. Code Manager will automatically set r10k up for you, but using it requires that you understand how r10k calls code, and how to store your code in a Git repository.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Git</h1>
+                </header>
+            
+            <article>
+                
+<p>This book is not intended to be a complete resource on Git, but to use Code Manager effectively, you should know some basics about Git.</p>
+<p>Git is a modern code repository that allows for asynchronous work on the same code set by multiple users. It accomplishes this by distinguishing every code commit as the difference between the previous code commit. Every commit is the unique delta in code between the last commit and the current changes. The first commit might add hundreds of lines of code to a code base, but the following commit might be as simple as removing one line and replacing it with another. When this code is cloned (or copied) by another user, it brings down the latest code and allows the user to roll back to previous commits.</p>
+<p>As an introduction to Git, let's walk through a scenario. Suppose that you are using Git to redecorate your living room. The current commit is how your living room looks right now. If you liked how it looked last summer, before you replaced your couch, you could roll back to the previous commit and set your living room back to a previously accepted state. Commits should be seen as accepted states of code, or, in this case, accepted states of your living room.</p>
+<p>First and foremost, we don't want to break our living room while building a new one, so we'll clone it with <kbd>git clone</kbd>. This makes a copy of the current living room, and its entire change history is bundled in. To keep things simple, we'll use the most recent version of our living room. If we wanted to make a change to the living room, we could purchase a new couch, a new TV, and two new lamps. Let's suppose that we love the lamps, but we're not sure about the couch and the TV. If we use <kbd>git add</kbd> on the lamps, it will add those lamps to the staging directory. Git will report the following:</p>
+<pre class="mce-root"><strong>$ git status</strong><br/><strong>On branch master</strong><br/><strong>Changes to be committed:</strong><br/><strong> (use "git reset HEAD &lt;file&gt;..." to unstage)</strong><br/><br/><strong>new object: Lamps</strong><br/><br/><strong>Changes not staged for commit:</strong><br/><strong> (use "git add &lt;file&gt;..." to update what will be committed)</strong><br/><strong> (use "git checkout -- &lt;file&gt;..." to discard changes in working directory)</strong><br/><br/><strong> modified: Couch</strong><br/><strong> modified: Television</strong></pre>
+<p>We've asked Git to track the changes on the new lamps that we love. When we type <kbd>git commit</kbd>, we're asked to write what the change is, and then, Git will commit the new living room to memory:</p>
+<pre><strong>$ git commit -m 'Beautiful New Lamps'</strong><br/><br/><strong>[master 0b1ae47] Beautiful New Lamps</strong><br/><strong> 1 object changed, 0 insertions(+), 0 deletions(-)</strong><br/><strong> create mode 100644 Lamps</strong></pre>
+<p>Notice that the couch and TV are not included in this manifest of changes. In our working directory, or our current living room, the couch and TV are still present, but they're not permanent changes until we also add and commit them. Optionally, we could send our new commit (the lamps) back to our remote repository for safekeeping, and to let any other decorator use our most current living room composition with <kbd>git push</kbd>.</p>
+<p>In short, we clone (copy) a living room format. We make changes to that format at will. The changes that we're sure we like, we add and commit. The changes that we're unsure about remain present, but only in our current working directory (or the current state of our living room). We could either add and commit our couch and television, or simply <kbd>git stash</kbd> and return our living room to the last known good state, which is now our previous living room, plus the new lamps. This pattern gives us the option to try drastic changes, and only commit the ones that we're sure about as a checkpoint in time. Once we have a commit (checkpoint) that we're willing to stand behind, we can then push that back to the version of the living room that everyone can see.</p>
+<p><span>Let's go over using Git against code, instead of in the living room. The first step is to clone, or copy, a repository. The command </span><kbd>git clone</kbd><span> copies an entire repository and its history, and brings it to the local workstation. This copy of code is entirely separate from where it was cloned (its origin). <kbd>git clone</kbd> creates an entirely standalone copy of the original repository. </span></p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>When a user first enters a code repository, all of the code is in the working directory. A user can make changes to the code at will here, and Git will track the delta between the last commit and what is currently in the repository. Git has a command called <kbd>git status</kbd> that allows a user to inspect what files are different from the last commit. In the following example, a module has been cloned, values have been changed in <kbd>init.pp</kbd>, and the user has run the<span> </span><kbd>git status</kbd> from inside the directory of the module:</p>
+<pre>Changes not staged for commit:<br/> (use "git add &lt;file&gt;..." to update what will be committed)<br/> (use "git checkout -- &lt;file&gt;..." to discard changes in working directory)<br/><br/> modified: init.pp</pre>
+<p class="mce-root"><span>You may have noticed <kbd>Changes not staged for commit</kbd>. Git recognizes the working directory, changes staged for a commit, and every commit in the repository history. The standard workflow is to clone a repository, make changes, stage them for a commit, and make a new atomic commit, before pushing it back to a central repository.</span></p>
+<p>Although we generally don't make changes to a module procured from the Puppet Forge (the primary external repository for Puppet Code), let's go over what it's like to clone, change, commit, and (optionally) push our code back to the original repository, which Git automatically tags as <kbd>origin</kbd>.</p>
+<p>First, we'll clone and make a local copy of <kbd>puppetlabs/ntp</kbd>:</p>
+<pre><strong>$ git clone git@github.com:puppetlabs/puppetlabs-ntp.git</strong><br/><strong>Cloning into 'puppetlabs-ntp'...</strong><br/><strong>remote: Counting objects: 7522, done.</strong><br/><strong>remote: Compressing objects: 100% (13/13), done.</strong><br/><strong>remote: Total 7522 (delta 5), reused 18 (delta 5), pack-reused 7504</strong><br/><strong>Receiving objects: 100% (7522/7522), 1.64 MiB | 0 bytes/s, done.</strong><br/><strong>Resolving deltas: 100% (4429/4429), done.</strong></pre>
+<p>Notice that it cloned the repository and applied 4,429 deltas. We now have a local copy of the entire repository contained on GitHub. It will create a directory called <kbd>puppetlabs-ntp</kbd>, which we must enter by using a change directory to continue in the local repository.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Next, we'll edit the files that we intend to edit. In this case, I added a single comment to <kbd>manifests/init.pp</kbd> in the repository. I can check how Git views the repository with the command <kbd>git status</kbd>:</p>
+<pre><strong>$ git status</strong><br/><strong>On branch master</strong><br/><strong>Your branch is up-to-date with 'origin/master'.</strong><br/><strong>Changes not staged for commit:</strong><br/><strong> (use "git add &lt;file&gt;..." to update what will be committed)</strong><br/><strong> (use "git checkout -- &lt;file&gt;..." to discard changes in working directory)</strong><br/><br/><strong> modified: init.pp</strong><br/><br/><strong> no changes added to commit (use "git add" and/or "git commit -a")</strong></pre>
+<p>Git now sees the change to the local repository. I want to ensure that this change is committed to the repository, so next, I'll add it to the staging directory, highlighting it for a commit with <kbd>git add manifests/init.pp</kbd>. If we run another simple <kbd>git status</kbd>, we will notice that our code is no longer <kbd>not staged for commit</kbd>, but is now under <kbd>Changes to be committed</kbd>:</p>
+<pre><strong>$ git status</strong><br/><strong>On branch master</strong><br/><strong>Your branch is up-to-date with 'origin/master'.</strong><br/><strong>Changes to be committed:</strong><br/><strong> (use "git reset HEAD &lt;file&gt;..." to unstage)</strong><br/><br/><strong> modified: manifests/init.pp</strong></pre>
+<p>With <kbd>init.pp</kbd> in the staging directory, I can commit this code to a new version. Running the command <kbd>git commit</kbd> will open your default editor, allowing you to comment and name your commit. I will run the command with an <kbd>-m</kbd> flag, which allows me to pass the message on the command line, rather than by opening up my default editor:</p>
+<pre><strong>$ git commit -m 'Simple Clarification Comment added to init.pp feature'</strong><br/><strong>[master 4538890] Simple Clarification Comment added to init.pp feature</strong><br/><strong> 1 file changed, 1 insertion(+)</strong></pre>
+<p>Now, my local repository has the new commit locally. I can view this commit with the command <kbd>git log</kbd>:</p>
+<pre><strong>commit 45388902ef5cf125ea2109197e115f050d603406 (HEAD -&gt; master)</strong><br/><strong>Author: Ryan Russell-Yates &lt;rary@packt.com&gt;</strong><br/><strong>Date: Sun Apr 8 16:28:26 2018 -0700</strong><br/><br/><strong>Simple Clarification Comment added to init.pp feature</strong></pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Most notably, this change is only on the local repository on my laptop. To share this code, I want to push my commit back to where I retrieved the original code from. When you run <kbd>git clone</kbd> locally, it also records where the code came from, and, by default, names the remote repository <kbd>origin</kbd>. If I run the command <kbd>git remote -v</kbd>, I can actually see the URL that the repository came from:</p>
+<pre><strong>$ git remote -v</strong><br/><strong>origin git@github.com:puppetlabs/puppetlabs-ntp.git (fetch)</strong><br/><strong>origin git@github.com:puppetlabs/puppetlabs-ntp.git (push)</strong></pre>
+<p>If I had permission to push directly to this repository, I could send my new commit to the source with the simple command, <kbd>git push origin master</kbd>. Master is the name of the branch, or the specific code set inside of a repository I'm working on.</p>
+<p>Branches are a concept in Git that allow us to create a copy of code and work on it in what is similar to a separate directory. By default, Git creates a master branch, which is the intended location of the most up-to-date functional code. We can create a new branch in Git and change code without impacting the original branch that it came from. The most efficient use of Git is for trunk-based development, where we start on the master branch, create a new branch that contains new features, test those features, and eventually, merge our branch back into the master branch. This model allows us to work on, share, test, and even implement code, without impacting the original code set.</p>
+<p class="mce-root">When we type <kbd>git checkout -b new_branch</kbd>, we create a new branch, based on the original branch that we were on. We can then work here, add additional commits, and even push it back to the source, without impacting the original code. Only when the code is merged back into the original branch does it have an impact on that branch. Think of it as the Git equivalent of copying a set of code to a new directory, working on it, testing it, and then copying it back to the original source when finished.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">r10k</h1>
+                </header>
+            
+            <article>
+                
+<p>r10k is the primary driver behind Puppet Enterprise Code Manager. It is centered around a single repository, called the <strong>control repository</strong>. The control repository contains files that describe an entire Puppet environment. This collection of files holistically makes up a version of Puppet code intended to be pushed to a particular set of nodes. Every time r10k is run, it redeploys everything contained in the control repository.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Control repository</h1>
+                </header>
+            
+            <article>
+                
+<p>The control repository is the heart of code management for r10k and Code Manager. It is a single point of entry, represented as a Git repository, that describes one or more environments of one or more Puppet Masters. </p>
+<p>r10k is designed to provide the following to a Puppet environment, from a control repository:</p>
+<ul>
+<li>Each Puppet module required to make a code set via the <kbd>Puppetfile</kbd></li>
+<li>A Hiera hierarchy</li>
+<li>Hiera data</li>
+<li>An environment-specific configuration</li>
+<li>Any additional code (such as <kbd>site.pp</kbd>, roles, or profiles)</li>
+</ul>
+<p>Multiple states on a single Puppet Master can be achieved by using a concept that was launched in Puppet 3: Puppet environments. In Puppet 3, we gained the ability to use multiple directories to store code, and to select which code directory each agent uses individually. Code Manager and r10k expand on this concept by treating every branch of the control repository as a completely separate environment.</p>
+<p>If a control repository contains multiple branches, r10k can deploy each branch individually, as a separate environment. This does make our control repository branches a little different from a standard Git repository. Traditionally, the best model is trunk-based development, which gives us one master branch that is intended to receive all of the finished code changes. <span>A Puppet control repository usually contains multiple long-lived and short-lived branches, with varying levels of intention to merge code between the branches. In the best scenario, we merge our code with the different levels of environments, until we reach production. Our <kbd>Puppetfile</kbd>, covered later in this chapter, is often the file that differs the most between the environments.</span></p>
+<p>In a situation where an organization has formal production, preproduction, and development environments, and users actively working on Puppet code, we may see the following branches:</p>
+<ul>
+<li><kbd>Production</kbd></li>
+<li><kbd>Preproduction</kbd></li>
+<li><kbd>Development</kbd></li>
+<li><kbd>Feature1</kbd></li>
+<li><kbd>Feature2</kbd></li>
+</ul>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p><kbd>Feature1</kbd> and <kbd>Feature2</kbd> would be considered short-lived branches, with changes intended for merging into the development environment. Puppet environments are not required to be one for one with what an organization would consider their own environments, and often should not be. Do not feel restricted to making your Puppet environments exactly conform to the organizational boundaries of servers.</p>
+<p>One of the easiest ways to view these environments is to categorize your <kbd>control-repo</kbd> branches internally as <kbd>production-like</kbd> and <kbd>non-production-like</kbd>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">production-like environments</h1>
+                </header>
+            
+            <article>
+                
+<p><kbd>production-like</kbd> environments are formal lanes of code that an organization can expect to retrieve and get a stable code set for individual Puppet agents. When I work with organizations setting these up for the first time, I often describe them as, <em>any environment you may be called in to work on if it goes down on nights or weekends</em>. An organization may have a <kbd>dev</kbd> environment, but if it requires support from an infrastructure team to maintain, that environment should be treated like a production environment. Any environment meant to be used daily by another group in an organization should be controlled more tightly than <kbd>non-production-like</kbd> environments.</p>
+<p>A few key points on managing <kbd>production-like</kbd> branches are as follows:</p>
+<ul>
+<li>If you're strong in CI/CD and deploying code to production often, deploy your modules by branch</li>
+<li>If you're deploying updates in regular cycles (such as quarterly), deploy your modules by tag, as a version number</li>
+<li>Make these branches protected branches in your Git repository</li>
+<li>Decide on an organizational RBAC and governance policy</li>
+</ul>
+<p>More information on deploying modules via tags and branches will be covered in the <em>Puppetfile</em> section of this chapter. </p>
+<p>If you're using a hosted Git solution, such as Bitbucket, GitLab, or GitHub, enable protected branches on <kbd>production-like</kbd> branches in the control repository. Protected branches ensure that only elevated administrator accounts can push directly to the branch or approve merge requests generated from other branches. This ensures that code is peer reviewed before being accepted into these controlled environments.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>An organization should decide on an RBAC and governance policy surrounding these protected branches, and should select technical people to review code and formally accept code into these <kbd>production-like</kbd> environments. Like an open source project, this allows any member of an organization to recommend a change to a controlled environment via Git, but requires a trusted individual to accept this code into the controlled code base.</p>
+<p><kbd>non-production-like</kbd> environments, on the other hand, require significantly less management, and can be used to test new features before merging code into environments that support direct business needs.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">non-production-like environments</h1>
+                </header>
+            
+            <article>
+                
+<p>We manage <kbd>non-production-like</kbd> environments differently from <kbd>production-like</kbd> environments. Where <kbd>production-like</kbd> environments need management to ensure that only trusted code is deployed, our <kbd>non-production-like</kbd> branches are hampered by these same protections. </p>
+<p>The primary goal of these <kbd>non-production-like</kbd> branches is to facilitate rapid code deployment and testing cycles. Patterns like protected branches and governance policies intentionally slow development to add stability, and should not be used on these Wild-West Style development branches.</p>
+<p>The two most common examples of <kbd>non-production-like</kbd> environments are Puppet staging environments and feature-branches. Puppet staging environments are built to allow all Puppet users to integrate and test changes in a single environment, prior to shipping code to a <kbd>production-like</kbd> environment.</p>
+<p>If your organization needs a staging environment, you should only use a single staging environment, as merging between multiple staging environments can be difficult. Feature-branches are built exclusively to build and test new code in isolation, before sending it to staging, or directly to a <kbd>production-like</kbd> branch in absence of a staging environment, for organizations with robust CI/CD practices. We want to minimize overhead on these branches, to facilitate asynchronous code commits and testing without needing a trusted agent to approve every change.</p>
+<p>A common workflow to develop Puppet code in environments at larger organizations is as follows:</p>
+<ul>
+<li>Clone the control repository</li>
+<li>Check out a new branch, based on the branch that you intend to make changes to (usually staging)</li>
+</ul>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<ul>
+<li>Add one or more nodes to this environment via the PE console, or set the environment in the agents <kbd>puppet.conf</kbd></li>
+<li>Iterate over code: write code and test it</li>
+<li>Merge your code with the staging environment and delete the short-lived branch</li>
+<li>Promote the staging environment through the multiple levels of production-like branches</li>
+</ul>
+<p>With these concepts in mind, let's inspect what's contained inside of a Puppet control repository.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Puppetfile</h1>
+                </header>
+            
+            <article>
+                
+<p>The heart of the control repository is the <kbd>Puppetfile</kbd>. The <kbd>Puppetfile</kbd> acts as a list of Puppet modules to be imported on each run of r10k and deployed into a Puppet environment matching the branch name of the control repository. It allows us to bring in modules from two places: the Puppet Forge and remote Git repositories.</p>
+<p>Pulling modules from the Puppet Forge can be written in shorthand, and at the very top of the file you can select a location to search for Forge modules. By default, the control repository will direct us to <a href="https://forge.puppet.com">https://forge.puppet.com</a>, which allows us to write the module we want to bring in in shorthand. Entering <kbd>mod "puppetlabs/ntp"</kbd> in the <kbd>Puppetfile</kbd> will pull in the latest version. By simply adding a version, such as <kbd>mod "puppetlabs/ntp", "7.1.1"</kbd>, r10k will ensure that only a specific version from the Forge is deployed to an environment. It is generally considered a best practice to always include a version with Forge modules, so as to not deploy a new major version into an environment unexpectedly.</p>
+<p>Additionally, we can point directly to Git repositories. The most common use of this is for Puppet modules developed internally by a user or an organization. Like the Forge, we can specifically target a version of a Git repository and deploy it into an environment. The following is an example of this:</p>
+<pre>mod 'ourapp',<br/>  :git =&gt; 'git@git.ourcompany.com:ourapp.git',<br/>  :ref =&gt; '1.2.2',</pre>
+<p>Each line of this entry into the <kbd>Puppetfile</kbd> actually signifies something to r10k. The first line, <kbd>mod 'ourapp'</kbd>, tells r10k to deploy this repository under the name <kbd>'ourapp'</kbd>, and will deploy the module as that name. This name must match the namespace of the module, and, in this case, <kbd>config.pp</kbd> would need to contain <kbd>class ourapp::config</kbd>.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>The <kbd>:git</kbd> reference tells r10k where to go to retrieve the code. r10k must have SSH keys available to reach this repository, unless the repository allows for anonymous cloning. The <kbd>ref</kbd> tag will actually search for commits, <kbd>git</kbd> tags, and branches, until it finds one that matches the reference. If this repository contained a <kbd>git</kbd> tag named <kbd>1.2.2</kbd>, r10k would use that particular version of code. Note that this method of calling the repository can be troublesome if there is a branch named <kbd>1.2.2</kbd> and a tag named <kbd>1.2.2</kbd>. <kbd>ref</kbd> is a shorthand that allows you to call a tag, branch, or commit, but they can also be directly called by the <kbd>:tag</kbd>, <kbd>:branch</kbd>, or <kbd>:commit</kbd> lines, respectively.</p>
+<p>The following code is an example of a <kbd>Puppetfile</kbd> that provides the following:</p>
+<ul>
+<li>Sets the Forge to the HTTPS version of <kbd>forge.puppet.com</kbd></li>
+<li>Includes the latest <kbd>puppetlabs/ntp</kbd></li>
+<li>Includes <kbd>puppetlabs/stdlib</kbd> version 4.25.1</li>
+<li>Includes <kbd>puppetlabs/nginx</kbd> version 0.11.0</li>
+<li>Includes three internal applications, called by branch, tag, or commit</li>
+</ul>
+<pre>forge "https://forge.puppet.com"<br/><br/># Forge Modules<br/># Always take latest version of NTP, notice no version listed<br/>mod "puppetlabs/ntp"<br/><br/># Specific versions of stdlib and nginx.<br/>mod "puppetlabs/stdlib", "4.25.1"<br/>mod "puppetlabs/nginx", "0.11.0"<br/><br/># Modules from Git<br/><br/># Pointing to Master Branch<br/>mod 'ourapp',<br/>  :git    =&gt; 'git@git.ourcompany.com:ourapp.git',<br/>  :branch =&gt; 'master',<br/><br/># Pointing to the 1.2.2 tag<br/>mod 'ourapp2',<br/>  :git =&gt; 'git@git.ourcompany.com:ourapp2.git',<br/>  :tag =&gt; '1.2.2',<br/><br/># pointing to an explicit git commit<br/>mod 'ourapp3',<br/>  :git    =&gt; 'git@git.ourcompany.com:ourapp3.git',<br/>  :commit =&gt; '0b1ae47d7ff83489299bb7c9da3ab7f4ce7e49a4',</pre>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">hiera.yaml</h1>
+                </header>
+            
+            <article>
+                
+<p><span>One of the best features of Hiera in Puppet 5 is that it is included by default, and does not require an additional installation. </span>As noted in the previous chapter, Puppet 5 gives us three levels of Hiera: global, environment, and data, in modules. The environment level of Hiera is contained in the control repository, giving us separate data in each environment and allowing us to store all of our Hiera data in a single repository. </p>
+<p>This model allows us to version control all of our data layer in Puppet 5 easily, and even merge our data across branches, if we want to iterate development of our Hiera data in the same way that we iterate over the development of Puppet code. We can use the same Hiera v5 configuration from the <a href="cea19359-3ab3-4ee7-99d5-be2e4cd1f992.xhtml">Chapter 4</a>, <em>Hiera 5</em>, shown as follows, to set up our data in environments:</p>
+<pre>---<br/>version: 5<br/> hierarchy:<br/> - name: "Per-node data"<br/> path: "nodes/%{trusted.certname}.yaml"<br/>- name: "Per-environment data"<br/> path: " %{server_facts.environment}.yaml"<br/>- name: Common<br/> path: common.yaml</pre>
+<p>This will use the default <kbd>datadir</kbd> in the <kbd>control-repo</kbd>, data, to store our Hiera data. If we were to use this hierarchy, our control repository might contain the following:</p>
+<pre>├── data<br/>│   ├── common.yaml<br/>│   ├── development.yaml<br/>│   ├── nodes<br/>│   │   ├── server1.ourcompany.net.yaml<br/>│   │   └── server2.ourcompany.net.yaml<br/>│   ├── preprod.yaml<br/>│   ├── production.yaml<br/>│   └── staging.yaml<br/>└── hiera.yaml</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">site.pp</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>site.pp</kbd> is one of the oldest files found on a modern Puppet Master. The original intention of <kbd>site.pp</kbd> was to classify nodes, assigning classes and resources to a node to create a catalog. It accepts both regex and string match names, and, if used to place code and resources directly on a system, it would contain code such as the following:</p>
+<pre>node 'application.company.com' { include role::application }</pre>
+<p>Today, most users no longer store classifications in <kbd>site.pp</kbd>. Classification is handled by an <strong>external node classifier</strong> (<strong>ENC</strong>), such as the Puppet Enterprise Console. Hiera has also become a common method of classification, in lieu of an ENC. Any code that is not contained to a node in <kbd>site.pp</kbd> is applied to all nodes in the Puppet environment. The following code, placed outside of a node specification, searches all levels of a node's Hiera hierarchy for unique classes in an array named <kbd>classes</kbd>, removes anything contained in arrays named <kbd>class_exclusions</kbd>, and then applies them to each node. This allows Hiera to act as the classifier for Puppet nodes.</p>
+<p>The following code enables Hiera as a classification strategy, when placed in <kbd>site.pp</kbd>:</p>
+<pre><strong>#This section ensures that anything listed in Hiera under classes can be used as classification</strong><br/><br/><strong>$classes = lookup('classes', Array[String], 'unique')</strong><br/><strong>$exclusions = lookup('class_exclusions', Array[String], 'unique')</strong><br/><strong>$classification = $classes - $exclusions</strong><br/><br/><strong>$classification.include</strong></pre>
+<p>If we had a server named <kbd>snowflake.ourcompany.com</kbd>, and the following was contained in our Hiera hierarchy, we would include <kbd>role::ourapp</kbd> and <kbd>profile::partners::baseline</kbd>, but exclude <kbd>profile::baseline</kbd>, even though it was listed as a class in <kbd>common.yaml</kbd>. This ensures that <kbd>profile::baseline</kbd> is applied everywhere in the infrastructure, except for where it is explicitly excluded:</p>
+<pre># common.yaml<br/>---<br/>classes:<br/>  - profile::baseline</pre>
+<p>We can also use our above class exclusions to remove baseline from a particular node:</p>
+<pre># nodes/snowflake.ourcompany.com.yaml<br/>---<br/>classes:<br/>  - profile::partners::baseline<br/>  - role::ourapp<br/>class_exclusions:<br/>  - profile::baseline</pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p><kbd>site.pp</kbd> also allows us to set some sane defaults to our Puppet code, across our entire environment. In the following example, any Windows machine will use the package provider <kbd>Chocolatey</kbd>, by default. <kbd>Chocolatey</kbd> is a free and open source solution to a Yum-like package manager on Windows. If you haven't tried it yet in your Windows environment, it is a significant improvement on installing directly from <kbd>.msi</kbd> or <kbd>.exe</kbd>:</p>
+<pre># Set Default Package Provider to Chocolatey on Windows<br/><br/>if $::kernel = 'windows' {<br/>  Package {<br/>    provider =&gt; 'chocolatey'<br/>  }<br/>}</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">environment.conf</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>environment.conf</kbd> file is an optional file in a control repository that allows you to override some settings in your Puppet environment. As of version 5.5, five settings are available for <kbd>environment.conf</kbd>, as follows:</p>
+<ul>
+<li><kbd>modulepath</kbd>: Where to search for Puppet modules.</li>
+<li><kbd>manifest</kbd>: Where to search for <kbd>site.pp</kbd>, or a directory of node manifest files, parsed alphabetically.</li>
+<li><kbd>config_version</kbd>: A user-defined script to generate the version produced by running the Puppet agent.</li>
+<li><kbd>environment_timeout</kbd>: How long the Puppet environment caches data about an environment.</li>
+<li><kbd>static_catalogs</kbd>: An advanced configuration that internally versions files served from the Puppet Master. It is on, by default.</li>
+</ul>
+<p>Additionally, <kbd>environment.conf</kbd> is able to use variables produced from Puppet configurations. In the following example, we set two of the most common settings found in an <kbd>environment.conf</kbd> file:</p>
+<pre># Extend Modulepath<br/># Using $basemodulepath to ensure all default modulepaths are still preserved<br/># This will now search for modules at $codedir/site, allowing us to place modules<br/># directly into the control repo. Often used for Roles and Profiles<br/>modulepath = site:$basemodulepath<br/># Set version that appears during a Puppet run with a custom script<br/># Contained in base on control repo config_version = 'scripts/version.sh'</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Roles and profiles</h1>
+                </header>
+            
+            <article>
+                
+<p>In a previous chapter, we discussed roles and profiles. It is a common practice for many small organizations to place their roles and profiles in the control repository, as a simple place to get started writing puppet code for your organization. Using the previous <kbd>environment.conf</kbd>, our roles and profiles would be found at <kbd>/etc/puppetlabs/code/environments/&lt;environment&gt;/site</kbd>, as a roles directory and a profiles directory. These would be contained in the Git repository, in a <kbd>site</kbd> folder at the base of the repository.</p>
+<p>For many larger organizations, accepting commits to a standalone role and standalone profile module can be easier to maintain than bundling them into the control repository. This provides each environment with the ability to call tagged versions of the role and profile modules specifically. Both methodologies are valid, and produce the same results on the agents utilizing the code.</p>
+<p>At the end of this chapter, you will find a guide on a multitenancy control repository, which is easier to manage if the role and profile modules are separate from the control repository.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Control repository example</h1>
+                </header>
+            
+            <article>
+                
+<p>If we use everything in the control repository as designed in the previous examples, a single branch of our control repository will look as follows:</p>
+<pre><strong>$ tree control-repo</strong><br/><strong>control-repo</strong><br/><strong>├── data</strong><br/><strong>│   ├── common.yaml</strong><br/><strong>│   ├── development.yaml</strong><br/><strong>│   ├── nodes</strong><br/><strong>│   │   ├── server1.ourcompany.net.yaml</strong><br/><strong>│   │   └── server2.ourcompany.net.yaml</strong><br/><strong>│   ├── preprod.yaml</strong><br/><strong>│   ├── production.yaml</strong><br/><strong>│   └── staging.yaml</strong><br/><strong>├── environment.conf</strong><br/><strong>├── hiera.yaml</strong><br/><strong>├── manifests</strong><br/><strong>│   └── site.pp</strong><br/><strong>└── site</strong><br/><strong> ├── profile</strong><br/><strong> │   └── manifests</strong><br/><strong> │   └── application.pp</strong><br/><strong> └── role</strong><br/><strong> └── manifests</strong><br/><strong> └── webserver.pp</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing and using r10k</h1>
+                </header>
+            
+            <article>
+                
+<p>Generally, if you have Puppet Enterprise, you should use Code Manager instead of r10k. If you are a Puppet open source user, or if your environment is a mix of both open source and Enterprise nodes, consider a direct installation of r10k. There is a Puppet module available on the Forge that installs r10k on an existing Puppet Master by Vox Pupuli. It can be found at <a href="https://forge.puppet.com/puppet/r10k.">https://forge.puppet.com/puppet/r10k</a>.</p>
+<p>Once r10k is installed, an environment can be deployed by running <kbd>r10k deploy environment &lt;branch&gt; -p</kbd> on each master as the root user, or as a user with <kbd>sudo</kbd> access. Often, when r10k is used in place of Code Manager, a CI/CD system is used to automate the deployment over r10k.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Code Manager</h1>
+                </header>
+            
+            <article>
+                
+<p><span>Now that r10k has been detailed, let's explore the Puppet Enterprise version of it: Code Manager. Code Manager adds four main features to r10k, as follows:</span></p>
+<ul>
+<li>File Sync and Rsync across masters from <strong>Master of Masters</strong> (<strong>MoM</strong>)</li>
+<li>RBAC and pe-client-tools provides RBAC access</li>
+<li>Automatic environment isolation</li>
+<li>Easy installation</li>
+</ul>
+<p>The primary reason to use Code Manager over r10k in Puppet Enterprise is the robust RBAC model provided by Puppet Enterprise. Without Git, r10k hooks require that you log in to the Puppet Master over SSH or the console and run a command to deploy one or more environments. The PE client tools provided by Puppet allow a user to generate a short-lived RBAC access token, which is checked against RBAC in the Puppet Enterprise Console remotely. This remote RBAC model allows you not only to give individuals different levels of access to environment deployment, but it also does not require a user to log in to the Puppet Master at all. The PE client tools are run from a local workstation and deploy the environment through the Puppet Enterprise web API.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>The second major feature is file syncing. r10k deploys code directly into the code directory on a single Puppet Master. If an organization has multiple Puppet Masters controlled by a Master of Masters, a single command can deploy the code base to a code-staging directory on the MoM, which will then be deployed synchronously to all Puppet Masters in the environment. Instead of logging in to multiple Puppet Masters, you can run the command once, remotely, and allow the MoM to distribute code across all of your masters.</p>
+<p>Code Manager also ensures that all environment isolation commands are run across your system, ensuring that type resources don't accidentally spill over into other environments. The open source equivalent to this command is <kbd><span>puppet generate types --environment &lt;environment&gt;</span></kbd>.</p>
+<p>The final major feature of Code Manager is an easy install. Everything needed to enable Code Manager is self-contained in Puppet Enterprise.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Enabling Code Manager</h1>
+                </header>
+            
+            <article>
+                
+<p>Enabling Code Manager across your architecture is easy in Puppet Enterprise, because it's prebundled in the system. The only artifact that must be generated on each master is the SSH key used to access the control repository and any other Git repositories in the <kbd>Puppetfile</kbd>. These SSH keys should be created with no password, and should be protected on the Puppet Master. Additionally, if you are using a Git service that supports it, enter this key as a deploy key, rather than a user key. Deploy keys only have the ability to check out code, and cannot submit code back to the Git server. For a single master, the following commands can be run as the root user or with <kbd>sudo</kbd>, to generate an SSH key:</p>
+<pre><strong># Create SSH Directory</strong><br/><strong>$ sudo mkdir -p /etc/puppetlabs/puppetserver/ssh</strong><br/><br/><strong># Generate SSH Key - With No Password</strong><br/><strong>$ sudo ssh-keygen</strong><br/><br/><strong>Generating public/private rsa key pair.</strong><br/><strong>Enter file in which to save the key (/var/root/.ssh/id_rsa): /etc/puppetlabs/puppetserver/ssh/id-control_repo.rsa</strong><br/><strong>Enter passphrase (empty for no passphrase):</strong><br/><strong>Enter same passphrase again:</strong><br/><strong>Your identification has been saved in /etc/puppetlabs/puppetserver/ssh/id-control_repo.rsa.</strong><br/><strong>Your public key has been saved in /etc/puppetlabs/puppetserver/ssh/id-control_repo.rsa.pub.</strong><br/><strong>The key fingerprint is:</strong><br/><strong>SHA256:Random key root@server</strong><br/><strong>The key's randomart image is:</strong><br/><strong>+---[RSA 2048]----+</strong><br/><strong>Random Art</strong><br/><strong>+----[SHA256]-----+</strong><br/><br/><strong># Ensure pe-puppet owns the directory and the keys</strong><br/><strong>$sudo chown -R pe-puppet:pe-puppet /etc/puppetlabs/puppetserver/ssh</strong></pre>
+<p>The simplest way to enable Code Manager after the generation of a key is to enter the classification of a PE Master, underneath the PE Infrastructure in the Puppet Enterprise console. Add the following parameters under the <kbd>puppet_enterprise::profile::master</kbd> class:</p>
+<ul>
+<li><kbd>r10k_private_key</kbd>: Location of the private key generated and made available on the Puppet Master.</li>
+<li><kbd>r10k_remote</kbd>: Location of the control repository—should be a Git URL.</li>
+<li><kbd>code_manager_auto_configure</kbd>: Set to true. This lets Puppet set it up automatically.</li>
+<li><kbd>r10k_proxy</kbd> (Optional): Set the URL of a proxy to reach the Forge, if your master can only reach the internet via a proxy.</li>
+</ul>
+<p>An example of this classification without a proxy is as follows:</p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/83cdd2b7-febb-4d56-80b3-6ad1228f65e5.png" style="width:71.92em;height:17.83em;"/></div>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Some organizations would prefer to store their changes to Puppet in code, rather than in the PE console. The following code is also representative of the preceding changes, but the Puppet Master will fail to compile catalogs until <kbd>puppet_enterprise::profile::master</kbd> is removed from the PE console. To enable Code Manager with a profile instead of through the console, apply the following to the master, after removing the same class from the console: </p>
+<pre>class profile::pe_master {<br/><br/>  sshkey {'codemanager':<br/>    ensure =&gt; present,<br/>    key    =&gt; 'Long String of Private Key',<br/>    target =&gt; '/etc/puppetlabs/puppetserver/ssh/id-control_repo.rsa',<br/>    type   =&gt; 'ssh-rsa',<br/>  }<br/><br/>  class <span>puppet_enterprise::profile::master {<br/>    code_manager_auto_configure =&gt; true,<br/>    r10k_remote                 =&gt; 'git@git.ourcompany.com:control-repo.git',<br/>    r10k_private_key            =&gt; '/etc/puppetlabs/puppetserver/ssh/id-control_repo.rsa',<br/>  }<br/><br/>}<br/><br/></span></pre>
+<p>Each of these methods enables Code Manager on the master, enabling remote PE client tools to deploy environments from a separate workstation.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Code Manager RBAC</h1>
+                </header>
+            
+            <article>
+                
+<p>The simplest way to get started with Code Manager and RBAC is to add users to the existing user role, Code Deployers. Code Deployers have the ability to deploy any environment using the PE client tools. While this may seem too loose of a restriction at first, remember that Code Manager is only deploying an existing branch of the control repository. It is highly recommended not to prestage your code in Git, hoping that users do not run a code deployment and deploy the latest version of code. Code deployments should also be considered idempotent, and a user should be free to deploy environments at will, usually not overwriting any code at all if it is done by mistake.</p>
+<p>In the following example, I have added myself as a user, added the user to the <strong>Code Deployer</strong> role, and maintained the ability to deploy any environment:</p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/c9678104-92b3-4dc0-98da-21619fc70dd3.png" style="width:56.83em;height:16.50em;"/></div>
+<p>You can see the permission details in the following screenshot:</p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/016113b0-be46-4955-9097-befe2b838697.png" style="width:28.58em;height:18.58em;"/></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">PE client tools</h1>
+                </header>
+            
+            <article>
+                
+<p>Code Manager is utilized through the PE client tools. These tools are installed by default on the Puppet Master, but for security reasons, we'd rather install them on user workstations, to allow for the remote deployment of code and to keep users off the Puppet Master. The PE client tools provide us with two new commands: <kbd>puppet-access login</kbd> and <kbd>puppet-code deploy &lt;environment&gt;</kbd>.</p>
+<p class="mce-root"/>
+<p><kbd>puppet-access login</kbd> provides us with an RBAC token with a default lifetime of 5 minutes. Users can override this lifetime by adding the <kbd>--lifetime=&lt;time&gt;</kbd> flag to <kbd>puppet-access</kbd>. Time can be represented in minutes, hours, days, or years, with a number followed by <kbd>m</kbd>, <kbd>h</kbd>, <kbd>d</kbd>, or <kbd>y</kbd>, respectively. To give a half-day login, for example, a user should run <kbd>puppet-access login --lifetime=4h</kbd>. The maximum and default lifetime of these tokens is determined by the <kbd>puppet_enterprise::profile::console</kbd> class. The <kbd>rbac_token_auth_lifetime</kbd> parameter sets the default token that users will receive. <kbd>rbac_token_maximum_lifetime</kbd> sets the maximum lifetime of a token a user can request with the <kbd>--lifetime</kbd> flag. An organization should consider its standard login security practices before setting this value.</p>
+<p><kbd>puppet-code deploy &lt;environment&gt;</kbd> deploys a particular environment from the control repository, and can only be performed with a valid token from <kbd>puppet-access</kbd>. Once the token expires, the user will need to request access through <kbd>puppet-access</kbd> again. Adding the <kbd>-w</kbd> flag to <kbd>puppet-code deploy</kbd> will cause the deployment to wait and return a message about the status of the deployment. It is recommended that users run the <kbd>-w</kbd> flag when deploying manually, and omit it when a system runs a deploy automatically, such as a CI/CD system or a Git hook.</p>
+<p>The first step is to download the PE client tools from the <span class="packt_screen">Downloads</span> page of Puppet. It is provided for multiple operating systems, including Linux, macOS X, and Windows. </p>
+<p>There are both a system-level configuration file and a user-level configuration file that can be set for the PE client tools. User configurations will override system configurations. There are two files that we must manage for PE client tools: <kbd>puppet-access.conf</kbd> and <kbd>puppet-code.conf</kbd>.</p>
+<p>System-level configurations are contained at <kbd>C:/ProgramData/PuppetLabs/client-tools/</kbd> on Windows and <kbd>/etc/puppetlabs/client-tools</kbd> on all other operating systems. User configurations are contained at <kbd>~/.puppetlabs/client-tools</kbd> on all operating systems, which will override the system-level configurations.</p>
+<p>Both <kbd>puppet-access</kbd> and <kbd>puppet-login</kbd> require a valid CA for the web API. By default, this can be found at <kbd>/etc/puppetlabs/puppet/ssl/certs/ca.pem</kbd> on any agent connected to the appropriate Puppet Master. You should copy this file locally, if performing development on a machine not managed by Puppet.</p>
+<p class="mce-root"/>
+<p><kbd>puppet-access.conf</kbd> is used to provide configuration for the command <kbd>puppet-access login</kbd>, which connects to the Puppet Enterprise RBAC API, and grants a temporary login token to be used to deploy code. A <kbd>puppet-access.conf</kbd> usually contains at least the two following attributes:</p>
+<ul>
+<li><kbd>service-url</kbd>: The RBAC API URL for the Puppet Enterprise installation</li>
+<li><kbd>certificate-file</kbd>: A valid SSL certificate provided by the master</li>
+</ul>
+<pre><span>#puppet-access.conf<br/>{<br/></span>  "service-url"<span>: </span><span class="hljs-string">"https://pemaster.ourcompany.com:4433/rbac-api"</span><span>,</span><span><br/></span><span class="hljs-attr">  "certificate-file"</span><span>: </span><span class="hljs-string">"/etc/puppetlabs/puppet/ssl/certs/ca.pem"<br/></span><span>}</span></pre>
+<p><kbd>puppet-code.conf</kbd> is similar to <kbd>puppet-access.conf</kbd> in that it requires a certificate and a <kbd>service-url</kbd> to call. Two things should be noted about <kbd>puppet-code.conf</kbd> in comparison to <kbd>puppet-access.conf</kbd>. The first thing is that the service URL will be different. <kbd>puppet-access</kbd> calls the RBAC API, while <kbd>puppet-code</kbd> calls the code-manager API. Additionally, although both use the exact same certificate from the Puppet Master, you'll notice that <kbd>puppet-code.conf</kbd> calls it <kbd>cacert</kbd> instead of <kbd>certificate-file</kbd>:</p>
+<pre><span>#puppet-code.conf<br/></span>{<br/>  "service-url"<span>: </span><span class="hljs-string">"https://pemaster.ourcompany.com<span>:8170/code-manager</span>"</span><span>,</span><span><br/></span><span class="hljs-attr">  "cacert"</span><span>: </span><span class="hljs-string">"/etc/puppetlabs/puppet/ssl/certs/ca.pem"<br/></span><span>}</span></pre>
+<p>Once setup is complete, a user can use the Code Manager workflow to perform the following:</p>
+<ul>
+<li>Check out code</li>
+<li>Make changes</li>
+<li>Push it back to the origin</li>
+<li>Run <kbd>puppet-access login</kbd> to receive a token</li>
+<li>Run <kbd>puppet-code deploy</kbd> to deploy the environment</li>
+<li>Check results</li>
+<li>Repeat, if necessary</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Multitenant control repository</h1>
+                </header>
+            
+            <article>
+                
+<p>Larger organizations may need a multitenant setup of Puppet Enterprise Code Manager. While fundamentally, the workflow is the same, the way that we structure the control repository is slightly different.</p>
+<p>We attempt to minimize the impact of the control repository, turning it into a call to libraries of sorts. We want to position our control repository to store references to code, rather than code itself. Moving role and profile manifests to external repositories allows us to manage them as a versioned artifacts, and declare which version is available to each and every enviroinment directly. <span>Our control repository only contains the <kbd>Puppetfile</kbd>, things applied globally with <kbd>site.pp</kbd>, and values that we'd like to make available to the whole organization, to use in Hiera.</span></p>
+<p>We make a few minor changes to the workflow to facilitate larger groups, as follows:</p>
+<ul>
+<li>Roles and profiles are exported to standalone modules, tagged with versions, and imported by the <kbd>Puppetfile</kbd>.</li>
+<li>Only values that serve for use across multiple modules, such as LDAP settings, are maintained in the environment-level Hiera. All direct calls to a class, such as <kbd>profile::ntp::servers</kbd>, are stored in data, in modules in the appropriate repo (in this case, the profile repository).</li>
+</ul>
+<p>Roles and profiles are migrated to be standalone modules, and each team receives their own module, as well. These modules then incorporate their own robust Hiera layer in the module, and can be used to provide roles and profiles to each team. If we had a team developing an application called <kbd>myapp</kbd>, they would create a module called <kbd>myapp</kbd> and include a <kbd>role</kbd> and <kbd>profile</kbd> folder. Our namespacing changes a little bit, but allows us to look at modules as a collection of roles and profiles per team. The original <kbd>role</kbd> and <kbd>profile</kbd> repositories become a house for code commonly used by the whole organization, such as security baselines or web server defaults.</p>
+<p>The following code can then be produced by the <kbd>myapp</kbd> team, which provides the strengths of Hiera, roles, and profiles to each of these repositories:</p>
+<pre>class myapp::role::app_server {<br/>  # Global Baseline used by entire organization<br/>  include profile::baseline<br/>  # Profile generated specifically by myapp team<br/>  include myapp::profile::application<br/>}<br/><br/></pre>
+<pre>class myapp::profile::application {<br/>  # Profile has some custom code from the Myapp Team<br/>  include myapp::application<br/>  # Profile also uses the standard Webserver profile of the organization<br/>  include profile::webserver<br/>}</pre>
+<p>This methodology, combined with other practices in this chapter, such as protected branches, allows teams to work at different paces on different projects, while not holding other teams in the organization back. It limits the control repository to describing an environment, and opens up roles and profiles to receive code contributions from anywhere in the organization, with RBAC and governance in place to ensure that proper code reviews are performed before accepting code for the entire organization.</p>
+<p>Our significantly smaller control repository now looks as follows:</p>
+<pre><strong>$ tree control-repo</strong><br/><strong>control-repo</strong><br/><strong>├── hiera.yaml</strong><br/><strong>├── environment.conf</strong><br/><strong>├── Puppetfile</strong><br/><strong>├── data</strong><br/><strong>│   ├── common.yaml</strong><br/><strong>│ . └── datacenter</strong><br/><strong>│       ├── us.yaml</strong><br/><strong>│       ├── uk.yaml</strong><br/><strong>│       └── can.yaml</strong><br/><strong>└── manifests</strong><br/><strong> └── site.pp<br/></strong></pre>
+<p>And our team module acts like a small control repo for us, with a hiera hierarchy, roles and profiles:</p>
+<pre><strong>$ tree team</strong><br/><strong>team</strong><br/><strong>├── README.md</strong><br/><strong>├── hiera.yaml</strong><br/><strong>├── data</strong><br/><strong>│   ├── common.yaml</strong><br/><strong>│   └── os</strong><br/><strong>│       ├── RedHat.yaml</strong><br/><strong>│       ├── Ubuntu.yaml</strong><br/><strong>│       └── Windows.yaml</strong><br/><strong>│   └── datacenter</strong><br/><strong>│       ├── us.yaml</strong><br/><strong>│       ├── uk.yaml</strong><br/><strong>│       └── can.yaml</strong><br/><strong>├── files</strong><br/><strong>├── manifests</strong><br/><strong>│ ├── profile</strong><br/><strong>│ │ └── myapp.pp #team::profile::myapp</strong><br/><strong>│ └── role</strong><br/><strong>│ └── myapp.pp #team::role::myapp which includes team::profile::myapp</strong><br/><strong>├── metadata.json</strong><br/><strong>└── templates</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, we discussed Git, r10k, and Code Manager. We highlighted the logical separation of <kbd>production-like</kbd> and <kbd>non-production-like</kbd> environments. The contents of a control repository were laid out: <kbd>Puppetfile</kbd>, <kbd>hiera.yaml</kbd>, <kbd>environment.conf</kbd>, <kbd>site.pp</kbd>, and various types of code, such as <kbd>roles</kbd> and <kbd>profiles</kbd>. We covered enabling Code Manager and using the PE client tools to interact with Puppet Code Manager. Finally, we discussed a multitenant, Enterprise-focused control repository format that exports roles and profiles to standalone modules and uses data in modules to provide a Hiera hierarchy to each team in an organization.</p>
+<p>In the next chapter, we'll focus on integrating a workflow to our code development. We'll expand our work into the PDK and inspect good development practice.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

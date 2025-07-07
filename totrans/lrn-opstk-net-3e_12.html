@@ -1,0 +1,1008 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Distributed Virtual Routers</h1>
+                </header>
+            
+            <article>
+                
+<p><span>Prior to the introduction of Neutron in the Folsom release of OpenStack, all network management was built in to the Nova API and was known as <span class="KeyWordPACKT">nova-network</span>. Nova-network provided floating IP functionality, and network failure domains were limited to an individual compute node – something that was lacking in the early releases of Neutron. Nova-network has since been deprecated and most of its functionality has been implemented and improved upon in the latest releases of Neutron. In the last chapter, we looked at using VRRP to provide high-availability using active-standby routers. In this chapter, we will look at how distributed virtual routers borrow many concepts from the nova-network multi-host model to provide high-availability and smaller network failure domains while retaining support for many of the advanced networking features provided by Neutron.</span></p>
+<p>Legacy routers, including standalone and active-standby, are compatible with multiple mechanism drivers, including the Linux bridge and Open vSwitch drivers. Distributed virtual routers, on the other hand, require Open vSwitch and are only supported by the Open vSwitch mechanism driver and agent. Other drivers and agents, such as those for OVN or OpenContrail, may provide similar distributed routing functionality, but are out of the scope of this book.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Distributing routers across the cloud</h1>
+                </header>
+            
+            <article>
+                
+<p>Much like nova-network did with its multi-host functionality, Neutron can distribute a virtual router across compute nodes in an effort to isolate the failure domain to a particular compute node rather than a centralized network node. By eliminating a centralized Layer 3 agent, routing that was performed on a single node is now handled by the compute nodes themselves.</p>
+<p>Legacy routing using a centralized network node resembles the following diagram:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/23292ba5-2cd8-42f5-b08e-f694f82e0b1c.png" style="width:36.08em;height:23.17em;"/></div>
+<p>In the legacy model, traffic from the blue virtual machine to the red virtual machine on a different network would traverse a centralized network node hosting the router. If the node hosting the router were to fail, traffic between the instances and external networks or the instances themselves would be dropped.</p>
+<p>In this chapter, I will discuss the following:</p>
+<ul>
+<li>Installing and configuring additional L3 agents to support distributed virtual routers</li>
+<li>Demonstrating the creation and management of a distributed virtual router</li>
+<li>Routing between networks behind the same router</li>
+<li>Outbound connectivity using SNAT</li>
+<li>Inbound and outbound connectivity using floating IPs</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing and configuring Neutron components</h1>
+                </header>
+            
+            <article>
+                
+<p>To configure distributed virtual routers, there are a few requirements that must be met, including the following:</p>
+<ul>
+<li>ML2 plugin</li>
+<li>L2 population mechanism driver</li>
+<li>Open vSwitch mechanism driver</li>
+<li>Layer 3 agent installed on all networks and compute nodes</li>
+</ul>
+<p>In the environment built out in this book, a single controller node handles OpenStack API services, DHCP and metadata services, and runs the Linux bridge agent for use with standalone and HA routers. <kbd>compute01</kbd> runs the Linux bridge agent, while <kbd>compute02</kbd> and <kbd>compute03</kbd> run the Open vSwitch agent. Another node, <kbd>snat01</kbd>, will run the Open vSwitch agent and be responsible for outbound SNAT traffic when distributed virtual routers are used.</p>
+<p>A diagram of this configuration can be seen here:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/c7392b1b-1565-4f42-b61b-2de284f39ef5.png"/></p>
+<p>While the mixing of drivers and agents between nodes is possible thanks to the ML2 core plugin, a design like this is not typical in a production environment. Instances deployed on <kbd>compute01</kbd> may experience connectivity issues if deployed on a network using a distributed virtual router.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing additional L3 agents</h1>
+                </header>
+            
+            <article>
+                
+<p>Run the following command on <kbd>snat01</kbd> to install the <kbd>L3</kbd> agent:</p>
+<pre># apt install neutron-l3-agent</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Defining an interface driver</h1>
+                </header>
+            
+            <article>
+                
+<p>Open vSwitch and the Open vSwitch mechanism driver are required to enable and utilize distributed virtual routers.</p>
+<p>Update the Neutron L3 agent configuration file at <kbd><span class="CodeInTextPACKT">/etc/neutron/l3_agent.ini</span></kbd><span class="CodeInTextPACKT"> </span>on <kbd>snat01</kbd> and specify the following interface driver:</p>
+<pre>[DEFAULT]<br/>...<br/>interface_driver = openvswitch </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Enabling distributed mode</h1>
+                </header>
+            
+            <article>
+                
+<p>The ML2 plugin is required to operate distributed virtual routers and must be configured accordingly.</p>
+<p>Update the OVS configuration file at <kbd><span class="CodeInTextPACKT">/etc/neutron/plugins/ml2/openvswitch_agent.ini</span></kbd> on <kbd>compute02</kbd>, <kbd>compute03</kbd>, and <kbd>snat01</kbd> to enable the OVS agent to support distributed virtual routing and <kbd>L2</kbd> population:</p>
+<pre>[agent]<br/>...<br/>enable_distributed_routing = True<br/>l2_population = True </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Setting the agent mode</h1>
+                </header>
+            
+            <article>
+                
+<p>When using distributed virtual routers, a node can operate in one of two modes: <kbd><span class="CodeInTextPACKT">dvr</span></kbd> or <kbd><span class="CodeInTextPACKT">dvr_snat</span></kbd>. A node configured in <kbd><span class="CodeInTextPACKT">dvr_snat</span></kbd> mode handles north-south SNAT traffic, while a node in <kbd><span class="CodeInTextPACKT">dvr</span></kbd> mode handles north-south DNAT (for example, floating IP) traffic and east-west traffic between instances.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Compute nodes running the Open vSwitch agent run in <span class="CodeInTextPACKT">dvr</span> mode. A centralized network node typically runs in <kbd><span class="CodeInTextPACKT">dvr_snat</span></kbd> mode, and can potentially acts as a single point of failure for the network for instances not leveraging floating IPs.</p>
+<div class="packt_infobox">Neutron supports deploying highly-available <kbd><span class="CodeInTextPACKT">dvr_snat</span></kbd> nodes using VRRP, but doing so is outside the scope of this book.</div>
+<p>In this book, the <kbd>snat01</kbd> node will be dedicated to handling SNAT traffic when using distributed virtual routers, as <kbd>controller01</kbd> has been configured with the Linux bridge agent and is not an eligible host for DVR-related functions.</p>
+<p>On the <kbd>snat01</kbd> node, configure the L3 agent to operate in <kbd><span class="CodeInTextPACKT">dvr_snat</span></kbd> mode by modifying the <kbd><span class="CodeInTextPACKT">agent_mode</span></kbd> option in the L3 agent configuration file:</p>
+<pre>[DEFAULT]<br/>...<br/>agent_mode = dvr_snat </pre>
+<p>On the <kbd>compute02</kbd> and <kbd>compute03</kbd> nodes, modify the L3 agent to operate in <kbd><span class="CodeInTextPACKT">dvr</span></kbd> mode from <kbd><span class="CodeInTextPACKT">legacy</span></kbd> mode:</p>
+<pre>[DEFAULT]<br/>...<br/>agent_mode = dvr </pre>
+<p>On the <kbd>snat01</kbd>, <kbd>compute02</kbd>, and <kbd>compute03</kbd> nodes, set the <kbd><span class="CodeInTextPACKT">handle_internal_only_routers</span></kbd> configuration option to <kbd><span class="CodeInTextPACKT">false</span></kbd>:</p>
+<pre>[DEFAULT]<br/>...<br/>handle_internal_only_routers = false </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring Neutron</h1>
+                </header>
+            
+            <article>
+                
+<p>Neutron uses default settings to determine the type of routers that users are allowed to create as well as the number of routers that should be deployed across L3 agents.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>The following default settings are specified within the <kbd><span class="CodeInTextPACKT">neutron.conf</span></kbd> configuration file and only need to be modified on the host running the Neutron API service. In this environment, the <kbd><span class="CodeInTextPACKT">neutron-server</span></kbd> service runs on the <kbd>controller01</kbd> node. The default values can be seen here:</p>
+<pre># System-wide flag to determine the type of router<br/># that tenants can create.<br/># Only admin can override. (boolean value)<br/>#<br/># router_distributed = false </pre>
+<p>To set distributed routers as the default router type for projects, set the <span class="CodeInTextPACKT"><kbd>router_distributed</kbd>  </span>configuration option to <kbd><span class="CodeInTextPACKT">true</span></kbd>. For this demonstration, the default value of <kbd><span class="CodeInTextPACKT">false</span></kbd> is sufficient.</p>
+<p>Once the changes have been made, restart the <kbd><span class="CodeInTextPACKT">neutron-server</span></kbd> service on <kbd>controller01</kbd> for the changes to take effect:</p>
+<pre># systemctl restart neutron-server </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Restarting the Neutron L3 and Open vSwitch agent</h1>
+                </header>
+            
+            <article>
+                
+<p>After making changes to the configuration of the Neutron L3 and L2 agents, issue the following command on <kbd>compute02</kbd>, <kbd>compute03</kbd>, and <kbd>snat01</kbd> to restart the respective agents:</p>
+<pre><strong># systemctl restart neutron-l3-agent neutron-openvswitch-agent</strong> </pre>
+<p>After a restart of the services, the additional agents should check in. Use the following <kbd><span class="CodeInTextPACKT">openstack network agent list</span></kbd> command to return a listing of all L3 agents:</p>
+<pre><strong># openstack network agent list --agent-type="l3"</strong></pre>
+<p>The output should resemble the following:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/5759a2e8-1a1f-483d-b831-52b3a1198928.png"/></p>
+<p>If an agent is not listed in the output as expected, troubleshoot any errors that may be indicated in the<kbd><span class="CodeInTextPACKT">/var/log/neutron/l3-agent.log</span></kbd> log file on the respective node.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Managing distributed virtual routers</h1>
+                </header>
+            
+            <article>
+                
+<p>With a few exceptions, managing a distributed router is no different from its standalone counterpart. Neutron's router management commands were covered in <a href="371886b8-4c2a-49e9-90b8-8fe79217adb4.xhtml"><em><span class="ChapterrefPACKT">Chapter 10</span></em></a><span>, <em><span class="ItalicsPACKT">Creating Standalone Routers with Neutron</span></em>. The exceptions are covered in the following section.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating distributed virtual routers</h1>
+                </header>
+            
+            <article>
+                
+<p>Users with the <span class="CodeInTextPACKT">admin</span> role can create distributed virtual routers using the <kbd><span class="CodeInTextPACKT">--distributed</span></kbd> argument with the <kbd><span class="CodeInTextPACKT">openstack router create</span></kbd> command, as shown here:</p>
+<pre>openstack router create --distributed NAME </pre>
+<p>Users without the <span class="CodeInTextPACKT">admin</span> role are limited the router type specified by the <kbd><span class="CodeInTextPACKT">router_distributed</span></kbd> configuration option in the Neutron configuration file. Users do not have the ability to override the default router type and cannot specify the <kbd><span class="CodeInTextPACKT">--distributed</span></kbd> argument.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Routing east-west traffic between instances</h1>
+                </header>
+            
+            <article>
+                
+<p>In the network world, east-west traffic is traditionally defined as server-to-server traffic. In Neutron, as it relates to distributed virtual routers, east-west traffic is traffic between instances in different networks owned by the same project. In Neutron's legacy routing model, traffic between different networks traverses a virtual router located on a centralized network node. With DVR, the same traffic avoids the network node and is routed directly between the compute nodes hosting the virtual machine instances.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Reviewing the topology</h1>
+                </header>
+            
+            <article>
+                
+<p>Logically speaking, a distributed virtual router is a single router object connecting two or more project networks, as shown in the following diagram:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/e96b7f9d-f071-4cdb-8ccc-57861b9684f2.png" style="width:22.83em;height:23.75em;"/></p>
+<p>In the following example, a distributed virtual router named <kbd><span class="CodeInTextPACKT">MyDistributedRouter</span></kbd> has been created and connected to two project networks: <kbd><span class="CodeInTextPACKT">BLUE_NET</span></kbd> and <kbd><span class="CodeInTextPACKT">RED_NET</span></kbd>. Virtual machine instances in each network use their respective default gateways to route traffic to the other network through the same router. The virtual machine instances are unaware of where the router is located.</p>
+<p>A look under the hood, however, tells a different story. In the following example, the blue VM pings the red VM and traffic is routed and forwarded accordingly:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/f566fa0d-3573-4fda-afdf-f079a466f0fb.png" style="width:30.33em;height:23.08em;"/></p>
+<p>As far as the user is concerned, the router connecting the two networks is a single entity known as <kbd><span class="CodeInTextPACKT">MyDistributedRouter</span></kbd>:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/3bd87c91-f995-4d05-bf1d-c57f955d9c63.png"/></p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Using the <span class="CodeInTextPACKT"><kbd>ip netns exec</kbd> </span>command, we can see that the <kbd><span class="CodeInTextPACKT">qr</span></kbd> interfaces within the namespaces on each compute node and the <kbd>SNAT</kbd> node share the same interface names, IP addresses, and MAC addresses:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/9b89c623-86e4-42ae-857a-d5d7c0cb03d1.png" style="width:47.50em;height:40.42em;"/></div>
+<p>In the preceding screenshot, the <span class="CodeInTextPACKT">qrouter</span> namespaces on the <kbd>snat01</kbd> and <kbd>compute</kbd> nodes that correspond to the distributed router contain the same <kbd><span class="CodeInTextPACKT">qr-841d9818-bf</span></kbd> and <kbd><span class="CodeInTextPACKT">qr-d2ce8f82-d8</span></kbd> interfaces and addresses that correspond to the <kbd><span class="CodeInTextPACKT">BLUE_NET</span></kbd> and <span class="CodeInTextPACKT"><kbd>RED_NET</kbd> </span>networks. A creative use of routing tables and Open vSwitch flow rules allows traffic between instances behind the same distributed router to be routed directly between compute nodes. The tricks behind this functionality will be discussed in the following sections and throughout this chapter.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Plumbing it up</h1>
+                </header>
+            
+            <article>
+                
+<p>When a distributed virtual router is connected to a subnet using the <span class="CodeInTextPACKT">OpenStack <kbd>router add subnet</kbd></span> or <kbd><span class="CodeInTextPACKT">add port</span></kbd> <span>commands, the router is scheduled to <span class="ItalicsPACKT">all</span> nodes hosting ports on the subnet and running the Open vSwitch agent, including any controller or network node hosting DHCP or load balancer namespaces and any compute node hosting virtual machine instances in the subnet. The L3 agents are responsible for creating the respective</span> <kbd><span class="CodeInTextPACKT">qrouter</span></kbd> network namespace on each node, and the Open vSwitch agent connects the router interfaces to the bridges and configures the appropriate flows.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Distributing router ports</h1>
+                </header>
+            
+            <article>
+                
+<p>Without proper precautions, distributing ports with the same IP and MAC addresses across multiple compute nodes presents major issues in the network. Imagine a physical topology that resembles the following diagram:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/b4d17ae3-2c7b-4c05-9638-952215a6e9a7.png" style="width:39.67em;height:26.75em;"/></p>
+<p><span>In most networks, an environment consisting of multiple routers with the same IP and MAC address connected to a switch would result in the switches learning and relearning the location of the MAC addresses across different switch ports. This behavior is often referred to as <span class="KeyWordPACKT">MAC flapping</span> and results in network instability and unreliability.</span></p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Virtual switches can exhibit the same behavior regardless of segmentation type, as the virtual switch may learn that a MAC address exists both locally on the compute node and remotely, resulting in similar behavior that is observed on the physical switch.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Making it work</h1>
+                </header>
+            
+            <article>
+                
+<p>To work around this expected network behavior, Neutron allocates a unique MAC address to each compute node that is used whenever traffic from a distributed virtual router leaves the node. The following screenshot shows the unique MAC addresses that have been allocated to the nodes in this demonstration:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/e24d08a1-b5cf-4c4d-b8b2-6d859920ddd5.png"/></p>
+<p>Open vSwitch flow rules are used to rewrite the source MAC address of a packet as it leaves a router interface with the unique MAC address allocated to the respective host. In the following screenshot, a look at the flows on the provider bridge of <kbd>compute02</kbd> demonstrates the rewriting of the non-unique <kbd><span class="CodeInTextPACKT">qr</span></kbd> interface MAC address with the unique MAC address assigned to <kbd>compute02</kbd>:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/1002a811-f119-4d2c-a1c3-dfed467cacac.png"/></p>
+<p>Likewise, when traffic comes in to a compute node that matches a local virtual machine instance's MAC address and segmentation ID, the source MAC address is rewritten from the unique source host MAC address to the local instance's gateway MAC address:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/0dbc6f49-6fa8-4a8f-b6d0-a2bd256f912c.png"/></p>
+<p><span>Because the Layer 2 header rewrites occur <span class="ItalicsPACKT">before</span> traffic enters and <span class="ItalicsPACKT">after</span> traffic leaves the virtual machine instance, the instance is unaware of the changes made to the frames and operates normally. The following section demonstrates this process in further detail.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Demonstrating traffic between instances</h1>
+                </header>
+            
+            <article>
+                
+<p>Imagine a scenario where virtual machines in different networks exist on two different compute nodes, as demonstrated in the following diagram:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/8eebe763-af14-40c5-804d-4896181297d0.png" style="width:38.00em;height:30.00em;"/></p>
+<p>Traffic from the blue virtual machine instance on <span class="packt_screen"><span class="packt_screen">Compute</span> A</span> to the red virtual machine instance on <span class="packt_screen">Compute B</span> will first be forwarded from the instance to its local gateway through the integration bridge and to the router namespace, as shown here:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/b47c3150-7e30-4833-8c5d-c73638f88947.png" style="width:44.33em;height:34.00em;"/></p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td>
+<p class="TableColumnHeadingPACKT CDPAlignCenter CDPAlign"><strong>Source MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Destination MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Source IP</strong></p>
+</td>
+<td>
+<p class="TableColumnHeadingPACKT CDPAlignCenter CDPAlign"><strong>Destination IP</strong></p>
+</td>
+</tr>
+<tr>
+<td>
+<p class="TableColumnContentPACKT">Blue VM</p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Blue router interface</p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Blue VM</p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Red VM</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>The router on <span class="packt_screen">Compute A</span> will route the traffic from the <span class="packt_screen">blue VM</span> to the <span class="packt_screen">red VM</span>, replacing the source MAC address with its red interface and the destination MAC address to that of the <span class="packt_screen">red VM</span> in the process:</p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Source MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Destination MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Source IP</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Destination IP</strong></p>
+</td>
+</tr>
+<tr>
+<td>
+<p class="TableColumnContentPACKT"><span class="ItalicsPACKT">Red router interface</span></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT"><span class="ItalicsPACKT">Red VM</span></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Blue VM</p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Red VM</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p>The router then sends the packet back to the integration bridge, which then forwards it to the provider bridge, as shown here:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/e8dc1472-2887-4d5c-99f3-3a8ea8d1da5b.png" style="width:36.33em;height:27.83em;"/></p>
+<p>As traffic arrives at the provider bridge of <span class="packt_screen">ComputeA</span>, a series of flow rules are processed, resulting in the source MAC address being changed from the red interface of the router to the unique MAC address of the host:</p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td>
+<p class="TableColumnHeadingPACKT"><strong>Source MAC</strong></p>
+</td>
+<td>
+<p class="TableColumnHeadingPACKT"><strong>Destination MAC</strong></p>
+</td>
+<td>
+<p class="TableColumnHeadingPACKT"><strong>Source IP</strong></p>
+</td>
+<td>
+<p class="TableColumnHeadingPACKT"><strong>Destination IP</strong></p>
+</td>
+</tr>
+<tr>
+<td>
+<p class="TableColumnContentPACKT"><span class="ItalicsPACKT">Source host (Compute A)</span></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Red VM</p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Blue VM</p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Red VM</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p>The traffic is then forwarded out onto the physical network and over to <span class="packt_screen">Compute B</span>:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/d6d6c107-c126-4dd4-8cd5-d033e6900a46.png" style="width:42.75em;height:32.67em;"/></div>
+<p>When traffic arrives at <span class="packt_screen">Compute B</span>, it is forwarded through the provider bridge. A flow rule adds a local VLAN header that allows traffic to be matched when it is forwarded to the integration bridge:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/a32b1323-db6a-4d84-bfe6-90c33a393ed8.png" style="width:42.92em;height:32.92em;"/></div>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Source MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Destination MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Source IP</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Destination IP</strong></p>
+</td>
+</tr>
+<tr>
+<td>
+<p class="TableColumnContentPACKT">Source host (Compute A)</p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Red VM</p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Blue VM</p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Red VM</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p>In the integration bridge, a flow rule strips the local VLAN tag and changes the source MAC address back to that of the router's red interface. The packet is then forwarded to the red VM:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/44741845-6b41-4c39-893f-6f2302debc8f.png" style="width:38.33em;height:29.33em;"/></div>
+<p class="LayoutInformationPACKT"/>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td>
+<p class="TableColumnHeadingPACKT CDPAlignCenter CDPAlign"><strong>Source MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Destination MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Source IP</strong></p>
+</td>
+<td>
+<p class="TableColumnHeadingPACKT CDPAlignCenter CDPAlign"><strong>Destination IP</strong></p>
+</td>
+</tr>
+<tr>
+<td>
+<p class="TableColumnContentPACKT"><span class="ItalicsPACKT">Red router interface</span></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Red VM</p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Blue VM</p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Red VM</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>Return traffic from the red VM to the blue VM undergoes a similar routing path through the respective routers and bridges on each compute node.</p>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Centralized SNAT</h1>
+                </header>
+            
+            <article>
+                
+<p>Source NAT, or SNAT for short, is the method of changing the source address of a packet as it leaves the interface of a router. When a Neutron router is allocated an IP address from an external network, that IP is used to represent traffic that originates from virtual machine instances behind the router that do not have a floating IP. All routers in Neutron, whether they are standalone, highly-available, or distributed, support SNAT and masquerade traffic originating behind the router when floating IPs are not used.</p>
+<div class="packt_infobox">By default, routers that handle SNAT are centralized on a single node and are not highly available, resulting in a single point of failure for a given network. As a workaround, multiple nodes may be configured in <kbd><span class="CodeInTextPACKT">dvr_snat</span></kbd> mode. Neutron supports the ability to leverage VRRP to provide highly-available SNAT routers, however, the feature is experimental and is not discussed in this book.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Reviewing the topology</h1>
+                </header>
+            
+            <article>
+                
+<p>In this DVR SNAT demonstration, the following provider and project networks will be used:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/b2d32260-1aee-43d7-be47-16e8bb43c510.png"/></p>
+<p>Using the <span class="CodeInTextPACKT">-<kbd>-distributed</kbd></span> argument, a distributed virtual router has been created:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/c8adb6aa-376b-46bb-bd13-0f9110c6d780.png" style="width:46.08em;height:27.08em;"/></p>
+<p>In this environment, the L3 agent on the host <kbd>snat01</kbd> is in <kbd><span class="CodeInTextPACKT">dvr_snat</span></kbd> mode and serves as the centralized <kbd>SNAT</kbd> node. Attaching the router to the project network <kbd><span class="CodeInTextPACKT">GREEN_NET</span></kbd> results in the router being scheduled to the <kbd>snat01</kbd> host:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/4f296eb7-3978-4eb5-8014-5661ebdf3e89.png" style="width:62.67em;height:10.08em;"/></p>
+<p>When an instance is spun up in the <kbd><span class="CodeInTextPACKT">GREEN_NET</span></kbd> network, the router is also scheduled to the respective compute node.</p>
+<p>At this point, both the <kbd>snat01</kbd> and <kbd>compute03</kbd> nodes each have a <kbd><span class="CodeInTextPACKT">qrouter</span></kbd> namespace that corresponds to the <kbd><span class="CodeInTextPACKT">MyOtherDistributedRouter</span></kbd> router. Attaching the router to the external network results in the creation of a <kbd><span class="CodeInTextPACKT">snat</span></kbd> <span>namespace on the <kbd>snat01</kbd> node. Now, on the <kbd>snat01</kbd> node, <span class="ItalicsPACKT">two</span> namespaces exist for the same router –</span> <kbd><span class="CodeInTextPACKT">snat</span></kbd> and <kbd><span class="CodeInTextPACKT">qrouter</span></kbd>:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/ffd6a9a0-1431-4944-9edf-bc6dc32a2898.png" style="width:27.75em;height:6.33em;"/></div>
+<p>This configuration can be represented by the following diagram:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/7b709011-fe7d-4c2c-8426-7a9fea9566a1.png" style="width:35.42em;height:29.92em;"/></div>
+<p>The <kbd><span class="CodeInTextPACKT">qrouter</span></kbd> namespace on the <kbd>snat01</kbd> node is configured similarly to the <kbd><span class="CodeInTextPACKT">qrouter</span></kbd> namespace on the <kbd>compute03</kbd> node. The <kbd><span class="CodeInTextPACKT">snat</span></kbd> namespace is for the centralized SNAT service.</p>
+<p class="mce-root"/>
+<p>On the <kbd>snat01</kbd> node, observe the interfaces inside the <kbd><span class="CodeInTextPACKT">qrouter</span></kbd> namespace:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/eeaf895d-0961-4ea3-af54-3065c378bddc.png"/></div>
+<p>Unlike the <kbd><span class="CodeInTextPACKT">qrouter</span></kbd> namespace of a legacy router, there is no <kbd><span class="CodeInTextPACKT">qg</span></kbd> interface, even though the router was attached to the external network.</p>
+<p>However, taking a look inside the <kbd><span class="CodeInTextPACKT">snat</span></kbd> namespace, we can find the <kbd><span class="CodeInTextPACKT">qg</span></kbd> interface that is used to handle outgoing traffic from instances:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/4ed72fc1-3ae4-4ef8-8c95-2f9c90249f6d.png"/></p>
+<p>In addition to the <kbd><span class="CodeInTextPACKT">qg</span></kbd> interface, there is now a new interface with the prefix of <kbd><span class="CodeInTextPACKT">sg</span></kbd>. A virtual router will have a <kbd><span class="CodeInTextPACKT">qr</span></kbd> interface and the new <kbd><span class="CodeInTextPACKT">sg</span></kbd> <span>interface for <span class="ItalicsPACKT">every</span> internal network it is connected to. The</span> <kbd><span class="CodeInTextPACKT">sg</span></kbd> interfaces are used as an extra hop when traffic is source NAT'd, which will be explained in further detail in the following sections.</p>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using the routing policy database</h1>
+                </header>
+            
+            <article>
+                
+<p>When a virtual machine instance without a floating IP sends traffic destined to an external network such as the internet, it hits the local <kbd><span class="CodeInTextPACKT">qrouter</span></kbd> namespace on the compute node and is routed to the <kbd><span class="CodeInTextPACKT">snat</span></kbd> namespace on the centralized <kbd>network</kbd> node. To accomplish this task, special routing rules are put in place within the <kbd><span class="CodeInTextPACKT">qrouter</span></kbd> namespaces.</p>
+<p><span>Linux offers a <span class="KeyWordPACKT">routing policy database</span> made up of multiple routing tables and rules that allow for intelligent routing based on destination and source addresses, IP protocols, ports, and more. There are source routing rules for every subnet a virtual router is attached to.</span></p>
+<p>In this demonstration, the router is attached to a single project network: <kbd>172.24.100.0/24</kbd>. Take a look at the main routing within the <kbd><span class="CodeInTextPACKT">qrouter</span></kbd> namespace on <kbd>compute01</kbd>:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/1493007e-84b0-406b-b282-e03bc7719843.png" style="width:47.42em;height:4.33em;"/></p>
+<p>Notice how there is no default route in the main routing table.</p>
+<p>On the compute node, use the <kbd><span class="CodeInTextPACKT">ip rule</span></kbd> command from within the <span class="CodeInTextPACKT">qrouter</span> namespace to list additional routing tables and rules created by the Neutron agent:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/21123baa-9601-4424-963e-c1c0a60da20c.png" style="width:44.67em;height:6.17em;"/></p>
+<p>The table numbered <kbd><span class="CodeInTextPACKT">2887279617</span></kbd> was created by Neutron. The additional routing table is consulted and a default route is found:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/7b8e400d-d647-4acd-ad70-223ae37d287a.png" style="width:51.08em;height:3.17em;"/></p>
+<p>From that output, we can see that <kbd>172.24.100.11</kbd> is the default gateway address and corresponds to the <kbd><span class="CodeInTextPACKT">sq</span></kbd> interface within the <kbd><span class="CodeInTextPACKT">snat</span></kbd> namespace on the centralized node. When traffic reaches the <kbd><span class="CodeInTextPACKT">snat</span></kbd> namespace, the source NAT is performed and the traffic is routed out of the <kbd><span class="CodeInTextPACKT">qg</span></kbd> interface.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Tracing a packet through the SNAT namespace</h1>
+                </header>
+            
+            <article>
+                
+<p>In the following example, the green VM sends traffic to <kbd>8.8.8.8</kbd>, a Google DNS server:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/dda3f8c0-163e-40e3-b906-e1aa7c7025a9.png" style="width:36.17em;height:30.50em;"/></p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td>
+<p class="TableColumnHeadingPACKT CDPAlignCenter CDPAlign"><strong>Source MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Destination MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Source IP</strong></p>
+</td>
+<td>
+<p class="TableColumnHeadingPACKT CDPAlignCenter CDPAlign"><strong>Destination IP</strong></p>
+</td>
+</tr>
+<tr>
+<td>
+<p class="TableColumnContentPACKT">Green VM</p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Green Router Interface (<kbd><span class="CodeInTextPACKT">qr1</span></kbd>)</p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Green VM</p>
+</td>
+<td>
+<p class="TableColumnContentPACKT"><kbd>8.8.8.8</kbd></p>
+<p class="TableColumnContentPACKT">(Google DNS)</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>When traffic arrives at the local <span class="CodeInTextPACKT">qrouter</span> <span>namespace, the main routing table is consulted. The destination IP, <kbd>8.8.8.8</kbd>, does not match any directly connected subnet, and a default route does not exist. Secondary routing tables are then consulted, and a match is found based on the <span class="ItalicsPACKT">source interface</span>. The router then routes the traffic from the green VM to the green interface of the <kbd>SNAT</kbd> namespace,</span> <kbd><span class="CodeInTextPACKT">sg1</span></kbd>, through the east-west routing mechanisms covered earlier in this chapter:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/8bb3c752-d12c-49a9-bf1d-5a0a4f922ff5.png" style="width:42.75em;height:36.42em;"/></p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Source MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Destination MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Source IP</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Destination IP</strong></p>
+</td>
+</tr>
+<tr>
+<td>
+<p class="TableColumnContentPACKT"><span class="ItalicsPACKT">Green Router Interface (</span><span class="CodeInTextPACKT">qr1</span><span class="ItalicsPACKT">)</span></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT"><span class="ItalicsPACKT">Green SNAT Interface (</span><span class="CodeInTextPACKT">sg1</span><span class="ItalicsPACKT">)</span></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Green VM</p>
+</td>
+<td>
+<p class="TableColumnContentPACKT"><kbd>8.8.8.8</kbd></p>
+<p class="TableColumnContentPACKT">(Google DNS)</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p>When traffic enters the <span class="CodeInTextPACKT">snat</span> namespace, it is routed out to the <kbd><span class="CodeInTextPACKT">qg</span></kbd> interface. The <kbd>iptables</kbd> rules within the namespace change the source IP and MAC address to that of the <kbd><span class="CodeInTextPACKT">qg</span></kbd> interface to ensure traffic is routed back properly:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/5e99d675-8d50-46ef-8378-250891d3a0c4.png" style="width:39.67em;height:33.92em;"/></div>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td>
+<p class="TableColumnHeadingPACKT CDPAlignCenter CDPAlign"><strong>Source MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Destination MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Source IP</strong></p>
+</td>
+<td>
+<p class="TableColumnHeadingPACKT CDPAlignCenter CDPAlign"><strong>Destination IP</strong></p>
+</td>
+</tr>
+<tr>
+<td>
+<p class="TableColumnContentPACKT"><span class="ItalicsPACKT">External SNAT Interface (</span><kbd><span class="CodeInTextPACKT">qg</span></kbd><span class="ItalicsPACKT">)</span></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT"><span class="ItalicsPACKT">Physical Default Gateway</span></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT"><span class="ItalicsPACKT">External SNAT Interface (</span><kbd><span class="CodeInTextPACKT">qg</span></kbd><span class="ItalicsPACKT">)</span></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT"><kbd>8.8.8.8</kbd></p>
+<p class="TableColumnContentPACKT">(Google DNS)</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>When the remote destination responds, a combination of flow rules on the centralized network node and compute node, along with data stored in the connection tracking and NAT tables, ensures the response is routed back to the green VM with the proper IP and MAC addresses in place.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Floating IPs through distributed virtual routers</h1>
+                </header>
+            
+            <article>
+                
+<p>In the network world, north-south traffic is traditionally defined as client-to-server traffic. In Neutron, as it relates to distributed virtual routers, north-south traffic is traffic that originates from an external network to virtual machine instances using floating IPs, or vice versa.</p>
+<p>In the legacy model, all traffic to or from external clients traverses a centralized network node hosting a router with floating IPs. With DVR, the same traffic avoids the network node and is routed directly to the compute node hosting the virtual machine instance. This functionality requires compute nodes to be connected directly to external networks through an external bridge <span>–</span> a configuration that up until now has only been seen on nodes hosting standalone or highly-available routers.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Introducing the FIP namespace</h1>
+                </header>
+            
+            <article>
+                
+<p>Unlike SNAT traffic, traffic through a floating IP with DVR is handled on the individual compute nodes rather than a centralized node. When a floating IP is attached to a virtual machine instance, the L3 agent on the compute node creates a new <kbd><span class="CodeInTextPACKT">fip</span></kbd> namespace that corresponds to the external network the floating IP belongs to if one doesn't already exist:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/5809684a-c9e8-4b36-ba53-a3a64e64c51e.png" style="width:52.83em;height:7.50em;"/></p>
+<p><span>Any router namespace on a compute node connected to the <span class="ItalicsPACKT">same</span> external network shares a single</span> <span class="CodeInTextPACKT">fip</span> namespace and is connected to the namespace using a veth pair. The veth pairs are treated as point-to-point links between the <span class="CodeInTextPACKT">fip</span> namespace and individual <span class="CodeInTextPACKT">qrouter</span> namespaces, and are addressed as <kbd>/31</kbd> networks using a common <kbd>169.254/16</kbd> link-local address space. Because the network connections between the namespaces exist only within the nodes themselves and are used as point-to-point links, a Neutron project network allocation is not required.</p>
+<p>In the <kbd><span class="CodeInTextPACKT">qrouter</span></kbd> namespace, one end of the veth pair has the prefix <kbd><span class="CodeInTextPACKT">rfp</span></kbd>, meaning router-to-FIP:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/8fb7d188-2416-411b-8980-dcd8986275c1.png" style="width:67.75em;height:25.50em;"/></div>
+<p>Inside the <kbd><span class="CodeInTextPACKT">fip</span></kbd> namespace, the other end of the veth pair has the prefix <kbd><span class="CodeInTextPACKT">fpr</span></kbd>, meaning FIP-to-router:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/a3e2b5bd-bf5f-47f6-96b9-df5e58419ece.png" style="width:61.58em;height:30.17em;"/></p>
+<p>In addition to the <kbd><span class="CodeInTextPACKT">fpr</span></kbd> interface, a new interface with the prefix <span class="CodeInTextPACKT">fg</span> can be found inside the <span class="CodeInTextPACKT">FIP</span> namespace. The <kbd><span class="CodeInTextPACKT">rfp</span></kbd>, <kbd><span class="CodeInTextPACKT">fpr</span></kbd>, and <kbd><span class="CodeInTextPACKT">fg</span></kbd> interfaces will be discussed in the following sections.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Tracing a packet through the FIP namespace</h1>
+                </header>
+            
+            <article>
+                
+<p>When a floating IP is assigned to an instance, a couple of things occur:</p>
+<ul>
+<li>A <span class="CodeInTextPACKT">fip</span> namespace for the external network is created on the compute node if one doesn't exist.</li>
+<li>The route table within the <span class="CodeInTextPACKT">qrouter</span> namespace on the compute node is modified.</li>
+</ul>
+<p>The following sections demonstrate how traffic to and from floating IPs is processed.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Sending traffic from an instance with a floating IP</h1>
+                </header>
+            
+            <article>
+                
+<p>Imagine a scenario where a floating IP, <kbd>10.30.0.107</kbd>, has been assigned to the green VM represented in the following diagram:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/c610d0b5-26a0-4fa4-bc44-a758bad49bba.png" style="width:33.83em;height:33.08em;"/></p>
+<p>When the green virtual machine instance at <kbd>172.24.100.6</kbd> sends traffic to an external resource, it first arrives at the local <kbd><span class="CodeInTextPACKT">qrouter</span></kbd> namespace:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/a286ad14-006c-4ccd-9dd4-09bd00ac3c87.png" style="width:34.58em;height:32.25em;"/></div>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td>
+<p class="TableColumnHeadingPACKT CDPAlignCenter CDPAlign"><strong>Source MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Destination MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Source IP</strong></p>
+</td>
+<td>
+<p class="TableColumnHeadingPACKT CDPAlignCenter CDPAlign"><strong>Destination IP</strong></p>
+</td>
+</tr>
+<tr>
+<td>
+<p class="TableColumnContentPACKT">Green VM</p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Green <span class="CodeInTextPACKT">qr</span> interface</p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Green VM Fixed IP</p>
+<p class="TableColumnContentPACKT">(172.24.100.6)</p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">8.8.8.8</p>
+<p class="TableColumnContentPACKT">(Google DNS)</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>When traffic arrives at the local <span class="CodeInTextPACKT">qrouter</span> namespace, the routing policy database is consulted so that traffic may be routed accordingly. Upon association of the floating IP to a port, a source routing rule is added to the route table within the <span class="CodeInTextPACKT">qrouter</span> namespace:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/f0f39a25-fb08-43d0-996a-d3d8e26b3a8b.png" style="width:44.17em;height:7.33em;"/></div>
+<p>The main routing table inside the <span class="CodeInTextPACKT">qrouter</span> namespace with a higher priority does not have a default route, so the <span class="CodeInTextPACKT"><kbd>57481:</kbd> from <kbd>172.24.100.6</kbd> lookup 16</span> rule is matched instead.</p>
+<p>A look at the referenced routing table, table 16, shows the <span class="CodeInTextPACKT">fip</span> namespace's <span class="CodeInTextPACKT"><kbd>fpr</kbd> </span>interface is the default route for traffic sourced from the fixed IP of the instance:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/8a840447-86e8-4b77-b022-b3331f4d5bc6.png"/></div>
+<p>The <span class="CodeInTextPACKT">qrouter</span> namespace performs the NAT translation of the fixed IP to the floating IP and sends the traffic to the <span class="CodeInTextPACKT">fip</span> namespace, as demonstrated in the following diagram:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/82e9aa42-5732-4aba-9cd0-d2a44e970a8f.png" style="width:36.25em;height:34.25em;"/></div>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Source MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Destination MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Source IP</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Destination IP</strong></p>
+</td>
+</tr>
+<tr>
+<td>
+<p class="TableColumnContentPACKT"><kbd><span class="CodeInTextPACKT">rfp</span></kbd> <span class="ItalicsPACKT">interface</span></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT"><kbd><span class="CodeInTextPACKT">fpr</span></kbd> <span class="ItalicsPACKT">interface</span></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT"><span class="ItalicsPACKT">Green VM Floating IP</span></p>
+<p class="TableColumnContentPACKT"><span class="ItalicsPACKT">(<kbd>10.30.0.107</kbd>)</span></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">8.8.8.8</p>
+<p class="TableColumnContentPACKT">(Google DNS)</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>Once traffic arrives at the <kbd><span class="CodeInTextPACKT">fip</span></kbd> namespace, it is forwarded thru the <kbd><span class="CodeInTextPACKT">fg</span></kbd> interface to its default gateway:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/ea44db9d-3220-4e0c-aba5-efbb36661c61.png" style="width:35.58em;height:34.17em;"/></div>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Source MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Destination MAC</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Source IP</strong></p>
+</td>
+<td class="CDPAlignCenter CDPAlign">
+<p class="TableColumnHeadingPACKT"><strong>Destination IP</strong></p>
+</td>
+</tr>
+<tr>
+<td>
+<p class="TableColumnContentPACKT"><kbd><span class="CodeInTextPACKT">fg</span></kbd> <span class="ItalicsPACKT">interface</span></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT"><span class="ItalicsPACKT">Physical Default Gateway</span></p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">Green VM Floating IP</p>
+<p class="TableColumnContentPACKT">(<kbd>10.30.0.107</kbd>)</p>
+</td>
+<td>
+<p class="TableColumnContentPACKT">8.8.8.8</p>
+<p class="TableColumnContentPACKT">(Google DNS)</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Returning traffic to the floating IP</h1>
+                </header>
+            
+            <article>
+                
+<p>If you recall from earlier in this chapter, a single <kbd><span class="CodeInTextPACKT">fip</span></kbd> namespace on a compute node is shared by every <kbd><span class="CodeInTextPACKT">qrouter</span></kbd> namespace on that node connected to the external network. Much like a standalone or highly-available router has an IP address from the external network on its <kbd><span class="CodeInTextPACKT">qg</span></kbd> interface, each <kbd><span class="CodeInTextPACKT">fip</span></kbd> namespace has a single IP address from the external network configured on its <kbd><span class="CodeInTextPACKT">fg</span></kbd> interface.</p>
+<p>On <kbd>compute03</kbd>, the IP address is <kbd>10.30.0.113</kbd>:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/be0a4b2c-6d48-4a4e-861e-c7cfdc6b9a6a.png" style="width:63.92em;height:31.33em;"/></p>
+<p>Unlike a legacy router, the <span class="CodeInTextPACKT">qrouter</span> <span>namespaces of distributed routers do <span class="ItalicsPACKT">not</span> have direct connectivity to the external network. However, the</span> <span class="CodeInTextPACKT">qrouter</span> namespace is still responsible for performing the NAT from the fixed IP to the floating IP. Traffic is then routed to the <kbd><span class="CodeInTextPACKT">fip</span></kbd> namespace and, from there on out, to the external network.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using proxy ARP</h1>
+                </header>
+            
+            <article>
+                
+<p>Floating IPs are configured on the <kbd><span class="CodeInTextPACKT">rfp</span></kbd> interface within the <kbd><span class="CodeInTextPACKT">qrouter</span></kbd> <span>namespace, but are <span class="ItalicsPACKT">not</span> directly reachable from the gateway of the external network, since the</span> <kbd><span class="CodeInTextPACKT">fip</span></kbd> namespace sits between the <kbd><span class="CodeInTextPACKT">qrouter</span></kbd> <span>namespace and the external network.</span></p>
+<p class="mce-root"/>
+<p><span>To allow for the routing of traffic through the <kbd>fip</kbd> namespace back to the <kbd>qrouter</kbd> namespace, Neutron relies on the use of <span class="KeyWordPACKT">proxy arp</span>. By automatically enabling proxy arp on the</span> <kbd><span class="CodeInTextPACKT">fg</span></kbd> interface, the <kbd><span class="CodeInTextPACKT">fip</span></kbd> namespace is able to respond to ARP requests for the floating IP, on behalf of the floating IP, from the upstream gateway device.</p>
+<p>When traffic is routed from the gateway device to the <kbd><span class="CodeInTextPACKT">fip</span></kbd> namespace, the routing table is consulted and traffic is routed to the respective <kbd><span class="CodeInTextPACKT">qrouter</span></kbd> namespace:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/595f662d-d3b3-491e-8b07-4369a6fa9f1f.png" style="width:54.42em;height:6.75em;"/></div>
+<p>The following diagram demonstrates how proxy arp works in this scenario:</p>
+<div class="packt_figure CDPAlignCenter CDPAlign"><img src="assets/02c50add-6d56-45a1-add8-a863854d72ae.png" style="width:47.92em;height:32.50em;"/></div>
+<p>The <kbd><span class="CodeInTextPACKT">fg</span></kbd> interface within the <kbd><span class="CodeInTextPACKT">fip</span></kbd> <span>namespace responds on <span class="ItalicsPACKT">behalf</span> of the</span> <kbd><span class="CodeInTextPACKT">qrouter</span></kbd> namespace since <kbd><span class="CodeInTextPACKT">qrouter</span></kbd> is not directly connected to the external network. The use of a single <kbd><span class="CodeInTextPACKT">fip</span></kbd> namespace and proxy arp eliminates the need to provide each <kbd><span class="CodeInTextPACKT">qrouter</span></kbd> namespace with its own IP address from the external network, which reduces unnecessary IP address consumption and makes more floating IPs available for use by virtual machine instances and other network resources.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>Distributed virtual routers have a positive impact on the network architecture as a whole by avoiding bottlenecks and single points of failure seen in the legacy model. Both east/west and north/south traffic can be routed and forwarded between compute nodes, resulting in a more efficient and resilient network. SNAT traffic is limited to a centralized node, but highly-available SNAT routers are currently available in an experimental status and will be production-ready in future releases of OpenStack.</p>
+<p>While distributed virtual routers help provide parity with nova-network's multi-host capabilities, they are operationally complex and considerably more difficult to troubleshoot if things go wrong when compared to a standalone or highly-available router.</p>
+<p>In the next chapter, we will look at the advanced networking service known as load balancing as-a-service, or LBaaS, and its reference architecture using the <kbd>haproxy</kbd> plugin. LBaaS allows users to create and manage load balancers that can distribute workloads across multiple virtual machine instances. Using the Neutron API, users can quickly scale their application while providing resiliency and high availability.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>
