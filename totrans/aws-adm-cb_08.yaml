@@ -1,1362 +1,2015 @@
 - en: Security and Identity
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 安全性和身份
 - en: 'In this chapter, we will cover:'
+  id: totrans-1
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们将涵盖：
 - en: Federating with your AWS account
+  id: totrans-2
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 与AWS账户联合
 - en: Creating SSL certificates
+  id: totrans-3
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 创建SSL证书
 - en: Active Directory as a service
+  id: totrans-4
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 作为服务的活动目录
 - en: Creating users
+  id: totrans-5
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 创建用户
 - en: Creating instance roles
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 创建实例角色
 - en: Cross-account user roles
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 跨账户用户角色
 - en: Storing secrets
+  id: totrans-8
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 存储密钥
 - en: Introduction
+  id: totrans-9
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 介绍
 - en: Security is one of the most critical areas of using the cloud. It's important
     to get it right because good security practices reinforce themselves, leading
     to a virtuous cycle of capabilities and control.
+  id: totrans-10
   prefs: []
   type: TYPE_NORMAL
+  zh: 安全性是使用云服务时最关键的领域之一。确保安全性做得好非常重要，因为良好的安全实践会相互强化，导致能力和控制的良性循环。
 - en: There are many tools and AWS services to ensure that your cloud-based infrastructure
     is as secure—if not more secure—than your own resources.
+  id: totrans-11
   prefs: []
   type: TYPE_NORMAL
+  zh: 有许多工具和AWS服务可以确保您的云基础设施比您自己的资源更安全，甚至达到同样的安全水平。
 - en: AWS IAM is the backbone of security in AWS. It provides incredibly granular
     levels of permissions to allow (and deny) specific users access to your resources.
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: AWS IAM是AWS安全性的核心。它提供了极其精细的权限控制，允许（和拒绝）特定用户访问您的资源。
 - en: Federating with your AWS account
+  id: totrans-13
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 与AWS账户联合
 - en: This recipe will show you how to federate identities from your Active Directory
     and use AD groups and IAM roles to provide different levels of access to multiple
     AWS accounts.
+  id: totrans-14
   prefs: []
   type: TYPE_NORMAL
+  zh: 本教程将展示如何从您的Active Directory联合身份，并使用AD组和IAM角色为多个AWS账户提供不同的访问级别。
 - en: At a high level, we're going to have an AWS account that is designated as an
     Auth Account. Users will log in to this account and be assigned a role. This role
     will have next to no privileges because we don't want them doing anything in the
     **Auth Account**. However, they will be able to use role switching to access another
     AWS account; we'll call this the **App Account**.
+  id: totrans-15
   prefs: []
   type: TYPE_NORMAL
+  zh: 从高层次来看，我们将拥有一个被指定为身份验证账户（Auth Account）的AWS账户。用户将登录到该账户并被分配一个角色。这个角色几乎没有权限，因为我们不希望他们在**身份验证账户**中做任何事情。然而，他们将能够通过角色切换访问另一个AWS账户；我们称这个账户为**应用账户**。
 - en: This is a reasonably common pattern whereby users will have access to a number
     of AWS accounts and use role switching to jump between them—all using credentials
     that are verified against an AD backend and a level of access that is derived
     from AD groups.
+  id: totrans-16
   prefs: []
   type: TYPE_NORMAL
+  zh: 这是一种相对常见的模式，用户可以访问多个AWS账户，并使用角色切换在它们之间切换——所有操作都使用经过AD后端验证的凭据，以及从AD组派生的访问权限。
 - en: '![](img/image_08_001.png)'
+  id: totrans-17
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_001.png)'
 - en: Federation
+  id: totrans-18
   prefs: []
   type: TYPE_NORMAL
+  zh: 联邦
 - en: Getting ready
+  id: totrans-19
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: 'You''ll need the following before we can proceed:'
+  id: totrans-20
   prefs: []
   type: TYPE_NORMAL
+  zh: 在继续之前，您需要以下内容：
 - en: An instance of Simple AD. Refer to the *Active Directory as a service* recipe.
+  id: totrans-21
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个Simple AD实例。请参阅*作为服务的活动目录*教程。
 - en: The name of an access URL, which your users will use to log in (that is, [https://bluthcorp.awsapps.com](https://bluthcorp.awsapps.com)).
+  id: totrans-22
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个访问URL的名称，您的用户将使用该URL进行登录（即 [https://bluthcorp.awsapps.com](https://bluthcorp.awsapps.com)）。
 - en: Two AWS accounts. One of these will be your *Auth* *Account*, the other will
     be your *App* *Account*.
+  id: totrans-23
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 两个AWS账户。其中一个是您的*身份验证* *账户*，另一个是您的*应用* *账户*。
 - en: A Windows server in your VPC, joined to your Simple AD domain, with Remote Server
     Admin Tools installed so we can manage groups and users.
+  id: totrans-24
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 您VPC中的一台Windows服务器，已加入您的Simple AD域，并安装了远程服务器管理工具，以便我们能够管理组和用户。
 - en: 'If you launch the Windows server using the launch wizard, it will give you
     the option of joining the domain at boot time. Note that the server will need
     to be running with an instance role that will have the following two AWS Managed
     Policies: AmazonEC2RoleForSSM and AmazonSSMReadOnlyAccess.'
+  id: totrans-25
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果您使用启动向导启动Windows服务器，它将为您提供在启动时加入域的选项。请注意，服务器需要使用具有以下两个AWS托管策略的实例角色运行：AmazonEC2RoleForSSM和AmazonSSMReadOnlyAccess。
 - en: How to do it...
+  id: totrans-26
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 如何操作...
 - en: 'This recipe is split up in to five parts:'
+  id: totrans-27
   prefs: []
   type: TYPE_NORMAL
+  zh: 这个教程分为五个部分：
 - en: Active Directory configuration
+  id: totrans-28
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 活动目录配置
 - en: Auth Account policy configuration
+  id: totrans-29
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 身份验证账户策略配置
 - en: Auth Account role configuration
+  id: totrans-30
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 身份验证账户角色配置
 - en: Simple AD Directory configuration
+  id: totrans-31
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 简单AD目录配置
 - en: App Account role configuration
+  id: totrans-32
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 应用账户角色配置
 - en: Active Directory configuration
+  id: totrans-33
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 活动目录配置
 - en: 'Our first task will be to create the necessary groups in Active Directory:'
+  id: totrans-34
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们的第一个任务是创建Active Directory中所需的组：
 - en: 'Go ahead and create a group called `AWSPowerUser`, as shown in the following
     screenshot:'
+  id: totrans-35
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 如下图所示，创建一个名为`AWSPowerUser`的组：
 - en: '![](img/image_08_002.png)'
+  id: totrans-36
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_002.png)'
 - en: 'Do the same for the `AWSReadOnly` group:'
+  id: totrans-37
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 对`AWSReadOnly`组执行相同操作：
 - en: '![](img/image_08_003.png)'
+  id: totrans-38
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_003.png)'
 - en: 'We''re now going to create a couple of users. The first one is `Lucille`, as
     shown in the following screenshot:'
+  id: totrans-39
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们现在将创建几个用户，第一个是`Lucille`，如下图所示：
 - en: '![](img/image_08_004.png)'
+  id: totrans-40
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_004.png)'
 - en: 'The next user will be `Buster`. Let''s add him now:'
+  id: totrans-41
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 下一个用户将是`Buster`。现在让我们添加他：
 - en: '![](img/image_08_005.png)'
+  id: totrans-42
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_005.png)'
 - en: '`Lucille` is going to be our power user, so we''ll add her to the `AWSPowerUser`
     group:'
+  id: totrans-43
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: '`Lucille`将成为我们的超级用户，因此我们将她添加到`AWSPowerUser`组：'
 - en: '![](img/image_08_006.png)'
+  id: totrans-44
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_006.png)'
 - en: 'We don''t really trust `Buster` at all. True to his name, he''s prone to breaking
     things. Let''s add him to the `AWSReadOnly` group:'
+  id: totrans-45
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们对`Buster`完全不信任。正如他的名字所示，他容易弄坏东西。让我们将他添加到`AWSReadOnly`组：
 - en: '![](img/image_08_007.png)'
+  id: totrans-46
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_007.png)'
 - en: Auth Account policy configuration
+  id: totrans-47
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: Auth账户策略配置
 - en: We now we need to create a policy in our Auth Account. Remember that this is
     the account that the users `Lucille` and `Buster` will initially log in to when
     visiting the AWS console. We actually want to give them extremely limited access
     to this account. In fact, the only thing we're going to let them do is attempt
     to switch to a role in the application account.
+  id: totrans-48
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们需要在我们的Auth账户中创建一个策略。记住，这是`Lucille`和`Buster`访问AWS控制台时最初登录的账户。我们实际上想要给他们非常有限的访问权限。事实上，我们将允许他们做的唯一事情就是尝试切换到应用账户中的某个角色。
 - en: 'Visit the IAM console in the Auth Account and create a new policy:'
+  id: totrans-49
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 访问Auth账户中的IAM控制台并创建一个新的策略：
 - en: AWS refers to this type of policy as a *Customer Managed Policy*.
+  id: totrans-50
   prefs: []
   type: TYPE_NORMAL
+  zh: AWS将这种类型的策略称为*客户管理策略*。
 - en: '![](img/image_08_008.png)'
+  id: totrans-51
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_008.png)'
 - en: 'Call this policy `AllowAssumeRole`. Give it a description to help you remember
     what it''s for. Then apply the following policy document. You are going to want
     to make sure the account number of the App Account is added to your policy:'
+  id: totrans-52
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 将此策略命名为`AllowAssumeRole`。为它提供一个描述，以帮助你记住它的用途。然后应用以下策略文档。确保将应用账户的账户编号添加到策略中：
 - en: '[PRE0]'
+  id: totrans-53
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: '![](img/image_08_009.png)'
+  id: totrans-54
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_009.png)'
 - en: Auth Account policy config
+  id: totrans-55
   prefs: []
   type: TYPE_NORMAL
+  zh: Auth账户策略配置
 - en: Auth Account role configuration
+  id: totrans-56
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: Auth账户角色配置
 - en: 'Now we''re going to create two roles. These roles will correspond to the groups
     we defined in Active Directory:'
+  id: totrans-57
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们将创建两个角色。这些角色将对应于我们在Active Directory中定义的组：
 - en: '`AWSPowerUser`: `CanAssumePowerUser`'
+  id: totrans-58
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`AWSPowerUser`：`CanAssumePowerUser`'
 - en: '`AWSReadOnly`: `CanAssumeReadOnly`'
+  id: totrans-59
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`AWSReadOnly`：`CanAssumeReadOnly`'
 - en: 'Start by creating the `CanAssumePowerUser` role first:'
+  id: totrans-60
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 首先创建`CanAssumePowerUser`角色：
 - en: '![](img/image_08_010.png)'
+  id: totrans-61
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_010.png)'
 - en: 'We want this role to be an AWS Directory Service role, so be sure to select
     it before proceeding:'
+  id: totrans-62
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们希望这个角色是AWS目录服务角色，所以在继续之前一定要选择它：
 - en: '![](img/image_08_011.png)'
+  id: totrans-63
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_011.png)'
 - en: 'Attach the `AllowAssumeRole` policy we have already created to this role:'
+  id: totrans-64
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 将我们已经创建的`AllowAssumeRole`策略附加到此角色：
 - en: 'Hint: You can filter the roles using the search box to make finding them easier.'
+  id: totrans-65
   prefs: []
   type: TYPE_NORMAL
+  zh: 提示：你可以使用搜索框过滤角色，使其更容易找到。
 - en: '![](img/image_08_012.png)'
+  id: totrans-66
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_012.png)'
 - en: 'Click Create Role to confirm:'
+  id: totrans-67
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 点击“创建角色”以确认：
 - en: '![](img/image_08_013.png)'
+  id: totrans-68
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_013.png)'
 - en: 'Now go ahead and do exactly the same for the `CanAssumeReadOnly` role. Again,
     attach the `AllowAssumeRole` policy we created earlier:'
+  id: totrans-69
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，继续为`CanAssumeReadOnly`角色做相同的操作。再次附加我们之前创建的`AllowAssumeRole`策略：
 - en: '![](img/image_08_014.png)'
+  id: totrans-70
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_014.png)'
 - en: Simple AD configuration
+  id: totrans-71
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: Simple AD配置
 - en: We now need to go through the process of enabling user accounts in the directory
     to log in to the AWS management console.
+  id: totrans-72
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，我们需要完成在目录中启用用户账户以登录AWS管理控制台的过程。
 - en: 'Point your browser to the AWS Directory Service Console and edit the configuration
     of your Simple AD directory. Enter the access URL you''ve chosen:'
+  id: totrans-73
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 打开浏览器，访问AWS目录服务控制台，并编辑你的Simple AD目录配置。输入你选择的访问URL：
 - en: '![](img/image_08_015.png)'
+  id: totrans-74
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_015.png)'
 - en: 'We now want to enable the AWS Management Console for this service. Click on
     it to proceed to the next step:'
+  id: totrans-75
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，我们希望为此服务启用AWS管理控制台。点击它以继续到下一步：
 - en: '![](img/image_08_016.png)'
+  id: totrans-76
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_016.png)'
 - en: 'We''ve already created roles and assigned a policy to them. So select Use Existing
     Role, as shown in the following screenshot:'
+  id: totrans-77
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们已经创建了角色并为其分配了策略。所以选择“使用现有角色”，如下图所示：
 - en: '![](img/image_08_017.png)'
+  id: totrans-78
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_017.png)'
 - en: 'Start with the `CanAssumePowerUser` role. We need to map it to the `AWSPowerUser`
     group we created in AD (the one `Lucille` resides in):'
+  id: totrans-79
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 从`CanAssumePowerUser`角色开始。我们需要将其映射到我们在AD中创建的`AWSPowerUser`组（`Lucille`所在的那个）：
 - en: '![](img/image_08_018.png)'
+  id: totrans-80
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_018.png)'
 - en: 'Search for `AWSPowerUser` and then proceed to the next step:'
+  id: totrans-81
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 搜索`AWSPowerUser`，然后继续下一步：
 - en: '![](img/image_08_019.png)'
+  id: totrans-82
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_019.png)'
 - en: 'You now need to repeat these steps for the `CanAssumeReadOnly` role. Map it
     to the `AWSReadOnly` role we created in AD:'
+  id: totrans-83
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在你需要为`CanAssumeReadOnly`角色重复这些步骤。将其映射到我们在AD中创建的`AWSReadOnly`角色：
 - en: '![](img/image_08_020.png)'
+  id: totrans-84
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_020.png)'
 - en: App Account role configuration
+  id: totrans-85
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 应用账户角色配置
 - en: 'It''s now time to configure our application account. In it, we need to create
     some new roles and then set up a trust relationship between those new roles and
     the roles we created in our Auth Account:'
+  id: totrans-86
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在是时候配置我们的应用账户了。在这个账户中，我们需要创建一些新角色，并在这些新角色和我们在Auth账户中创建的角色之间建立信任关系：
 - en: 'Start by going to the IAM console in the Auth Account and creating a new role.
     This role will be `PowerUserRole`:'
+  id: totrans-87
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 首先，进入Auth账户的IAM控制台并创建一个新角色。这个角色将是`PowerUserRole`：
 - en: '![](img/image_08_021.png)'
+  id: totrans-88
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_021.png)'
 - en: 'This role will be of the Role for Cross-Account Access kind. Make sure to select
     this type:'
+  id: totrans-89
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 这个角色将是跨账户访问类型的角色。确保选择这种类型：
 - en: '![](img/image_08_022.png)'
+  id: totrans-90
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_022.png)'
 - en: 'You''ll be prompted to enter an AWS Account ID. This is the account ID of the
     Auth Account:'
+  id: totrans-91
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 系统会提示你输入一个AWS账户ID。这是Auth账户的账户ID：
 - en: '![](img/image_08_023.png)'
+  id: totrans-92
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_023.png)'
 - en: 'For this role, we are going to use the AWS Managed Policy for `PowerUserAccess`,
     so go ahead and attach this policy now:'
+  id: totrans-93
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 对于这个角色，我们将使用AWS托管的`PowerUserAccess`策略，所以现在就附加这个策略：
 - en: '![](img/image_08_024.png)'
+  id: totrans-94
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_024.png)'
 - en: 'Click Create Role on the confirmation page and we''re ready for the next step:'
+  id: totrans-95
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在确认页面上点击“创建角色”，然后我们就可以进入下一步：
 - en: '![](img/image_08_025.png)'
+  id: totrans-96
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_025.png)'
 - en: 'AWS will automatically create a trust relationship on our behalf. Unfortunately,
     it''s not quite right, so we need to edit it:'
+  id: totrans-97
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: AWS将自动为我们创建信任关系。不幸的是，这并不完全正确，所以我们需要编辑它：
 - en: '![](img/image_08_026.png)'
+  id: totrans-98
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_026.png)'
 - en: 'We want anyone who has the `CanAssumePowerUser` role in our Auth Account to
     be able to assume `PowerUserRole` in our App Account. So we need to make a small
     change to the trust relationship like so (remember to replace the account IDs
     with your own):'
+  id: totrans-99
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们希望在我们的Auth账户中拥有`CanAssumePowerUser`角色的任何人都能切换到应用账户中的`PowerUserRole`。因此，我们需要对信任关系做一个小的更改，如下所示（记得将账户ID替换为你自己的）：
 - en: '[PRE1]'
+  id: totrans-100
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: '![](img/image_08_027.png)'
+  id: totrans-101
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_027.png)'
 - en: 'Repeat these steps by creating a role called `ReadOnlyRole` and attach the
     AWS Managed `ReadOnlyAccess` policy to it:'
+  id: totrans-102
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 重复这些步骤，创建一个名为`ReadOnlyRole`的角色，并附加AWS托管的`ReadOnlyAccess`策略：
 - en: '![](img/image_08_028.png)'
+  id: totrans-103
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_028.png)'
 - en: 'Again, we want to update the trust policy. Here we''re going to allow both
     `CanAssumePowerUser` and `CanAssumeReadOnly` to switch to the `ReadOnlyRole`.
     This will be useful for administrators who would want to avoid accidents while
     clicking around the console:'
+  id: totrans-104
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 再次，我们需要更新信任策略。在这里，我们将允许`CanAssumePowerUser`和`CanAssumeReadOnly`都切换到`ReadOnlyRole`。这样做对于那些希望避免在控制台上误操作的管理员非常有用：
 - en: '[PRE2]'
+  id: totrans-105
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: '![](img/image_08_029.png)'
+  id: totrans-106
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_029.png)'
 - en: App Account role config
+  id: totrans-107
   prefs: []
   type: TYPE_NORMAL
+  zh: 应用账户角色配置
 - en: That was our final step. It's now time to test it out.
+  id: totrans-108
   prefs: []
   type: TYPE_NORMAL
+  zh: 这就是我们的最后一步。现在是时候进行测试了。
 - en: How it works...
+  id: totrans-109
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 它是如何工作的...
 - en: 'Visit the access URL you assigned to your Simple AD directory (for example, [https://bluthcorp.awsapps.com/console](https://bluthcorp.awsapps.com/console)).
     Log in with the credentials of the user `Lucille` so we can test out our `PowerUserRole`:'
+  id: totrans-110
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 访问你为Simple AD目录分配的访问URL（例如，[https://bluthcorp.awsapps.com/console](https://bluthcorp.awsapps.com/console)）。用`Lucille`用户的凭证登录，以便我们可以测试我们的`PowerUserRole`：
 - en: '![](img/image_08_030.png)'
+  id: totrans-111
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_030.png)'
 - en: 'If you click around the AWS console, you''ll notice you don''t really have
     access to do anything at all. This is because you''re currently bound by a policy
     that only allows you to assume a role (in the application account). So, let''s
     try doing that. Click on your account name in the top-right corner and choose
     Switch Role:'
+  id: totrans-112
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 如果你在AWS控制台中点击，你会发现你几乎无法做任何事情。这是因为你当前被一个只允许你切换角色（在应用账户中的）的策略所限制。那么，让我们试着这么做。点击右上角的账户名，然后选择“切换角色”：
 - en: '![](img/image_08_031.png)'
+  id: totrans-113
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_031.png)'
 - en: 'On the next page, you want to enter the account ID of the application account
     and the role you wish to assume: `PowerUserRole`. Clicking Switch Role here will
     log you in to the application account under `PowerUserRole`:'
+  id: totrans-114
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在下一个页面，你需要输入应用账户的账户ID和你希望切换的角色：`PowerUserRole`。点击“切换角色”将使你以`PowerUserRole`身份登录到应用账户：
 - en: '![](img/image_08_032.png)'
+  id: totrans-115
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_032.png)'
 - en: 'You should now have an active session under `PowerUserRole` in the application
     account. You''ll recall that we assigned a `PowerUserAccess` policy to this role.
     So you should be free to do almost anything in this account using the profile
     of the user, `Lucille` (notable exceptions being IAM and organizations management).
     If you click on your name again, you''ll see details about which role was assigned
     to you when you logged in and which role is currently active:'
+  id: totrans-116
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，你应该在应用账户下拥有一个活跃的 `PowerUserRole` 会话。你应该记得我们为该角色分配了一个 `PowerUserAccess` 策略。因此，你应该可以自由地在该账户中执行几乎所有操作，使用用户
+    `Lucille` 的配置文件（IAM 和组织管理是显著的例外）。如果你再次点击你的名字，你将看到登录时为你分配的角色以及当前活跃的角色信息：
 - en: '![](img/image_08_033.png)'
+  id: totrans-117
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_033.png)'
 - en: 'Try switching to the `ReadOnlyRole`. Verify that you aren''t able to create
     any resources, perhaps by trying to create a new EC2 key pair or by creating an
     empty security group:'
+  id: totrans-118
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 尝试切换到 `ReadOnlyRole`。验证你无法创建任何资源，可能通过尝试创建一个新的 EC2 密钥对或创建一个空的安全组来验证：
 - en: '![](img/image_08_034.png)'
+  id: totrans-119
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_034.png)'
 - en: 'Log out and go back to the access URL for Simple AD. Sign in with the credentials
     of the user, `Buster`. Again, you''ll see you don''t have access to do much in
     the Auth Account:'
+  id: totrans-120
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 登出并返回 Simple AD 的访问 URL。使用用户 `Buster` 的凭据登录。再次，你会看到你在 Auth 账户中无法做太多操作：
 - en: '![](img/image_08_035.png)'
+  id: totrans-121
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_035.png)'
 - en: 'You should be able to switch to the `ReadOnlyRole` in the application account.
     Try it now to make sure it works. You can use the Role History shortcut to avoid
     typing in the account number and role name again:'
+  id: totrans-122
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 你现在应该能够切换到应用账户中的 `ReadOnlyRole`。试试看，确保它能正常工作。你可以使用角色历史记录快捷方式，以避免再次输入账户号码和角色名称：
 - en: '![](img/image_08_036.png)'
+  id: totrans-123
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_036.png)'
 - en: 'Finally, try switching `Buster` to `PowerUserRole` in the application account.
     `Buster` definitely shouldn''t have access to it and you should see an error page
     that looks like this:'
+  id: totrans-124
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 最后，试着将 `Buster` 切换到应用账户中的 `PowerUserRole`。`Buster` 绝对不应该有权访问此角色，你应该会看到类似下面的错误页面：
 - en: '![](img/image_08_037.png)'
+  id: totrans-125
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_037.png)'
 - en: There's more...
+  id: totrans-126
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 还有更多…
 - en: 'Exactly the same setup can be achieved with your existing Active Directory
     installation, even if it resides outside AWS in your data center. You will need
     to swap out Simple AD for AD Connector:'
+  id: totrans-127
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 完全相同的设置也可以通过你现有的 Active Directory 安装来实现，即使它位于 AWS 之外的你的数据中心。你需要将 Simple AD 替换为
+    AD Connector：
 - en: '![](img/image_08_038.png)'
+  id: totrans-128
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_038.png)'
 - en: Federation with AD Connector
+  id: totrans-129
   prefs: []
   type: TYPE_NORMAL
+  zh: 与 AD Connector 的联合身份验证
 - en: You can also use ADFS and SAML 2.0 to enable federation to AWS from your existing
     AD installation. This would negate the need for users to log in to the console
     using a `*.awsapps.com` domain and would also negate the need for an Auth account.
+  id: totrans-130
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 你还可以使用 ADFS 和 SAML 2.0 来启用从现有 AD 安装到 AWS 的联合身份验证。这将消除用户使用 `*.awsapps.com` 域名登录控制台的需求，同时也不再需要身份验证账户。
 - en: See also
+  id: totrans-131
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 另见
 - en: The *Active Directory as a service* recipe
+  id: totrans-132
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*作为服务的 Active Directory* 配方'
 - en: Creating SSL certificates
+  id: totrans-133
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 创建 SSL 证书
 - en: SSL-based communications are now becoming the de facto standard—insecure methods
     are no longer *good enough*.
+  id: totrans-134
   prefs: []
   type: TYPE_NORMAL
+  zh: 基于 SSL 的通信现在已成为事实上的标准——不安全的方式已经不再是*足够好*。
 - en: AWS provides the **AWS Certificate Manager** (**ACM**) service to provision
     AWS-backed SSL certificates that you can use with your AWS resources, such as
     **Elastic Load Balancers** (**ELBs**) and CloudFront.
+  id: totrans-135
   prefs: []
   type: TYPE_NORMAL
+  zh: AWS 提供 **AWS 证书管理器** (**ACM**) 服务，用于配置 AWS 支持的 SSL 证书，你可以将其用于 AWS 资源，如 **弹性负载均衡器**
+    (**ELB**) 和 CloudFront。
 - en: ACM is free to use! There's nothing to pay for the certificates themselves.
     You pay for the underlying resources you use with them as normal.
+  id: totrans-136
   prefs: []
   type: TYPE_NORMAL
+  zh: ACM 是免费的！证书本身没有费用。你只需按常规为所使用的基础资源付费。
 - en: How to do it...
+  id: totrans-137
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 如何操作...
 - en: 'Run the CLI command, including the domain name you want the certificate for
     (you can use `*` as a wildcard):'
+  id: totrans-138
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 运行 CLI 命令，包含你要为其创建证书的域名（你可以使用 `*` 作为通配符）：
 - en: '[PRE3]'
+  id: totrans-139
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: 'You can now see the request in the ACM console, but note the request is pending:'
+  id: totrans-140
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 你现在可以在 ACM 控制台中看到请求，但请注意请求仍在等待处理中：
 - en: '![](img/image_08_039.png)'
+  id: totrans-141
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_039.png)'
 - en: 'Check your domain administration e-mail(s). You will receive a confirmation
     of the request that will look like the following message:'
+  id: totrans-142
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 检查你的域名管理电子邮件。你将收到一条请求确认，类似以下信息：
 - en: '![](img/image_08_040.png)'
+  id: totrans-143
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_040.png)'
 - en: 'Once you approve the request, you will be given a confirmation message:'
+  id: totrans-144
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 一旦你批准请求，你将收到一条确认消息：
 - en: '![](img/image_08_041.png)'
+  id: totrans-145
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_041.png)'
 - en: 'You can now see that the certificate is ready to use in the AWS ACM console:'
+  id: totrans-146
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 你现在可以在 AWS ACM 控制台中看到证书已经准备好使用：
 - en: '![](img/image_08_042.png)'
+  id: totrans-147
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_042.png)'
 - en: 'Use the Identifier value to apply the certificate to your resources:'
+  id: totrans-148
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 使用标识符值将证书应用到你的资源：
 - en: '![](img/image_08_043.png)'
+  id: totrans-149
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_043.png)'
 - en: How it works...
+  id: totrans-150
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 它是如何工作的……
 - en: Using the CLI tool is the quickest and easiest way to create a certificate request.
     Create the certificate in the region you plan to use it in; that is where your
     ELB(s) are located.
+  id: totrans-151
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用 CLI 工具是创建证书请求的最快、最简单方法。在你计划使用证书的区域创建证书；即 ELB(s) 所在的区域。
 - en: If you plan to use your certificate with CloudFront, you must create it in the
     `us-east-1 region`.
+  id: totrans-152
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你计划将证书与 CloudFront 一起使用，你必须在 `us-east-1 区域` 中创建它。
 - en: 'After the request has been created, AWS will confirm the request is valid by
     sending approval e-mails to various standard e-mail addresses, based on conventions
     and the WHOIS information for your domain. Approval e-mails will be sent to the
     following:'
+  id: totrans-153
   prefs: []
   type: TYPE_NORMAL
+  zh: 在请求创建后，AWS 会通过发送批准电子邮件到多个标准电子邮件地址来确认请求的有效性，这些地址是根据你的域名的惯例和 WHOIS 信息生成的。批准电子邮件将发送到以下地址：
 - en: The domain registrant
+  id: totrans-154
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 域名注册人
 - en: The technical contact
+  id: totrans-155
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 技术联系人
 - en: The administrative contact
+  id: totrans-156
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 管理联系
 - en: 'And the following addresses:'
+  id: totrans-157
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 以及以下地址：
 - en: '`administrator@<your-domain>`'
+  id: totrans-158
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`administrator@<your-domain>`'
 - en: '`hostmaster@<your-domain>`'
+  id: totrans-159
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`hostmaster@<your-domain>`'
 - en: '`postmaster@<your-domain>`'
+  id: totrans-160
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`postmaster@<your-domain>`'
 - en: '`webmaster@<your-domain>`'
+  id: totrans-161
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`webmaster@<your-domain>`'
 - en: '`admin@<your-domain>`'
+  id: totrans-162
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`admin@<your-domain>`'
 - en: You must accept at least one of the approvals before you can use your certificate.
+  id: totrans-163
   prefs: []
   type: TYPE_NORMAL
+  zh: 在使用证书之前，你必须至少接受其中一个批准。
 - en: Once approved, you can use the Identifier value in the configuration of your
     other resources, such as EC2 ELB(s) and CloudFront distributions.
+  id: totrans-164
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦批准，你可以在其他资源的配置中使用标识符值，例如 EC2 ELB(s) 和 CloudFront 分发。
 - en: There's more...
+  id: totrans-165
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 还有更多……
 - en: While ACM makes getting SSL certificates for your application trivial, there
     are a few limitations to be aware of.
+  id: totrans-166
   prefs: []
   type: TYPE_NORMAL
+  zh: 虽然 ACM 使得为你的应用程序获取 SSL 证书变得非常简单，但仍有一些限制需要注意。
 - en: EC2 instances
+  id: totrans-167
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: EC2 实例
 - en: You'll notice in the documentation that only ELBs and CloudFront are supported
     by ACM certificates. You cannot put an ACM certificate directly on an EC2 instance.
+  id: totrans-168
   prefs: []
   type: TYPE_NORMAL
+  zh: 你会在文档中注意到，只有 ELB 和 CloudFront 支持 ACM 证书。你不能直接将 ACM 证书应用到 EC2 实例上。
 - en: While this is a limitation, in practice it's not a big issue. Generally, you
     wouldn't want to expose your instances to the Internet directly—they should be
     behind an ELB/ALB for security, performance, and management reasons. If you are
     serving static assets, CloudFront is going to be much more secure, and performs
     better at a lower cost.
+  id: totrans-169
   prefs: []
   type: TYPE_NORMAL
+  zh: 虽然这是一个限制，但在实际操作中并不是一个大问题。通常，你不希望将实例直接暴露到互联网——它们应该位于 ELB/ALB 后面，以保证安全性、性能和管理。如果你提供静态资源，CloudFront
+    将更加安全，且在较低成本下性能更好。
 - en: Importing certificates
+  id: totrans-170
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 导入证书
 - en: You can import your own certificates in to ACM, so that they can be used with
     your ELB(s) and CloudFront. This might be done because you have already purchased
     a certificate from a third-party provider, or require a particular signing authority.
+  id: totrans-171
   prefs: []
   type: TYPE_NORMAL
+  zh: 你可以将自己的证书导入 ACM，以便它们可以与 ELB(s) 和 CloudFront 一起使用。这样做的原因可能是你已经从第三方提供商购买了证书，或需要特定的签名授权。
 - en: CloudFormation
+  id: totrans-172
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: CloudFormation
 - en: You can also request certificates as part of the CloudFormation stack. This
     is great for ensuring each of your resources has a specific certificate, unique
     to each deployment.
+  id: totrans-173
   prefs: []
   type: TYPE_NORMAL
+  zh: 你也可以作为 CloudFormation 堆栈的一部分请求证书。这非常适合确保每个资源都有一个特定的证书，且每次部署时都独一无二。
 - en: 'Here is a sample snippet of CloudFormation YAML to create a certificate, similar
     to the preceding example in this recipe:'
+  id: totrans-174
   prefs: []
   type: TYPE_NORMAL
+  zh: 这是一个 CloudFormation YAML 示例代码片段，用于创建证书，类似于本食谱前面的示例：
 - en: '[PRE4]'
+  id: totrans-175
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: Active Directory as a service
+  id: totrans-176
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 作为服务的活动目录
 - en: This recipe will show you how to deploy an AWS **Simple Active Directory** (**Simple
     AD**) service.
+  id: totrans-177
   prefs: []
   type: TYPE_NORMAL
+  zh: 本食谱将向你展示如何部署一个 AWS **简单活动目录**（**Simple AD**）服务。
 - en: 'Simple AD is powered by Samba 4 and is a Microsoft Active Directory compatible
     managed service. It will work with many applications that require Active Directory
     support and provides a large range of the commonly used Active Directory features,
     including the following:'
+  id: totrans-178
   prefs: []
   type: TYPE_NORMAL
+  zh: Simple AD 由 Samba 4 提供支持，是一个与 Microsoft Active Directory 兼容的托管服务。它可以与许多需要 Active
+    Directory 支持的应用程序兼容，并提供了许多常用的 Active Directory 功能，包括以下内容：
 - en: User accounts
+  id: totrans-179
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 用户账户
 - en: Single sign-on (Kerberos)
+  id: totrans-180
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 单一登录（Kerberos）
 - en: Group memberships
+  id: totrans-181
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 组成员资格
 - en: Domain joining
+  id: totrans-182
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 域名加入
 - en: 'It also integrates with other services provided by AWS, such as the following:'
+  id: totrans-183
   prefs: []
   type: TYPE_NORMAL
+  zh: 它还与 AWS 提供的其他服务集成，如下所示：
 - en: AWS Management Console
+  id: totrans-184
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: AWS 管理控制台
 - en: WorkMail
+  id: totrans-185
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: WorkMail
 - en: WorkDocs
+  id: totrans-186
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: WorkDocs
 - en: WorkSpaces and WorkSpaces Application Manager
+  id: totrans-187
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: WorkSpaces 和 WorkSpaces 应用程序管理器
 - en: AWS manages backup and restoration of the directory for you in the form of daily
     snapshots and the ability to perform point-in-time recovery.
+  id: totrans-188
   prefs: []
   type: TYPE_NORMAL
+  zh: AWS将为你管理目录的备份和恢复，采用每日快照以及能够执行时间点恢复的方式。
 - en: 'Features that aren''t supported include the following:'
+  id: totrans-189
   prefs: []
   type: TYPE_NORMAL
+  zh: 不支持的功能包括以下内容：
 - en: Trust relationships with other AD domains
+  id: totrans-190
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 与其他AD域的信任关系
 - en: DNS dynamic updates
+  id: totrans-191
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: DNS动态更新
 - en: Schema extensions
+  id: totrans-192
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 架构扩展
 - en: MFA
+  id: totrans-193
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: MFA
 - en: LDAPS
+  id: totrans-194
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: LDAPS
 - en: PowerShell AD cmdlets
+  id: totrans-195
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: PowerShell AD命令
 - en: Transfer of FSMO roles
+  id: totrans-196
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: FSMO角色转移
 - en: The ideal scenario for Simple AD usage is when you don't require advanced AD
     features and you're supporting less than 5,000 users. If either of these isn't
     true, you will want to look at AWS' fully fledged Microsoft Active Directory service.
     Brace yourself for some added complexity and much higher cost if you choose this
     path, however.
+  id: totrans-197
   prefs: []
   type: TYPE_NORMAL
+  zh: Simple AD的理想使用场景是你不需要高级的AD功能，并且支持的用户数少于5,000人。如果其中任何一项不符合你的需求，你可能需要考虑使用AWS完全成熟的Microsoft
+    Active Directory服务。不过，选择这条路径时，你需要做好面对更高复杂度和成本的准备。
 - en: Getting ready
+  id: totrans-198
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: 'Before going ahead, we''ll need the following pieces of info:'
+  id: totrans-199
   prefs: []
   type: TYPE_NORMAL
+  zh: 在继续之前，我们需要以下信息：
 - en: The FQDN for your directory (for example, [http://megacorp.com/](http://megacorp.com/)).
+  id: totrans-200
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 你的目录的FQDN（完全合格域名）（例如，[http://megacorp.com/](http://megacorp.com/)）。
 - en: 'A password for administering your directory. This password corresponds to the
     `Administrator` user that will be created on your behalf. Note that the password
     needs to be between 8-64 characters and will also need to contain one character
     from three of the following four groups:'
+  id: totrans-201
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 管理目录的密码。此密码对应将为你创建的`Administrator`用户。注意，密码长度应在8到64个字符之间，并且需要包含以下四个组中的三个组的字符：
 - en: Lowercase letters
+  id: totrans-202
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 小写字母
 - en: Uppercase letters
+  id: totrans-203
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 大写字母
 - en: Numbers
+  id: totrans-204
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 数字
 - en: Non-alphanumeric characters
+  id: totrans-205
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 非字母数字字符
 - en: The ID of the VPC we're deploying to.
+  id: totrans-206
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 我们将要部署到的VPC的ID。
 - en: The IDs of two subnets in this VPC. These subnets need to be in different Availability
     Zones.
+  id: totrans-207
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 该VPC中两个子网的ID。这些子网需要位于不同的可用区（Availability Zones）。
 - en: The size of the directory you'd like to deploy. You can choose between *Small*
     and *Large*.
+  id: totrans-208
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 你希望部署的目录的大小。你可以选择*Small*（小型）或*Large*（大型）。
 - en: A domain controller is going to be deployed in each of the two subnets you've
     chosen. They'll be communicating between each other on a fairly large number of
     ports. Ideally, these subnets would exist in the same *tier* in your VPC and by
     extension would not have any NACLs which would stop the controllers from talking
     with each other.
+  id: totrans-209
   prefs: []
   type: TYPE_NORMAL
+  zh: 域控制器将在你选择的两个子网中各部署一个。它们将通过大量端口进行相互通信。理想情况下，这些子网应该位于同一*层级*（tier）中，并且没有任何NACL阻止控制器之间的通信。
 - en: If, for some reason, you're restricting traffic using NACLs within your VPC
     tiers, you will want to refer to the AWS docs for a list of which ports to allow.
+  id: totrans-210
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果由于某些原因，你在VPC层中使用NACL（网络访问控制列表）限制流量，你需要查阅AWS文档，获取需要允许的端口列表。
 - en: For more details, visit [http://docs.aws.amazon.com/directoryservice/latest/admin-guide/prereq_simple.html](http://docs.aws.amazon.com/directoryservice/latest/admin-guide/prereq_simple.html).
+  id: totrans-211
   prefs: []
   type: TYPE_NORMAL
+  zh: 更多细节，请访问[http://docs.aws.amazon.com/directoryservice/latest/admin-guide/prereq_simple.html](http://docs.aws.amazon.com/directoryservice/latest/admin-guide/prereq_simple.html)。
 - en: How to do it...
+  id: totrans-212
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 如何操作...
 - en: 'Create a new CloudFormation template file. We''ll start by populating it with
     `Parameters` that correspond to all the requirements we mentioned before:'
+  id: totrans-213
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 创建一个新的CloudFormation模板文件。我们将首先填充与我们之前提到的所有要求相对应的`Parameters`（参数）：
 - en: '[PRE5]'
+  id: totrans-214
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: 'Next, we define our `Resources`. Even though two Simple AD domain controllers
     are being deployed, we only need to create one resource here:'
+  id: totrans-215
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 接下来，我们定义我们的`Resources`（资源）。尽管将部署两个Simple AD域控制器，但在这里我们只需创建一个资源：
 - en: '[PRE6]'
+  id: totrans-216
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: 'You can now go ahead and run this template in the CloudFormation web console,
     or via the CLI like this:'
+  id: totrans-217
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在，你可以在CloudFormation网页控制台中运行此模板，或者通过CLI按如下方式运行：
 - en: '[PRE7]'
+  id: totrans-218
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: How it works...
+  id: totrans-219
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 它是如何工作的...
 - en: 'It will take several minutes to create the directory. Once the Status becomes
     Active, you may proceed with further setup and integration tasks. Your directory
     listing page will eventually show a directory listing that looks similar to this:'
+  id: totrans-220
   prefs: []
   type: TYPE_NORMAL
+  zh: 创建目录将需要几分钟时间。目录状态变为Active后，你可以继续进行后续的设置和集成任务。你的目录列表页面最终会显示类似于以下的目录列表：
 - en: '![](img/image_08_044.png)'
+  id: totrans-221
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_044.png)'
 - en: 'Clicking on the directory ID will reveal more detailed information about your
     directory, like so:'
+  id: totrans-222
   prefs: []
   type: TYPE_NORMAL
+  zh: 点击目录ID将显示更多关于目录的详细信息，类似于这样：
 - en: '![](img/image_08_045.png)'
+  id: totrans-223
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_045.png)'
 - en: There's more...
+  id: totrans-224
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 还有更多...
 - en: The password for the `Administrator` account can't be retrieved or reset. Be
     sure to keep this password somewhere safe.
+  id: totrans-225
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`Administrator` 账户的密码无法恢复或重置。请确保将此密码保存在安全的地方。'
 - en: You may notice an additional security group appear in your EC2 console. This
     group is necessary for the directory controllers (although you won't see these
     appear as EC2 instances in your console).
+  id: totrans-226
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 你可能会在 EC2 控制台中看到一个额外的安全组。这个组是目录控制器所必需的（尽管你不会在控制台中看到它们作为 EC2 实例出现）。
 - en: The directory will contain an account with the prefix `AWSAdminD-`. This account
     is necessary for AWS to perform maintenance tasks such as backup and FSMO role
     transfers. Removing this account or changing its password is almost certainly
     a bad idea.
+  id: totrans-227
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 该目录将包含一个以 `AWSAdminD-` 为前缀的账户。这个账户对于 AWS 执行维护任务（如备份和 FSMO 角色转移）是必要的。删除该账户或更改其密码几乎肯定是一个不好的主意。
 - en: See also
+  id: totrans-228
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 另见
 - en: The *Building a secure network* recipe in [Chapter 7](de50c1bf-fc87-4674-9719-c55280a6b60d.xhtml),
     *Networking*.
+  id: totrans-229
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '[第 7 章](de50c1bf-fc87-4674-9719-c55280a6b60d.xhtml)中的*构建安全网络*方案，*网络*。'
 - en: Creating users
+  id: totrans-230
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 创建用户
 - en: Before we introduce this recipe, we need to talk briefly about **Identity and
     Access Management** (**IAM**). It's free and is enabled on every account. It allows
     you to create groups and users and allows you to control exactly what they can
     and can't do using policy assignment.
+  id: totrans-231
   prefs: []
   type: TYPE_NORMAL
+  zh: 在介绍这个方案之前，我们需要简要地讨论一下**身份与访问管理**（**IAM**）。它是免费的，并且在每个账户上都已启用。它允许你创建组和用户，并允许你通过策略分配精确控制他们可以做什么以及不能做什么。
 - en: By default, groups and users will have no permissions until you assign them
     either an *AWS Managed Policy* or a *Customer Managed Policy* (one which you manage).
     You'll want to use AWS Managed Policies as much as possible to avoid having to
     create and maintain your own.
+  id: totrans-232
   prefs: []
   type: TYPE_NORMAL
+  zh: 默认情况下，组和用户在你分配给他们*AWS 管理的策略*或*客户管理的策略*（由你管理的策略）之前，没有任何权限。你应尽可能使用 AWS 管理的策略，以避免创建和维护自己的策略。
 - en: There's a third kind of policy called an **Inline Policy**. Use this sparingly.
     In fact, the only time we typically see it is in CloudFormation templates.
+  id: totrans-233
   prefs: []
   type: TYPE_NORMAL
+  zh: 还有第三种类型的策略，称为**内联策略**。请谨慎使用。实际上，我们通常只在 CloudFormation 模板中看到它。
 - en: You pretty much never want to assign a policy directly to a user. If you go
     down this path, you'll create a lot of work for yourself in the future. Instead,
     you want to apply policies to groups and then assign users to those groups. Fortunately,
     it's a pretty easy process and we're about to walk you through it.
+  id: totrans-234
   prefs: []
   type: TYPE_NORMAL
+  zh: 你几乎永远不想将策略直接分配给用户。如果你走这条路，将来你会给自己带来很多麻烦。相反，你应该将策略应用于组，然后将用户分配到这些组。幸运的是，这个过程非常简单，我们将带你一步步完成。
 - en: The IAM dashboard provides a URL that your IAM users can use to log in to the
     web console (if you've assigned them a password and given them access to do so).
     You can also customize this *IAM sign-in link* if necessary. Don't forget to give
     this URL to any IAM users you create so they know where to go to sign in.
+  id: totrans-235
   prefs: []
   type: TYPE_NORMAL
+  zh: IAM 仪表板提供了一个 URL，IAM 用户可以使用该 URL 登录到 Web 控制台（前提是你已为他们分配了密码并允许他们进行此操作）。如果需要，你也可以自定义这个*IAM
+    登录链接*。别忘了将这个 URL 给你创建的任何 IAM 用户，让他们知道去哪里登录。
 - en: 'It will look something like this until you customize it:'
+  id: totrans-236
   prefs: []
   type: TYPE_NORMAL
+  zh: 在你自定义之前，它看起来像这样：
 - en: '`https://<account-id>.signin.aws.amazon.com/console`'
+  id: totrans-237
   prefs: []
   type: TYPE_NORMAL
+  zh: '`https://<account-id>.signin.aws.amazon.com/console`'
 - en: Now, jump right in. There's no excuse for not using IAM. Start today!
+  id: totrans-238
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，直接跳入吧。没有理由不使用 IAM。从今天开始吧！
 - en: Getting ready
+  id: totrans-239
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: All you need to proceed is the CLI tools installed with a profile which can
     call the AWS IAM API. If you don't have this, you can follow along with the recipe
     steps using the AWS web console instead as the process is the same.
+  id: totrans-240
   prefs: []
   type: TYPE_NORMAL
+  zh: 继续操作所需的只是已安装 CLI 工具并配置了可以调用 AWS IAM API 的配置文件。如果没有配置文件，你也可以跟随方案步骤，使用 AWS Web
+    控制台来完成，过程是一样的。
 - en: How to do it...
+  id: totrans-241
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 如何操作...
 - en: 'Create a new group by running this CLI command:'
+  id: totrans-242
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 运行以下 CLI 命令来创建一个新组：
 - en: '[PRE8]'
+  id: totrans-243
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: 'The output looks like this:'
+  id: totrans-244
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 输出看起来像这样：
 - en: '[PRE9]'
+  id: totrans-245
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: 'The group doesn''t have permissions to do anything yet, so you''ll need to
     attach a policy to it. You can do it with this command (which unfortunately doesn''t
     provide any feedback if it successfully runs):'
+  id: totrans-246
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 目前该组没有权限执行任何操作，因此你需要将策略附加到该组。你可以使用此命令来实现（但遗憾的是，如果命令执行成功，它不会提供任何反馈）：
 - en: '[PRE10]'
+  id: totrans-247
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: 'You can find the **Amazon Resource Name** (**ARN**) for the policy you''d like
     to attach in the AWS IAM web console. You can also run the following CLI command
     to get a list of policies:'
+  id: totrans-248
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 你可以在 AWS IAM Web 控制台中找到你想要附加的**亚马逊资源名称**（**ARN**）。你也可以运行以下 CLI 命令来获取策略列表：
 - en: '[PRE11]'
+  id: totrans-249
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE11]'
 - en: 'In this example, we''re dealing with `PowerUsers` so we want to attach the
     following ARN, which maps to the AWS Managed Policy for power users:'
+  id: totrans-250
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在这个例子中，我们正在处理`PowerUsers`，所以我们要附加以下ARN，它对应AWS为权限用户提供的托管策略：
 - en: '[PRE12]'
+  id: totrans-251
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE12]'
 - en: 'Now we can go ahead and create a new user by running this CLI command:'
+  id: totrans-252
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在我们可以通过运行这个CLI命令来创建一个新用户：
 - en: '[PRE13]'
+  id: totrans-253
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE13]'
 - en: 'You''ll get a response that looks like this:'
+  id: totrans-254
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 你将得到如下的响应：
 - en: '[PRE14]'
+  id: totrans-255
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE14]'
 - en: 'If you wish to give this user access to the web console, you''ll need to create
     a login profile for them. You can do it like so:'
+  id: totrans-256
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 如果你希望授予此用户访问Web控制台的权限，你需要为其创建一个登录配置文件。你可以这样做：
 - en: '[PRE15]'
+  id: totrans-257
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE15]'
 - en: 'Forcing a password reset here is probably good practice. The API should respond
     to you like so:'
+  id: totrans-258
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 强制密码重置是一个好的实践。API应该像这样回应：
 - en: '[PRE16]'
+  id: totrans-259
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE16]'
 - en: 'To give the API access to the user, they''ll need a set of API keys. Generate
     them with this command:'
+  id: totrans-260
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 要授予API用户访问权限，他们需要一组API密钥。使用以下命令生成密钥：
 - en: '[PRE17]'
+  id: totrans-261
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE17]'
 - en: 'The output will look something like this:'
+  id: totrans-262
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 输出结果看起来像这样：
 - en: '[PRE18]'
+  id: totrans-263
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE18]'
 - en: Access keys can only be retrieved once. There is no way to fetch them again
     after they've been generated and shown to you. If you lose your access keys, you'll
     have to regenerate a new set of keys.
+  id: totrans-264
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 访问密钥只能被检索一次。生成并显示给你之后，无法再次获取。如果你丢失了访问密钥，必须重新生成一组新的密钥。
 - en: 'This user still doesn''t have any permissions to do anything; this is because
     they don''t yet belong to a group. Let''s add them to the group we created in
     step 1:'
+  id: totrans-265
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 这个用户仍然没有任何操作权限；这是因为他们还没有加入任何组。让我们将其加入第1步中创建的组：
 - en: '[PRE19]'
+  id: totrans-266
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE19]'
 - en: 'Note that unfortunately this command doesn''t return any output either. You
     can verify whether or not this worked by running this command:'
+  id: totrans-267
   prefs: []
   type: TYPE_NORMAL
+  zh: 请注意，不幸的是，这个命令也不会返回任何输出。你可以通过运行此命令来验证是否成功：
 - en: '[PRE20]'
+  id: totrans-268
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE20]'
 - en: 'You should see something like this:'
+  id: totrans-269
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 你应该看到类似这样的内容：
 - en: '[PRE21]'
+  id: totrans-270
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE21]'
 - en: There's more...
+  id: totrans-271
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 还有更多…
 - en: 'This pretty much covers the basics of how to create IAM groups and users and
     assign policies to them. Here are some of the IAM tips and gotchas we''ve run
     into over the years:'
+  id: totrans-272
   prefs: []
   type: TYPE_NORMAL
+  zh: 这基本涵盖了如何创建IAM组和用户并为其分配策略的基本知识。以下是我们多年来遇到的一些IAM提示和陷阱：
 - en: Users can exist in more than one group. Use this to your advantage.
+  id: totrans-273
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 用户可以存在于多个组中。利用这一点。
 - en: Groups, however, cannot exist within other groups.
+  id: totrans-274
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 然而，组不能存在于其他组中。
 - en: Users can have more than one set of API keys. This is necessary when they need
     to perform key rotation.
+  id: totrans-275
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 用户可以拥有多个API密钥。当他们需要执行密钥轮换时，这是必要的。
 - en: You can (and should) define a strong password policy for your IAM users.
+  id: totrans-276
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 你可以（并且应该）为你的IAM用户定义一个强密码策略。
 - en: The `PowerUserAccess` policy is good but does not allow IAM access. At first
     this might not seem to be a problem; however, if you are bound by this policy
     you will encounter issues when running CloudFormation stacks that create IAM roles
     for EC2 instances, for example.
+  id: totrans-277
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`PowerUserAccess`策略很好，但不允许IAM访问。一开始这似乎不是问题；然而，如果你受此策略限制，当你运行创建EC2实例IAM角色的CloudFormation堆栈时，会遇到问题。'
 - en: IAM is a global service, meaning that users and groups are global, not region-specific.
     By default, a user can use AWS services in any region.
+  id: totrans-278
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: IAM是一个全球性服务，这意味着用户和组是全球性的，而不是特定于某个区域。默认情况下，用户可以在任何区域使用AWS服务。
 - en: EC2 key pairs are region-specific and not specific to an IAM user. In other
     words, IAM users don't have SSH keys associated with them.
+  id: totrans-279
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: EC2密钥对是特定于区域的，而不是特定于IAM用户。换句话说，IAM用户没有与之关联的SSH密钥。
 - en: Your IAM username and password (and access keys) won't provide you with SSH
     or RDP access to running instances. Credentials for these services are managed
     separately.
+  id: totrans-280
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 你的IAM用户名和密码（以及访问密钥）不会提供SSH或RDP访问正在运行的实例的权限。这些服务的凭证是单独管理的。
 - en: You can assign up to 10 policies to a group or user.
+  id: totrans-281
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 你可以为一个组或用户分配最多10个策略。
 - en: You should also consider enabling MFA on IAM user accounts for added security.
     This is used primarily for accessing the web console but you can also configure
     your policies so that MFA will be required for API calls too. You can choose between
     hardware and software tokens. A good rule of thumb is to use software tokens for
     IAM users and hardware tokens for root logins. MFA via SMS is due to arrive soon
     and is currently in public preview.
+  id: totrans-282
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 你还应该考虑为IAM用户账户启用MFA以增加安全性。主要用于访问Web控制台，但你也可以配置策略，使得API调用时必须使用MFA。你可以选择硬件和软件令牌。一个好的经验法则是，IAM用户使用软件令牌，root登录使用硬件令牌。通过SMS的MFA功能很快会推出，目前正在公测中。
 - en: See also
+  id: totrans-283
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 另见
 - en: The *Federating with your AWS account* recipe
+  id: totrans-284
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*与AWS账户联合*方法'
 - en: The *Cross-account user roles* recipe
+  id: totrans-285
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*跨账户用户角色*方法'
 - en: Creating instance roles
+  id: totrans-286
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 创建实例角色
 - en: This recipe is reasonably short but it contains a really important concept to
     anyone who is new to the AWS platform. Understanding and utilizing IAM roles for
     EC2 will significantly reduce your exposure to lost credentials and probably help
     you sleep a little better at night too. In a nutshell, instance roles help you
     get AWS credentials off your servers and out of your code base(s).
+  id: totrans-287
   prefs: []
   type: TYPE_NORMAL
+  zh: 本配方相对简短，但它包含了一个对任何 AWS 平台新手来说非常重要的概念。理解并利用 EC2 的 IAM 角色将显著降低你的凭证丢失风险，可能也会让你晚上睡得更好。简而言之，实例角色帮助你将
+    AWS 凭证从服务器和代码库中移除。
 - en: Roles contain one or more policies. We're going to create a role that has some
     AWS Managed Policies as well as an Inline Policy. As the name would suggest, an
     AWS Managed Policy is a policy that is created and fully controlled by AWS. The
     Inline Policy is going to be created by us and will be embedded in our role definition.
+  id: totrans-288
   prefs: []
   type: TYPE_NORMAL
+  zh: 角色包含一个或多个策略。我们将创建一个包含一些 AWS 托管策略以及一个内联策略的角色。顾名思义，AWS 托管策略是由 AWS 创建并完全控制的策略。内联策略将由我们创建，并将嵌入到我们的角色定义中。
 - en: The AWS Managed Policies we'll use will allow read-only access to the S3 and
     EC2 APIs. The Inline Policy we'll create will allow write access to CloudWatch
     logs. We'll talk through why you would or wouldn't choose a Managed Policy later
     in this recipe.
+  id: totrans-289
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将使用的 AWS 托管策略将允许只读访问 S3 和 EC2 API。我们创建的内联策略将允许写入 CloudWatch 日志。稍后在本配方中我们会讨论为什么你可能选择或不选择托管策略。
 - en: How to do it...
+  id: totrans-290
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 如何执行...
 - en: 'Create a new CloudFormation template file and add the first `Resource`. This
     is going to be our role that contains references to the managed policies, and
     also our Inline Policy:'
+  id: totrans-291
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 创建一个新的 CloudFormation 模板文件，并添加第一个 `Resource`。这个资源将是我们包含托管策略引用的角色，并且还包括我们的内联策略：
 - en: '[PRE22]'
+  id: totrans-292
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE22]'
 - en: 'We now need to create an `InstanceProfile` resource. A profile encapsulates
     a single IAM role and, roughly speaking, that''s all it''s used for. A profile
     can contain only a single IAM role, so it''s not clear why AWS has built this
     extra layer of abstraction; presumably they have plans to give profiles of other
     properties aside from roles:'
+  id: totrans-293
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们现在需要创建一个 `InstanceProfile` 资源。一个配置文件封装了一个 IAM 角色，简而言之，它的作用就是如此。一个配置文件只能包含一个
+    IAM 角色，所以不太清楚为什么 AWS 要建立这层额外的抽象；可能他们计划为配置文件提供除了角色之外的其他属性：
 - en: '[PRE23]'
+  id: totrans-294
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE23]'
 - en: 'For convenience, we''ll add some `Outputs` that will provide the profile name
     and ARN to us after the stack is created:'
+  id: totrans-295
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 为了方便起见，我们将添加一些 `Outputs`，在堆栈创建后提供配置文件名称和 ARN：
 - en: '[PRE24]'
+  id: totrans-296
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE24]'
 - en: 'You can now create your instance role CloudFormation web console or via the
     CLI like this:'
+  id: totrans-297
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在你可以通过 CloudFormation 网络控制台或 CLI 创建你的实例角色，方法如下：
 - en: '[PRE25]'
+  id: totrans-298
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE25]'
 - en: This role can now be assigned to your EC2 instances. The *Feeding log files
     in to CloudWatch logs* recipe in [Chapter 5](http://Management%20Tools), *Management
     Tools*, shows how you can define a role and assign it to an EC2 instance at launch
     using CloudFormation.
+  id: totrans-299
   prefs: []
   type: TYPE_NORMAL
+  zh: 这个角色现在可以分配给你的 EC2 实例。在[第 5 章](http://Management%20Tools)中的 *将日志文件馈送到 CloudWatch
+    日志* 配方中，*管理工具* 章节展示了如何在启动 EC2 实例时，使用 CloudFormation 定义一个角色并将其分配给实例。
 - en: How it works...
+  id: totrans-300
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 它是如何工作的...
 - en: 'How on earth does this solve the problem of hardcoded AWS API keys? Well, something
     really interesting happens when you assign a role to an EC2 instance. The metadata
     for that instance will return a set of short-lived API keys. You can retrieve
     these keys by sending an HTTP request to the metadata URL (this is a service EC2
     instances can use to fetch information about themselves):'
+  id: totrans-301
   prefs: []
   type: TYPE_NORMAL
+  zh: 这到底是如何解决硬编码 AWS API 密钥的问题的呢？当你将角色分配给 EC2 实例时，会发生一些非常有趣的事情。该实例的元数据将返回一组短期有效的
+    API 密钥。你可以通过发送 HTTP 请求到元数据 URL 来检索这些密钥（这是 EC2 实例用来获取自己信息的服务）：
 - en: '`http://169.254.169.254/latest/meta-data/iam/security-credentials/<role name>`'
+  id: totrans-302
   prefs: []
   type: TYPE_NORMAL
+  zh: '`http://169.254.169.254/latest/meta-data/iam/security-credentials/<role name>`'
 - en: 'The output of a curl request to this URL will look something like this:'
+  id: totrans-303
   prefs: []
   type: TYPE_NORMAL
+  zh: 对这个 URL 发出的 curl 请求的输出大概是这样的：
 - en: '[PRE26]'
+  id: totrans-304
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE26]'
 - en: If you take the `AccessKeyId` and `SecretAccessKey` returned in the response,
     you can use them to query the AWS API. The policies applied to the instance based
     on the role assigned to it will determine exactly what API actions the instance
     is able to perform using these keys.
+  id: totrans-305
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你取出响应中返回的 `AccessKeyId` 和 `SecretAccessKey`，你就可以使用它们查询 AWS API。基于分配给实例的角色所应用的策略，将决定实例在使用这些密钥时能够执行的具体
+    API 操作。
 - en: The really fun part is that you don't have to worry too much about handling
     these keys at all (although it's really useful to know how all this works under
     the hood). For example, the AWS CLI tools will automatically fetch these keys
     for you prior to running any CLI commands. The same goes for the AWS SDKs.
+  id: totrans-306
   prefs: []
   type: TYPE_NORMAL
+  zh: 最有趣的部分是，你根本不需要太担心处理这些密钥（虽然了解这些在幕后是如何工作的确很有用）。例如，AWS CLI 工具会在执行任何 CLI 命令之前自动为你获取这些密钥。AWS
+    SDK 也是如此。
 - en: Take a scenario where your developers are building an application that needs
     to fetch files from S3\. As long as they are using the AWS SDK to do this and
     the application is running on an EC2 instance that has been assigned a role containing
     a policy that allows files to be fetched from S3, then no credentials are required
     by the application whatsoever! The SDK will take care of the queries to the metadata
     service for you.
+  id: totrans-307
   prefs: []
   type: TYPE_NORMAL
+  zh: 假设有一个场景，你的开发人员正在构建一个需要从 S3 获取文件的应用程序。只要他们使用 AWS SDK 来完成这项工作，且应用程序运行在已经分配了包含允许从
+    S3 获取文件的策略的 EC2 实例上，那么应用程序根本不需要任何凭证！SDK 会为你处理对元数据服务的查询。
 - en: The AWS SDKs are available for almost every widely used language, so there's
     no excuse for keeping hardcoded AWS credentials in config files or source code.
+  id: totrans-308
   prefs: []
   type: TYPE_NORMAL
+  zh: AWS SDK 支持几乎所有广泛使用的编程语言，因此不再有理由在配置文件或源代码中硬编码 AWS 凭证。
 - en: 'You will see your instances roles listed in the IAM console under the `Roles`
     section:'
+  id: totrans-309
   prefs: []
   type: TYPE_NORMAL
+  zh: 你将在 IAM 控制台的 `Roles` 部分看到你实例的角色列表：
 - en: '![](img/image_08_046.png)'
+  id: totrans-310
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_046.png)'
 - en: 'Clicking on the role will reveal further details, such as the policies that
     have been assigned to it:'
+  id: totrans-311
   prefs: []
   type: TYPE_NORMAL
+  zh: 点击角色将显示更多细节，例如已分配给它的策略：
 - en: '![](img/image_08_047.png)'
+  id: totrans-312
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_047.png)'
 - en: There's more...
+  id: totrans-313
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 还有更多……
 - en: IAM is a global service. This means that the roles and policies you create will
     be available in every region.
+  id: totrans-314
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: IAM 是一个全球服务。这意味着你创建的角色和策略将在所有区域中可用。
 - en: You'll find all the available AWS Managed Policies in the AWS web console. There's
     quite a few of them so don't be afraid to use the search bar.
+  id: totrans-315
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 你将在 AWS 网络控制台中找到所有可用的 AWS 管理策略。它们有很多，所以不要害怕使用搜索栏。
 - en: There's a third kind of policy called a Customer Managed Policy. These are policies
     which are managed by you and will appear in the AWS console amongst the AWS Managed
     Policies.
+  id: totrans-316
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 还有第三种策略叫做客户管理策略。这些策略由你管理，并将在 AWS 控制台中与 AWS 管理策略一起显示。
 - en: As of February 2017, it is possible to attach an IAM role to an existing/running
     EC2 instance. This previously wasn't the case and the role could only be assigned
     at the time the instance launched.
+  id: totrans-317
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 从2017年2月起，已可以将 IAM 角色附加到现有/运行中的 EC2 实例。这在之前是做不到的，角色只能在实例启动时分配。
 - en: AWS automatically and periodically rotates the credentials returned by the metadata
     service.
+  id: totrans-318
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: AWS 会自动并定期轮换由元数据服务返回的凭证。
 - en: It's not always appropriate to use an AWS Managed Policy. For example, if a
     server needs to write to CloudWatch logs, it may be tempting to assign it the
     AWS Managed Policy that provides full access. If you do this, however, you'll
@@ -1364,227 +2017,338 @@
     certainly undesirable. You'll want to inspect the policies before you apply them
     and defer to an Inline or Customer Managed Policy where appropriate. The principle
     of least privilege applies here.
+  id: totrans-319
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 并不总是适合使用 AWS 管理策略。例如，如果服务器需要写入 CloudWatch 日志，你可能会想直接为它分配提供完全访问权限的 AWS 管理策略。然而，如果这么做，你也会赋予服务器删除日志组和流的权限。这几乎肯定是不可取的。你需要在应用策略之前检查它们，并在适当的情况下使用内联策略或客户管理策略。这里适用最小权限原则。
 - en: See also
+  id: totrans-320
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 另见
 - en: The *Feeding log files in to CloudWatch logs* recipe in [Chapter 5](2ac3ef94-1ec2-4473-84ef-76cad8517270.xhtml),
     *Management Tools*
+  id: totrans-321
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '[第5章](2ac3ef94-1ec2-4473-84ef-76cad8517270.xhtml)中的*将日志文件输入到 CloudWatch 日志*食谱，*管理工具*'
 - en: Cross-account user roles
+  id: totrans-322
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 跨账户用户角色
 - en: Using multiple accounts to provision your resources (for example, development
     and production environments) provides a form of *blast radius* protection—even
     in a worst-case scenario, any issues or damages are limited to the account they
     occur in, not your entire AWS presence.
+  id: totrans-323
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用多个账户来配置资源（例如，开发环境和生产环境）可以提供一种*爆炸半径*保护——即使在最坏的情况下，任何问题或损害也仅限于发生问题的账户，而不会影响整个
+    AWS 环境。
 - en: Creating and assuming roles across accounts is the best way to manage access
     to multiple accounts. Specific roles provide a clear and explicit declaration
     of permissions that can be easily reviewed, and revoked if needed.
+  id: totrans-324
   prefs: []
   type: TYPE_NORMAL
+  zh: 在账户之间创建和假设角色是管理多个账户访问的最佳方式。特定的角色提供了明确且清晰的权限声明，既可以轻松审查，也可以在需要时撤销。
 - en: This recipe provides a way to scale your access across many accounts, without
     compromising your security.
+  id: totrans-325
   prefs: []
   type: TYPE_NORMAL
+  zh: 本方法提供了一种在多个账户之间扩展访问权限的方式，同时不会妥协你的安全性。
 - en: Getting ready
+  id: totrans-326
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: This recipe assumes you already have two AWS accounts created and ready to go.
+  id: totrans-327
   prefs: []
   type: TYPE_NORMAL
+  zh: 本方法假设你已经创建并准备好两个 AWS 账户。
 - en: In one account (the **source** account, referred to as *Account A*) you will
     need an IAM user.
+  id: totrans-328
   prefs: []
   type: TYPE_NORMAL
+  zh: 在一个账户中（即**源**账户，称为*账户 A*），你需要一个 IAM 用户。
 - en: While you will need to use your account's root credentials to set up the first
     role in an account, *do not* use them on a day-to-day basis. The root account
     has permissions to do anything in your account, and should only be used when necessary.
+  id: totrans-329
   prefs: []
   type: TYPE_NORMAL
+  zh: 虽然你需要使用账户的根凭证来设置账户中的第一个角色，但*不要*在日常使用中使用它们。根账户拥有对账户内任何操作的权限，只有在必要时才应使用根账户。
 - en: How to do it...
+  id: totrans-330
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 如何操作...
 - en: 'Start a new template with a version and description:'
+  id: totrans-331
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 从一个版本和描述开始新的模板：
 - en: '[PRE27]'
+  id: totrans-332
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE27]'
 - en: 'The template will take one parameter—the source account that can assume the
     role:'
+  id: totrans-333
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 模板将接受一个参数——可以假设该角色的源账户：
 - en: '[PRE28]'
+  id: totrans-334
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE28]'
 - en: 'The role itself will consist of the trust role and a sample policy:'
+  id: totrans-335
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 该角色本身将包括信任角色和一个示例策略：
 - en: This role has full access to the target account.
+  id: totrans-336
   prefs: []
   type: TYPE_NORMAL
+  zh: 该角色具有对目标账户的完全访问权限。
 - en: '[PRE29]'
+  id: totrans-337
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE29]'
 - en: 'Finally, we create an output that will make it easy to retrieve the target
     role ARN:'
+  id: totrans-338
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 最后，我们创建一个输出，使得更容易检索目标角色的 ARN：
 - en: '[PRE30]'
+  id: totrans-339
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE30]'
 - en: Save the template with a known name, for example `08-target-account-role.yaml`.
+  id: totrans-340
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 保存模板并赋予一个已知名称，例如`08-target-account-role.yaml`。
 - en: 'Deploy the role to the target account (that is, **Account B**) by using the
     CLI tool:'
+  id: totrans-341
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 通过使用 CLI 工具，将角色部署到目标账户（即**账户 B**）：
 - en: '[PRE31]'
+  id: totrans-342
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE31]'
 - en: 'Get (just) the target role ARN from the outputs of your CloudFormation stack:'
+  id: totrans-343
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 从 CloudFormation 堆栈的输出中获取（仅）目标角色的 ARN：
 - en: '[PRE32]'
+  id: totrans-344
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE32]'
 - en: 'In your source account (that is, **Account A**) confirm that you can assume
     the target role by manually invoking the CLI tool:'
+  id: totrans-345
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在你的源账户（即**账户 A**）中，确认你可以通过手动调用 CLI 工具来假设目标角色：
 - en: '[PRE33]'
+  id: totrans-346
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE33]'
 - en: How it works...
+  id: totrans-347
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 它是如何工作的...
 - en: 'While cross-account roles are extremely useful for administering multiple AWS
     accounts, they''re not the most intuitive thing to configure. Here''s a diagram
     that illustrates the resources and their interactions:'
+  id: totrans-348
   prefs: []
   type: TYPE_NORMAL
+  zh: 虽然跨账户角色在管理多个 AWS 账户时极其有用，但它们的配置并不是最直观的。这里有一个图示，展示了资源及其相互作用：
 - en: '![](img/image_08_048.png)'
+  id: totrans-349
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_048.png)'
 - en: The first few steps of this recipe are simply creating the **Target IAM Role**
     in a clear and repeatable way using CloudFormation.
+  id: totrans-350
   prefs: []
   type: TYPE_NORMAL
+  zh: 本方法的前几个步骤是通过使用 CloudFormation 以清晰且可重复的方式创建**目标 IAM 角色**。
 - en: You must explicitly call out the AWS account number that will be allowed to
     assume this role. If you want to allow multiple accounts to assume the role, simply
     add more statements to the `AssumeRolePolicyDocument` property of the role.
+  id: totrans-351
   prefs: []
   type: TYPE_NORMAL
+  zh: 你必须明确指定允许假设该角色的 AWS 账户号码。如果你希望允许多个账户假设该角色，只需在角色的`AssumeRolePolicyDocument`属性中添加更多声明。
 - en: The sample policy created in this template gives full access to the target account
     (because the `Action` and `Resource` are both set to `*`). You should adjust this
     as appropriate for your needs.
+  id: totrans-352
   prefs: []
   type: TYPE_NORMAL
+  zh: 在此模板中创建的示例策略授予对目标账户的完全访问权限（因为`Action`和`Resource`都设置为`*`）。你应根据需要调整此策略。
 - en: Defining an output value that returns the IAM role's ARN will make it easier
     to get the generated ID later in the recipe.
+  id: totrans-353
   prefs: []
   type: TYPE_NORMAL
+  zh: 定义一个输出值以返回 IAM 角色的 ARN，将使得稍后在本方法中更容易获取生成的 ID。
 - en: We then launch the template in the target account. As this template creates
     IAM resources, you must supply the `--capabilities CAPABILITY_IAM` argument. If
     you don't have any existing IAM users that can launch it, use the AWS web console
     (after logging in with your root credentials). This means you don't need to bother
     creating IAM users in the target account.
+  id: totrans-354
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，我们在目标账户中启动模板。由于此模板会创建 IAM 资源，你必须提供`--capabilities CAPABILITY_IAM`参数。如果你没有可以启动它的现有
+    IAM 用户，使用 AWS Web 控制台（在使用根凭证登录后）。这意味着你不需要在目标账户中创建 IAM 用户。
 - en: Once you have deployed the template, you will no longer need to log in to the
     account manually—you can just assume the newly created role from the trusted (source)
     account. Using an IAM role in the target account means that your day-to-day access
     does not require multiple passwords, which takes work to manage and store securely.
     You only need to have one password—the password of your source IAM user.
+  id: totrans-355
   prefs: []
   type: TYPE_NORMAL
+  zh: 部署模板后，您将不再需要手动登录账户——您可以直接从可信（源）账户假设新创建的角色。使用目标账户中的 IAM 角色意味着您的日常访问不再需要多个密码，这样可以减少管理和安全存储的工作量。您只需拥有一个密码——即源
+    IAM 用户的密码。
 - en: After the stack has finished creating (which shouldn't take long, as it's only
     creating one resource), you can quickly extract the target role's ARN with a `describe-stacks`
     call, combined with a specifically-crafted `--query` argument. The JMESPath query
     `Stacks[0].Outputs[0].OutputValue` gets the `OutputValue` property of the first
     output in the first stack returned, which we know will be the target role ARN
     because there is only one output in the template.
+  id: totrans-356
   prefs: []
   type: TYPE_NORMAL
+  zh: 当堆栈创建完成后（这不会花费太多时间，因为只创建了一个资源），您可以通过 `describe-stacks` 调用快速提取目标角色的 ARN，并结合特定的
+    `--query` 参数。JMESPath 查询 `Stacks[0].Outputs[0].OutputValue` 获取第一个堆栈返回的第一个输出的 `OutputValue`
+    属性，我们知道它将是目标角色 ARN，因为模板中只有一个输出。
 - en: Finally, the sample `assume-role` command will return the credentials for the
     target role (that is, `ACCESS_KEY_ID` and `SECRET_ACCESS_KEY`). You can then use
     this in an API call, via the CLI tool or one of the SDKs. Keep in mind that these
     tokens will be short-lived.
+  id: totrans-357
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，示例 `assume-role` 命令将返回目标角色的凭证（即 `ACCESS_KEY_ID` 和 `SECRET_ACCESS_KEY`）。您可以将其用于
+    API 调用，无论是通过 CLI 工具还是某个 SDK。请记住，这些令牌是短暂的。
 - en: See the next section for a more convenient way to use the credentials with the
     CLI tool by creating profiles.
+  id: totrans-358
   prefs: []
   type: TYPE_NORMAL
+  zh: 请参阅下一部分，了解通过创建配置文件，使用 CLI 工具更方便地使用凭证的方法。
 - en: There's more...
+  id: totrans-359
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 还有更多...
 - en: Just as there are multiple ways to use roles, there are multiple ways to utilize
     cross-account roles.
+  id: totrans-360
   prefs: []
   type: TYPE_NORMAL
+  zh: 就像有多种方式使用角色一样，也有多种方式利用跨账户角色。
 - en: AWS CLI profiles
+  id: totrans-361
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: AWS CLI 配置文件
 - en: One of the easiest ways to use a cross-account role is configuring it as a profile
     for the AWS CLI tool to use. This means you can quickly and easily switch accounts
     just by changing the profile you use when executing your commands.
+  id: totrans-362
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用跨账户角色最简单的方法之一是将其配置为 AWS CLI 工具使用的配置文件。这意味着您只需通过更改执行命令时使用的配置文件，就可以快速轻松地切换账户。
 - en: To do this, you must define the target role in the CLI configuration file. With
     this configuration, it is assumed that your `default` profile is in the source
     account (that is, Account A).
+  id: totrans-363
   prefs: []
   type: TYPE_NORMAL
+  zh: 要做到这一点，您必须在 CLI 配置文件中定义目标角色。假设您的 `default` 配置文件位于源账户中（即账户 A）。
 - en: 'Add the following snippet to the `~/.aws/config` file on Linux and Mac computers,
     and `C:\Users\[USERNAME]\.aws\config` file on Windows:'
+  id: totrans-364
   prefs: []
   type: TYPE_NORMAL
+  zh: 将以下代码片段添加到 Linux 和 Mac 电脑上的 `~/.aws/config` 文件中，Windows 电脑上的 `C:\Users\[USERNAME]\.aws\config`
+    文件中：
 - en: '[PRE34]'
+  id: totrans-365
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE34]'
 - en: 'To use switch roles, all you need to do is pass the `--profile` argument along
     with your command:'
+  id: totrans-366
   prefs: []
   type: TYPE_NORMAL
+  zh: 要使用切换角色，您只需在命令中传递 `--profile` 参数：
 - en: '[PRE35]'
+  id: totrans-367
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE35]'
 - en: See also
+  id: totrans-368
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 参见
 - en: The *Creating users* recipe.
+  id: totrans-369
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*创建用户* 配方。'
 - en: Storing secrets
+  id: totrans-370
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 存储密钥
 - en: A common mistake new administrators make when getting started with Infrastructure-as-Code
     is committing secrets (passwords, access keys, and so on) in their repositories.
     While this makes their infrastructure repeatable, it also makes it much more likely
@@ -1592,232 +2356,350 @@
     hard and annoying to remove it (that's the point of version control!). Even if
     you do remove it, it's almost impossible to know if it has already been viewed/copied
     by someone unintended.
+  id: totrans-371
   prefs: []
   type: TYPE_NORMAL
+  zh: 新管理员在开始使用基础设施即代码时常犯的一个错误是将密钥（密码、访问密钥等）提交到他们的代码库中。尽管这样可以让他们的基础设施更具可重复性，但也更容易导致凭证被泄露。一旦某些内容进入版本控制系统，就很难也很麻烦将其删除（这正是版本控制的意义所在！）。即使您删除了它，也几乎不可能知道它是否已经被某个不该看到的人查看或复制过。
 - en: In this recipe, we will introduce and use the open source tool, **Unicreds**.
+  id: totrans-372
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本配方中，我们将介绍并使用开源工具 **Unicreds**。
 - en: 'Unicreds is a Golang port of the Python tool, Credstash: [https://github.com/fugue/credstash](https://github.com/fugue/credstash).'
+  id: totrans-373
   prefs: []
   type: TYPE_NORMAL
+  zh: Unicreds 是 Python 工具 Credstash 的 Golang 移植版：[https://github.com/fugue/credstash](https://github.com/fugue/credstash)。
 - en: While the functionality is very similar, Unicreds has the benefit of being cross-platform
     and dependency-free!
+  id: totrans-374
   prefs: []
   type: TYPE_NORMAL
+  zh: 尽管功能非常相似，Unicreds 的优势在于它是跨平台的并且没有依赖！
 - en: Since this pattern is completely backed by AWS services, it removes the need
     to manage (and worry about) password vaults, shared passwords, and committing
     sensitive information to SCM.
+  id: totrans-375
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于该模式完全由 AWS 服务支持，它消除了管理（和担心）密码库、共享密码以及将敏感信息提交到 SCM 的需要。
 - en: You might even use Unicreds to store non-secret information, because it provides
     a convenient way to store and share settings without the need to run or maintain
     any servers!
+  id: totrans-376
   prefs: []
   type: TYPE_NORMAL
+  zh: 你甚至可以使用 Unicreds 存储非机密信息，因为它提供了一种方便的方式来存储和共享设置，而不需要运行或维护任何服务器！
 - en: Getting ready
+  id: totrans-377
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: You must have Unicreds present on your target system.
+  id: totrans-378
   prefs: []
   type: TYPE_NORMAL
+  zh: 你必须在目标系统上安装 Unicreds。
 - en: As it is written in Golang, it is easily distributed as a standalone binary
     application—no installer or dependencies are required.
+  id: totrans-379
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于是用 Golang 编写的，它可以轻松地作为独立的二进制应用程序分发——无需安装程序或依赖项。
 - en: Releases for all platforms are available at [https://github.com/Versent/unicreds/releases](https://github.com/Versent/unicreds/releases).
+  id: totrans-380
   prefs: []
   type: TYPE_NORMAL
+  zh: 所有平台的发布版本可以在 [https://github.com/Versent/unicreds/releases](https://github.com/Versent/unicreds/releases)
+    上找到。
 - en: These commands assume your default profile has the permission to create KMS
     keys and DynamoDB tables. You can override the profile used by passing the `--profile`
     argument with all of the commands in the recipe. You must also have your AWS region
     setting configured.
+  id: totrans-381
   prefs: []
   type: TYPE_NORMAL
+  zh: 这些命令假设你的默认配置文件具有创建 KMS 密钥和 DynamoDB 表的权限。你可以通过在所有命令中传递 `--profile` 参数来覆盖使用的配置文件。你还必须配置好
+    AWS 区域设置。
 - en: How to do it...
+  id: totrans-382
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 如何操作...
 - en: 'Create a KMS key, and take note of the Key ID returned:'
+  id: totrans-383
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 创建一个 KMS 密钥，并记录下返回的密钥 ID：
 - en: '[PRE36]'
+  id: totrans-384
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE36]'
 - en: 'Create an alias for the key:'
+  id: totrans-385
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 创建密钥的别名：
 - en: Unicreds uses the `alias/credstash` alias to make it compatible with Credstash.
+  id: totrans-386
   prefs: []
   type: TYPE_NORMAL
+  zh: Unicreds 使用 `alias/credstash` 别名，使其与 Credstash 兼容。
 - en: '[PRE37]'
+  id: totrans-387
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE37]'
 - en: 'Set up the resources required by Unicreds:'
+  id: totrans-388
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 设置 Unicreds 所需的资源：
 - en: '[PRE38]'
+  id: totrans-389
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE38]'
 - en: 'Store a secret using the `put` command:'
+  id: totrans-390
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 使用 `put` 命令存储机密：
 - en: '[PRE39]'
+  id: totrans-391
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE39]'
 - en: 'Get the secret using the `get` command:'
+  id: totrans-392
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 使用 `get` 命令获取机密信息：
 - en: '[PRE40]'
+  id: totrans-393
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE40]'
 - en: How it works...
+  id: totrans-394
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 它是如何工作的...
 - en: 'Here is a high-level diagram that illustrates the components involved in theses
     Unicreds commands:'
+  id: totrans-395
   prefs: []
   type: TYPE_NORMAL
+  zh: 这里是一个高层次的图示，展示了这些 Unicreds 命令所涉及的组件：
 - en: '![](img/image_08_049.png)'
+  id: totrans-396
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/image_08_049.png)'
 - en: We start this recipe by creating the key that will be used to encrypt the secrets
     in KMS. Note that we never get to see this key—it only exists in KMS. All you
     can do is request that KMS encrypts or decrypts data with it for you.
+  id: totrans-397
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们通过创建将用于加密机密信息的 KMS 密钥来开始这个流程。请注意，我们永远看不到这个密钥——它只存在于 KMS 中。你所能做的就是请求 KMS 为你加密或解密数据。
 - en: It is possible to import your own key in to KMS (so that you could decrypt the
     secrets outside of AWS if you needed to), but this is not required for Unicreds
     to work. The `create-key` command returns the GUID for the key, which will be
     used in the following steps.
+  id: totrans-398
   prefs: []
   type: TYPE_NORMAL
+  zh: 你可以将自己的密钥导入到 KMS（这样你就可以在需要时在 AWS 外部解密机密信息），但这不是 Unicreds 正常工作的必需步骤。`create-key`
+    命令返回密钥的 GUID，将在接下来的步骤中使用。
 - en: Aliases make it much easier to deal with KMS keys. You can use them in most
     commands in place of the full key ARN. More importantly, it makes it obvious which
     key you are dealing with so that you can quickly, easily, and confidently assign
     access permissions.
+  id: totrans-399
   prefs: []
   type: TYPE_NORMAL
+  zh: 别名使得处理 KMS 密钥变得更加简单。你可以在大多数命令中使用别名代替完整的密钥 ARN。更重要的是，它使你能够清楚地知道你正在处理哪个密钥，从而可以快速、轻松且自信地分配访问权限。
 - en: The default alias for the key used with Unicreds is `alias/credstash`. While
     this might seem a bit confusing at first, it means that Unicreds is backward-compatible
     with Credstash. You can choose your own alias; you will simply need to override
     it when you give your other commands (such as `setup`, `put`, and so on).
+  id: totrans-400
   prefs: []
   type: TYPE_NORMAL
+  zh: Unicreds 使用的密钥的默认别名是`alias/credstash`。虽然这开始时可能有些令人困惑，但这意味着 Unicreds 向后兼容 Credstash。你可以选择自己的别名；只需要在执行其他命令（如`setup`、`put`等）时覆盖它。
 - en: The `setup` command creates the required resources in your AWS account. This
     effectively means creating a DynamoDB table to store the secrets in.
+  id: totrans-401
   prefs: []
   type: TYPE_NORMAL
+  zh: '`setup` 命令会在你的 AWS 账户中创建所需的资源。这实际上意味着创建一个 DynamoDB 表来存储机密信息。'
 - en: Once everything is set up, you can start storing secrets using Unicreds. In
     this example, the secret is stored with the (highly original) key `foo` and the
     value `bar`.
+  id: totrans-402
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦一切设置完成，你就可以开始使用 Unicreds 存储机密信息了。在这个示例中，机密信息是用（极具创意的）密钥 `foo` 和值 `bar` 存储的。
 - en: At this stage, you can go to DynamoDB in the AWS console and see the stored
     value in the `credential-store` table. You can also change the name of the DDB
     table used when you run the `credstash setup` command, if you want to.
+  id: totrans-403
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这一阶段，你可以进入AWS控制台中的DynamoDB，并查看`credential-store`表中存储的值。如果需要，你还可以更改在运行`credstash
+    setup`命令时使用的DDB表名称。
 - en: Once there's a secret stored, you can retrieve it with the `get` command. It's
     important to remember that there's no need to do this from the same machine you
     stored it from. As long as the AWS user/role has sufficient permission to use
     the KMS service and access the DDB table, they will be able to retrieve the secret.
+  id: totrans-404
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦有秘密被存储，你可以通过`get`命令将其取出。需要记住的是，不必从存储秘密的同一台机器上进行操作。只要AWS用户/角色拥有足够的权限使用KMS服务并访问DDB表，他们就能检索到秘密。
 - en: There's more...
+  id: totrans-405
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 还有更多...
 - en: Unicreds leverages the built-in functionality of AWS, so you get an enterprise-grade
     solution without the overhead of needing to run your own servers. Here are some
     other useful things you can do to make your secrets even more secure.
+  id: totrans-406
   prefs: []
   type: TYPE_NORMAL
+  zh: Unicreds利用了AWS的内置功能，因此你可以获得企业级解决方案，而无需为运行自己的服务器而增加额外的负担。以下是一些其他有用的做法，可以使你的秘密更加安全。
 - en: Key aliases
+  id: totrans-407
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 密钥别名
 - en: Creating multiple KMS keys—and referring to them with unique aliases—is a great
     way to limit the access to put/get secrets to specific applications or teams.
+  id: totrans-408
   prefs: []
   type: TYPE_NORMAL
+  zh: 创建多个KMS密钥，并通过唯一别名引用它们，是限制特定应用程序或团队进行秘密存取的好方法。
 - en: Instead of using the default `alias/credstash` alias, you could give a team
     their own alias and be confident that they aren't going to see or write to anyone
     else's secrets.
+  id: totrans-409
   prefs: []
   type: TYPE_NORMAL
+  zh: 你可以为团队提供他们自己的别名，而不是使用默认的`alias/credstash`别名，这样你可以放心，他们无法看到或写入其他团队的秘密。
 - en: Secret reader role
+  id: totrans-410
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 秘密读取角色
 - en: Due to the fine-grained nature of IAM permissions, you can easily segment the
     type of different access roles get to your AWS resources.
+  id: totrans-411
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于IAM权限的精细粒度，你可以轻松地为不同的访问角色划分AWS资源的访问权限。
 - en: 'With the following IAM policy, you can ensure that the user/role can only read
     secret values (using a specific key and table), but they can never set or change
     them:'
+  id: totrans-412
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用以下IAM策略，你可以确保用户/角色只能读取秘密值（使用特定的密钥和表），但无法设置或更改它们：
 - en: '[PRE41]'
+  id: totrans-413
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE41]'
 - en: Secret writer role
+  id: totrans-414
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 秘密写入角色
 - en: The flip side to the secret reader role is the secret writer.
+  id: totrans-415
   prefs: []
   type: TYPE_NORMAL
+  zh: 秘密读取角色的反面是秘密写入角色。
 - en: 'Add this snippet to the relevant IAM policy section of a role to give it the
     ability to set secret values, but not retrieve them:'
+  id: totrans-416
   prefs: []
   type: TYPE_NORMAL
+  zh: 将此代码片段添加到角色的相关IAM策略部分，以赋予其设置秘密值的权限，但不能检索它们：
 - en: '[PRE42]'
+  id: totrans-417
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE42]'
 - en: The put-file command
+  id: totrans-418
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: put-file命令
 - en: 'You can put entire files in to storage with Unicreds. Just use the `put-file`
     command:'
+  id: totrans-419
   prefs: []
   type: TYPE_NORMAL
+  zh: 你可以将整个文件存储到Unicreds中。只需使用`put-file`命令：
 - en: '[PRE43]'
+  id: totrans-420
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE43]'
 - en: Versioning
+  id: totrans-421
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 版本控制
 - en: While storing your secrets securely is a great start, it is still good practice
     to change/rotate your passwords, keys, and other secrets regularly.
+  id: totrans-422
   prefs: []
   type: TYPE_NORMAL
+  zh: 虽然安全地存储你的秘密是一个好的开始，但定期更改/旋转密码、密钥和其他秘密仍然是一个良好的实践。
 - en: Unicreds has built-in support for versioning, which means you can update your
     secrets while still keeping records of previous versions.
+  id: totrans-423
   prefs: []
   type: TYPE_NORMAL
+  zh: Unicreds内置了版本控制支持，这意味着你可以更新你的秘密，同时保留先前版本的记录。
 - en: 'When you put to the same secret name multiple times, Unicreds will automatically
     create new versions for the values. You can get a specific version of secret by
     providing a version argument with a `get` or `put` command:'
+  id: totrans-424
   prefs: []
   type: TYPE_NORMAL
+  zh: 当你多次使用相同的秘密名称时，Unicreds会自动为该值创建新版本。你可以通过在`get`或`put`命令中提供版本参数来获取特定版本的秘密：
 - en: '[PRE44]'
+  id: totrans-425
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE44]'
 - en: See also
+  id: totrans-426
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 另见
 - en: The *Creating users* recipe
+  id: totrans-427
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*创建用户*的操作步骤'
