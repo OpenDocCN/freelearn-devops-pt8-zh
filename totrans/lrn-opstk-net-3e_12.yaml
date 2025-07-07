@@ -1,7 +1,9 @@
 - en: Distributed Virtual Routers
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 分布式虚拟路由器
 - en: Prior to the introduction of Neutron in the Folsom release of OpenStack, all
     network management was built in to the Nova API and was known as nova-network.
     Nova-network provided floating IP functionality, and network failure domains were
@@ -13,286 +15,430 @@
     many concepts from the nova-network multi-host model to provide high-availability
     and smaller network failure domains while retaining support for many of the advanced
     networking features provided by Neutron.
+  id: totrans-1
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 OpenStack 的 Folsom 版本中引入 Neutron 之前，所有网络管理都内置于 Nova API 中，并被称为 nova-network。nova-network
+    提供了浮动 IP 功能，网络故障域仅限于单个计算节点 —— 这是早期版本 Neutron 所缺乏的功能。nova-network 已被弃用，并且其大部分功能已经在最新版本的
+    Neutron 中得到了实现和改进。在上一章中，我们通过使用 VRRP 提供高可用性的活动-待命路由器。在本章中，我们将讨论分布式虚拟路由器如何借鉴 nova-network
+    多主机模型的许多概念，以提供高可用性和更小的网络故障域，同时保留对 Neutron 提供的许多高级网络功能的支持。
 - en: Legacy routers, including standalone and active-standby, are compatible with
     multiple mechanism drivers, including the Linux bridge and Open vSwitch drivers.
     Distributed virtual routers, on the other hand, require Open vSwitch and are only
     supported by the Open vSwitch mechanism driver and agent. Other drivers and agents,
     such as those for OVN or OpenContrail, may provide similar distributed routing
     functionality, but are out of the scope of this book.
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: 传统路由器，包括独立路由器和活动-待命路由器，兼容多种机制驱动程序，包括 Linux 桥接和 Open vSwitch 驱动程序。而分布式虚拟路由器则需要
+    Open vSwitch，仅由 Open vSwitch 机制驱动程序和代理支持。其他驱动程序和代理，如 OVN 或 OpenContrail 的驱动程序，可能提供类似的分布式路由功能，但不在本书讨论范围之内。
 - en: Distributing routers across the cloud
+  id: totrans-3
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 在云中分布路由器
 - en: Much like nova-network did with its multi-host functionality, Neutron can distribute
     a virtual router across compute nodes in an effort to isolate the failure domain
     to a particular compute node rather than a centralized network node. By eliminating
     a centralized Layer 3 agent, routing that was performed on a single node is now
     handled by the compute nodes themselves.
+  id: totrans-4
   prefs: []
   type: TYPE_NORMAL
+  zh: 就像 nova-network 使用其多主机功能一样，Neutron 可以将虚拟路由器分布到计算节点，以便将故障域隔离到特定的计算节点，而不是集中式网络节点。通过消除集中式的
+    Layer 3 代理，之前在单一节点上执行的路由现在由计算节点本身处理。
 - en: 'Legacy routing using a centralized network node resembles the following diagram:'
+  id: totrans-5
   prefs: []
   type: TYPE_NORMAL
+  zh: 传统路由使用集中式网络节点类似于以下图示：
 - en: '![](img/23292ba5-2cd8-42f5-b08e-f694f82e0b1c.png)'
+  id: totrans-6
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/23292ba5-2cd8-42f5-b08e-f694f82e0b1c.png)'
 - en: In the legacy model, traffic from the blue virtual machine to the red virtual
     machine on a different network would traverse a centralized network node hosting
     the router. If the node hosting the router were to fail, traffic between the instances
     and external networks or the instances themselves would be dropped.
+  id: totrans-7
   prefs: []
   type: TYPE_NORMAL
+  zh: 在传统模型中，从蓝色虚拟机到位于不同网络中的红色虚拟机的流量会经过承载路由器的集中式网络节点。如果承载路由器的节点发生故障，实例之间或实例与外部网络之间的流量将被丢弃。
 - en: 'In this chapter, I will discuss the following:'
+  id: totrans-8
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我将讨论以下内容：
 - en: Installing and configuring additional L3 agents to support distributed virtual
     routers
+  id: totrans-9
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 安装并配置额外的 L3 代理以支持分布式虚拟路由器
 - en: Demonstrating the creation and management of a distributed virtual router
+  id: totrans-10
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 演示创建和管理分布式虚拟路由器
 - en: Routing between networks behind the same router
+  id: totrans-11
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在同一路由器后面的网络之间进行路由
 - en: Outbound connectivity using SNAT
+  id: totrans-12
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 SNAT 的出站连接
 - en: Inbound and outbound connectivity using floating IPs
+  id: totrans-13
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用浮动 IP 的入站和出站连接
 - en: Installing and configuring Neutron components
+  id: totrans-14
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 安装并配置 Neutron 组件
 - en: 'To configure distributed virtual routers, there are a few requirements that
     must be met, including the following:'
+  id: totrans-15
   prefs: []
   type: TYPE_NORMAL
+  zh: 配置分布式虚拟路由器时，必须满足一些要求，包括以下内容：
 - en: ML2 plugin
+  id: totrans-16
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: ML2 插件
 - en: L2 population mechanism driver
+  id: totrans-17
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: L2 人口机制驱动程序
 - en: Open vSwitch mechanism driver
+  id: totrans-18
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: Open vSwitch 机制驱动程序
 - en: Layer 3 agent installed on all networks and compute nodes
+  id: totrans-19
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在所有网络和计算节点上安装 Layer 3 代理
 - en: In the environment built out in this book, a single controller node handles
     OpenStack API services, DHCP and metadata services, and runs the Linux bridge
     agent for use with standalone and HA routers. `compute01` runs the Linux bridge
     agent, while `compute02` and `compute03` run the Open vSwitch agent. Another node,
     `snat01`, will run the Open vSwitch agent and be responsible for outbound SNAT
     traffic when distributed virtual routers are used.
+  id: totrans-20
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本书构建的环境中，单一控制节点处理OpenStack API服务、DHCP和元数据服务，并运行Linux桥接代理，用于独立路由器和高可用路由器（HA）。`compute01`运行Linux桥接代理，而`compute02`和`compute03`运行Open
+    vSwitch代理。另一个节点`snat01`将运行Open vSwitch代理，并负责在使用分布式虚拟路由器时处理出站SNAT流量。
 - en: 'A diagram of this configuration can be seen here:'
+  id: totrans-21
   prefs: []
   type: TYPE_NORMAL
+  zh: 该配置的示意图如下：
 - en: '![](img/c7392b1b-1565-4f42-b61b-2de284f39ef5.png)'
+  id: totrans-22
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/c7392b1b-1565-4f42-b61b-2de284f39ef5.png)'
 - en: While the mixing of drivers and agents between nodes is possible thanks to the
     ML2 core plugin, a design like this is not typical in a production environment.
     Instances deployed on `compute01` may experience connectivity issues if deployed
     on a network using a distributed virtual router.
+  id: totrans-23
   prefs: []
   type: TYPE_NORMAL
+  zh: 尽管由于ML2核心插件的支持，节点之间可以混合使用驱动程序和代理，但这种设计在生产环境中并不常见。如果在使用分布式虚拟路由器的网络上部署，部署在`compute01`上的实例可能会遇到连接问题。
 - en: Installing additional L3 agents
+  id: totrans-24
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 安装额外的L3代理
 - en: 'Run the following command on `snat01` to install the `L3` agent:'
+  id: totrans-25
   prefs: []
   type: TYPE_NORMAL
+  zh: 在`snat01`上运行以下命令以安装`L3`代理：
 - en: '[PRE0]'
+  id: totrans-26
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: Defining an interface driver
+  id: totrans-27
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 定义接口驱动程序
 - en: Open vSwitch and the Open vSwitch mechanism driver are required to enable and
     utilize distributed virtual routers.
+  id: totrans-28
   prefs: []
   type: TYPE_NORMAL
+  zh: 必须使用Open vSwitch和Open vSwitch机制驱动程序才能启用和使用分布式虚拟路由器。
 - en: 'Update the Neutron L3 agent configuration file at `/etc/neutron/l3_agent.ini` on
     `snat01` and specify the following interface driver:'
+  id: totrans-29
   prefs: []
   type: TYPE_NORMAL
+  zh: 更新`snat01`上`/etc/neutron/l3_agent.ini`中的Neutron L3代理配置文件，并指定以下接口驱动程序：
 - en: '[PRE1]'
+  id: totrans-30
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: Enabling distributed mode
+  id: totrans-31
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 启用分布式模式
 - en: The ML2 plugin is required to operate distributed virtual routers and must be
     configured accordingly.
+  id: totrans-32
   prefs: []
   type: TYPE_NORMAL
+  zh: 操作分布式虚拟路由器需要安装ML2插件，并且必须进行相应的配置。
 - en: 'Update the OVS configuration file at `/etc/neutron/plugins/ml2/openvswitch_agent.ini`
     on `compute02`, `compute03`, and `snat01` to enable the OVS agent to support distributed
     virtual routing and `L2` population:'
+  id: totrans-33
   prefs: []
   type: TYPE_NORMAL
+  zh: 更新`compute02`、`compute03`和`snat01`上的`/etc/neutron/plugins/ml2/openvswitch_agent.ini`中的OVS配置文件，以使OVS代理支持分布式虚拟路由和`L2`人口填充：
 - en: '[PRE2]'
+  id: totrans-34
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: Setting the agent mode
+  id: totrans-35
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 设置代理模式
 - en: 'When using distributed virtual routers, a node can operate in one of two modes:
     `dvr` or `dvr_snat`. A node configured in `dvr_snat` mode handles north-south
     SNAT traffic, while a node in `dvr` mode handles north-south DNAT (for example,
     floating IP) traffic and east-west traffic between instances.'
+  id: totrans-36
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用分布式虚拟路由器时，节点可以操作两种模式之一：`dvr`或`dvr_snat`。配置为`dvr_snat`模式的节点处理南北向SNAT流量，而`dvr`模式的节点处理南北向DNAT（例如浮动IP）流量以及实例之间的东西向流量。
 - en: Compute nodes running the Open vSwitch agent run in dvr mode. A centralized
     network node typically runs in `dvr_snat` mode, and can potentially acts as a
     single point of failure for the network for instances not leveraging floating
     IPs.
+  id: totrans-37
   prefs: []
   type: TYPE_NORMAL
+  zh: 运行Open vSwitch代理的计算节点处于dvr模式。集中式网络节点通常运行`dvr_snat`模式，并可能作为没有使用浮动IP的实例的网络单点故障。
 - en: Neutron supports deploying highly-available `dvr_snat` nodes using VRRP, but
     doing so is outside the scope of this book.
+  id: totrans-38
   prefs: []
   type: TYPE_NORMAL
+  zh: Neutron支持使用VRRP部署高可用的`dvr_snat`节点，但这超出了本书的范围。
 - en: In this book, the `snat01` node will be dedicated to handling SNAT traffic when
     using distributed virtual routers, as `controller01` has been configured with
     the Linux bridge agent and is not an eligible host for DVR-related functions.
+  id: totrans-39
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本书中，`snat01`节点将专门用于处理使用分布式虚拟路由器时的SNAT流量，因为`controller01`已经配置为Linux桥接代理，并且不适合作为DVR相关功能的主机。
 - en: 'On the `snat01` node, configure the L3 agent to operate in `dvr_snat` mode
     by modifying the `agent_mode` option in the L3 agent configuration file:'
+  id: totrans-40
   prefs: []
   type: TYPE_NORMAL
+  zh: 在`snat01`节点上，通过修改L3代理配置文件中的`agent_mode`选项，将L3代理配置为运行`dvr_snat`模式：
 - en: '[PRE3]'
+  id: totrans-41
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: 'On the `compute02` and `compute03` nodes, modify the L3 agent to operate in
     `dvr` mode from `legacy` mode:'
+  id: totrans-42
   prefs: []
   type: TYPE_NORMAL
+  zh: 在`compute02`和`compute03`节点上，将L3代理从`legacy`模式修改为`dvr`模式：
 - en: '[PRE4]'
+  id: totrans-43
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: 'On the `snat01`, `compute02`, and `compute03` nodes, set the `handle_internal_only_routers`
     configuration option to `false`:'
+  id: totrans-44
   prefs: []
   type: TYPE_NORMAL
+  zh: 在`snat01`、`compute02`和`compute03`节点上，将`handle_internal_only_routers`配置选项设置为`false`：
 - en: '[PRE5]'
+  id: totrans-45
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: Configuring Neutron
+  id: totrans-46
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 配置Neutron
 - en: Neutron uses default settings to determine the type of routers that users are
     allowed to create as well as the number of routers that should be deployed across L3
     agents.
+  id: totrans-47
   prefs: []
   type: TYPE_NORMAL
+  zh: Neutron 使用默认设置来确定用户允许创建的路由器类型以及应该在 L3 代理中部署的路由器数量。
 - en: 'The following default settings are specified within the `neutron.conf` configuration
     file and only need to be modified on the host running the Neutron API service.
     In this environment, the `neutron-server` service runs on the `controller01` node.
     The default values can be seen here:'
+  id: totrans-48
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下默认设置已在`neutron.conf`配置文件中指定，且仅需在运行 Neutron API 服务的主机上修改。在此环境中，`neutron-server`
+    服务运行在 `controller01` 节点上。默认值如下所示：
 - en: '[PRE6]'
+  id: totrans-49
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: To set distributed routers as the default router type for projects, set the `router_distributed`  configuration
     option to `true`. For this demonstration, the default value of `false` is sufficient.
+  id: totrans-50
   prefs: []
   type: TYPE_NORMAL
+  zh: 若要将分布式路由器设置为项目的默认路由器类型，请将 `router_distributed` 配置选项设置为 `true`。在本演示中，默认值 `false`
+    已足够。
 - en: 'Once the changes have been made, restart the `neutron-server` service on `controller01`
     for the changes to take effect:'
+  id: totrans-51
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦更改完成，在`controller01`上重启`neutron-server`服务以使更改生效：
 - en: '[PRE7]'
+  id: totrans-52
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: Restarting the Neutron L3 and Open vSwitch agent
+  id: totrans-53
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 重新启动 Neutron L3 和 Open vSwitch 代理
 - en: 'After making changes to the configuration of the Neutron L3 and L2 agents,
     issue the following command on `compute02`, `compute03`, and `snat01` to restart
     the respective agents:'
+  id: totrans-54
   prefs: []
   type: TYPE_NORMAL
+  zh: 在对 Neutron L3 和 L2 代理的配置进行更改后，在`compute02`、`compute03` 和 `snat01` 上执行以下命令以重新启动相应的代理：
 - en: '[PRE8]'
+  id: totrans-55
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: 'After a restart of the services, the additional agents should check in. Use
     the following `openstack network agent list` command to return a listing of all
     L3 agents:'
+  id: totrans-56
   prefs: []
   type: TYPE_NORMAL
+  zh: 在服务重启后，额外的代理应该会登录。使用以下`openstack network agent list`命令返回所有 L3 代理的列表：
 - en: '[PRE9]'
+  id: totrans-57
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: 'The output should resemble the following:'
+  id: totrans-58
   prefs: []
   type: TYPE_NORMAL
+  zh: 输出应类似于以下内容：
 - en: '![](img/5759a2e8-1a1f-483d-b831-52b3a1198928.png)'
+  id: totrans-59
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/5759a2e8-1a1f-483d-b831-52b3a1198928.png)'
 - en: If an agent is not listed in the output as expected, troubleshoot any errors
     that may be indicated in the`/var/log/neutron/l3-agent.log` log file on the respective
     node.
+  id: totrans-60
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果代理未按预期列出在输出中，请在相应节点的`/var/log/neutron/l3-agent.log`日志文件中排查可能的错误。
 - en: Managing distributed virtual routers
+  id: totrans-61
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 管理分布式虚拟路由器
 - en: With a few exceptions, managing a distributed router is no different from its
     standalone counterpart. Neutron's router management commands were covered in [*Chapter
     10*](371886b8-4c2a-49e9-90b8-8fe79217adb4.xhtml), *Creating Standalone Routers
     with Neutron*. The exceptions are covered in the following section.
+  id: totrans-62
   prefs: []
   type: TYPE_NORMAL
+  zh: 除了一些例外，管理分布式路由器与管理独立路由器没有太大区别。Neutron 的路由器管理命令已在 [*第10章*](371886b8-4c2a-49e9-90b8-8fe79217adb4.xhtml)，*使用
+    Neutron 创建独立路由器* 中进行介绍。以下部分将介绍这些例外情况。
 - en: Creating distributed virtual routers
+  id: totrans-63
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 创建分布式虚拟路由器
 - en: 'Users with the admin role can create distributed virtual routers using the
     `--distributed` argument with the `openstack router create` command, as shown
     here:'
+  id: totrans-64
   prefs: []
   type: TYPE_NORMAL
+  zh: 拥有管理员角色的用户可以使用`openstack router create`命令的`--distributed`参数创建分布式虚拟路由器，示例如下：
 - en: '[PRE10]'
+  id: totrans-65
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: Users without the admin role are limited the router type specified by the `router_distributed`
     configuration option in the Neutron configuration file. Users do not have the
     ability to override the default router type and cannot specify the `--distributed`
     argument.
+  id: totrans-66
   prefs: []
   type: TYPE_NORMAL
+  zh: 没有管理员角色的用户受限于 Neutron 配置文件中 `router_distributed` 配置选项指定的路由器类型。用户无法覆盖默认路由器类型，也不能指定
+    `--distributed` 参数。
 - en: Routing east-west traffic between instances
+  id: totrans-67
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 在实例之间路由东西向流量
 - en: In the network world, east-west traffic is traditionally defined as server-to-server
     traffic. In Neutron, as it relates to distributed virtual routers, east-west traffic
     is traffic between instances in different networks owned by the same project.
@@ -300,48 +446,72 @@
     a virtual router located on a centralized network node. With DVR, the same traffic
     avoids the network node and is routed directly between the compute nodes hosting
     the virtual machine instances.
+  id: totrans-68
   prefs: []
   type: TYPE_NORMAL
+  zh: 在网络世界中，东西向流量传统上定义为服务器到服务器的流量。在 Neutron 中，涉及分布式虚拟路由器时，东西向流量是指位于同一项目中不同网络的实例之间的流量。在
+    Neutron 的传统路由模型中，不同网络之间的流量会经过位于集中式网络节点的虚拟路由器。而使用 DVR（分布式虚拟路由器）时，流量会绕过网络节点，直接在托管虚拟机实例的计算节点之间进行路由。
 - en: Reviewing the topology
+  id: totrans-69
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 审查拓扑结构
 - en: 'Logically speaking, a distributed virtual router is a single router object
     connecting two or more project networks, as shown in the following diagram:'
+  id: totrans-70
   prefs: []
   type: TYPE_NORMAL
+  zh: 从逻辑上讲，分布式虚拟路由器是一个连接两个或多个项目网络的单一路由器对象，如下图所示：
 - en: '![](img/e96b7f9d-f071-4cdb-8ccc-57861b9684f2.png)'
+  id: totrans-71
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/e96b7f9d-f071-4cdb-8ccc-57861b9684f2.png)'
 - en: 'In the following example, a distributed virtual router named `MyDistributedRouter`
     has been created and connected to two project networks: `BLUE_NET` and `RED_NET`.
     Virtual machine instances in each network use their respective default gateways
     to route traffic to the other network through the same router. The virtual machine
     instances are unaware of where the router is located.'
+  id: totrans-72
   prefs: []
   type: TYPE_NORMAL
+  zh: 在下面的示例中，一个名为 `MyDistributedRouter` 的分布式虚拟路由器已经创建，并连接到两个项目网络：`BLUE_NET` 和 `RED_NET`。每个网络中的虚拟机实例使用各自的默认网关，通过相同的路由器将流量路由到另一个网络。虚拟机实例并不知道路由器的位置。
 - en: 'A look under the hood, however, tells a different story. In the following example,
     the blue VM pings the red VM and traffic is routed and forwarded accordingly:'
+  id: totrans-73
   prefs: []
   type: TYPE_NORMAL
+  zh: 然而，揭开它的外壳，却会得出不同的结论。在以下示例中，蓝色虚拟机（VM）向红色虚拟机（VM）发送 ping，流量会按预期路由和转发：
 - en: '![](img/f566fa0d-3573-4fda-afdf-f079a466f0fb.png)'
+  id: totrans-74
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/f566fa0d-3573-4fda-afdf-f079a466f0fb.png)'
 - en: 'As far as the user is concerned, the router connecting the two networks is
     a single entity known as `MyDistributedRouter`:'
+  id: totrans-75
   prefs: []
   type: TYPE_NORMAL
+  zh: 对用户来说，连接两个网络的路由器是一个名为 `MyDistributedRouter` 的单一实体：
 - en: '![](img/3bd87c91-f995-4d05-bf1d-c57f955d9c63.png)'
+  id: totrans-76
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/3bd87c91-f995-4d05-bf1d-c57f955d9c63.png)'
 - en: 'Using the `ip netns exec` command, we can see that the `qr` interfaces within
     the namespaces on each compute node and the `SNAT` node share the same interface
     names, IP addresses, and MAC addresses:'
+  id: totrans-77
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用 `ip netns exec` 命令，我们可以看到每个计算节点和 `SNAT` 节点上的命名空间内的 `qr` 接口共享相同的接口名称、IP 地址和
+    MAC 地址：
 - en: '![](img/9b89c623-86e4-42ae-857a-d5d7c0cb03d1.png)'
+  id: totrans-78
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/9b89c623-86e4-42ae-857a-d5d7c0cb03d1.png)'
 - en: In the preceding screenshot, the qrouter namespaces on the `snat01` and `compute`
     nodes that correspond to the distributed router contain the same `qr-841d9818-bf`
     and `qr-d2ce8f82-d8` interfaces and addresses that correspond to the `BLUE_NET`
@@ -349,12 +519,18 @@
     rules allows traffic between instances behind the same distributed router to be
     routed directly between compute nodes. The tricks behind this functionality will
     be discussed in the following sections and throughout this chapter.
+  id: totrans-79
   prefs: []
   type: TYPE_NORMAL
+  zh: 在上面的截图中，`snat01` 和 `compute` 节点上与分布式路由器相对应的 qrouter 命名空间包含相同的 `qr-841d9818-bf`
+    和 `qr-d2ce8f82-d8` 接口及其地址，这些接口分别对应 `BLUE_NET` 和 `RED_NET` 网络。通过巧妙使用路由表和 Open vSwitch
+    流规则，可以使同一分布式路由器后面的实例之间的流量直接在计算节点之间路由。这个功能背后的技巧将在接下来的章节中讨论。
 - en: Plumbing it up
+  id: totrans-80
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 连接它
 - en: When a distributed virtual router is connected to a subnet using the OpenStack
     `router add subnet` or `add port` commands, the router is scheduled to all nodes
     hosting ports on the subnet and running the Open vSwitch agent, including any
@@ -363,174 +539,259 @@
     for creating the respective `qrouter` network namespace on each node, and the
     Open vSwitch agent connects the router interfaces to the bridges and configures
     the appropriate flows.
+  id: totrans-81
   prefs: []
   type: TYPE_NORMAL
+  zh: 当分布式虚拟路由器通过 OpenStack `router add subnet` 或 `add port` 命令连接到子网时，路由器会被调度到所有在子网上托管端口并运行
+    Open vSwitch 代理的节点，包括任何托管 DHCP 或负载均衡器命名空间的控制器或网络节点，以及任何托管虚拟机实例的计算节点。L3 代理负责在每个节点上创建相应的
+    `qrouter` 网络命名空间，而 Open vSwitch 代理则将路由器接口连接到桥接器并配置适当的流规则。
 - en: Distributing router ports
+  id: totrans-82
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 分配路由器端口
 - en: 'Without proper precautions, distributing ports with the same IP and MAC addresses
     across multiple compute nodes presents major issues in the network. Imagine a
     physical topology that resembles the following diagram:'
+  id: totrans-83
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果没有采取适当的预防措施，将具有相同 IP 和 MAC 地址的端口分配到多个计算节点会在网络中产生重大问题。可以想象一个物理拓扑，如下图所示：
 - en: '![](img/b4d17ae3-2c7b-4c05-9638-952215a6e9a7.png)'
+  id: totrans-84
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/b4d17ae3-2c7b-4c05-9638-952215a6e9a7.png)'
 - en: In most networks, an environment consisting of multiple routers with the same
     IP and MAC address connected to a switch would result in the switches learning
     and relearning the location of the MAC addresses across different switch ports.
     This behavior is often referred to as MAC flapping and results in network instability
     and unreliability.
+  id: totrans-85
   prefs: []
   type: TYPE_NORMAL
+  zh: 在大多数网络中，由多个具有相同 IP 和 MAC 地址的路由器连接到交换机的环境，会导致交换机不断学习和重新学习 MAC 地址在不同交换机端口上的位置。这种行为通常被称为
+    MAC 颤动，最终导致网络不稳定和不可靠。
 - en: Virtual switches can exhibit the same behavior regardless of segmentation type,
     as the virtual switch may learn that a MAC address exists both locally on the
     compute node and remotely, resulting in similar behavior that is observed on the
     physical switch.
+  id: totrans-86
   prefs: []
   type: TYPE_NORMAL
+  zh: 虚拟交换机可能表现出相同的行为，无论分割类型如何，因为虚拟交换机可能会学习到MAC地址同时存在于计算节点的本地和远程位置，导致观察到与物理交换机相似的行为。
 - en: Making it work
+  id: totrans-87
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 让它工作
 - en: 'To work around this expected network behavior, Neutron allocates a unique MAC
     address to each compute node that is used whenever traffic from a distributed
     virtual router leaves the node. The following screenshot shows the unique MAC
     addresses that have been allocated to the nodes in this demonstration:'
+  id: totrans-88
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了解决这种预期的网络行为，Neutron为每个计算节点分配了一个唯一的MAC地址，每当来自分布式虚拟路由器的流量离开节点时使用。以下截图显示了在此演示中为节点分配的唯一MAC地址：
 - en: '![](img/e24d08a1-b5cf-4c4d-b8b2-6d859920ddd5.png)'
+  id: totrans-89
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/e24d08a1-b5cf-4c4d-b8b2-6d859920ddd5.png)'
 - en: 'Open vSwitch flow rules are used to rewrite the source MAC address of a packet
     as it leaves a router interface with the unique MAC address allocated to the respective
     host. In the following screenshot, a look at the flows on the provider bridge
     of `compute02` demonstrates the rewriting of the non-unique `qr` interface MAC
     address with the unique MAC address assigned to `compute02`:'
+  id: totrans-90
   prefs: []
   type: TYPE_NORMAL
+  zh: Open vSwitch流规则用于在流量离开具有分配给各自主机的唯一MAC地址的路由器接口时重写数据包的源MAC地址。在下图中，查看`compute02`提供者桥上的流量，演示了将非唯一`qr`接口MAC地址重写为分配给`compute02`的唯一MAC地址的过程：
 - en: '![](img/1002a811-f119-4d2c-a1c3-dfed467cacac.png)'
+  id: totrans-91
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/1002a811-f119-4d2c-a1c3-dfed467cacac.png)'
 - en: 'Likewise, when traffic comes in to a compute node that matches a local virtual
     machine instance''s MAC address and segmentation ID, the source MAC address is
     rewritten from the unique source host MAC address to the local instance''s gateway
     MAC address:'
+  id: totrans-92
   prefs: []
   type: TYPE_NORMAL
+  zh: 同样地，当流量进入与本地虚拟机实例的MAC地址和分割ID匹配的计算节点时，源MAC地址从唯一源主机MAC地址重写为本地实例网关MAC地址：
 - en: '![](img/0dbc6f49-6fa8-4a8f-b6d0-a2bd256f912c.png)'
+  id: totrans-93
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/0dbc6f49-6fa8-4a8f-b6d0-a2bd256f912c.png)'
 - en: Because the Layer 2 header rewrites occur before traffic enters and after traffic
     leaves the virtual machine instance, the instance is unaware of the changes made
     to the frames and operates normally. The following section demonstrates this process
     in further detail.
+  id: totrans-94
   prefs: []
   type: TYPE_NORMAL
+  zh: 因为Layer 2头重写发生在流量进入和离开虚拟机实例之前，实例对帧的更改是不知情的，并且正常运行。以下部分详细演示了这个过程。
 - en: Demonstrating traffic between instances
+  id: totrans-95
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 演示实例间的流量
 - en: 'Imagine a scenario where virtual machines in different networks exist on two
     different compute nodes, as demonstrated in the following diagram:'
+  id: totrans-96
   prefs: []
   type: TYPE_NORMAL
+  zh: 想象一个场景，不同网络中的虚拟机存在于两个不同的计算节点上，如下图所示：
 - en: '![](img/8eebe763-af14-40c5-804d-4896181297d0.png)'
+  id: totrans-97
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/8eebe763-af14-40c5-804d-4896181297d0.png)'
 - en: 'Traffic from the blue virtual machine instance on Compute A to the red virtual
     machine instance on Compute B will first be forwarded from the instance to its
     local gateway through the integration bridge and to the router namespace, as shown
     here:'
+  id: totrans-98
   prefs: []
   type: TYPE_NORMAL
+  zh: 从计算节点A上的蓝色虚拟机实例到计算节点B上的红色虚拟机实例的流量将首先从实例转发到其本地网关，通过集成桥到达路由器命名空间，如下图所示：
 - en: '![](img/b47c3150-7e30-4833-8c5d-c73638f88947.png)'
+  id: totrans-99
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/b47c3150-7e30-4833-8c5d-c73638f88947.png)'
 - en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
     |'
+  id: totrans-100
   prefs: []
   type: TYPE_TB
+  zh: '| **源MAC** | **目的MAC** | **源IP** | **目的IP** |'
 - en: '| Blue VM | Blue router interface | Blue VM | Red VM |'
+  id: totrans-101
   prefs: []
   type: TYPE_TB
+  zh: '| 蓝色虚拟机 | 蓝色路由器接口 | 蓝色虚拟机 | 红色虚拟机 |'
 - en: 'The router on Compute A will route the traffic from the blue VM to the red
     VM, replacing the source MAC address with its red interface and the destination
     MAC address to that of the red VM in the process:'
+  id: totrans-102
   prefs: []
   type: TYPE_NORMAL
+  zh: 计算节点A上的路由器将从蓝色虚拟机到红色虚拟机的流量路由，将源MAC地址替换为其红色接口，目的MAC地址替换为红色虚拟机的MAC地址：
 - en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
     |'
+  id: totrans-103
   prefs: []
   type: TYPE_TB
+  zh: '| **源MAC** | **目的MAC** | **源IP** | **目的IP** |'
 - en: '| Red router interface | Red VM | Blue VM | Red VM |'
+  id: totrans-104
   prefs: []
   type: TYPE_TB
+  zh: '| 红色路由器接口 | 红色虚拟机 | 蓝色虚拟机 | 红色虚拟机 |'
 - en: 'The router then sends the packet back to the integration bridge, which then
     forwards it to the provider bridge, as shown here:'
+  id: totrans-105
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后路由器将数据包发送回集成桥，随后转发到提供者桥，如下图所示：
 - en: '![](img/e8dc1472-2887-4d5c-99f3-3a8ea8d1da5b.png)'
+  id: totrans-106
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/e8dc1472-2887-4d5c-99f3-3a8ea8d1da5b.png)'
 - en: 'As traffic arrives at the provider bridge of ComputeA, a series of flow rules
     are processed, resulting in the source MAC address being changed from the red
     interface of the router to the unique MAC address of the host:'
+  id: totrans-107
   prefs: []
   type: TYPE_NORMAL
+  zh: 当流量到达ComputeA的提供商桥时，会处理一系列流规则，导致源MAC地址从路由器的红色接口更改为主机的唯一MAC地址：
 - en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
     |'
+  id: totrans-108
   prefs: []
   type: TYPE_TB
+  zh: '| **源 MAC** | **目的 MAC** | **源 IP** | **目的 IP** |'
 - en: '| Source host (Compute A) | Red VM | Blue VM | Red VM |'
+  id: totrans-109
   prefs: []
   type: TYPE_TB
+  zh: '| 源主机（Compute A） | 红色虚拟机 | 蓝色虚拟机 | 红色虚拟机 |'
 - en: 'The traffic is then forwarded out onto the physical network and over to Compute
     B:'
+  id: totrans-110
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，流量被转发到物理网络，并传送到Compute B：
 - en: '![](img/d6d6c107-c126-4dd4-8cd5-d033e6900a46.png)'
+  id: totrans-111
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/d6d6c107-c126-4dd4-8cd5-d033e6900a46.png)'
 - en: 'When traffic arrives at Compute B, it is forwarded through the provider bridge.
     A flow rule adds a local VLAN header that allows traffic to be matched when it
     is forwarded to the integration bridge:'
+  id: totrans-112
   prefs: []
   type: TYPE_NORMAL
+  zh: 当流量到达Compute B时，会通过提供商桥进行转发。一个流规则会添加一个本地VLAN头，允许流量在转发到集成桥时进行匹配：
 - en: '![](img/a32b1323-db6a-4d84-bfe6-90c33a393ed8.png)'
+  id: totrans-113
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/a32b1323-db6a-4d84-bfe6-90c33a393ed8.png)'
 - en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
     |'
+  id: totrans-114
   prefs: []
   type: TYPE_TB
+  zh: '| **源 MAC** | **目的 MAC** | **源 IP** | **目的 IP** |'
 - en: '| Source host (Compute A) | Red VM | Blue VM | Red VM |'
+  id: totrans-115
   prefs: []
   type: TYPE_TB
+  zh: '| 源主机（Compute A） | 红色虚拟机 | 蓝色虚拟机 | 红色虚拟机 |'
 - en: 'In the integration bridge, a flow rule strips the local VLAN tag and changes
     the source MAC address back to that of the router''s red interface. The packet
     is then forwarded to the red VM:'
+  id: totrans-116
   prefs: []
   type: TYPE_NORMAL
+  zh: 在集成桥接器中，一个流规则会去掉本地VLAN标签，并将源MAC地址更改回路由器的红色接口地址。然后，数据包将被转发到红色虚拟机：
 - en: '![](img/44741845-6b41-4c39-893f-6f2302debc8f.png)'
+  id: totrans-117
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/44741845-6b41-4c39-893f-6f2302debc8f.png)'
 - en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
     |'
+  id: totrans-118
   prefs: []
   type: TYPE_TB
+  zh: '| **源 MAC** | **目的 MAC** | **源 IP** | **目的 IP** |'
 - en: '| Red router interface | Red VM | Blue VM | Red VM |'
+  id: totrans-119
   prefs: []
   type: TYPE_TB
+  zh: '| 红色路由器接口 | 红色虚拟机 | 蓝色虚拟机 | 红色虚拟机 |'
 - en: Return traffic from the red VM to the blue VM undergoes a similar routing path
     through the respective routers and bridges on each compute node.
+  id: totrans-120
   prefs: []
   type: TYPE_NORMAL
+  zh: 从红色虚拟机到蓝色虚拟机的返回流量经过相应的路由器和每个计算节点上的桥接器，沿着类似的路由路径。
 - en: Centralized SNAT
+  id: totrans-121
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 集中式SNAT
 - en: Source NAT, or SNAT for short, is the method of changing the source address
     of a packet as it leaves the interface of a router. When a Neutron router is allocated
     an IP address from an external network, that IP is used to represent traffic that
@@ -538,229 +799,338 @@
     floating IP. All routers in Neutron, whether they are standalone, highly-available,
     or distributed, support SNAT and masquerade traffic originating behind the router
     when floating IPs are not used.
+  id: totrans-122
   prefs: []
   type: TYPE_NORMAL
+  zh: 源NAT，简称SNAT，是指在数据包离开路由器接口时更改其源地址的方法。当Neutron路由器从外部网络分配到一个IP地址时，该IP将用于表示来自路由器后方虚拟机实例的流量，这些虚拟机没有浮动IP。在Neutron中的所有路由器，无论是独立的、高可用的，还是分布式的，都支持SNAT，并且在没有使用浮动IP时，会伪装来自路由器后方的流量。
 - en: By default, routers that handle SNAT are centralized on a single node and are
     not highly available, resulting in a single point of failure for a given network.
     As a workaround, multiple nodes may be configured in `dvr_snat` mode. Neutron
     supports the ability to leverage VRRP to provide highly-available SNAT routers,
     however, the feature is experimental and is not discussed in this book.
+  id: totrans-123
   prefs: []
   type: TYPE_NORMAL
+  zh: 默认情况下，处理SNAT的路由器是集中在单个节点上的，并且不可高可用，这会导致给定网络的单点故障。作为解决方法，可以配置多个节点处于`dvr_snat`模式。Neutron支持利用VRRP来提供高可用的SNAT路由器，但该功能仍处于实验阶段，本书中不讨论。
 - en: Reviewing the topology
+  id: totrans-124
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 查看拓扑结构
 - en: 'In this DVR SNAT demonstration, the following provider and project networks
     will be used:'
+  id: totrans-125
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这个DVR SNAT演示中，将使用以下提供商和项目网络：
 - en: '![](img/b2d32260-1aee-43d7-be47-16e8bb43c510.png)'
+  id: totrans-126
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/b2d32260-1aee-43d7-be47-16e8bb43c510.png)'
 - en: 'Using the -`-distributed` argument, a distributed virtual router has been created:'
+  id: totrans-127
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用-`-distributed`参数，创建了一个分布式虚拟路由器：
 - en: '![](img/c8adb6aa-376b-46bb-bd13-0f9110c6d780.png)'
+  id: totrans-128
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/c8adb6aa-376b-46bb-bd13-0f9110c6d780.png)'
 - en: 'In this environment, the L3 agent on the host `snat01` is in `dvr_snat` mode
     and serves as the centralized `SNAT` node. Attaching the router to the project
     network `GREEN_NET` results in the router being scheduled to the `snat01` host:'
+  id: totrans-129
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这个环境中，主机`snat01`上的L3代理处于`dvr_snat`模式，并作为集中式`SNAT`节点。将路由器附加到项目网络`GREEN_NET`，会将该路由器调度到`snat01`主机：
 - en: '![](img/4f296eb7-3978-4eb5-8014-5661ebdf3e89.png)'
+  id: totrans-130
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/4f296eb7-3978-4eb5-8014-5661ebdf3e89.png)'
 - en: When an instance is spun up in the `GREEN_NET` network, the router is also scheduled
     to the respective compute node.
+  id: totrans-131
   prefs: []
   type: TYPE_NORMAL
+  zh: 当在`GREEN_NET`网络中启动实例时，路由器也会调度到相应的计算节点。
 - en: 'At this point, both the `snat01` and `compute03` nodes each have a `qrouter`
     namespace that corresponds to the `MyOtherDistributedRouter` router. Attaching
     the router to the external network results in the creation of a `snat` namespace
     on the `snat01` node. Now, on the `snat01` node, two namespaces exist for the
     same router – `snat` and `qrouter`:'
+  id: totrans-132
   prefs: []
   type: TYPE_NORMAL
+  zh: 此时，`snat01`和`compute03`节点各自都有一个与`MyOtherDistributedRouter`路由器对应的`qrouter`命名空间。将路由器连接到外部网络后，会在`snat01`节点创建一个`snat`命名空间。现在，在`snat01`节点上，存在同一个路由器的两个命名空间——`snat`和`qrouter`：
 - en: '![](img/ffd6a9a0-1431-4944-9edf-bc6dc32a2898.png)'
+  id: totrans-133
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/ffd6a9a0-1431-4944-9edf-bc6dc32a2898.png)'
 - en: 'This configuration can be represented by the following diagram:'
+  id: totrans-134
   prefs: []
   type: TYPE_NORMAL
+  zh: 这个配置可以通过以下图示表示：
 - en: '![](img/7b709011-fe7d-4c2c-8426-7a9fea9566a1.png)'
+  id: totrans-135
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/7b709011-fe7d-4c2c-8426-7a9fea9566a1.png)'
 - en: The `qrouter` namespace on the `snat01` node is configured similarly to the
     `qrouter` namespace on the `compute03` node. The `snat` namespace is for the centralized
     SNAT service.
+  id: totrans-136
   prefs: []
   type: TYPE_NORMAL
+  zh: '`snat01`节点上的`qrouter`命名空间的配置与`compute03`节点上的`qrouter`命名空间相似。`snat`命名空间用于集中式SNAT服务。'
 - en: 'On the `snat01` node, observe the interfaces inside the `qrouter` namespace:'
+  id: totrans-137
   prefs: []
   type: TYPE_NORMAL
+  zh: 在`snat01`节点上，查看`qrouter`命名空间内的接口：
 - en: '![](img/eeaf895d-0961-4ea3-af54-3065c378bddc.png)'
+  id: totrans-138
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/eeaf895d-0961-4ea3-af54-3065c378bddc.png)'
 - en: Unlike the `qrouter` namespace of a legacy router, there is no `qg` interface,
     even though the router was attached to the external network.
+  id: totrans-139
   prefs: []
   type: TYPE_NORMAL
+  zh: 与传统路由器的`qrouter`命名空间不同，即使路由器已连接到外部网络，`qrouter`命名空间中也没有`qg`接口。
 - en: 'However, taking a look inside the `snat` namespace, we can find the `qg` interface
     that is used to handle outgoing traffic from instances:'
+  id: totrans-140
   prefs: []
   type: TYPE_NORMAL
+  zh: 然而，查看`snat`命名空间内的内容，我们可以找到`qg`接口，用于处理来自实例的出站流量：
 - en: '![](img/4ed72fc1-3ae4-4ef8-8c95-2f9c90249f6d.png)'
+  id: totrans-141
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/4ed72fc1-3ae4-4ef8-8c95-2f9c90249f6d.png)'
 - en: In addition to the `qg` interface, there is now a new interface with the prefix
     of `sg`. A virtual router will have a `qr` interface and the new `sg` interface
     for every internal network it is connected to. The `sg` interfaces are used as
     an extra hop when traffic is source NAT'd, which will be explained in further
     detail in the following sections.
+  id: totrans-142
   prefs: []
   type: TYPE_NORMAL
+  zh: 除了`qg`接口之外，现在还有一个以`sg`为前缀的新接口。每个虚拟路由器会为它连接的每个内部网络配置一个`qr`接口和一个新的`sg`接口。`sg`接口用于在流量进行源NAT时作为额外的跳跃点，详细内容将在接下来的章节中解释。
 - en: Using the routing policy database
+  id: totrans-143
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用路由策略数据库
 - en: When a virtual machine instance without a floating IP sends traffic destined
     to an external network such as the internet, it hits the local `qrouter` namespace
     on the compute node and is routed to the `snat` namespace on the centralized `network`
     node. To accomplish this task, special routing rules are put in place within the
     `qrouter` namespaces.
+  id: totrans-144
   prefs: []
   type: TYPE_NORMAL
+  zh: 当一个没有浮动IP的虚拟机实例向外部网络（如互联网）发送流量时，流量会进入计算节点上的本地`qrouter`命名空间，并被路由到集中式`network`节点上的`snat`命名空间。为了实现这个任务，`qrouter`命名空间内设置了特定的路由规则。
 - en: Linux offers a routing policy database made up of multiple routing tables and
     rules that allow for intelligent routing based on destination and source addresses,
     IP protocols, ports, and more. There are source routing rules for every subnet
     a virtual router is attached to.
+  id: totrans-145
   prefs: []
   type: TYPE_NORMAL
+  zh: Linux提供了一个由多个路由表和规则组成的路由策略数据库，允许基于目标和源地址、IP协议、端口等进行智能路由。每个虚拟路由器连接的每个子网都有源路由规则。
 - en: 'In this demonstration, the router is attached to a single project network:
     `172.24.100.0/24`. Take a look at the main routing within the `qrouter` namespace
     on `compute01`:'
+  id: totrans-146
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这个示例中，路由器连接到单个项目网络：`172.24.100.0/24`。查看`compute01`节点上`qrouter`命名空间中的主路由：
 - en: '![](img/1493007e-84b0-406b-b282-e03bc7719843.png)'
+  id: totrans-147
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/1493007e-84b0-406b-b282-e03bc7719843.png)'
 - en: Notice how there is no default route in the main routing table.
+  id: totrans-148
   prefs: []
   type: TYPE_NORMAL
+  zh: 请注意，主路由表中没有默认路由。
 - en: 'On the compute node, use the `ip rule` command from within the qrouter namespace
     to list additional routing tables and rules created by the Neutron agent:'
+  id: totrans-149
   prefs: []
   type: TYPE_NORMAL
+  zh: 在计算节点上，从`qrouter`命名空间中使用`ip rule`命令列出Neutron代理创建的额外路由表和规则：
 - en: '![](img/21123baa-9601-4424-963e-c1c0a60da20c.png)'
+  id: totrans-150
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/21123baa-9601-4424-963e-c1c0a60da20c.png)'
 - en: 'The table numbered `2887279617` was created by Neutron. The additional routing
     table is consulted and a default route is found:'
+  id: totrans-151
   prefs: []
   type: TYPE_NORMAL
+  zh: '`2887279617`号路由表是由Neutron创建的。查询额外的路由表后，找到默认路由：'
 - en: '![](img/7b8e400d-d647-4acd-ad70-223ae37d287a.png)'
+  id: totrans-152
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/7b8e400d-d647-4acd-ad70-223ae37d287a.png)'
 - en: From that output, we can see that `172.24.100.11` is the default gateway address
     and corresponds to the `sq` interface within the `snat` namespace on the centralized
     node. When traffic reaches the `snat` namespace, the source NAT is performed and
     the traffic is routed out of the `qg` interface.
+  id: totrans-153
   prefs: []
   type: TYPE_NORMAL
+  zh: 从该输出中，我们可以看到 `172.24.100.11` 是默认网关地址，且对应于集中式节点中 `snat` 命名空间内的 `sq` 接口。当流量到达
+    `snat` 命名空间时，会执行源 NAT，并且流量会从 `qg` 接口路由出去。
 - en: Tracing a packet through the SNAT namespace
+  id: totrans-154
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 跟踪数据包通过 SNAT 命名空间
 - en: 'In the following example, the green VM sends traffic to `8.8.8.8`, a Google
     DNS server:'
+  id: totrans-155
   prefs: []
   type: TYPE_NORMAL
+  zh: 在以下示例中，绿色虚拟机将流量发送到 `8.8.8.8`，一个 Google DNS 服务器：
 - en: '![](img/dda3f8c0-163e-40e3-b906-e1aa7c7025a9.png)'
+  id: totrans-156
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/dda3f8c0-163e-40e3-b906-e1aa7c7025a9.png)'
 - en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
     |'
+  id: totrans-157
   prefs: []
   type: TYPE_TB
+  zh: '| **源 MAC** | **目标 MAC** | **源 IP** | **目标 IP** |'
 - en: '| Green VM | Green Router Interface (`qr1`) | Green VM | `8.8.8.8`(Google DNS)
     |'
+  id: totrans-158
   prefs: []
   type: TYPE_TB
+  zh: '| 绿色虚拟机 | 绿色路由器接口（`qr1`） | 绿色虚拟机 | `8.8.8.8`（Google DNS） |'
 - en: 'When traffic arrives at the local qrouter namespace, the main routing table
     is consulted. The destination IP, `8.8.8.8`, does not match any directly connected
     subnet, and a default route does not exist. Secondary routing tables are then
     consulted, and a match is found based on the source interface. The router then
     routes the traffic from the green VM to the green interface of the `SNAT` namespace,
     `sg1`, through the east-west routing mechanisms covered earlier in this chapter:'
+  id: totrans-159
   prefs: []
   type: TYPE_NORMAL
+  zh: 当流量到达本地 qrouter 命名空间时，会查询主路由表。目标 IP `8.8.8.8` 并不匹配任何直接连接的子网，并且不存在默认路由。接下来会查询次级路由表，基于源接口找到匹配项。然后，路由器将流量从绿色虚拟机路由到
+    `SNAT` 命名空间的绿色接口 `sg1`，通过本章前面讨论的东西向路由机制：
 - en: '![](img/8bb3c752-d12c-49a9-bf1d-5a0a4f922ff5.png)'
+  id: totrans-160
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/8bb3c752-d12c-49a9-bf1d-5a0a4f922ff5.png)'
 - en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
     |'
+  id: totrans-161
   prefs: []
   type: TYPE_TB
+  zh: '| **源 MAC** | **目标 MAC** | **源 IP** | **目标 IP** |'
 - en: '| Green Router Interface (qr1) | Green SNAT Interface (sg1) | Green VM | `8.8.8.8`(Google
     DNS) |'
+  id: totrans-162
   prefs: []
   type: TYPE_TB
+  zh: '| 绿色路由器接口（qr1） | 绿色 SNAT 接口（sg1） | 绿色虚拟机 | `8.8.8.8`（Google DNS） |'
 - en: 'When traffic enters the snat namespace, it is routed out to the `qg` interface.
     The `iptables` rules within the namespace change the source IP and MAC address
     to that of the `qg` interface to ensure traffic is routed back properly:'
+  id: totrans-163
   prefs: []
   type: TYPE_NORMAL
+  zh: 当流量进入 snat 命名空间时，它会被路由到 `qg` 接口。命名空间内的 `iptables` 规则会将源 IP 和 MAC 地址更改为 `qg`
+    接口的地址，以确保流量能够正确地路由回去：
 - en: '![](img/5e99d675-8d50-46ef-8378-250891d3a0c4.png)'
+  id: totrans-164
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/5e99d675-8d50-46ef-8378-250891d3a0c4.png)'
 - en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
     |'
+  id: totrans-165
   prefs: []
   type: TYPE_TB
+  zh: '| **源 MAC** | **目标 MAC** | **源 IP** | **目标 IP** |'
 - en: '| External SNAT Interface (`qg`) | Physical Default Gateway | External SNAT
     Interface (`qg`) | `8.8.8.8`(Google DNS) |'
+  id: totrans-166
   prefs: []
   type: TYPE_TB
+  zh: '| 外部 SNAT 接口（`qg`） | 物理默认网关 | 外部 SNAT 接口（`qg`） | `8.8.8.8`（Google DNS） |'
 - en: When the remote destination responds, a combination of flow rules on the centralized
     network node and compute node, along with data stored in the connection tracking
     and NAT tables, ensures the response is routed back to the green VM with the proper
     IP and MAC addresses in place.
+  id: totrans-167
   prefs: []
   type: TYPE_NORMAL
+  zh: 当远程目标响应时，集中式网络节点和计算节点上的流规则与连接跟踪和 NAT 表中的数据相结合，确保响应能正确路由回绿色虚拟机，并且带有适当的 IP 和 MAC
+    地址。
 - en: Floating IPs through distributed virtual routers
+  id: totrans-168
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 通过分布式虚拟路由器的浮动 IP
 - en: In the network world, north-south traffic is traditionally defined as client-to-server
     traffic. In Neutron, as it relates to distributed virtual routers, north-south
     traffic is traffic that originates from an external network to virtual machine
     instances using floating IPs, or vice versa.
+  id: totrans-169
   prefs: []
   type: TYPE_NORMAL
+  zh: 在网络世界中，南北流量传统上被定义为客户端到服务器的流量。在 Neutron 中，涉及到分布式虚拟路由器时，南北流量指的是来自外部网络的流量，流向使用浮动
+    IP 的虚拟机实例，或反之亦然。
 - en: In the legacy model, all traffic to or from external clients traverses a centralized
     network node hosting a router with floating IPs. With DVR, the same traffic avoids
     the network node and is routed directly to the compute node hosting the virtual
     machine instance. This functionality requires compute nodes to be connected directly
     to external networks through an external bridge – a configuration that up until
     now has only been seen on nodes hosting standalone or highly-available routers.
+  id: totrans-170
   prefs: []
   type: TYPE_NORMAL
+  zh: 在传统模型中，所有来自外部客户端的流量都要通过托管有浮动 IP 路由器的集中式网络节点。使用 DVR 时，同样的流量避开了网络节点，直接路由到托管虚拟机实例的计算节点。此功能要求计算节点通过外部桥接直接连接到外部网络——这一配置直到现在仅见于托管独立路由器或高可用路由器的节点。
 - en: Introducing the FIP namespace
+  id: totrans-171
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 引入 FIP 命名空间
 - en: 'Unlike SNAT traffic, traffic through a floating IP with DVR is handled on the
     individual compute nodes rather than a centralized node. When a floating IP is
     attached to a virtual machine instance, the L3 agent on the compute node creates
     a new `fip` namespace that corresponds to the external network the floating IP
     belongs to if one doesn''t already exist:'
+  id: totrans-172
   prefs: []
   type: TYPE_NORMAL
+  zh: 与SNAT流量不同，通过浮动IP与DVR的流量是在单独的计算节点上处理的，而不是在集中节点上处理。当浮动IP附加到虚拟机实例时，计算节点上的L3代理会创建一个新的`fip`命名空间，该命名空间对应于浮动IP所属的外部网络（如果该命名空间尚不存在）：
 - en: '![](img/5809684a-c9e8-4b36-ba53-a3a64e64c51e.png)'
+  id: totrans-173
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/5809684a-c9e8-4b36-ba53-a3a64e64c51e.png)'
 - en: Any router namespace on a compute node connected to the same external network
     shares a single fip namespace and is connected to the namespace using a veth pair.
     The veth pairs are treated as point-to-point links between the fip namespace and
@@ -768,190 +1138,285 @@
     `169.254/16` link-local address space. Because the network connections between
     the namespaces exist only within the nodes themselves and are used as point-to-point
     links, a Neutron project network allocation is not required.
+  id: totrans-174
   prefs: []
   type: TYPE_NORMAL
+  zh: 连接到同一外部网络的计算节点上的任何路由器命名空间都共享一个单一的fip命名空间，并通过veth对与该命名空间相连。veth对被视为fip命名空间与各个qrouter命名空间之间的点对点链接，并使用公共的`169.254/16`链路本地地址空间作为`/31`网络进行寻址。由于命名空间之间的网络连接仅存在于节点内部，并且作为点对点链接使用，因此不需要Neutron项目网络分配。
 - en: 'In the `qrouter` namespace, one end of the veth pair has the prefix `rfp`,
     meaning router-to-FIP:'
+  id: totrans-175
   prefs: []
   type: TYPE_NORMAL
+  zh: 在`qrouter`命名空间中，veth对的一端具有前缀`rfp`，表示路由器到FIP：
 - en: '![](img/8fb7d188-2416-411b-8980-dcd8986275c1.png)'
+  id: totrans-176
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/8fb7d188-2416-411b-8980-dcd8986275c1.png)'
 - en: 'Inside the `fip` namespace, the other end of the veth pair has the prefix `fpr`,
     meaning FIP-to-router:'
+  id: totrans-177
   prefs: []
   type: TYPE_NORMAL
+  zh: 在`fip`命名空间内部，veth对的另一端具有前缀`fpr`，表示FIP到路由器：
 - en: '![](img/a3e2b5bd-bf5f-47f6-96b9-df5e58419ece.png)'
+  id: totrans-178
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/a3e2b5bd-bf5f-47f6-96b9-df5e58419ece.png)'
 - en: In addition to the `fpr` interface, a new interface with the prefix fg can be
     found inside the FIP namespace. The `rfp`, `fpr`, and `fg` interfaces will be
     discussed in the following sections.
+  id: totrans-179
   prefs: []
   type: TYPE_NORMAL
+  zh: 除了`fpr`接口外，FIP命名空间内部还可以找到一个前缀为fg的新接口。`rfp`、`fpr`和`fg`接口将在接下来的部分中讨论。
 - en: Tracing a packet through the FIP namespace
+  id: totrans-180
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 追踪数据包通过FIP命名空间
 - en: 'When a floating IP is assigned to an instance, a couple of things occur:'
+  id: totrans-181
   prefs: []
   type: TYPE_NORMAL
+  zh: 当浮动IP分配给实例时，会发生以下几件事：
 - en: A fip namespace for the external network is created on the compute node if one
     doesn't exist.
+  id: totrans-182
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如果外部网络的fip命名空间在计算节点上不存在，则会创建一个。
 - en: The route table within the qrouter namespace on the compute node is modified.
+  id: totrans-183
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 计算节点上qrouter命名空间中的路由表已被修改。
 - en: The following sections demonstrate how traffic to and from floating IPs is processed.
+  id: totrans-184
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下部分演示了如何处理浮动IP的进出流量。
 - en: Sending traffic from an instance with a floating IP
+  id: totrans-185
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 从具有浮动IP的实例发送流量
 - en: 'Imagine a scenario where a floating IP, `10.30.0.107`, has been assigned to
     the green VM represented in the following diagram:'
+  id: totrans-186
   prefs: []
   type: TYPE_NORMAL
+  zh: 想象一个场景，其中浮动IP`10.30.0.107`已经分配给下图所示的绿色虚拟机：
 - en: '![](img/c610d0b5-26a0-4fa4-bc44-a758bad49bba.png)'
+  id: totrans-187
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/c610d0b5-26a0-4fa4-bc44-a758bad49bba.png)'
 - en: 'When the green virtual machine instance at `172.24.100.6` sends traffic to
     an external resource, it first arrives at the local `qrouter` namespace:'
+  id: totrans-188
   prefs: []
   type: TYPE_NORMAL
+  zh: 当`172.24.100.6`的绿色虚拟机实例向外部资源发送流量时，它首先到达本地`qrouter`命名空间：
 - en: '![](img/a286ad14-006c-4ccd-9dd4-09bd00ac3c87.png)'
+  id: totrans-189
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/a286ad14-006c-4ccd-9dd4-09bd00ac3c87.png)'
 - en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
     |'
+  id: totrans-190
   prefs: []
   type: TYPE_TB
+  zh: '| **源MAC** | **目的MAC** | **源IP** | **目的IP** |'
 - en: '| Green VM | Green qr interface | Green VM Fixed IP(172.24.100.6) | 8.8.8.8(Google
     DNS) |'
+  id: totrans-191
   prefs: []
   type: TYPE_TB
+  zh: '| 绿色虚拟机 | 绿色qr接口 | 绿色虚拟机固定IP（172.24.100.6） | 8.8.8.8（Google DNS） |'
 - en: 'When traffic arrives at the local qrouter namespace, the routing policy database
     is consulted so that traffic may be routed accordingly. Upon association of the
     floating IP to a port, a source routing rule is added to the route table within
     the qrouter namespace:'
+  id: totrans-192
   prefs: []
   type: TYPE_NORMAL
+  zh: 当流量到达本地qrouter命名空间时，会查询路由策略数据库，以便可以相应地路由流量。在将浮动IP关联到端口时，会在qrouter命名空间的路由表中添加一个源路由规则：
 - en: '![](img/f0f39a25-fb08-43d0-996a-d3d8e26b3a8b.png)'
+  id: totrans-193
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/f0f39a25-fb08-43d0-996a-d3d8e26b3a8b.png)'
 - en: The main routing table inside the qrouter namespace with a higher priority does
     not have a default route, so the `57481:` from `172.24.100.6` lookup 16 rule is
     matched instead.
+  id: totrans-194
   prefs: []
   type: TYPE_NORMAL
+  zh: 在具有更高优先级的qrouter命名空间中的主要路由表没有默认路由，因此`57481:`来自`172.24.100.6`的查找16规则被匹配。
 - en: 'A look at the referenced routing table, table 16, shows the fip namespace''s
     `fpr` interface is the default route for traffic sourced from the fixed IP of
     the instance:'
+  id: totrans-195
   prefs: []
   type: TYPE_NORMAL
+  zh: 查看引用的路由表 16，可以看到 fip 命名空间的 `fpr` 接口是从实例固定 IP 源发送流量的默认路由：
 - en: '![](img/8a840447-86e8-4b77-b022-b3331f4d5bc6.png)'
+  id: totrans-196
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/8a840447-86e8-4b77-b022-b3331f4d5bc6.png)'
 - en: 'The qrouter namespace performs the NAT translation of the fixed IP to the floating
     IP and sends the traffic to the fip namespace, as demonstrated in the following
     diagram:'
+  id: totrans-197
   prefs: []
   type: TYPE_NORMAL
+  zh: qrouter 命名空间执行将固定 IP 转换为浮动 IP 的 NAT 翻译，并将流量发送到 fip 命名空间，以下图所示：
 - en: '![](img/82e9aa42-5732-4aba-9cd0-d2a44e970a8f.png)'
+  id: totrans-198
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/82e9aa42-5732-4aba-9cd0-d2a44e970a8f.png)'
 - en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
     |'
+  id: totrans-199
   prefs: []
   type: TYPE_TB
+  zh: '| **源 MAC** | **目标 MAC** | **源 IP** | **目标 IP** |'
 - en: '| `rfp` interface | `fpr` interface | Green VM Floating IP(`10.30.0.107`) |
     8.8.8.8(Google DNS) |'
+  id: totrans-200
   prefs: []
   type: TYPE_TB
+  zh: '| `rfp` 接口 | `fpr` 接口 | 绿色 VM 浮动 IP(`10.30.0.107`) | 8.8.8.8（Google DNS） |'
 - en: 'Once traffic arrives at the `fip` namespace, it is forwarded thru the `fg`
     interface to its default gateway:'
+  id: totrans-201
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦流量到达 `fip` 命名空间，它会通过 `fg` 接口转发到其默认网关：
 - en: '![](img/ea44db9d-3220-4e0c-aba5-efbb36661c61.png)'
+  id: totrans-202
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/ea44db9d-3220-4e0c-aba5-efbb36661c61.png)'
 - en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
     |'
+  id: totrans-203
   prefs: []
   type: TYPE_TB
+  zh: '| **源 MAC** | **目标 MAC** | **源 IP** | **目标 IP** |'
 - en: '| `fg` interface | Physical Default Gateway | Green VM Floating IP(`10.30.0.107`)
     | 8.8.8.8(Google DNS) |'
+  id: totrans-204
   prefs: []
   type: TYPE_TB
+  zh: '| `fg` 接口 | 物理默认网关 | 绿色 VM 浮动 IP(`10.30.0.107`) | 8.8.8.8（Google DNS） |'
 - en: Returning traffic to the floating IP
+  id: totrans-205
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 将流量返回到浮动 IP
 - en: If you recall from earlier in this chapter, a single `fip` namespace on a compute
     node is shared by every `qrouter` namespace on that node connected to the external
     network. Much like a standalone or highly-available router has an IP address from
     the external network on its `qg` interface, each `fip` namespace has a single
     IP address from the external network configured on its `fg` interface.
+  id: totrans-206
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你还记得本章前面提到的，计算节点上的单个 `fip` 命名空间由连接到外部网络的该节点上的每个 `qrouter` 命名空间共享。就像独立或高可用路由器在其
+    `qg` 接口上有一个来自外部网络的 IP 地址一样，每个 `fip` 命名空间在其 `fg` 接口上也配置了来自外部网络的唯一 IP 地址。
 - en: 'On `compute03`, the IP address is `10.30.0.113`:'
+  id: totrans-207
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 `compute03` 上，IP 地址是 `10.30.0.113`：
 - en: '![](img/be0a4b2c-6d48-4a4e-861e-c7cfdc6b9a6a.png)'
+  id: totrans-208
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/be0a4b2c-6d48-4a4e-861e-c7cfdc6b9a6a.png)'
 - en: Unlike a legacy router, the qrouter namespaces of distributed routers do not
     have direct connectivity to the external network. However, the qrouter namespace
     is still responsible for performing the NAT from the fixed IP to the floating
     IP. Traffic is then routed to the `fip` namespace and, from there on out, to the
     external network.
+  id: totrans-209
   prefs: []
   type: TYPE_NORMAL
+  zh: 与传统路由器不同，分布式路由器的 qrouter 命名空间无法直接连接到外部网络。然而，qrouter 命名空间仍然负责将固定 IP 转换为浮动 IP
+    的 NAT 操作。之后，流量被路由到 `fip` 命名空间，然后继续转发到外部网络。
 - en: Using proxy ARP
+  id: totrans-210
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用代理 ARP
 - en: Floating IPs are configured on the `rfp` interface within the `qrouter` namespace,
     but are not directly reachable from the gateway of the external network, since
     the `fip` namespace sits between the `qrouter` namespace and the external network.
+  id: totrans-211
   prefs: []
   type: TYPE_NORMAL
+  zh: 浮动 IP 被配置在 `qrouter` 命名空间的 `rfp` 接口上，但由于 `fip` 命名空间位于 `qrouter` 命名空间和外部网络之间，因此无法直接从外部网络的网关访问。
 - en: To allow for the routing of traffic through the `fip` namespace back to the
     `qrouter` namespace, Neutron relies on the use of proxy arp. By automatically
     enabling proxy arp on the `fg` interface, the `fip` namespace is able to respond
     to ARP requests for the floating IP, on behalf of the floating IP, from the upstream
     gateway device.
+  id: totrans-212
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了允许流量通过 `fip` 命名空间路由回 `qrouter` 命名空间，Neutron 依赖于代理 ARP 的使用。通过自动在 `fg` 接口上启用代理
+    ARP，`fip` 命名空间能够代表浮动 IP 响应来自上游网关设备的浮动 IP 的 ARP 请求。
 - en: 'When traffic is routed from the gateway device to the `fip` namespace, the
     routing table is consulted and traffic is routed to the respective `qrouter` namespace:'
+  id: totrans-213
   prefs: []
   type: TYPE_NORMAL
+  zh: 当流量从网关设备路由到 `fip` 命名空间时，路由表会被查询，并且流量会被路由到相应的 `qrouter` 命名空间：
 - en: '![](img/595f662d-d3b3-491e-8b07-4369a6fa9f1f.png)'
+  id: totrans-214
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/595f662d-d3b3-491e-8b07-4369a6fa9f1f.png)'
 - en: 'The following diagram demonstrates how proxy arp works in this scenario:'
+  id: totrans-215
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下图演示了在这种情况下代理 ARP 是如何工作的：
 - en: '![](img/02c50add-6d56-45a1-add8-a863854d72ae.png)'
+  id: totrans-216
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/02c50add-6d56-45a1-add8-a863854d72ae.png)'
 - en: The `fg` interface within the `fip` namespace responds on behalf of the `qrouter`
     namespace since `qrouter` is not directly connected to the external network. The
     use of a single `fip` namespace and proxy arp eliminates the need to provide each
     `qrouter` namespace with its own IP address from the external network, which reduces
     unnecessary IP address consumption and makes more floating IPs available for use
     by virtual machine instances and other network resources.
+  id: totrans-217
   prefs: []
   type: TYPE_NORMAL
+  zh: '`fg` 接口位于 `fip` 命名空间内，代表 `qrouter` 命名空间进行响应，因为 `qrouter` 并未直接连接到外部网络。通过使用单一的
+    `fip` 命名空间和代理 ARP，消除了为每个 `qrouter` 命名空间提供外部网络上自己 IP 地址的需求，从而减少了不必要的 IP 地址消耗，并使更多浮动
+    IP 可供虚拟机实例和其他网络资源使用。'
 - en: Summary
+  id: totrans-218
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 总结
 - en: Distributed virtual routers have a positive impact on the network architecture
     as a whole by avoiding bottlenecks and single points of failure seen in the legacy
     model. Both east/west and north/south traffic can be routed and forwarded between
@@ -959,19 +1424,27 @@
     is limited to a centralized node, but highly-available SNAT routers are currently
     available in an experimental status and will be production-ready in future releases
     of OpenStack.
+  id: totrans-219
   prefs: []
   type: TYPE_NORMAL
+  zh: 分布式虚拟路由器通过避免传统模型中出现的瓶颈和单点故障，对整个网络架构产生了积极影响。东西向和南北向流量可以在计算节点之间进行路由和转发，从而实现更高效、更具弹性的网络。SNAT
+    流量仅限于集中节点，但目前已经有高可用 SNAT 路由器处于实验状态，并将在 OpenStack 的未来版本中准备投入生产使用。
 - en: While distributed virtual routers help provide parity with nova-network's multi-host
     capabilities, they are operationally complex and considerably more difficult to
     troubleshoot if things go wrong when compared to a standalone or highly-available
     router.
+  id: totrans-220
   prefs: []
   type: TYPE_NORMAL
+  zh: 虽然分布式虚拟路由器有助于提供与 nova-network 的多主机能力一致的功能，但它们在操作上比较复杂，如果出现问题，相比独立路由器或高可用路由器，故障排除难度较大。
 - en: In the next chapter, we will look at the advanced networking service known as
     load balancing as-a-service, or LBaaS, and its reference architecture using the
     `haproxy` plugin. LBaaS allows users to create and manage load balancers that
     can distribute workloads across multiple virtual machine instances. Using the
     Neutron API, users can quickly scale their application while providing resiliency
     and high availability.
+  id: totrans-221
   prefs: []
   type: TYPE_NORMAL
+  zh: 在下一章中，我们将介绍被称为负载均衡即服务（LBaaS）的高级网络服务及其参考架构，使用 `haproxy` 插件。LBaaS 允许用户创建和管理负载均衡器，这些负载均衡器可以在多个虚拟机实例之间分配工作负载。通过
+    Neutron API，用户可以快速扩展应用程序，同时提供弹性和高可用性。
