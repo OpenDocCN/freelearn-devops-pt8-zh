@@ -1,0 +1,468 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using Auto Scaling</h1>
+                </header>
+            
+            <article>
+                
+<p>Amazon ECS provides built-in internal load balancing to distribute client traffic between the tasks in an ECS service. If all the client load were to be sent to a single task in a three-task service, the internal load balancer would direct some of the client traffic to the other tasks to distribute the client load evenly. </p>
+<p><strong>Problem: </strong>The number of tasks in a service as configured initially is fixed. If the client load is expected to be fixed, the fixed number of tasks in an ECS service should suffice. But if client load fluctuates, the ECS service tasks do not scale automatically. If the client load were to increase, the preconfigured number of tasks may not be able to serve the client traffic.</p>
+<p><strong>Solution: </strong>Amazon ECS supports auto scaling using an auto scaling policy that consists of a CloudWatch alarm based on one of the ECS service metrics: <kbd>CPUUtilization</kbd> or <kbd>MemoryUtilization</kbd>. An alarm threshold must be set before any scaling action is performed; for instance, <kbd>MemoryUtilization</kbd> must not exceed a specific value for a specified number of consecutive periods, with each period being one minute, five minutes, 15 minutes, or 1 hour. If an alarm threshold is exceeded, a scaling action could be performed, such as adding, setting to, or removing a specified number or percentage of tasks. The measure of client load is <kbd>CPUUtilization</kbd> or <kbd>MemoryUtilization</kbd>.</p>
+<p>The number of tasks scale with the load, as illustrated in the following diagram:</p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/7ae1a2b0-d114-40ee-99a7-acd5bb683de8.png" style="width:18.00em;height:19.25em;"/></div>
+<p>In this chapter, we shall demonstrate configuring and using auto scaling and <span>we will learn about the following:</span></p>
+<ol>
+<li>Creating an ECS service for a Hello world application</li>
+<li>Types of auto scaling</li>
+<li>Configuring an auto scaling policy</li>
+<li>Demonstrating the use of auto scaling</li>
+<li>Exploring CloudWatch metrics and logs</li>
+<li>Updating a service to modify the number of tasks</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating an ECS service for a Hello world application</h1>
+                </header>
+            
+            <article>
+                
+<p>Creating an ECS Service for a Hello world application using the <kbd>tutum/hello-world</kbd> Docker image is discussed in detail in <a href="20fbdcad-0dd7-4066-aafb-1bc74b268b33.xhtml" target="_blank">Chapter 2</a>, <em>Networking</em>. In this section, we shall create a <kbd>hello-world</kbd> cluster consisting of a <kbd>hello-world-service</kbd> service with three tasks for a <kbd>tutum/hello-world</kbd> Docker image. To create the cluster, service, and task definition, use the same procedure as in Chapter 2, <em>Networking </em> which is as follows:</p>
+<ol>
+<li>Create a Container Definition, <kbd>hello-world</kbd>, for the <kbd>tutum/hello-world</kbd> Docker image</li>
+</ol>
+<ol start="2">
+<li>Create a task definition, <kbd>hello-world-task-definition</kbd></li>
+<li>Create a service, <kbd>hello-world-service</kbd></li>
+<li>Create a cluster, <kbd>hello-world</kbd></li>
+</ol>
+<p>The procedure is the same as in <a href="20fbdcad-0dd7-4066-aafb-1bc74b268b33.xhtml" target="_blank">Chapter 2</a>, <em>Networking</em>, except for a few differences. Define the service with three tasks instead of the default one task:</p>
+<ul>
+<li>Click on <span class="packt_screen">Edit</span> in the <span class="packt_screen">Define your service</span> section, as shown in the following screenshot:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/0632223f-0df3-4bfe-9257-7af26cd7d479.png"/></div>
+<ul>
+<li>In the <span class="packt_screen">Set up service</span><span class="packt_screen">: hello-world-service</span> dialog, set the <span class="packt_screen">Number of desired tasks</span> to <kbd>3</kbd>, as shown here. Click on <span class="packt_screen">Save</span>:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/fe536390-6712-4ac7-ad6b-104706056a58.png"/></div>
+<ul>
+<li>With the <span class="packt_screen">Number of desired tasks</span> set to <span class="packt_screen">3</span>, click on <span class="packt_screen">Next</span> in <span class="packt_screen">Define your service</span>, as shown here:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/e77a0848-4904-4da0-a462-95845dfd044c.png" style="width:42.92em;height:20.50em;"/></div>
+<ul>
+<li>In <span class="packt_screen">Configure your cluster</span>, specify the <span class="packt_screen">Cluster name</span> as <span class="packt_screen">hello-world</span>, as shown here. The other settings, which include <span class="packt_screen">VPC ID</span> and <span class="packt_screen">Subnets</span>, are not modifiable. Click on <span class="packt_screen">Next</span>:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/5b487776-339d-4f56-b1b3-f51b9283afe4.png" style="width:42.58em;height:28.33em;"/></div>
+<ul>
+<li>Review the <span class="packt_screen">Container definition</span>, <span class="packt_screen">Task definition</span>, <span class="packt_screen">Service</span>, and <span class="packt_screen">Cluster</span> in <span class="packt_screen">Review</span>, as shown here. An <span class="packt_screen">Edit</span> button is provided to modify each of these. Click on <span class="packt_screen">Create</span> to create the ECS objects, as shown here:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/227b2760-8f0a-4c19-b89f-97dac776f057.png"/></div>
+<ul>
+<li>The <span class="packt_screen">Launch Status</span> should indicate that all ECS resources have been created, as indicated by the <span class="packt_screen">complete</span> status shown here. Click on <span class="packt_screen">View service</span>:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/ed796956-e07d-4762-a9f8-d26f89c5c399.png"/></div>
+<ul>
+<li>A service gets created, as shown here. The <span class="packt_screen">Service name</span>, <span class="packt_screen">Cluster</span>, <span class="packt_screen">Status</span>, <span class="packt_screen">Task definition</span>, <span class="packt_screen">Launch type</span>, <span class="packt_screen">Platform version</span>, <span class="packt_screen">Service role</span>, <span class="packt_screen">Desired count</span>, <span class="packt_screen">Pending count</span>, and <span class="packt_screen">Running count</span> are listed in the service summary. The <span class="packt_screen">Details</span> tab lists the <span class="packt_screen">Load Balancing</span> and <span class="packt_screen">Network Access</span>:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/fab3c55d-40b2-4013-80ce-643df5861c57.png"/></div>
+<ul>
+<li>Select the <span class="packt_screen">Tasks</span> tab to list the tasks. The <span class="packt_screen">Last status</span> column lists the task status, which could initially be <span class="packt_screen">PENDING</span>. Click on the Refresh button periodically to refresh the task status. When all tasks have started running, the <span class="packt_screen">Last status</span> becomes <span class="packt_screen">RUNNING</span>, as shown here:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/b0225031-8f2c-48b7-8425-77ae59445742.png"/></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Types of auto scaling</h1>
+                </header>
+            
+            <article>
+                
+<p>Two kinds of auto scaling policies are defined:</p>
+<ul>
+<li>Target tracking scaling policies</li>
+<li>Step scaling policies</li>
+</ul>
+<p class="mce-root">We shall discuss these two kinds of auto scaling policy next, before demonstrating the use of auto scaling.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Target tracking scaling policies</h1>
+                </header>
+            
+            <article>
+                
+<p>The target being referred to is a target value for a specific metric that CloudWatch metrics monitor. The two ECS metrics CloudWatch monitors are CPU utilization and memory utilization. With target tracking scaling policies, the number of tasks is increased or decreased with the objective that the target value of a metric is kept. It may not be feasible to keep the precise target value of a metric because the number of tasks are increased/decreased in increments/decrements of 1. The metric is kept at the precise configured target value or close to the target value. A target tracking scaling policy itself adjusts <span>itself</span><span> </span><span>to the fluctuations in a metric value to avoid rapid fluctuations in the number of tasks. For high application availability, a service scales out faster than it scales in, as fewer tasks hamper</span><span> </span><span>application availability while </span><span>extra tasks do not. Multiple target tracking scaling policies may be set concurrently and the service is scaled to fulfill the scaling policy that effects the greatest increase in task capacity. Increases in CPU or memory utilization are indicators that the application is in need of more tasks and the service scales out if a target metric is exceeded. Sufficient metric data is a prerequisite for a scaling policy to scale. If insufficient data is available, the scaling policy does not scale the number of tasks. To scale if insufficient data is available, a step scaling policy should be used, which is discussed next.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Step scaling policies</h1>
+                </header>
+            
+            <article>
+                
+<p>In the <em>Target tracking scaling policies</em> section, it is mentioned that if insufficient data is available, step scaling policies could be used. To elaborate on this, a CloudWatch alarm could be set to be invoked when a metric state is <kbd>INSUFFICIENT_DATA</kbd>. Such a policy is called a Step Scaling Policy. All step scaling policies make use of CloudWatch alarms. CloudWatch alarms can be set to be invoked when a specific CloudWatch metric (CPU utilization or memory utilization) exceeds or goes below a set threshold. As an example, during high use of an application, these metrics are likely to increase and CloudWatch alarms could be set to increase the number of tasks. Similarly, during times of low application load, these metrics decrease in value and CloudWatch alarms could be set to decrease the number of tasks. </p>
+<p>Service auto scaling, target tracking auto scaling, or step auto scaling, could modify a services's desired count.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring an auto scaling policy</h1>
+                </header>
+            
+            <article>
+                
+<p>Auto scaling is not configured by default:</p>
+<ul>
+<li>To configure auto scaling, click on the <span class="packt_screen">Update</span> button, which is shown in the preceding screenshot, for the service that is to be auto scaled. The <span class="packt_screen">Update Service</span> wizard gets started, as shown in the following screenshot. </li>
+<li>In the <span class="packt_screen">Configure service</span> page, the settings are not to be modified unless the <span class="packt_screen">Desired number of tasks</span> (<kbd>3</kbd>) needs to be updated. Click on <span class="packt_screen">Next step</span>.</li>
+<li>In <span class="packt_screen">Configure network</span>, we don't need to make any modifications. Click on <span class="packt_screen">Next step</span>.</li>
+<li>In the <span class="packt_screen">Service auto scaling</span> page, select the <span class="packt_screen">Service auto scaling</span> option <span class="packt_screen"><span class="packt_screen">Configure Service auto scaling</span> to adjust your service’s desired count</span>, as shown here:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/131da8f2-9d2b-42c4-8f6b-065d815d8c36.png" style="width:46.17em;height:21.00em;"/></div>
+<p>We shall discuss configuring a step auto scaling policy next. Configuring step auto scaling involves the following sequence:</p>
+<ol>
+<li>Define the range for the number of tasks within which the cluster is to be scaled</li>
+<li>Add an auto scaling policy</li>
+<li>Define a CloudWatch alarm as a threshold to apply the scaling policy</li>
+<li>Define a scaling action to take if the alarm threshold is exceeded</li>
+</ol>
+<p>We shall discuss configuring each of these next.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Defining the range of tasks</h1>
+                </header>
+            
+            <article>
+                
+<p>Specify the <span class="packt_screen">Minimum number of tasks</span> (<kbd>1</kbd>), and the <span class="packt_screen">Maximum number of tasks</span> (<kbd>5</kbd>), as shown in the following screenshot. The number of tasks specified in the example configuration is arbitrary but the maximum number of tasks must be the same or more than the desired number of tasks, and the minimum number of tasks must be the same or less than the desired number of tasks:</p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/2d2595f7-89dd-4fdc-8a02-1f9c286fe360.png"/></div>
+<p>Setting the number of tasks (minimum, desired, and maximum) does not, by itself, configure auto scaling; it only specifies the range in which the number of tasks may fluctuate with load fluctuations. An auto scaling policy also needs to be added.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Adding an auto scaling policy</h1>
+                </header>
+            
+            <article>
+                
+<p>To add a scaling policy, click on <span class="packt_screen">Add scaling policy</span>, as shown in the following screenshot:</p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/bf748b50-bc20-422e-89bb-3cea99488726.png"/></div>
+<p>An <span class="packt_screen">Add policy</span> dialog gets started, as shown in the preceding screenshot.</p>
+<p>Next, we shall discuss configuring a step auto scaling policy.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Adding a step scaling policy</h1>
+                </header>
+            
+            <article>
+                
+<ul>
+<li>In <span class="packt_screen">Add Policy</span>, select <span class="packt_screen">Scaling policy type</span> as <span class="packt_screen">Step scaling</span>, as shown <span>in the following screenshot.</span> </li>
+</ul>
+<ul>
+<li><span>Specify a </span><span class="packt_screen">Policy name</span><span> (</span><kbd>AutoScaler</kbd><span>):</span></li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/ededc98e-0f04-40df-beb0-185f74c0db8b.png"/></div>
+<ul>
+<li>In <span class="packt_screen">Execute policy when</span>, select <span class="packt_screen">Create new Alarm</span>, as shown here. The <span class="packt_screen">Use an existing Alarm</span> option is also provided if an existing alarm could be used:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/90dbb3ea-ac49-40ea-9043-c31328517fae.png"/></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating a CloudWatch alarm</h1>
+                </header>
+            
+            <article>
+                
+<p>In this section, we shall discuss creating a CloudWatch alarm:</p>
+<ul>
+<li>Specify an <span class="packt_screen">Alarm name</span>, as shown in the following screenshot.</li>
+<li>For a new alarm, ECS metrics are used for the CloudWatch alarm. To use other metrics for auto scaling, create an alarm in the CloudWatch console and select the alarm within <span class="packt_screen">Add policy</span> with <span class="packt_screen">Use an existing Alarm</span>. Only two ECS metrics are available for configuring a new alarm in <span class="packt_screen">Add policy</span>: <span class="packt_screen">CPUUtilization</span> and <span class="packt_screen">MemorUtilization</span>. Select <span class="packt_screen">CPUUtilization</span>.</li>
+<li>The alarm threshold specifies when the auto scaling policy is to be applied. An example of auto scaling is to scale the tasks when <span class="packt_screen">MemoryUtilization</span> exceeds 256 MB. Different measures are available for defining the alarm threshold. The different alarm threshold measures are Average, Minimum, Maximum, Sum, and Data samples. As an example, select <span class="packt_screen">Maximum</span>. </li>
+<li>Because the ECS service metric is selected as <span class="packt_screen">CPUUtilization</span>, the comparison operators (&lt;,&lt;=,&gt;,&gt;=) are defined on CPUUtilization. Select <span class="packt_screen">&gt;=</span> as an example.</li>
+<li>Specify a value (0.1) for the comparison.</li>
+<li>Specify the number of consecutive periods after which the <span class="packt_screen">Alarm threshold</span> would have been exceeded and the auto scaling policy should be applied as 1. A period definition is not fixed and different options to define a period are <span class="packt_screen">1 minute</span>, <span class="packt_screen">5 minutes</span>, <span class="packt_screen">15 minutes</span>, and <span class="packt_screen">1 hour</span>. The lower the frequency value, the faster the response to resource utilization fluctuations would be. Select <span class="packt_screen">1 minute</span> as an example. <span>Click on </span><span class="packt_screen">Save</span>,<span> as shown in the following screenshot:</span></li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/2b80198b-33c2-429b-90cf-486960e08a4e.png" style="width:43.92em;height:32.33em;"/></div>
+<p> A CloudWatch alarm for the auto scaling policy has now been defined. </p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring a scaling action</h1>
+                </header>
+            
+            <article>
+                
+<p>Next, configure a scaling action for which three options are available: <span class="packt_screen">Add</span>, <span class="packt_screen">Set to</span> and <span class="packt_screen">Remove</span>:</p>
+<ul>
+<li>Select <span class="packt_screen">Add</span> to add a specified number of tasks when the alarm threshold is exceeded. By alarm threshold exceeded, it does not always imply that some value for a metric has been exceeded, but implies that the comparison used in the alarm threshold has been exceeded. The comparison itself could be a less than (&lt;) comparison.</li>
+<li>Specify the number of <span class="packt_screen">tasks</span> to add as 1. Alternatively, a percentage of tasks may be added by selecting <span class="packt_screen">percent</span>. The complete scaling is shown next.</li>
+<li>Multiple scaling actions may be defined with <span class="packt_screen">Add</span>. </li>
+<li>Specify a <span class="packt_screen">Cooldown period</span> (300 is the default) between scaling actions. The cooldown period is relevant if multiple scaling actions are used and we have not used multiple scaling actions. Click on <span class="packt_screen">Save</span>:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/1b33c500-825c-4612-9191-34ea00607d7e.png" style="width:43.75em;height:32.25em;"/></div>
+<ul>
+<li>An auto scaling policy (<span class="packt_screen">AutoScaler</span>), including the range of tasks, gets defined as shown here. Click on <span class="packt_screen">Next step</span>:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/e5fd50ad-58bc-43db-89e0-6d7d2434138e.png" style="width:51.00em;height:34.17em;"/></div>
+<ul>
+<li>In <span class="packt_screen">Review</span>, click on <span class="packt_screen">Update Service</span>, as shown <span>in the following screenshot</span>:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/1735c41a-a6ff-4700-bc2a-f9b97c6e7eff.png" style="width:56.33em;height:37.67em;"/></div>
+<p><span class="packt_screen">Launch Status</span> indicates that the service has been updated, as shown <span>in the following screenshot</span>:</p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/cd1fd3b9-4eae-4485-ad68-744cb0a929f3.png" style="width:48.50em;height:24.92em;"/></div>
+<p>The following configurations get applied:</p>
+<ul>
+<li>Scalable target gets registered</li>
+<li>The scaling policy <kbd>AutoScaler</kbd> gets created</li>
+<li>CloudWatch alarm for scaling policy gets created/updated</li>
+</ul>
+<p>Click on <span class="packt_screen">View Service</span>, <span>as shown in the following screenshot:</span></p>
+<div class="mce-root CDPAlignCenter CDPAlign"><img src="assets/dccd384c-2492-4ce9-be2b-45672cb65adf.png"/></div>
+<p class="mce-root CDPAlignLeft CDPAlign">The updated service is shown here. Select the <span class="packt_screen">auto scaling</span> tab to display the auto scaling policy added. The auto scaling tab lists the <span class="packt_screen">Minimum tasks</span>, <span class="packt_screen">Maximum tasks</span>, <span class="packt_screen">AutoScaler</span>, <span class="packt_screen">Policy type</span>, CloudWatch alarm, and Scaling action:</p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/3813ae75-8673-48a6-bbfd-e39f279a8c69.png"/></div>
+<p>The <span class="packt_screen">Events</span> tab lists the events for the service, as shown here. As indicated by an event entry, the service has started three tasks and reached a steady state:</p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/c6cfc979-e52a-47f3-91ba-6a2ec6e51371.png"/></div>
+<p><span>An auto scaling policy has been configured. </span>Select the <span class="packt_screen">Tasks</span> tab and three tasks are running as before, as shown here. The number of tasks is still three, the same as before adding the auto scaling policy, because the service does not need to be auto scaled and the three tasks are able to handle the client load:</p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/6eb06818-75f8-4f63-ac17-3366045f7bde.png" style="width:41.83em;height:14.50em;"/></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Demonstrating the use of auto scaling</h1>
+                </header>
+            
+            <article>
+                
+<p>In this section, we shall demonstrate the use of auto scaling by adding an extra load to the Hello world service. </p>
+<ul>
+<li>Invoke the service using the public IP of one of the tasks; the public IP may be obtained from a task's details, as shown <span>in the following screenshot</span>:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/8cda5241-19fa-4cd7-81bb-4c8ab56377a1.png" style="width:29.58em;height:27.17em;"/></div>
+<ul>
+<li>First, invoke the service in one browser only. The Hello world application gets invoked and the service response gets displayed in the browser, as shown in the following screenshot:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/adc96582-e5f2-4d0f-a0dc-e329fe3edbad.png" style="width:40.33em;height:26.08em;"/></div>
+<ul>
+<li>To increase the load, invoke the same Hello world application multiple times using the curl tool. Run the following command on a Windows Command line:</li>
+</ul>
+<pre><strong>      curl http://18.191.95.171/?[1-20]</strong></pre>
+<ul>
+<li><span>An internal load balancer automatically distributes the client load among the tasks in a service, regardless of which task is invoked by a client. An external load balancer may also be configured, as discussed in a later chapter. </span><span>As the client load on the Hello world service is increased, the number of tasks also gets increased if the existing number of tasks are not able to handle the load. As shown here, the number of running tasks has increased to four:</span></li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/766aed96-932a-48ff-b541-693536054a22.png"/></div>
+<ul>
+<li><span><span>Increase the load on the service still further with the following curl command:</span></span></li>
+</ul>
+<pre><strong>      curl http://18.191.95.171/?[1-1000]</strong></pre>
+<ul>
+<li>
+<p>As shown here, the number of tasks has increased to five, which is the maximum number of tasks that the auto scaler is able to scale to, as specified in the auto scaling configuration for the service:</p>
+</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/90c79219-8933-4fe0-b73a-a0b431d1cca9.png"/></div>
+<ul>
+<li>
+<p>The five running tasks are listed in the <span class="packt_screen">Tasks</span> tab for the service, as shown here:</p>
+</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/77c7f1c3-dd96-45c7-bda6-8b222c89d43f.png"/></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Exploring CloudWatch metrics and Logs</h1>
+                </header>
+            
+            <article>
+                
+<p>In this section, we shall explore the CloudWatch metrics and logs generated by the ECS service and find log events for the CloudWatch alarm threshold being exceeded:</p>
+<ul>
+<li>Open the CloudWatch console as shown here. The alarm summary for the <kbd>AutoScaleCPUUtilization</kbd> gets displayed in a graph.</li>
+<li>Click on <span class="packt_screen">Browse Metrics</span> to browse metrics:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/744a88c6-a18c-4326-918a-a4ca7b66f06b.png"/></div>
+<ul>
+<li>Select Alarms in the margin. The <span class="packt_screen">AutoScaleBasedOnCPUUtilization</span> alarm used as a threshold for auto scaling gets listed, as shown in the following screenshot. The alarm state is ALARM when the alarm threshold is exceeded.</li>
+</ul>
+<p style="padding-left: 60px">The <span class="packt_screen">AutoScaleBasedOnCPUUtilization</span><span> alarm details and graph get displayed. The two spikes in CPU utilization in the graph indicate that the alarm threshold has been exceeded, which applies the auto scaling to add one task each time the alarm threshold is exceeded. The first spike in the graph is for when the load is increased slightly, and the second spike is for when the load is increased to a greater extent:</span></p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/ee1ce06a-b45b-42d4-8bdd-41ccc6f9165e.png"/></div>
+<ul>
+<li>When the load on the ECS service is reduced, the alarm state becomes <span class="packt_screen">OK</span>. Reducing client load does not by itself reduce the number of running tasks. The scaling action used as an example only scales up the tasks if client load increases. Another scaling action would need to be added to scale down tasks on client load reduction. In the <span class="packt_screen">History</span> tab, two instances of auto scaling action are listed, as shown in the following screenshot:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/f5622ac9-16ac-4c03-9236-7a2f6cbfa4e9.png"/></div>
+<ul>
+<li>The <span class="packt_screen">Desired count</span> of the service has been updated to 5, in addition to increasing the auto scaling running count to five tasks. The <span class="packt_screen">AutoScaleBasedOnCPUUtilization</span> alarm may also be accessed from the <span class="packt_screen">auto scaling</span> tab:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/e95a6b47-efcd-4f1c-a3ef-298447545643.png" style="width:51.75em;height:32.67em;"/></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Updating auto scaling policy </h1>
+                </header>
+            
+            <article>
+                
+<p>The auto scaling policy only scales the number of running (desired) tasks and does not modify the auto scaling policy, which is still set to a range of 1-5 tasks. The service may be updated to modify any or all of the minimum number of tasks, desired count, maximum number of tasks, and scaling action for auto scaling. In this section, we shall discuss updating the auto scaling configuration:</p>
+<ul>
+<li><span><span>C</span></span>lick on <span class="packt_screen">Update</span> for the service as before. The <span class="packt_screen">Desired number of tasks</span> is set to <kbd>5</kbd>, as shown here, when auto scaling is performed:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/27910814-88b9-41e8-beff-ff38a12b4737.png" style="width:53.92em;height:25.75em;"/></div>
+<ul>
+<li>Reduce the <span class="packt_screen">Desired number of tasks</span> to <kbd>3</kbd>, as shown here. </li>
+</ul>
+<ul>
+<li>To modify the scaling policy, click on the <span class="packt_screen">AutoScaler</span> link, as shown here:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/07a9e93a-a5c5-4aac-a45c-b7640385e392.png" style="width:50.42em;height:35.25em;"/></div>
+<ul>
+<li>In <span class="packt_screen">Edit policy</span>, select <span class="packt_screen">Use an existing</span> policy and select the <span class="packt_screen">AutoScaleBasedOnCPUUtilization</span> policy. The scaling action does not have to be performed when the alarm threshold is breached. Modify the scaling action to <span class="packt_screen">Add</span> <span class="packt_screen">1</span> <span class="packt_screen">tasks</span> when <kbd>0.9&lt;=CPUUtilization</kbd>, as shown here. The alarm threshold is <kbd>CPUUtilization&gt; 0.1</kbd> for 60 seconds, while the scaling action is performed when <kbd>CPUUtilization&gt;=0.9</kbd>. The <kbd>AutoScaler</kbd> policy runs each time the CloudWatch alarm threshold is breached, but the scaling action is performed only when <kbd>CPUUtilization&gt;=0.9</kbd>. Click on <span class="packt_screen">Save</span>:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/42b209c8-7bf3-4f84-a698-098d0ffc5774.png" style="width:51.83em;height:41.33em;"/></div>
+<ul>
+<li>The minimum and maximum number of tasks has not been modified and is still <span class="packt_screen">1</span> and <span class="packt_screen">5</span> respectively. Click on <span class="packt_screen">Next step</span>, and then click on <span class="packt_screen">Update Service</span>, as shown here:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/06549da3-c47b-49b3-94da-6ce27a11012a.png"/></div>
+<ul>
+<li>The old auto scaling policy gets deleted and a new auto scaling policy gets created, as shown here. The scalable target is the same as before:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/08bb7b77-28e4-4dbb-baff-e078df9e737b.png"/></div>
+<ul>
+<li>The CloudWatch alarm gets updated. Click on <span class="packt_screen">View Service</span>. The <span class="packt_screen">Running count</span> and <span class="packt_screen">Desired count</span> of the service are both <span class="packt_screen">3</span>, as shown here. The scaling action has been updated to <span class="packt_screen">Add 1 tasks when 0.9 &lt;= CPUUtilization</span>:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/e01c8498-b2b4-4e4a-b175-682d7af7f84f.png"/></div>
+<ul>
+<li>The <span class="packt_screen">Events</span> tab lists the log events generated by the ECS service, as shown here. The number of running tasks had increased to five when the client load was increased. But, when the client load is removed and the scaling policy updated, the number of running tasks becomes three again. As listed in an event, the service has stopped two running tasks:</li>
+</ul>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/0b55de94-3b24-49aa-82d5-36e162963cc0.png"/></div>
+<p>Initially, one task is started. When the alarm threshold is breached for the first time, the scaling action is performed to set the desired count for the maximum number of tasks to four, as indicated by one of the log messages. The number of running tasks increases to four. When the load is increased still further, <span>the alarm threshold is breached for the second time and a scaling action is performed to set the desired count for the maximum number of tasks to five. The number of running tasks increases to five. </span>When the client load is removed and the service is updated to modify the desired count to three, two of the running tasks get stopped, as indicated by another event message.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, we introduced the ECS auto scaling service, as used with the Fargate launch type. Configuring auto scaling involves setting a range (minimum and maximum) for the number of tasks within which the auto scaling gets applied. Configuring auto scaling also requires an auto scaling policy, consisting of a CloudWatch alarm threshold for running the auto scaling policy, and one or more scaling actions to perform each time the auto scaling policy runs. In the next chapter, we shall discuss using an IAM user with Fargate.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>
