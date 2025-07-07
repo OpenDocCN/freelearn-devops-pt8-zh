@@ -1,0 +1,1022 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">New Features from Puppet 4 and 5</h1>
+                </header>
+            
+            <article>
+                
+<p>Now that we have a complete overview of the Puppet DSL and its concepts, it is time to look at the newest Puppet features, which were introduced with Puppet version 4. The parser, which compiles the catalog, was basically rewritten from scratch for better performance. The milestone release also added some missing functionality and coding principles.</p>
+<p>Puppet 4 and newer versions do not only offer new functionality, but break with old practices and remove some functionality that is not considered best practice anymore. This necessitates that any existing manifest code needs proper testing, and potentially needs lots of changes to be compatible with Puppet 4.</p>
+<p>Within this chapter, the following topics will be covered:</p>
+<ul>
+<li>Upgrading to Puppet 4</li>
+<li>Using the Puppet type system</li>
+<li>Learning lambdas and functions</li>
+<li>Creating Puppet 4 functions</li>
+<li>Leveraging the new template engine</li>
+<li>Handling multiline with HEREDOC</li>
+<li>Puppet 5 server metrics</li>
+<li>Breaking old practices</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Upgrading to Puppet 4</h1>
+                </header>
+            
+            <article>
+                
+<p>Let's first look at how users of the older Puppet 3 series can approach the update.</p>
+<div class="packt_tip">Instead of upgrading your Puppet master machine, consider setting up a new server in parallel and migrating the service carefully. This has some advantages. For example, rolling back in case of problems is quite easy.</div>
+<p>The new Puppet 4 and later versions can be installed in several ways:</p>
+<ul>
+<li>Using the Puppet Labs repositories, which will remove older Puppet packages</li>
+<li>This method means a hard cut without testing in advance, which is not recommended. The update to Puppet 4 and later versions should only take place after in-depth testing of your Puppet manifest code</li>
+<li>Installing as the Ruby gem extension or from tarball</li>
+<li>This approach requires a separate Ruby installation, which is not available on most modern Linux distributions. For Puppet 4, Ruby 2.1 is required. For Puppet 5, Ruby 2.4 is needed</li>
+<li>Update to Puppet 3.8, enable and migrate to the environment path settings, and enable the future parser only on a special testing environment</li>
+<li>The latter solution is the smartest and most backward compatible one</li>
+</ul>
+<div class="packt_infobox">With Puppet 4 and later and the <strong>All-in-One</strong> (<strong>AIO</strong>) packaging from Puppet Labs, paths to Puppet configuration, modules, environments, and SSL certificates will change.</div>
+<ul>
+<li>Puppet 4 and 5 stores its configuration (<kbd>puppet.conf</kbd>) in <kbd>/etc/puppetlabs/puppet</kbd></li>
+<li>Hiera config will be located in <kbd>/etc/puppetlabs/hiera/hiera.yaml</kbd></li>
+<li>Puppet CA and certificates can be found at <kbd>/etc/puppetlabs/puppet/ssl</kbd></li>
+<li>Puppet Code (environments and modules) are looked up<br/>
+in <kbd>/etc/puppetlabs/code/environments/</kbd></li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using Puppet 3.8 and environment directories</h1>
+                </header>
+            
+            <article>
+                
+<p>The new parser was introduced in Puppet 3.5 alongside the old parser. To make use of the new language features, a special configuration item needed to be set explicitly. This allowed early adopters and people interested in the new technology to test the parser and check for code incompatibilities in an early stage.</p>
+<p>On Puppet 3.x, the new parser was subject to change without further notice. Therefore, it is recommended to upgrade to the latest 3.x release.</p>
+<p>With directory environments, it is possible to specify environment specific settings within an <kbd>environment.conf</kbd> configuration file:</p>
+<pre><strong># /etc/puppet/environments/puppet_update/environment.conf</strong><br/><strong># environment config file for special puppet_update environment</strong><br/><strong>parser = future</strong></pre>
+<p>Next, all your Puppet code needs to be put into the newly created environment path, including node classification.</p>
+<p>On each of the different node types, it is now possible to manually run:</p>
+<pre><strong>puppet agent --test --environment=puppet_update --noop  </strong></pre>
+<p>Check both master and agent output and log files for any errors or unwanted changes and adapt your Puppet code if necessary.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The Puppet 4 and 5 master</h1>
+                </header>
+            
+            <article>
+                
+<div class="packt_infobox">Make sure that your agents are prepared for operations with a Puppet 4 master. See the notes about agents in the following section.</div>
+<p>Spinning up a new Puppet master is another approach. The following process assumes that the Puppet CA has been created using the DNS alt names setting in the <kbd>puppet.conf</kbd> file. If DNS alt names have been configured, it is required to completely recreate the Puppet CA.</p>
+<p>Puppet CA needs to know about the <strong>Common Name</strong> (<strong>CN</strong>) of the Puppet master <kbd>fqdn</kbd>. It is possible to provide DNS alternative names, for which the CA will also be valid.</p>
+<p>Normally, Puppet uses the master <kbd>fqdn</kbd> for the common name. But if you provide the configuration attribute <kbd>dns_alt_names</kbd> prior to generating the CA, this configuration option will be added to the CA.</p>
+<p>It is highly recommended to configure <kbd>dns_alt_names</kbd>. Having this enabled allows you to scale up to multiple compile masters and add an additional Puppet master for the migration process.</p>
+<p>To find out whether DNS alt names have been added, you can use the <kbd>puppet cert</kbd> command:</p>
+<pre><strong>puppet cert list -all</strong>  </pre>
+<p>This command will print all certificates. Check for the certificate of your Puppet master. For example, consider the following:</p>
+<pre><strong>puppet cert list --all</strong><br/><strong>+ "puppetmaster.example.net" (SHA256) 7D:11:33:00:94:B3:C4:48:D2:10:B3:C7:B0:38:71:28:C5:75:2C:61:3B:3E:63:C6:95:7C:C9:DF:59:F7:C5:BE (alt names: "DNS:puppet", "DNS:puppet.example.net", "DNS:puppetmaster.example.net")</strong></pre>
+<p>The following steps will guide you through the Puppet 4 setup. On a Debian 7 based system, add the PC1 Puppet Labs repository:</p>
+<pre><strong>curl -O http://apt.puppetlabs.com/puppetlabs-release-pc1-wheezy.deb</strong><br/><strong>dpkg -i puppetlabs-release-pc1-wheezy.deb</strong><br/><strong>apt-get update</strong><br/><strong>apt-get install puppetserver puppet-agent</strong></pre>
+<p>Do not start the Puppet server process yet! It is required to run the new Puppet 4 or 5 master as CA master, which needs the CA and certificates from the Puppet 3 master copied over to the new Puppet 4 master.</p>
+<div class="packt_infobox">As of this writing, the Puppet 5 Java-based master package requires Java 8 from backports for Debian 8. Besides this, PuppetDB 5 now needs PostgreSQL 9.6, whereas PuppetDB for Puppet 4 must be used along with PostgreSQL 9.4.</div>
+<p>Within the next step, all Puppet agents need a change on the <kbd>puppet.conf</kbd> file. You will need to provide different settings for <kbd>ca_server</kbd> and <kbd>server</kbd>:</p>
+<pre>ini_setting { 'puppet_ca_server':<br/>  path    =&gt; '/etc/puppet/puppet.conf',<br/>  section =&gt; 'agent',<br/>  setting =&gt; 'ca_server',<br/>  value   =&gt; 'puppet4.example.net'<br/>}</pre>
+<div class="packt_tip">The <kbd>ini_setting</kbd> resource type is available through the <kbd>puppetlabs-inifile</kbd> module from the Forge.</div>
+<p>Now, place all your Puppet code on the new Puppet 4 master into an environment (<kbd>/etc/puppetlabs/code/environments/development/{manifests,modules}</kbd>).</p>
+<p>Test your code for Puppet 4 errors by running the following command on each of your nodes:</p>
+<pre><strong>puppet agent --test --noop --server puppet4.example.net --environment development</strong></pre>
+<p>Change your Puppet code to fix potential errors. Once no errors and no unwanted configuration changes occur on the Puppet 4 master and agents, your code is Puppet 4 compatible.</p>
+<div class="packt_tip">Another approach to verify your Puppet code being fully functional on Puppet 4 and 5 is to compare catalogs. There are several solutions available. The most common ones are <kbd>puppetlabs-catalog_diff</kbd>, <kbd>zack-catalog</kbd>, and <kbd>octocatalog-diff</kbd>.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Updating the Puppet agent</h1>
+                </header>
+            
+            <article>
+                
+<p>It is important to make sure that your existing agents are prepared to operate with a master that is already at version 4. Check the following aspects:</p>
+<ul>
+<li>All agents should use the latest version of Puppet 3</li>
+<li>The agent configuration should specify <kbd>stringify_facts = false</kbd></li>
+</ul>
+<p>The latter step prepares you for the agent update, because Puppet 4 will always behave the same as that and refrain from converting all fact values to the string type.</p>
+<p>Do make sure that you update to Puppet Server 2.1 or later. Passenger-based masters and Puppet Server 2.0 are not compatible with Puppet 3 agents.</p>
+<div class="packt_tip">The Puppet online documentation contains many helpful details about this update path: <a href="http://docs.puppetlabs.com/puppetserver/latest/compatibility_with_puppet_agent.html">http://docs.puppetlabs.com/puppetserver/latest/compatibility_with_puppet_agent.html</a>.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Testing Puppet DSL code</h1>
+                </header>
+            
+            <article>
+                
+<p>Another approach for verifying whether the existing Puppet code will work on Puppet 4 is unit and integration testing using <kbd>rspec-puppet</kbd> and <kbd>beaker</kbd>. This procedure is not within the scope of this book.</p>
+<p>Whether you started fresh with Puppet 4 or used one of the preceding procedures to migrate your Puppet 3 infrastructure, it is now time to discover the benefits of the new version.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using the type system</h1>
+                </header>
+            
+            <article>
+                
+<p>Older Puppet versions supported a small set of data types only: <kbd>Bool</kbd>, <kbd>String</kbd>, <kbd>Array</kbd>, and <kbd>Hash</kbd>. The Puppet DSL had almost no functionality to check for consistent variable types. Consider the following scenario.</p>
+<p>A parameterized class enables other users of your code base to change the behavior and output of the class:</p>
+<pre>class ssh (<br/>  $server = true,<br/>){<br/>  if $server {<br/>    include ssh::server<br/>  }<br/>}</pre>
+<p>This class definition checks whether the <kbd>server</kbd> parameter has been set to true. However, in this example, the class was not protected from wrong data usage:</p>
+<pre>class { 'ssh': 
+  server =&gt; 'false', 
+} </pre>
+<p>In this class declaration, the server parameter has been given a string instead of a bool value. Since the <kbd>false</kbd> string is not empty, the if <kbd>$server</kbd> condition actually passes. This is not what the user will expect.</p>
+<p>Within Puppet 3, it was recommended to add parameter validation using several functions from the <kbd>stdlib</kbd> module:</p>
+<pre>class ssh (<br/>  $server = true,<br/>){<br/>  validate_bool($server)<br/>  if $server {<br/>    include ssh::server<br/>  }<br/>}</pre>
+<p>With one parameter only, this seems to be a good way. But what if you have many parameters? How do we deal with complex data types as hashes?</p>
+<p>This is where the type system comes into play. The type system knows about many generic data types and follows patterns that are also used in many other modern programming languages.</p>
+<p>Puppet differentiates between core data types and abstract data types. Core data types are the real data types, the ones which are mostly used in Puppet Code:</p>
+<ul>
+<li>String</li>
+<li>Integer, float, and numeric</li>
+<li>Boolean</li>
+<li>Array</li>
+<li>Hash</li>
+<li>Regexp</li>
+<li>Undef</li>
+<li>Default</li>
+</ul>
+<p>In the given example, the <kbd>server</kbd> parameter should be checked to always contain a bool value. The code can be simplified to the following pattern:</p>
+<pre>class ssh ( 
+  <strong>Boolean</strong> $server = true, 
+){ 
+  if $server { 
+    include ssh::server 
+  } 
+} </pre>
+<p>If the parameter is not given a Boolean value, Puppet will throw an error, explaining which parameter has a non-matching data type:</p>
+<pre>class { 'ssh': 
+  server = 'false', 
+} </pre>
+<p>The error displayed is as follows:</p>
+<pre><strong>root@puppetmaster# puppet apply ssh.pp</strong><br/><strong>Error: Expected parameter 'server' of 'Class[Ssh]' to have type Boolean, got String at ssh.pp:2 on node puppetmaster.example.net</strong></pre>
+<p>The <kbd>Numeric</kbd>, <kbd>Float</kbd>, and <kbd>Integer</kbd> data types have some more interesting aspects when it comes to variables and their type.</p>
+<p>Puppet will automatically recognize <kbd>Integers</kbd>, consisting of numbers (either with or without the minus sign) and not having a decimal point.</p>
+<p><kbd>Floats</kbd> are recognized by the decimal point. When doing arithmetic algebra on a combination of an <kbd>Integer</kbd> and a <kbd>Float</kbd>, the result will always be a <kbd>Float</kbd>.</p>
+<p><kbd>Floats</kbd> between <kbd>-1</kbd> and <kbd>1</kbd> must be written with a leading <kbd>0</kbd> digit prior to the decimal point; otherwise, Puppet will throw an error.</p>
+<p>Besides this, Puppet has support for the decimal, octal, and hexadecimal notation, as known from C-like languages:</p>
+<ul>
+<li>A nonzero decimal must not start with a <kbd>0</kbd></li>
+<li>Octal values must start with a leading <kbd>0</kbd></li>
+<li>Hexadecimal values have <kbd>0x</kbd> as the prefix</li>
+</ul>
+<p>Puppet will automatically convert numbers into strings during the interpolation: <kbd>("Value of number: ${number}")</kbd>.</p>
+<div class="packt_infobox">Puppet will not convert strings to numbers. To make this happen, you can simply add 0 to a string to convert:</div>
+<pre><strong>$ssh_port = '22' 
+$ssh_port_integer = 0 + $ssh_port </strong></pre>
+<p>The <kbd>Default</kbd> data type is a little special. It does not directly refer to a data type, but can be used in selectors and case statements:</p>
+<pre><strong>$enable_real = $enable ?</strong> { 
+  Boolean =&gt; $enable, 
+  String  =&gt; str2bool($enable), 
+  default =&gt; fail('Unsupported value for ensure. Expected either <br/>   bool or string.'), 
+} </pre>
+<p>Abstract data types are constructs that are useful for a more sophisticated or permissive Type checking:</p>
+<ul>
+<li>Scalar</li>
+<li>Collection</li>
+<li>Variant</li>
+<li>Data</li>
+<li>Pattern</li>
+<li>Enum</li>
+<li>Tuple</li>
+<li>Struct</li>
+<li>Optional</li>
+<li>Catalog entry</li>
+<li>Type</li>
+<li>Any</li>
+<li>Callable</li>
+</ul>
+<p>Assume that a parameter will only accept strings from a limited set. Only checking for being of type <kbd>String</kbd> is not sufficient. In this scenario, the <kbd>Enum</kbd> type is useful; a list of valid values are specified for it:</p>
+<pre>class ssh (<br/>  Boolean $server = true,<br/>  Enum['des','3des','blowfish'] $cipher = 'des',<br/>){<br/>  if $server {<br/>    include ssh::server<br/>  }<br/>}</pre>
+<p>If the listen parameter is not set to one of the listed elements, Puppet will throw an error:</p>
+<pre>class { 'ssh': 
+  ciper =&gt; 'foo', 
+} </pre>
+<p>The following error is displayed:</p>
+<pre><strong>puppet apply ssh.pp</strong><br/><strong>Error: Expected parameter 'ciper' of 'Class[Ssh]' to have type Enum['des','3des','blowfish'] got String at ssh.pp:2 on node puppetmaster.example.net </strong></pre>
+<p>Sometimes, it is difficult to use specific data types, because the parameter might be set to an <kbd>undef</kbd> value. Think of a <kbd>userlist</kbd> parameter that might be empty (<kbd>undef</kbd>) or set to an arbitrary array of strings.</p>
+<p>This is what the <kbd>Optional</kbd> type is for:</p>
+<pre>class ssh ( 
+  Boolean $server = true, 
+  Enum['des','3des','blowfish'] $cipher = 'des', 
+  Optional[Array[String]] $allowed_users = undef, 
+){ 
+  if $server { 
+    include ssh::server 
+  } 
+} </pre>
+<p>Again, using a wrong data type will lead to a Puppet error:</p>
+<pre>class { 'ssh': 
+  allowed_users =&gt; 'foo', 
+} </pre>
+<p>The error displayed is as follows:</p>
+<pre><strong>puppet apply ssh.pp</strong><br/><strong>Error: Expected parameter 'userlist' of 'Class[Ssh]' to have type Optional[Array[String]], got String at ssh.pp:2 on node puppetmaster.example.net</strong></pre>
+<p>In the previous example, we used a data type composition. This means that data types can have more information for type checking.</p>
+<p>Let's assume that we want to set the <kbd>ssh</kbd> service port in our class. Normally, ssh should run on a privileged port between 1 and 1023. In this case, we can restrict the integer data type to only allow numbers between 1 and 1023 by passing additional information:</p>
+<pre>class ssh ( 
+  Boolean $server = true, 
+  Optional[Array[String]] $allowed_users = undef, 
+  Integer[1,1023] $sshd_port, 
+){ 
+  if $server { 
+    include ssh::server 
+  } 
+} </pre>
+<p>As always, providing a wrong parameter will lead to an error:</p>
+<pre>class { 'ssh': 
+  sshd_port =&gt; 'ssh', 
+} </pre>
+<p>The preceding line of code gives the following error:</p>
+<pre><strong>puppet apply ssh.pp</strong>
+<strong>Error: Expected parameter 'sshd_port' of 'Class[Ssh]' to have type Integer[1, 1023], got String at ssh.pp:2 on node puppetmaster.example.net</strong>  </pre>
+<p>Complex hashes that use multiple data types that are very complicated to describe using the new type system.</p>
+<p>When using the <kbd>Hash</kbd> type, it is only possible to check for a hash in general, or for a hash with keys of a specific type. You can optionally verify the minimum and maximum number of elements in the hash.</p>
+<p>The following example provides a working hash type check:</p>
+<pre>$hash_map = { 
+  'ben'     =&gt; { 
+    'uid'   =&gt; 2203, 
+    'home'  =&gt; '/home/ben', 
+  }, 
+  'jones'   =&gt; { 
+    'uid'   =&gt; 2204, 
+    'home'  =&gt; 'home/jones', 
+  } 
+} </pre>
+<p>Notably, the <kbd>home</kbd> entry for user <kbd>jones</kbd> is missing the leading slash:</p>
+<pre>class users ( 
+  Hash $users 
+){ 
+  notify { 'Valid Hash': } 
+} 
+class { 'users': 
+  users =&gt; $hash_map, 
+} </pre>
+<p>Running the preceding code, gives us the following output:</p>
+<pre><strong>puppet apply hash.pp</strong><br/><strong>Notice: Compiled catalog for puppetmaster.example.net in environment production in 0.32 seconds</strong><br/><strong>Notice: Valid hash</strong><br/><strong>Notice: /Stage[main]/Users/Notify[Valid hash]/message: defined 'message' as 'Valid hash'</strong><br/><strong>Notice: Applied catalog in 0.03 seconds</strong> </pre>
+<p>With the preceding notation, the data type is valid. Yet there are errors inside the hash map.</p>
+<p>Checking content of <kbd>Arrays</kbd> or <kbd>Hashes</kbd> requires the use of another abstract data type: <kbd>Tuple</kbd> (used for <kbd>Arrays</kbd>) or <kbd>Struct</kbd> (used for <kbd>Hashes</kbd>).</p>
+<p>However, the <kbd>Struct</kbd> data type will work only when the key names are from a known limited set, which is not the case in the given example.</p>
+<p>In this special case, we have two possibilities:</p>
+<ul>
+<li>Extend the <kbd>hash</kbd> data type to know about the hash internal structure</li>
+<li>Wrap the <kbd>type</kbd> data into a define, which makes use of all keys using the key function (from <kbd>stdlib</kbd>)</li>
+</ul>
+<p>The first solution is as follows:</p>
+<pre>class users ( 
+  Hash[ 
+    String, 
+    Struct[ { 'uid' =&gt; Integer, 
+              'home' =&gt; Pattern[ /^\/.*/ ] } ] 
+  ] $users 
+){ 
+  notify { 'Valid hash': } 
+} </pre>
+<p>However, the error message is hard to understand when the data types are not matching:</p>
+<pre><strong>puppet apply hash.pp</strong><br/><strong>Error: Expected parameter 'users' of 'Class[Users]' to have type Hash[String, Struct[{'uid'=&gt;Integer, 'home'=&gt;Pattern[/^\/.*/]}]], got Struct[{'ben'=&gt;Struct[{'uid'=&gt;Integer, 'home'=&gt;String}], 'jones'=&gt;Struct[{'uid'=&gt;Integer, 'home'=&gt;String}]}] at hash.pp:32 on node puppetmaster.example.net</strong></pre>
+<p>The second solution gives a smarter hint on which data might be wrong:</p>
+<pre>define users::user ( 
+  Integer        $uid, 
+  Pattern[/^\/.*/] $home, 
+){ 
+  notify { "User: ${title}, UID: ${uid}, HOME: ${home}": } 
+} </pre>
+<p>This defined type is then employed from within the users class:</p>
+<pre>class users ( 
+  Hash[String, Hash] $users 
+){ 
+  $keys = keys($users) 
+  each($keys) |String $username| { 
+    users::user{ $username: 
+      uid  =&gt; $users[$username]['uid'], 
+      home =&gt; $users[$username]['home'], 
+    } 
+  } 
+} </pre>
+<p>With the wrong submitted data in the hash, you will receive the following<br/>
+error message:</p>
+<pre><strong>puppet apply hash.pp</strong>
+<strong>Error: Expected parameter 'home' of 'Users::User[jones]' to have type Pattern[/^\/.*/], got String at hash.pp:23 on node puppetmaster.example.net</strong>  </pre>
+<p>The error message is pointing to the home parameter of the user <kbd>jones</kbd>, which is given in the hash. The correct hash is as follows:</p>
+<pre>$hash_map = { 
+  'ben'    =&gt; { 
+    'uid'  =&gt; 2203, 
+    'home' =&gt; '/home/ben', 
+  }, 
+  'jones'  =&gt; { 
+    'uid'  =&gt; 2204, 
+    'home' =&gt; '/home/jones', 
+  } 
+} </pre>
+<p>The preceding code produces the expected result as follows:</p>
+<pre><strong>puppet apply hash.pp</strong><br/><strong>Notice: Compiled catalog for puppetmaster.example.net in environment production in 0.33 seconds</strong><br/><strong>Notice: User: ben, UID: 2203, HOME: /home/ben</strong><br/><strong>Notice: /Stage[main]/Users/Users::User[ben]/Notify[User: ben, UID: 2203, HOME: /home/ben]/message: defined 'message' as 'User: ben, UID: 2203, HOME: /home/ben'</strong><br/><strong>Notice: User: jones, UID: 2204, HOME: /home/jones</strong><br/><strong>Notice: /Stage[main]/Users/Users::User[jones]/Notify[User: jones, UID: 2204, HOME: /home/jones]/message: defined 'message' as 'User: jones, UID: 2204, HOME: /home/jones'</strong><br/><strong>Notice: Applied catalog in 0.03 seconds</strong></pre>
+<p>Next to the existing data types, Puppet offers the possibility to also build data types based on existing ones.</p>
+<p>Within the last example we were matching a regular expression to identify an absolute path, but sometimes regular expressions might become very complex and hard to understand. This is where the type declaration comes into place.</p>
+<p>A type declaration must be part of a module, use the module namespace as a prefix, and must be placed into the types directory.</p>
+<pre># stlib/types/absolutepath.pp 
+type Stdlib::Absolutepath = Variant[Stdlib::Windowspath, Stdlib::Unixpath] </pre>
+<p>The Windows and Unix path types have proper regular expressions.</p>
+<p>The type system becomes handy when you want to validate a very specific data type. Think about a firewall module where you want to check for IPv4 or IPv6 addresses.</p>
+<p>We can use the same pattern same as the <kbd>absolutepath</kbd> data type:</p>
+<pre>#firewall/types/ipaddress.pp 
+type Firewall::Ipaddress = Variant[Firewall::Ipv4, Firewall::Ipv6] </pre>
+<p>The preceding manifest uses the <kbd>each</kbd> function, another part of the Puppet 4 language. The next section explores it in greater detail.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Learning lambdas and functions</h1>
+                </header>
+            
+            <article>
+                
+<p>Functions have long been an essential part of Puppet. Due to the new type system, a complete new set of functions have become possible functions with different behavior based on parameter data types.</p>
+<p>To understand functions, we first have to take a look at lambdas, which are introduced in Puppet 4. Lambdas represent a snippet of Puppet code, which can be used in functions. Syntactically, lambdas consist of an optional type and at least one variable with optional defaults set, enclosed in pipe signs (<kbd>|</kbd>), followed by Puppet code inside a block of curly braces:</p>
+<pre>$packages = ['htop', 'less', 'vim']<br/>each($packages) |String $package| <br/>{<br/>      package { $package:<br/>        ensure =&gt; latest,<br/>  }<br/>}</pre>
+<p>Lambdas are typically used on functions. The preceding example uses the <kbd>each</kbd> function on the <kbd>$packages</kbd> variable, iterating over its contents, setting the lambda variable <kbd>$package</kbd> within each iteration to the values <kbd>htop</kbd>, <kbd>less</kbd>, and <kbd>vim</kbd>, respectively. The Puppet code block uses the lambda variable inside a resource type declaration afterwards.</p>
+<div class="packt_infobox">The Puppet code in curly braces has to ensure that no duplicate resource declaration occurs.</div>
+<p>Since Puppet now knows about data types, you can interact and work with variables, and the data inside, in a far more elegant way.</p>
+<p>in functions for arrays and hashes:</p>
+<ul>
+<li>Puppet 4 comes with a whole set of built-in functions for arrays and hashes: each</li>
+<li>slice</li>
+<li>filter</li>
+<li>map</li>
+<li>reduce</li>
+<li>with</li>
+</ul>
+<p>We have already seen the <kbd>each</kbd> function in action. Prior to Puppet 4, one needed to wrap the desired Puppet resource types into <kbd>define</kbd> and declare the <kbd>define</kbd> type using an array:</p>
+<pre>class puppet_symlinks { 
+  $symlinks = [ puppet', 'facter', 'hiera' ] 
+  puppet_symlinks::symlinks { $symlinks: } 
+} 
+ 
+define puppet_symlinks::symlinks { 
+  file { "/usr/local/bin/${title}": 
+    ensure =&gt; link, 
+    target =&gt; "/opt/puppetlabs/bin/${title}", 
+  } 
+} </pre>
+<p>With this concept, the action (create the <kbd>symlink</kbd>) was put into a define type and was no longer directly visible in the manifest. The new iteration approach keeps the action in the same location:</p>
+<pre>class puppet_symlinks { 
+  $symlinks = [ 'puppet', 'facter', 'hiera' ] 
+  $symlinks.each | String $symlink | { 
+    file { "/usr/local/bin/${symlink}": 
+      ensure =&gt; link, 
+      target =&gt; "/opt/puppetlabs/bin/${symlink}", 
+    } 
+  } 
+} </pre>
+<p>Did you recognize that, this time, we used another approach of using a function? In the first example, we used the Puppet 3 style function calls:</p>
+<pre>function($variable) </pre>
+<p>Puppet 4 also supports the postfix notation, where the function is appended to its parameter using a dot:</p>
+<pre>$variable.function </pre>
+<p>Puppet 4 supports both ways of using a function. This allows you to keep adhering to your code style and make use of the new functionality.</p>
+<p>Let's run though the other functions for arrays and hashes:</p>
+<ul>
+<li>The <kbd>slice</kbd> function allows you to split up and group an array or a hash. It needs an additional parameter (integer), defining how many objects should be grouped together:</li>
+</ul>
+<pre style="padding-left: 60px">$array = [ '1', '2', '3', '4'] 
+$array.slice(2) |$slice| { 
+  notify { "Slice: ${slice}": } 
+} </pre>
+<ul>
+<li class="packt_nosymbol">This code will produce the following output:</li>
+</ul>
+<pre>    <strong>Notice: Slice: [1, 2]</strong>
+    <strong>Notice: Slice: [3, 4]</strong></pre>
+<ul>
+<li class="packt_nosymbol">When using the slice functions on a hash, one receives the keys<br/>
+(according to the amount of grouped keys) and accordingly,<br/>
+the sub hash:</li>
+</ul>
+<pre style="padding-left: 60px">$hash = { 
+  'key 1' =&gt; {'value11' =&gt; '11', 'value12' =&gt; '12',}, 
+  'key 2' =&gt; {'value21' =&gt; '21', 'value22' =&gt; '22',}, 
+  'key 3' =&gt; {'value31' =&gt; '31', 'value32' =&gt; '32',}, 
+  'key 4' =&gt; {'value41' =&gt; '41', 'value42' =&gt; '42',}, 
+} 
+ 
+$hash.slice(2) |$hslice| { 
+  notify { "HSlice: ${hslice}": } 
+} </pre>
+<ul>
+<li class="packt_nosymbol">This will return the following output:</li>
+</ul>
+<pre style="padding-left: 60px"><strong>  Notice: HSlice: [[key1, {value11 =&gt; 11, value12 =&gt; <br/>  12}], <br/>  [key2, {value21 =&gt; 21, value22 =&gt; 22}]]</strong><br/><strong>  Notice: HSlice: [[key3, {value31 =&gt; 31, value32 =&gt; <br/>  32}], <br/>  [key4, {value41 =&gt; 41, value42 =&gt; 42}]]</strong></pre>
+<ul>
+<li>The <kbd>filter</kbd> function can be used to filter out specific entries inside an array or hash.</li>
+</ul>
+<ul>
+<li class="packt_nosymbol">When used on an array, all elements are passed to the code block and the code block evaluates whether the entry does match. This is very useful if you want to filter out items of an array (for example, packages which should be installed):</li>
+</ul>
+<pre style="padding-left: 60px">$pkg_array = [ 'libjson', 'libjson-devel', 'libfoo', 'libfoo-devel' ] 
+$dev_packages = $pkg_array.filter |$element| { 
+  $element =~ /devel/ 
+} 
+notify { "Packages to install: ${dev_packages}": } </pre>
+<ul>
+<li class="packt_nosymbol">This will return the following output:</li>
+</ul>
+<pre style="padding-left: 60px"><strong> Notice: Packages to install: [libjson-devel, libfoo-<br/> devel]</strong></pre>
+<ul>
+<li class="packt_nosymbol">The behavior on hashes is different. When using hashes, one has to provide two lambda variables: <kbd>key</kbd> and <kbd>value</kbd>. You might want to only add users that have a specific <kbd>gid</kbd> set:</li>
+</ul>
+<pre style="padding-left: 60px">$hash = { 
+  'jones' =&gt; { 
+    'gid' =&gt; 'admin', 
+  }, 
+  'james' =&gt; { 
+    'gid' =&gt; 'devel', 
+  }, 
+  'john'  =&gt; { 
+    'gid' =&gt; 'admin', 
+  }, 
+} 
+ 
+$user_hash = $hash.filter |$key, $value| { 
+  $value['gid'] =~ /admin/ 
+} 
+$user_list = keys($user_hash) 
+notify { "Users to create: ${user_list}": } </pre>
+<ul>
+<li class="packt_nosymbol">This will return only the users from the <kbd>admin</kbd> gid:</li>
+</ul>
+<pre>    <strong>Notice: Users to create: [jones, john]</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating Puppet 4 functions</h1>
+                </header>
+            
+            <article>
+                
+<p>The Puppet 3 functions API has some limitations and is missing features. The new function API in Puppet 4 improves upon that substantially.</p>
+<p>Some of the limitations of the old functions are as follows:</p>
+<ul>
+<li>The functions had no automatic type checking</li>
+<li>These functions had to have a unique name due to a flat namespace</li>
+<li>These functions were not private and, hence, could be used anywhere</li>
+<li>The documentation could not be retrieved without running the Ruby code</li>
+</ul>
+<p>Running on Puppet 3 requires functions to be in a module in the <kbd>lib/puppet/parser/functions</kbd> directory. Therefore, people referred to these functions as <strong>parser functions</strong>, but this name is misleading. Functions are unrelated to the Puppet parser.</p>
+<p>In Puppet 4, functions have to be put into a module in path <kbd>lib/puppet/functions</kbd>.</p>
+<p>This is how you create a function that will return the hostname of the Puppet master:</p>
+<pre># modules/utils/lib/puppet/functions/resolver.rb 
+require 'socket' 
+Puppet::Functions.create_function(:resolver) do 
+  def resolver() 
+    Socket.gethostname 
+  end 
+end </pre>
+<p>Using <kbd>dispatch</kbd> adds type checking for attributes. Depending on desired functionality, one might have multiple <kbd>dispatch</kbd> blocks (checking for different data types). Each <kbd>dispatch</kbd> can refer to another defined Ruby method inside the function. This reference is possible by using the same names for <kbd>dispatch</kbd> and the Ruby method.</p>
+<p>The following example code should get additional functionality; depending on the type of argument, the function should either return the hostname of the local system, or use DNS to get the hostname from an IPv4 address or the <kbd>ipaddress</kbd> for a given hostname:</p>
+<pre>require 'resolv' 
+require 'socket' 
+Puppet::Functions.create_function(:resolver) do 
+  dispatch :ip_param do 
+     param 'Pattern[/^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/]', :ip 
+  end 
+  dispatch :fqdn_param do 
+     param 'Pattern[/^([a-z0-9\.].*$/]', :fdqn 
+  end 
+  dispatch :no_param do 
+  end 
+ 
+  def no_param 
+    Socket.gethostname 
+  end 
+  def ip_param(ip) 
+    Resolv.getname(ip) 
+  end 
+  def fqdn_param(fqdn) 
+    Resolv.getaddress(fqdn) 
+  end 
+end </pre>
+<p>At the beginning of the file, we have to load some Ruby modules to allow the DNS name resolution and to find the local hostname.</p>
+<p>The first two <kbd>dispatch</kbd> sections check for the data type of the parameter value and set a unique symbol. The last <kbd>dispatch</kbd> section does not check for data types, which matches when no parameter was given.</p>
+<p>Each defined Ruby method uses the name of the according <kbd>dispatch</kbd> and executes Ruby code depending on the parameter type.</p>
+<p>Now, the resolver function can be used from inside the Puppet manifest code in three different ways:</p>
+<pre>class resolver { 
+  $localname = resolver() 
+  notify { "Without argument resolver returns local <br/>  hostname: <br/>  ${localname}": } 
+ 
+  $remotename = resolver('puppetlabs.com') 
+  notify { "With argument puppetlabs.com: ${remotename}": <br/>  } 
+ 
+  $remoteip = resolver('8.8.8.8') 
+  notify { "With argument 8.8.8.8: ${remoteip}": } <br/>  } </pre>
+<p>When declaring this class, the following output will show up:</p>
+<pre class="mce-root"><strong>puppet apply -e 'include resolver'</strong><br/><strong>Notice: Compiled catalog for puppetmaster.example.net in environment production in 0.35 seconds</strong><br/><strong>...</strong><br/><strong>Notice: Without argument resolver returns local hostname: puppetmaster</strong><br/><strong>Notice: With argument puppetlabs.com: 52.10.10.141</strong><br/><strong>Notice: With argument 8.8.8.8: google-public-dns-a.google.com</strong><br/><strong>Notice: Applied catalog in 0.04 seconds</strong></pre>
+<p>With Puppet 3 functions, it was impossible to have two functions of the same name. One always had to check whether duplicate functions appeared when making use of a new module.</p>
+<p>The Puppet 4 functions now offer the possibility of using namespacing just the same as classes.</p>
+<p>Let's migrate our function into the class namespace:</p>
+<pre># modules/utils/lib/puppet/functions/resolver/resolve.rb 
+require 'resolv' 
+require 'socket' 
+Puppet::Functions.create_function(:'resolver::resolve') do 
+  # the rest of the function is identical to the example given <br/>   # above 
+end </pre>
+<p>In the example, the code needs to be in <kbd>resolver/lib/puppet/functions/resolver/resolve.rb</kbd>, which corresponds to <kbd>function name: 'resolver::resolve'</kbd>.</p>
+<p>Functions with namespaces are invoked as usual:</p>
+<pre>class resolver { 
+  $localname = resolver::resolve() 
+  $remotename = resolver::resolve('puppetlabs.com') 
+  $remoteip = resolver::resolve('8.8.8.8') 
+} </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Leveraging the new template engine</h1>
+                </header>
+            
+            <article>
+                
+<p>In <a href="60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml"><span class="ChapterrefPACKT">Chapter 6</span></a>, <em>The Puppet Beginners Advanced Parts</em>, we introduced templates and the ERB template engine. In Puppet 4, an alternative was added: the EPP template engine. The major differences between the template engines are as follows:</p>
+<ul>
+<li>In ERB templates, you cannot specify a variable in Puppet syntax (<kbd>$variable_name</kbd>)</li>
+<li>ERB templates will not accept parameters</li>
+<li>In EPP templates, you will use the Puppet DSL syntax instead of Ruby syntax</li>
+</ul>
+<p>The EPP template engine requires scoped variables from modules:</p>
+<pre># motd file - managed by Puppet 
+This system is running on &lt;%= $::operatingsystem %&gt; </pre>
+<p>The manifest defines the following local variable: <kbd>&lt;%= $motd::local_variable %&gt;</kbd>. The EPP templates also have a unique extension: they can take typed parameters.<br/>
+To make use of this, a template has to start with a parameter declaration block:</p>
+<pre>&lt;%- | String $local_variable, 
+      Array  $local_array 
+| -%&gt; </pre>
+<p>These parameters are not as variables from Puppet manifests. Instead, one must pass parameters using the <kbd>epp</kbd> function:</p>
+<pre>epp('template/test.epp', {'local_variable' =&gt; 'value', 'local_array' =&gt; ['value1', 'value2'] }) </pre>
+<p>A template without parameters should only be used when the template is used exclusively by one module, so that it is safe to rely on the availability of Puppet variables to customize the content.</p>
+<p>Using the EPP template function with parameters is recommended when a template is used from several places. By declaring the parameters at the beginning, it is especially clear what data the template requires.</p>
+<p>There is a specific difference between the template engines when iterating over arrays and hashes. The ERB syntax uses Ruby code with unscoped, local variables, whereas the EPP syntax requires specifying Puppet DSL code:</p>
+<pre># ERB syntax 
+&lt;% @array.each do |element| -%&gt; 
+&lt;%= element %&gt; 
+&lt;% end -%&gt; 
+ 
+# EPP syntax 
+&lt;% $array.each |$element| { -%&gt; 
+&lt;%= $element %&gt; 
+&lt;% } -%&gt; </pre>
+<p>The inline ERB function was also supplemented with inline EPP. Using the inline EPP, one can specify a small snippet of EPP code to get evaluated:</p>
+<pre>file {'/etc/motd': 
+  ensure  =&gt; file, 
+  content =&gt; inline_epp("Welcome to &lt;%= $::fqdn %&gt;\n") 
+} </pre>
+<p>Prior to Puppet 4, it was inconvenient to pass more than a small code snippet. With Puppet 4 and the HEREDOC support, complex templates in combination with <kbd>inline_epp</kbd> are easier and better readable.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Handling multiline with HEREDOC</h1>
+                </header>
+            
+            <article>
+                
+<p>Writing multiline file fragments in Puppet mostly resulted in code that was hard to read, mostly due to indentation. With Puppet 4, the <kbd>heredoc</kbd> style was added. It is now possible to specify a <kbd>heredoc</kbd> tag and marker:</p>
+<pre>$motd_content = @(EOF) 
+  This system is managed by Puppet 
+  local changes will be overwritten by next Puppet run. 
+EOF<strong> </strong></pre>
+<p>The <kbd>heredoc</kbd> tag starts with an <kbd>@</kbd> sign followed by arbitrary string enclosed in parenthesis. The <kbd>heredoc</kbd> marker is the string given in the tag.</p>
+<p>If variables are required inside the <kbd>heredoc</kbd> document, the variable interpolation can be enabled by putting the tag string in double quotes. Variables inside the <kbd>heredoc</kbd> are written the same as Puppet DSL variables: a dollar sign followed by the scope and the variable name:</p>
+<pre>$motd_content = @("EOF") 
+  Welcome to ${::fqdn}. 
+  This system is managed by Puppet version ${::puppetversion}. 
+  Local changes will be overwritten by the next Puppet run 
+EOF<strong> </strong></pre>
+<p>Normally, <kbd>heredoc</kbd> does not handle escape sequences. Escape sequences need to be enabled explicitly. As of Puppet 4.2, <kbd>heredoc</kbd> has the following escape sequences available:</p>
+<ul>
+<li><kbd>*</kbd> <kbd>\n</kbd> Newline</li>
+<li><kbd>*</kbd> <kbd>\r</kbd> Carriage return</li>
+<li><kbd>*</kbd> <kbd>\t</kbd> Tab</li>
+<li><kbd>*</kbd> <kbd>\s</kbd> Space</li>
+<li><kbd>*</kbd> <kbd>\$</kbd> Literal dollar sign (preventing interpolation)</li>
+<li><kbd>*</kbd> <kbd>\u</kbd> Unicode character</li>
+<li><kbd>\L</kbd> Nothing (ignore line breaks in source code)</li>
+</ul>
+<p>Enabled escape sequences have to be placed behind the string of the <kbd>heredoc</kbd> tag:</p>
+<pre>$modt_content = @("EOF"/tn) 
+Welcome to ${::fqdn}.\n\tThis system is managed by Puppet version ${::puppetversion}.\n\tLocal changes will be overwritten on next Puppet run. 
+EOF<strong> </strong></pre>
+<p>In the example, the text always starts in the first column, which makes it hard to read and stands out from the code around it, which will usually be indented by some amount of whitespace.</p>
+<p>It is possible to strip indentation by placing whitespaces and a pipe sign in front of the <kbd>heredoc</kbd> marker. The pipe sign will indicate the first character of each line:</p>
+<pre>$motd_content = @("EOF")<br/>    Welcome to ${::fqdn}.<br/>    This system is managed by Puppet version ${::puppetversion}.<br/>    Local changes will be overwritten on next Puppet run.<br/>    | EOF</pre>
+<p>Now <kbd>heredoc</kbd> and <kbd>inline_epp</kbd> can be easily combined:</p>
+<pre>class my_motd (<br/>  Optional[String] $additional_content = undef<br/>){<br/>  $motd_content = @(EOF)<br/>    Welcome to &lt;%= $::fqdn %&gt;.<br/>    This system is managed by Puppet version <br/>    &lt;%= $::puppetversion %&gt;.<br/>    Local changes will be overwritten on next Puppet run.<br/>    &lt;% if $additional_content != undef { -%&gt;<br/>    &lt;%= $additional_content %&gt;<br/>    &lt;% } -%&gt;<br/>    | EOF<br/>  file { '/etc/motd':<br/>    ensure  =&gt; file,<br/>    content =&gt; inline_epp($motd_content, {  <br/>    additional_content =&gt; $additional_content } ),<br/>  }<br/>} </pre>
+<p>Declaring this class will give the following result in the <kbd>motd</kbd> file:</p>
+<pre><strong>puppet apply -e 'include my_motd'</strong><br/><strong>Welcome to puppetmaster.example.net.</strong><br/><strong>This system is managed by Puppet version 4.2.1.</strong><br/><strong>Local changes will be overwritten on next Puppet run.</strong>  </pre>
+<div class="packt_infobox">When using <kbd>heredoc</kbd> in combination with <kbd>inline_epp</kbd>, you want to take care to not quote the <kbd>heredoc</kbd> start tag. Otherwise, the variable substitution will take place prior to the <kbd>inline_epp</kbd> function call.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using Puppet 5 server metrics</h1>
+                </header>
+            
+            <article>
+                
+<p>With Puppetserver Version 5 the former Puppet Enterprise only metrics system has been ported to Puppet Open Source.</p>
+<p>The metrics system allows you to read internal information like compile times, status of file serving and function runtimes from a JMX console or to push the data to a graphite system.</p>
+<p>Enabling the metrics system is straightforward by editing the puppet server <kbd>metrics.conf</kbd> file located at <kbd>/etc/puppetlabs/puppetserver/conf.d/metrics.conf</kbd>.</p>
+<p>There are three important settings. At the <kbd>metrics.server-id</kbd> one can specify an ID which is later used in the Grafana dashboard. The <kbd>metrics.registry.puppetserver.reporters.graphite.enabled</kbd> value must be set to true and the <kbd>metrics.reporters.graphite</kbd> hash must mention the graphite hostname and port and the update interval setting:</p>
+<pre># settings related to metrics<br/>metrics: {<br/>  # a server id that will be used as part of the namespace <br/>  for metrics produced<br/>  # by this server<br/>  server-id: "puppet.bi.example42.com"<br/>  registries: {<br/>    puppetserver: {<br/>      # specify metrics to allow in addition to those in <br/>      the default list<br/>      #metrics-allowed: ["compiler.compile.production"]<br/>      # enable or disable JMX metrics reporter<br/>      jmx: {<br/>        enabled: true<br/>      }<br/>      # enable or disable Graphite metrics reporter<br/>      graphite: {<br/>        enabled: true<br/>      }<br/>    }<br/>  }<br/>  # this section is used to configure settings for <br/>  reporters that will send<br/>  # the metrics to various destinations for external <br/>  viewing<br/>  reporters: {<br/>    graphite: {<br/>      host: "10.0.4.2"<br/>      port: "2003"<br/>      update-interval-seconds: 5<br/>    }<br/>  }<br/>  metrics-webservice: {<br/>    jolokia: {<br/>      # Enable or disable the Jolokia-based metrics/v2 <br/>      endpoint.<br/>      # Default is true.<br/>      # enabled: false<br/>      # Configure any of the settings listed at:<br/>      # <br/>      https://jolokia.org/reference/html/agents.html#war-<br/>      agent-installation<br/>      servlet-init-params: {<br/>        # Specify a custom security policy:<br/>        # https://jolokia.org/reference/html/security.html<br/>        # policyLocation: <br/>        "file:///etc/puppetlabs/puppetserver/jolokia-<br/>        access.xml"<br/>      }<br/>    }<br/>  }<br/>}</pre>
+<p>Don't forget to restart the <kbd>puppetserver</kbd> process after doing changes.</p>
+<p>For automated setup one wants to use the <kbd>puppetlabs-hocon</kbd> module which is able to set all desired values:</p>
+<pre>Hocon_setting {<br/>  path   =&gt; <br/>  '/etc/puppetlabs/puppetserver/conf.d/metrics.conf',<br/>  notify =&gt; Service['puppetserver'],<br/>  }<br/>  hocon_setting {'server metrics server-id':<br/>    ensure  =&gt; present,<br/>    setting =&gt; 'metrics.server-id',<br/>    value   =&gt; 'localhost',<br/>  }<br/>  hocon_setting {'server metrics reporters graphite':<br/>    ensure  =&gt; present,<br/>    setting =&gt; <br/> 'metrics.registries.puppetserver.reporters.graphite.enabled',<br/>    value   =&gt; true,<br/>  }<br/>  hocon_setting {'server metrics graphite host':<br/>    ensure  =&gt; present,<br/>    setting =&gt; 'metrics.reporters.graphite.host',<br/>    value   =&gt; $graphite_server,<br/>  }<br/>  hocon_setting {'server metrics graphite port':<br/>    ensure  =&gt; present,<br/>    setting =&gt; 'metrics.reporters.graphite.port',<br/>    value   =&gt; 2003,<br/>  }<br/>  hocon_setting {'server metrics graphite update <br/>  interval':<br/>    ensure  =&gt; present,<br/>    setting =&gt; 'metrics.reporters.graphite.update-<br/>    interval-seconds',<br/>    value   =&gt; 5,<br/>  } </pre>
+<p>The setup of praphite is beyond the scope of this book. There is a puppet module available for evaluation purpose (<a href="http://github.com/tuxmea/puppet-grafanadash">http://github.com/tuxmea/puppet-grafanadash</a>).</p>
+<p>This module installs and configures elasticsearch, graphite, and grafana on a CentOS 7 system.</p>
+<p>You only need to include the <kbd>grfanadash::dev</kbd> class on a node:</p>
+<pre>node 'graphite.example.com' {   include grafanadash::dev }</pre>
+<p>Afterwards you can access graphite on <kbd>http://graphite.example.com</kbd> and grafana at <kbd>http://graphite.example-com:10000</kbd>. Within the grafana dashboard one can load the <kbd>.json</kbd> file from module examples folder.</p>
+<p>Please be aware that it might take up to 10 minutes prior values will show up in grafana.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Breaking old practices</h1>
+                </header>
+            
+            <article>
+                
+<p>When Puppet Labs decided to work on the parser and on the new features, they also decided to remove some features that had already been deprecated for a couple of releases.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Converting node inheritance</h1>
+                </header>
+            
+            <article>
+                
+<p>Node inheritance has been considered good practice during older Puppet releases. To avoid too much code on the node level, a generic, nonexistent host was created (<kbd>basenode</kbd>) and the real nodes inherited from <kbd>basenode</kbd>:</p>
+<pre>node basenode {<br/>  include security<br/>  include ldap<br/>  include base<br/>}<br/>node 'www01.example.net' inherits 'basenode' {<br/>  class { 'apache': }<br/>  include apache::mod::php<br/>  include webapplication<br/>}</pre>
+<p>This node classification is no longer supported by Puppet 4.</p>
+<p>As of 2012, the roles and profiles pattern became increasingly popular, bringing new methods on how to allow smart node classification. From a technical point of view, roles and profiles are Puppet classes. The profile module wraps technical modules and adapts their usage to the existing infrastructure by providing data such as <kbd>ntp</kbd> servers and <kbd>ssh</kbd> configuration options. The role module describes system business use cases and makes use of the declared profiles:</p>
+<pre>class profile::base { 
+  include security 
+  include ldap 
+  include base 
+} 
+class profile::webserver { 
+  class { 'apache': } 
+  include apache_mod_php 
+} 
+ 
+class role::webapplication { 
+  include profile::base 
+  include profile::webserver 
+  include profile::webapplication 
+} 
+ 
+node 'www01.example.net' { 
+  include role::webapplication 
+} </pre>
+<div class="packt_tip">The final chapter will describe the roles and profiles pattern in some more detail.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Dealing with bool algebra on Strings</h1>
+                </header>
+            
+            <article>
+                
+<p>A minor change with a huge impact is the change of empty string comparison. Prior to Puppet 4, one could test for either an unset variable or a variable containing an empty string by checking for the variable:</p>
+<pre>class ssh ( 
+  $server = true, 
+){</pre>
+<pre>  if $server {...} 
+} </pre>
+<p>The <kbd>ssh</kbd> class behaved similarly ($server evaluates to true) when used within the following different declarations:</p>
+<pre>include ssh 
+class { 'ssh': server =&gt; 'yes', } </pre>
+<p>Disabling the server section in the <kbd>ssh</kbd> class could be achieved by the following class declarations:</p>
+<pre>class { 'ssh': server =&gt; false, } 
+class { 'ssh': server =&gt; '', } </pre>
+<p>The behavior of the last example (empty string) changed in Puppet 4. The empty string now equals a true value in Boolean context, just as in Ruby. If your code makes use of this way of variable checking, you need to add the check for empty string to retain the same behavior with Puppet 4:</p>
+<pre>class ssh ( 
+  $server = true, 
+){ 
+  if $server and $server != '' {...} 
+} </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using strict variable naming</h1>
+                </header>
+            
+            <article>
+                
+<p>Variables sometimes look the same as constants and exhibit the following features:</p>
+<ul>
+<li>Variables cannot be declared again</li>
+<li>In the scope of one node, most variables are static (<kbd>hostname</kbd>, <kbd>fqdn</kbd>, and so on)</li>
+</ul>
+<p>Sometimes, developers prefer to write the variables in capital letters due to the previously mentioned items, to make them look the same as Ruby constants.</p>
+<p>With Puppet 4, variable names must not start with a capital letter:</p>
+<pre>class variables 
+{ 
+  $Local_var = 'capital variable' 
+  notify { "Local capital var: ${Local_var}": } 
+} </pre>
+<p>Declaring this class will now produce the following error message:</p>
+<pre><strong>root@puppetmaster:/etc/puppetlabs/code/environments/production/modules# puppet apply -e 'include variables'</strong><br/><strong>Error: Illegal variable name, The given name 'Local_var' does not conform to the naming rule /^((::)?[a-z]\w*)*((::)?[a-z_]\w*)$/ at /etc/puppetlabs/code/environments/production/modules/variables/manifests/init.pp:3:3 on node puppetmaster.example.net  </strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Learning the new reference syntax</h1>
+                </header>
+            
+            <article>
+                
+<p>Due to the type system and due to the reason that Puppet 4 now takes everything as an expression, one has to name references on other declared resources properly. References now have some strict regulations:</p>
+<ul>
+<li>No whitespace between reference type and opening bracket</li>
+<li>The reference title (used without quotes) must not be spelled with a capital letter</li>
+</ul>
+<p>The following will produce errors on Puppet 4:</p>
+<pre>User [Root] 
+User[Root]<strong> </strong></pre>
+<p>Starting with Puppet 4, references have to be written in the following pattern:</p>
+<pre>Type['title']<strong> </strong></pre>
+<p>Our example needs to be changed to:</p>
+<pre>User['root'] </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Cleaning hyphens in names</h1>
+                </header>
+            
+            <article>
+                
+<p>Many modules (even on the module Forge) have used the hyphen in the<br/>
+module name. The hyphen is now no longer a string character, but a mathematical operator (subtraction). In consequence, hyphens are now strictly forbidden in the following descriptors:</p>
+<ul>
+<li>The module name</li>
+<li>Any class name</li>
+<li>Names of defined types</li>
+</ul>
+<p>When using modules with hyphens, the hyphen needs to be removed or replaced with a string character (for example, the underscore).</p>
+<p>This is possible with older versions, as follows:</p>
+<pre>class syslog-ng {...} 
+ 
+include syslog-ng </pre>
+<p>Now, the new style is as follows:</p>
+<pre>class syslog_ng { 
+  ... 
+} 
+ 
+include syslog_ng </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">No Ruby DSL anymore</h1>
+                </header>
+            
+            <article>
+                
+<p>Some people used the possibility to put <kbd>.rb</kbd> files as manifests inside modules. These <kbd>.rb</kbd> files contained Ruby code and were mostly needed for working with data. Puppet 4 now has data types that make this obsolete.</p>
+<p>The support for these Ruby manifests has been removed in Puppet 4.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Relative class name resolution</h1>
+                </header>
+            
+            <article>
+                
+<p>With Puppet 3 and older, it was required to specify absolute class names in case that a local class name was identical to another module:</p>
+<pre># in module "mysql" 
+class mysql { 
+  ... 
+} 
+# in module "application" 
+class application::mysql { 
+  include mysql 
+} </pre>
+<p>Within the scope of the <kbd>application::</kbd> namespace, Puppet 3 would search this namespace for a <kbd>mysql</kbd> class to be included. Effectively, the <kbd>application::mysql</kbd> class would include itself. However, this was not what we intended to do. We were looking for the <kbd>mysql</kbd> module instead. As a workaround, everybody was encouraged to specify the absolute path to the <kbd>mysql</kbd> module class:</p>
+<pre>class application::mysql { 
+  include ::mysql 
+} </pre>
+<p>This relative name resolution no longer applies in Puppet 4. The original example works now.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Dealing with different data types</h1>
+                </header>
+            
+            <article>
+                
+<p>Because Puppet 3 was not aware of the different data types<br/>
+(mostly everything was dealt with as being of type string), it was possible to combine several different data types.</p>
+<p>Puppet 4 is now very strict when it comes to combining different data types. The easiest example is dealing with float and integer; when adding a float and an integer, the result will be of type float.</p>
+<p>Combining actions on different data types, such as string and bool, will now result in an error. The following code will work:</p>
+<pre>case $::operatingsystemmajrelease { 
+  '8': { 
+    include base::debian::jessie 
+  } 
+} </pre>
+<p>On the other hand, the following code will not work:</p>
+<pre>if $::operatingsystemmajrelease &gt; 7 { 
+  include base::debian::jessie 
+} </pre>
+<p>You will receive the following error message:</p>
+<pre class="CommandLineEndPACKT"><strong><span class="CodeHighlightedPACKT">Error: Evaluation Error: Comparison of: String &gt; Integer, is not possible. Caused by 'A String is not comparable to a non String'</span></strong> </pre>
+<p>Review the comparison of different Facter variables carefully. Some Facter variables, such as <kbd>operatingsystemmajrelease</kbd>, return data of the type string; whereas <kbd>processorcount</kbd> returns an integer value.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>Upgrading to Puppet 3 should be done in a step-by-step procedure where your existing code will be evaluated using Puppet 3.8 and the new parser.</p>
+<p>Thanks to the type system, it is now possible to deal with data in a far more elegant way directly in your Puppet DSL code. The new functions API allows you to immediately recognize to which module a function belongs by using namespaces. Similar functions can now be combined within a single file by making use of the <kbd>dispatch</kbd> method and data types, allowing a form of function overloading.</p>
+<p>The new EPP templates offer better understanding of variable sources by using the Puppet syntax for variable references. Passing parameters to templates will allow you to make use of modules in a more flexible way.</p>
+<p>Combining EPP templates and the HEREDOC syntax will allow you to keep template code and data directly visible inside your classes.</p>
+<p>In the upcoming chapter, you will learn about Hiera and how it can help you bring order to a scalable Puppet code base.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

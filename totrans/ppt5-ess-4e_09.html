@@ -1,0 +1,272 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Puppet Roles and Profiles</h1>
+                </header>
+            
+            <article>
+                
+<p>Now that we have a complete overview of the Puppet DSL and its concepts, it is time to look at how to build implementations based on Puppet that reflect your infrastructure settings and requirements.</p>
+<p>In the early days of Puppet, it was common practice to add resources and variables to a node classification. This mostly led to duplicate code and made refactoring almost impossible. This pattern mostly reflected the usual admin work, which was done by configuring individual systems.</p>
+<p>To avoid difficult to manage and hard to maintain code, a community around Puppet modules emerged. This community took care to implement technical parts of a system into Puppet modules. Modules have the benefit of being reusable by parameters and get bug-fixes and new implementations faster due to shared efforts.</p>
+<p>As we now have a large set of modules available, we must rethink the pattern of our node classification in combination with modules. Here, the roles and profiles pattern comes into play.</p>
+<p>Within this chapter, the following topics will be covered:</p>
+<ul>
+<li>Technical component modules</li>
+<li>Implementing components in profiles</li>
+<li>Building roles from profiles</li>
+<li>The business use case and the node classification</li>
+<li>Placing code on the Puppet server</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Technical component modules</h1>
+                </header>
+            
+            <article>
+                
+<p>Until now, we have referred to modules as a strict directory structure containing classes, static files, templates, and extensions. We now must differentiate between upstream or generic modules and our platform implementation modules.</p>
+<p>Modules that take care of a specific technical component are now referred to as technical component modules. Technical components themselves are a set of configurations for a certain software running on a system, such as Nginx, Postgres, or LDAP.</p>
+<p>There has always been the problem of whether a module is a technical component module or not. There are some patterns that allow you to identify technical component modules:</p>
+<ul>
+<li>Developed upstream with active community</li>
+<li>Open source with <kbd>README</kbd> and <kbd>LICENSE</kbd> files</li>
+<li>Only manages what is required</li>
+<li>Clearly described entry class with parameters for adoption and reusability</li>
+<li>Allows stacking together with other technical component classes</li>
+<li>Uses a module name related to the configured technology</li>
+<li>Usually has support for multiple operating systems</li>
+<li>Has public information such as package and configuration filenames</li>
+<li>Does not have private data, as your internal DNS server IP</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Implementing components in profiles</h1>
+                </header>
+            
+            <article>
+                
+<p>Puppet code that is not taken from upstream, but developed in-house describing your infrastructure, usually is an implementation of resources and upstream classes. This implementation is called a profile class.</p>
+<p>Technically, a profile is a module containing classes, and optionally has parameters, defines, files, and templates. On very rare occasions, it might be valuable to also have custom facts or custom functions within profiles.</p>
+<p>Inside a profile, one specifies data and resources. Data can either be static data, which is valid for the whole platform, or placed into Hiera. Resources can be anything such as class, file, package, and service.</p>
+<p>Combining these into a profile builds another layer of abstraction:</p>
+<ul>
+<li>Data is abstracted by Hiera</li>
+<li>CLI commands are abstracted by resource types</li>
+<li>Resource types are abstracted by technical component modules</li>
+<li>Technical component modules are abstracted by profiles</li>
+</ul>
+<div class="packt_tip">When one searches for profiles on the internet, you will mostly find stubs with Apache, MySQL, and WordPress installation.</div>
+<p>Profiles are not meant to be made public, as they usually contain private information about your infrastructure. Instead, one has to develop profiles on their own.</p>
+<p>Let's start with an example: a <kbd>phpmyadmin</kbd> based database management system.</p>
+<p>The system consists of several base technical components: remote login, backup, firewall, webserver, database, <kbd>php</kbd>, and <kbd>phpmyadmin</kbd>. Each of these components is managed by an upstream developed technical component module. The way we want to have the implementation is done in profiles:</p>
+<pre># Class profile::login<br/>#<br/># manages ssh access<br/># company policy requires the following settings:<br/># - forbid root login<br/># - forbid x11 forwarding<br/># - allow login based on group (admins)<br/>#<br/># We have several other settings which are put into our own<br/># sshd_config template file<br/>#<br/>class profile::login {<br/>  class { 'ssh':<br/>    sshd_x11_forwarding     =&gt; false,<br/>    sshd_config_template    =&gt; <br/>    epp('profile/login/sshd_config.epp'),<br/>    sshd_config_allowgroups =&gt; ['admins'],<br/>    permit_root_login       =&gt; 'no',<br/>  }<br/>}</pre>
+<p>Instead of writing a single profile for every different setup, it is possible to either add parameters to the profile and make use of Hiera lookup, or to stack components together:</p>
+<pre># Class profile::login::secure<br/>#<br/># Reuses profile::login classes<br/># adds known_host_file based on template<br/>#<br/>class profile::login::secure {<br/>  include profile::ssh<br/>  file { '/etc/ssh/ssh_known_hosts':<br/>    ensure  =&gt; file,<br/>    content =&gt; epp('profile/login/ssh_known_hosts.epp'),<br/>  }<br/>}</pre>
+<p>The same pattern can be used for MySQL. The main <kbd>mysql</kbd> profile just installs a single MySQL instance using the <kbd>puppetlabs-mysql</kbd> module:</p>
+<pre># Class profile::database::mysql<br/>#<br/># Needs data in hiera:<br/># - mysql_root_password (String), defaults to 123456<br/># - mysql_database (Hash)<br/>#<br/>class profile::database::mysql {<br/>  $mysql_root_password = lookup('mysql_root_password', String, 'first', '123456')<br/>  $mysql_database = lookup('mysql_database', Hash, 'deep', '')<br/>  class { 'mysql':<br/>    root_password           =&gt; $mysql_root_password,<br/>    remove_default_accounts =&gt; true,<br/>  }<br/>  class { 'mysql::bindings':<br/>    php_enable =&gt; true,<br/>  }<br/>  $mysql_database.each |$db, $options| {<br/>    mysql::db { $db:<br/>      * =&gt; $options,<br/>    }<br/>  }<br/>}</pre>
+<p>The same pattern follows for the <kbd>php</kbd> and <kbd>phpmyadmin</kbd> installation using upstream modules:</p>
+<pre># Class profile::scripting::php<br/>#<br/># uses puppet/php mdoule<br/># basic installation only<br/>#<br/>class profile::scripting::php {<br/>  include ::php<br/>} <br/># Class profile::apps::phpmyadmin<br/>#<br/># uses jlondon/phpmyadmin<br/># configures the application and application vhost<br/>#<br/>class profile::apps::phpmyadmin {<br/>  class { 'phpmyadmin': }<br/>  phpmyadmin::server{ 'default': }<br/>  phpmyadmin::vhost { 'internal.domain.net':<br/>    vhost_enabled =&gt; true,<br/>    priority      =&gt; '20',<br/>    docroot       =&gt; $phpmyadmin::params::doc_path,<br/>    ssl           =&gt; true,<br/>   }<br/>}<br/># Class profile::apps::phpmyadmin::db<br/>#<br/># uses jlondon/phpmyadmin module<br/># exports the setting for phpmyadmin<br/># <br/>class profile::apps::phpmyadmin::db {<br/>  @@phpmyadmin::servernode { "${::ipaddress}":<br/>    server_group =&gt; 'default',<br/>  }<br/>}</pre>
+<p>Grouping profiles within a directory structure has no technical need. Think about an infrastructure that has lots of profiles or even lots of similar profiles, such as PostgreSQL, MySQL, MariaDB, Galera Cluster, or Oracle DB, and MSSQL. In this case, the grouping is preferred to flat file space, as many flat files lead to a difficult to read directory structure:</p>
+<pre>profile/<br/>|- manifests/<br/>|   |- apps/<br/>|   |   |─ phpmyadmin/<br/>|   |   |   \- db.pp<br/>|   |   \- phpmyadmin.pp<br/>|   |- database/<br/>|   |   \- mysql.pp<br/>|   |- login/<br/>|   |   \- secure.pp<br/>|   |- login.pp<br/>|   \- scripting/<br/>|   \─ php.pp<br/>\- templates/<br/>    \- login/<br/>        |- sshd_config.epp<br/>        \- ssh_known_hosts.epp </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The business use case and node classification</h1>
+                </header>
+            
+            <article>
+                
+<p>With all implementations now being in place, we look forward to how to do node classification.</p>
+<p>There are several options available and which one is the best solution mostly depends on your platform.</p>
+<p>When you have a very diverse platform, the concept of roles as another abstraction layer is not very useful, as it mostly leads to duplicate code. In this case, most people decided to use profiles for node classification.</p>
+<p>When you have large sets of identically configured systems, one wants to go ahead with the role pattern and classify systems by their business use case.</p>
+<p>The business use case allows you to describe systems not by what they do, but by what they are used for.</p>
+<p>Think about the <kbd>phpmyadmin</kbd> installation. Depending on use case and business owner, one might have different classification names:</p>
+<p>A technician will use the term <kbd>database control panel</kbd>. If the <kbd>phpmyadmin</kbd> installation is used by the sales team, it might be possible that they name the same system <kbd>crm data management system</kbd>.</p>
+<p>The best solution is to identify the application stake holder and ask what the application is used for. This has the positive side effect of getting an overview of all business use cases. If you identify a system having more than one business use case, it is now easy to understand the business impact in the event of a system outage.</p>
+<p>In the past, people stacked many applications onto a single system to allow for the best hardware usage. These are infrastructures where one node will have multiple business use cases. With the concept of virtual machines, this is obsolete. Today, a single virtual machine should serve a single business use case only.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Building roles from profiles</h1>
+                </header>
+            
+            <article>
+                
+<p>Let's continue with the <kbd>phpmyadmin</kbd> example, which has been built for the sales department so that they can manage their CRM database.</p>
+<p>In this case, we build a role for that system based on implementation profiles. The name of the role reflects the business use case:</p>
+<pre>class role::crm_db_control_panel {<br/>  contain profile::login::secure<br/>  contain profile::database::mysql<br/>  contain profile::scripting::php<br/>  contain profile::apps::phpmyadmin::db<br/>  contain profile::apps::phpmyadmin<br/>}</pre>
+<p>Within a role, one only declares profiles. No code logic, no resources, no data lookups. This allows flexible use of roles. Don't try to build almost identical roles, as this will lead to duplicate code. Instead, it would be better to create profiles with data lookups to reflect individual usage.</p>
+<p>The previously mentioned role can then be used for a node classification:</p>
+<pre>node 'dbcrmmgmt.domain.com' {<br/>  contain role::crm_db_control_panel<br/>}</pre>
+<p>As you can now see, we have a single instance with a single role. This is always useful when building systems from scratch. Within existing infrastructures, one can use this concept to identify which business units are affected when a single system is not available. Besides this, one learns about where to separate services when required.</p>
+<p>There are environments where the concept of roles and profiles does not fit very well. Mostly, these are existing platforms where multiple services (roles) are running on a single system and many different implementations for the same profile exist. In these cases, one should verify whether the implementation layer (profile) alone is sufficient.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Placing code on the Puppet server</h1>
+                </header>
+            
+            <article>
+                
+<p>From a technical perspective, roles and profiles are classes inside modules. Usually, modules are put into the <kbd>modules</kbd> directory of an environment. But roles and profiles are different to modules, as they are implementations of modules and collections of implementations.</p>
+<p>To reflect this different behavior, it is common practice to add another <kbd>module</kbd> directory to an environment. This configuration can be done in the <kbd>environment.conf</kbd> file inside an environment:</p>
+<pre><strong>#/etc/puppetlabs/code/environments/production/environment.conf</strong><br/><strong>modulepath = site:modules:$basemodulepath</strong></pre>
+<p>Within our example, we have added a new path to the module path setting: site. This directory resides inside our environment (<kbd>/etc/puppetlabs/code/environments/production/site</kbd>). This directory will have all of our roles and profiles:</p>
+<pre>/etc/puppetlabs/code/environment/production/site/<br/>  |- profile/<br/>  | |- manifests/<br/>  | | |- apps/<br/>  | | | |- phpmyadmin/<br/>  | | | | \- db.pp<br/>  | | | \- phpmyadmin.pp<br/>  | | |- database/<br/>  | | | \- mysql.pp<br/>  | | |- login/<br/>  | | | \- secure.pp<br/>  | | |- login.pp<br/>  | | \ - scripting/<br/>  | | \- php.pp<br/>  | \- templates/<br/>  | \- login/<br/>  | |- sshd_config.epp<br/>  | \- ssh_known_hosts.epp</pre>
+<pre>\- role/<br/>       \- manifests/<br/>            \- db_control_panel.pp</pre>
+<p>This allows us to keep roles and profiles in a separate directory structure and have modules by itself.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The Puppet control repository</h1>
+                </header>
+            
+            <article>
+                
+<p>Usually, Puppet modules are the same as libraries that are developed upstream. We want to ensure that modules that we use within our Puppet code are stored in a way that allows upgrades. Therefore, we cannot place the modules directly in our environment Git repository. Besides this, we want to test Puppet code updates prior to putting them into production.</p>
+<p>Best practice is to have a control repository that has our roles and profiles, the manifest's node classification, the environment configuration file, and Hiera v5 configuration. Now we add another file: <kbd>Puppetfile</kbd>.</p>
+<p>A <kbd>Puppetfile</kbd> references modules and, optionally, their source location and version:</p>
+<pre># Third Party modules<br/>mod "puppetlabs/concat", '3.0.0' # postgresql requires concat &lt; 3.0.0<br/>mod "puppetlabs/stdlib", :latest<br/>mod "puppetlabs/aws", :latest<br/>mod "jdowning/rbenv", :latest<br/>mod "puppet/archive", :latest<br/>mod "puppetlabs/inifile", :latest<br/># Used by profile::puppet::server<br/>mod 'puppetlabs/postgresql', :latest<br/>mod 'puppetlabs/puppetdb', :latest<br/>mod 'puppet/puppetserver',<br/>  :git =&gt; "https://github.com/voxpupuli/puppet-puppetserver.git",<br/>  :tag =&gt; '2.1.0'<br/>mod 'puppetlabs/puppetserver_gem', :latest<br/>mod 'puppet/r10k', :latest<br/># mod 'puppet/puppetboard', :latest</pre>
+<p>When no source is given, the module will be installed from Puppet Forge (<a href="https://forge.puppet.com"><span class="MsoHyperlink">https://forge.puppet.com</span></a>). As most production systems are not allowed to connect to the internet, it is useful to have a clone of the upstream module development repository on your private Git server.</p>
+<p>A Puppet control repository can have the following files and directory structure:</p>
+<pre> control-repo/<br/>  |- environment.conf<br/>  |- hieradata/<br/>  |- hiera.yaml<br/>  |- manifests/<br/>  | |- dmz.pp<br/>  | |- internal.pp<br/>  | \- site.pp<br/>  |- Puppetfile<br/>  |- README.md<br/>  \- site/<br/>       |- profile/<br/>       | |- manifests/<br/>       | | |- apps/<br/>       | | | |- phpmyadmin/<br/>       | | | | \- db.pp<br/>       | | | \- phpmyadmin.pp<br/>       | | |- database/<br/>       | | | \- mysql.pp<br/>       | | |- login/<br/>       | | | \- secure.pp<br/>       | | |- login.pp<br/>       | | \- scripting/<br/>       | | \- php.pp<br/>       | \- templates/<br/>       | \- login/<br/>       | |- sshd_config.epp<br/>       | \- ssh_known_hosts.epp<br/>       \- role/<br/>            \- manifests/<br/>                 \- db_control_panel.pp  </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Synchronizing upstream modules</h1>
+                </header>
+            
+            <article>
+                
+<p>Usually, one can use the workstation for synchronization. First, an empty repository is created on the local Git server and cloned to the workstation. Within this local repository, a new remote location is added:</p>
+<pre class="CommandLineEndPACKT">git remote add github https://github.com/puppetlabs/puppetlabs-concat.git</pre>
+<p>Now the upstream code is fetched:</p>
+<pre>$ git pull github master<br/>remote: Counting objects: 2871, done.<br/>remote: Compressing objects: 100% (11/11), done.<br/>remote: Total 2871 (delta 1), reused 7 (delta 1), pack-reused 2859<br/>Receiving objects: 100% (2871/2871), 634.98 KiB | 648.00 KiB/s, done.<br/>Resolving deltas: 100% (1394/1394), done.<br/>From https://github.com/puppetlabs/puppetlabs-concat<br/>* branch master -&gt; FETCH_HEAD</pre>
+<p>Git separates code and objects. Usually, upstream uses tags to identify version releases of their module. Tags are part of the non-code objects. Next, the non-code objects are fetched:</p>
+<pre>git fetch --all<br/>Fetching origin<br/>Fetching github<br/>remote: Counting objects: 33, done.<br/>remote: Compressing objects: 100% (29/29), done.<br/>remote: Total 33 (delta 8), reused 28 (delta 3), pack-reused 0<br/>Unpacking objects: 100% (33/33), done.<br/>From https://github.com/puppetlabs/puppetlabs-concat<br/>* [new branch] 1.0.x -&gt; github/1.0.x<br/>[...]<br/>   * [new tag] 3.0.0 -&gt; 3.0.0<br/>   * [new tag] 4.0.0 -&gt; 4.0.0<br/>   * [new tag] 4.0.1 -&gt; 4.0.1 <strong> </strong></pre>
+<p>Now the local repository server gets the code pushed:</p>
+<pre>$ git push origin master<br/>   Counting objects: 2871, done.<br/>Compressing objects: 100% (1368/1368), done.<br/>    Writing objects: 100% (2871/2871), 634.76 KiB | 0 bytes/s, done.<br/>Total 2871 (delta 1394), reused 2871 (delta 1394)<br/>To /var/repositories/puppetlabs-concat.git<br/>* [new branch] master -&gt; master <strong> </strong></pre>
+<p>Don't forget to also <kbd>push</kbd> the tags:</p>
+<pre>$ git push origin master --tags<br/>Counting objects: 19, done.<br/>Compressing objects: 100% (19/19), done.<br/>Writing objects: 100% (19/19), 11.01 KiB | 0 bytes/s, done.<br/>Total 19 (delta 0), reused 0 (delta 0)<br/>To /var/repositories/puppetlabs-concat.git<br/> * [new tag] 0.1.0 -&gt; 0.1.0<br/>[...]<br/> * [new tag] 3.0.0 -&gt; 3.0.0<br/> * [new tag] 4.0.0 -&gt; 4.0.0<br/> * [new tag] 4.0.1 -&gt; 4.0.1<strong> </strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">R10K code deployment</h1>
+                </header>
+            
+            <article>
+                
+<p>Usually, companies have staging systems where a new development is tested prior to being put into production. The development team has a development stage. From this stage, the changes will be deployed to a quality gate stage and placed into the production stage after successful tests.</p>
+<p>Many people use these names for the Puppet code environments. But what happens if your Puppet change will break the whole development stage? In this case, the development team is unable to continue working on urgent improvements or fixes. This can lead to time and cost intensive work where the development stage is built from scratch.</p>
+<p>But how do we develop and test Puppet code changes? Usually, this requires another stage for infrastructure developers. All other infrastructure stages (development, QA, production) are then deployed using the stable production Puppet environment code.</p>
+<p>This leads to two Puppet environments: <strong>development</strong> and <strong>production</strong>.</p>
+<p>But we don't want these to be two separate Git repositories, as this makes the staging of changes very difficult. This is where R10K comes into place. R10K uses branches on the Puppet control repository and deploys these onto the Puppet Master as environments. Code changes can now be done by merge requests from one branch to another.</p>
+<p>Names of branches can be freely chosen, except some special names that should not be used: master, agent, main. Especially for Git repositories, where the default branch will be master, this needs some reconfiguration on the default branch name.</p>
+<p>R10K must be installed and configured on the Puppet Master. We can use Puppet for installation:</p>
+<pre>$ puppet resource package r10k ensure=present provider=puppet_gem<br/>package { 'r10k':<br/>  ensure =&gt; ['2.5.5'],<br/>}  </pre>
+<p>The <kbd>r10k</kbd> configuration file must be placed at <kbd>/etc/puppetlabs/r10k/r10k.yaml</kbd>. Within this file, we activate the desired <kbd>cache</kbd> directory where <kbd>r10k</kbd> stores local copies of all repositories. Remember to keep these caches in clean state and remove the whole cache in a case of misbehavior relating to the local Git repository caches.</p>
+<p>R10K allows the usage of multiple control-repositories. These can easily coexist within one environment, as they get prefixed with the source name provided. Control repositories are placed into the sources section and get a unique name. Then, we specify the remote URL where R10K can get the code from. Code is deployed into the path mentioned within the <kbd>basedir</kbd> setting.</p>
+<p>The last two settings are related to fetching code. The first one refers to Git access. Within the Git setting, one can set a provider. There are two providers available: <kbd>shellgit</kbd> and rugged. The <kbd>shellgit</kbd> provider uses the <kbd>git</kbd> binary, which must be available on the Puppet master. The user who runs the <kbd>R10K</kbd> command must have a configured <kbd>git</kbd> shell environment, as specifying the <kbd>ssh</kbd> key to use for authorization. Rugged is a Ruby implementation where one can specify the Git <kbd>ssh</kbd> settings directly in a <kbd>r10k.yaml</kbd> file. Usually, <kbd>shellgit</kbd> is sufficient to use. The last setting specifies how R10K should fetch modules from Puppet Forge. Here, we can only specify a proxy that should be used:</p>
+<pre># /etc/puppetlabs/r10k/r10k.yaml<br/>---<br/> cachedir: '/var/cache/r10k'<br/>  sources:<br/>  infrastructure:<br/>   remote: 'https://gitserver/infra/r10k-control-repo.git'<br/>  basedir: '/etc/puppetlabs/code/environments'<br/>  qa:<br/>   remote: 'https://gitserver/security/r10k-control-repo.git'<br/>  basedir: '/etc/puppetlabs/code/environments'<br/>   prefix: true<br/>git:<br/> provider: shellgit<br/>    forge:<br/>  # proxy: 'http://proxyserver:port'</pre>
+<p>The deployment of branches from a control repository and installation of modules is done by running <kbd>r10k</kbd>. Please ensure that you run this command only as the user who needs to fetch the code. When running this command as <kbd>root</kbd>, either ssh credentials might be wrong or the environment belongs to the <kbd>root</kbd> user afterwards. The parameter -v enables verbose mode:</p>
+<pre># r10k deploy environment -v# r10k deploy environment -vINFO -&gt; Deploying environment /etc/puppetlabs/code/r10k/developmentINFO -&gt; Environment development is now at db43d907d5b39d6197e42fc5c8edb4c0a4db27d6[...]INFO -&gt; Deploying environment /etc/puppetlabs/code/r10k/productionINFO -&gt; Environment production is now at 149a903d027d69d88a50ef3a563cb432c1e087c4[…]INFO -&gt; Deploying environment /etc/puppetlabs/code/r10k/qa_developmentINFO -&gt; Environment qa_development is now at db43d907d5b39d6197e42fc5c8edb4c0a4db27d6[…]INFO -&gt; Deploying environment /etc/puppetlabs/code/r10k/qa_productionINFO -&gt; Environment production is now at 149a903d027d69d88a50ef3a563cb432c1e087c4</pre>
+<p>Instead of manually running the <kbd>r10K</kbd> command-line tool, it is possible to install a webhook using the <kbd>puppet-r10k</kbd> module from <kbd>voxpupuli</kbd> (<a href="https://github.com/voxpupuli/puppet-r10k">https://github.com/voxpupili/puppet-r10k</a>):</p>
+<pre>class profile::puppet::master::r10k_webhook {<br/>  class {'r10k::webhook::config':<br/>    enable_ssl      =&gt; false,<br/>    use_mcollective =&gt; false,<br/>  }<br/>  class {'r10k::webhook':<br/>    use_mcollective =&gt; false,<br/>    user            =&gt; 'root',<br/>    group           =&gt; '0',<br/>  }<br/>}</pre>
+<p>This webhook can be triggered from Git server or from a CI/CD test/deployment toolchain such as Jenkins or GoCD. Usually, a combination of both is a valid setup, where you want to deploy feature branches as fast as possible and run updates on a development or a production environment only after successful tests.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>When building and maintaining Puppet code bases, it is a good idea to implement the roles and profiles pattern. It makes you define roles to cover all of your machine use cases. The roles mix and match profile classes, which are basically collectors of classes from custom and open source modules that manage actual resources.</p>
+<p>When setting up your first large Puppet installation, it is a good idea to adhere to the pattern from day one, because it will allow you to scale your manifests without getting tangled up in complicated structures.</p>
+<p>Deployment of Puppet code is managed via <kbd>r10k</kbd>, where Git branch names reflect your Puppet code quality. Using <kbd>Puppetfile</kbd> allows you to separate your own Puppet code development from upstream module development.</p>
+<p>This concludes our tour of <em>Puppet Essentials</em>. We have covered quite some ground, but as you can imagine, we barely scratched the surface of some of the topics, such as Puppet code testing, provider development, or exploiting PuppetDB. What you have learned will most likely satisfy your immediate requirements. For information beyond these lessons, don't hesitate to look up the excellent online documentation at <a href="https://docs.puppet.com/"><span class="MsoHyperlink">https://docs.puppet.com/</span></a>, or join the community and ask your questions in chat, Slack, or on the mailing list.</p>
+<p>Thanks for reading, and have lots of fun with Puppet and its family of management tools.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

@@ -1,0 +1,638 @@
+<html><head></head><body><div class="chapter" title="Chapter&#xA0;9.&#xA0;External Tools and the Puppet Ecosystem"><div class="titlepage"><div><div><h1 class="title"><a id="ch09"/>Chapter 9. External Tools and the Puppet Ecosystem</h1></div></div></div><div class="blockquote"><table border="0" width="100%" cellspacing="0" cellpadding="0" class="blockquote" summary="Block quote"><tr><td valign="top"> </td><td valign="top"><p><span class="emphasis"><em>"By all means leave the road when you wish. That is precisely the use of a road: to reach individually chosen points of departure."</em></span></p></td><td valign="top"> </td></tr><tr><td valign="top"> </td><td colspan="2" align="right" valign="top" style="text-align: center">--<span class="attribution"><span class="emphasis"><em>Robert Bringhurst, The Elements of Typographic Style</em></span></span></td></tr></table></div><p>In this chapter, we will cover the following recipes:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Creating custom facts</li><li class="listitem" style="list-style-type: disc">Adding external facts</li><li class="listitem" style="list-style-type: disc">Setting facts as environment variables</li><li class="listitem" style="list-style-type: disc">Generating manifests with the Puppet resource command</li><li class="listitem" style="list-style-type: disc">Generating manifests with other tools</li><li class="listitem" style="list-style-type: disc">Using an external node classifier</li><li class="listitem" style="list-style-type: disc">Creating your own resource types</li><li class="listitem" style="list-style-type: disc">Creating your own providers</li><li class="listitem" style="list-style-type: disc">Creating custom functions</li><li class="listitem" style="list-style-type: disc">Testing your Puppet manifests with rspec-puppet</li><li class="listitem" style="list-style-type: disc">Using librarian-puppet</li><li class="listitem" style="list-style-type: disc">Using r10k</li></ul></div><div class="section" title="Introduction"><div class="titlepage"><div><div><h1 class="title"><a id="ch09lvl1sec99"/>Introduction</h1></div></div></div><p>Puppet<a id="id575" class="indexterm"/> is a useful tool by itself, but you can get much greater benefits by using Puppet in combination with other tools and frameworks. We'll look at some ways of getting data into Puppet, including custom Facter facts, external facts, and tools to generate Puppet manifests automatically from the existing configuration.</p><p>You'll also learn how to extend Puppet by creating your own custom functions, resource types, and providers; how to use an external node classifier script to integrate Puppet with other parts of your infrastructure; and how to test your code with rspec-puppet.</p></div></div>
+<div class="section" title="Creating custom facts"><div class="titlepage"><div><div><h1 class="title"><a id="ch09lvl1sec100"/>Creating custom facts</h1></div></div></div><p>While Facter's built-in <a id="id576" class="indexterm"/>facts are useful, it's actually quite easy to add your own facts. For example, if you have machines in different data centers or hosting providers, you could add a custom fact for this so that Puppet can determine whether any local settings need to be applied (for example, local DNS servers or network routes).</p><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec275"/>How to do it...</h2></div></div></div><p>Here's an example of a simple custom fact:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Create the directory <code class="literal">modules/facts/lib/facter</code> and then create the file <code class="literal">modules/facts/lib/facter/hello.rb</code> with the following contents:<div class="informalexample"><pre class="programlisting">Facter.add(:hello) do
+  setcode do
+    "Hello, world"
+  end
+end</pre></div></li><li class="listitem">Modify your <code class="literal">site.pp</code> file as follows:<div class="informalexample"><pre class="programlisting">node 'cookbook' {
+  notify { $::hello: }
+}</pre></div></li><li class="listitem">Run Puppet:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# puppet agent -t</strong></span>
+<span class="strong"><strong>Notice: /File[/var/lib/puppet/lib/facter/hello.rb]/ensure: defined content as '{md5}f66d5e290459388c5ffb3694dd22388b'</strong></span>
+<span class="strong"><strong>Info: Loading facts</strong></span>
+<span class="strong"><strong>Info: Caching catalog for cookbook.example.com</strong></span>
+<span class="strong"><strong>Info: Applying configuration version '1416205745'</strong></span>
+<span class="strong"><strong>Notice: Hello, world</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Main/Node[cookbook]/Notify[Hello, world]/message: defined 'message' as 'Hello, world'</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 0.53 seconds</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec276"/>How it works...</h2></div></div></div><p>Facter facts are defined in <a id="id577" class="indexterm"/>Ruby files that are distributed with facter. Puppet can add additional facts to facter by creating files within the <code class="literal">lib/facter</code> subdirectory of a module. These files are then transferred to client nodes as we saw earlier with the <code class="literal">puppetlabs-stdlib</code> module. To have the command-line facter use these <code class="literal">puppet</code> facts, append the <code class="literal">-p</code> option to facter as shown in the following command line:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# facter hello</strong></span>
+
+<span class="strong"><strong>[root@cookbook ~]# facter -p hello</strong></span>
+<span class="strong"><strong>Hello, world</strong></span>
+</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="tip15"/>Tip</h3><p>If you are using an older version of Puppet (older than 3.0), you will need to enable <code class="literal">pluginsync</code> in your <code class="literal">puppet.conf</code> file as shown in the following command line:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[main]</strong></span>
+<span class="strong"><strong>pluginsync = true</strong></span>
+</pre></div></div></div><p>Facts can contain any Ruby code, and the last value evaluated inside the <code class="literal">setcode do ... end</code> block will be the value returned by the fact. For example, you could make a more useful fact that returns the number of users currently logged in to the system:</p><div class="informalexample"><pre class="programlisting">Facter.add(:users) do
+  setcode do
+    %x{/usr/bin/who |wc -l}.chomp
+  end
+end</pre></div><p>To reference the fact in your manifests, just use its name like a built-in fact:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>notify { "${::users} users logged in": }</strong></span>
+<span class="strong"><strong>Notice:  2 users logged in</strong></span>
+</pre></div><p>You can add custom facts to any Puppet module. When creating facts that will be used by multiple modules, it may make sense to place them in a facts module. In most cases, the custom fact is related to a specific module and should be placed in that module.</p></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec277"/>There's more...</h2></div></div></div><p>The name of the Ruby file that holds the fact definition is irrelevant. You can name this file whatever you wish; the name of the fact comes from the <code class="literal">Facter.add()</code> function call. You may also call this function several times within a single Ruby file to define multiple facts as necessary. For instance, you could <code class="literal">grep</code> the <code class="literal">/proc/meminfo</code> file and return several facts based on memory information as shown in the <code class="literal">meminfo.rb</code> file<a id="id578" class="indexterm"/> in the following code snippet:</p><div class="informalexample"><pre class="programlisting">File.open('/proc/meminfo') do |f|
+  f.each_line { |line|
+  if (line[/^Active:/])
+    Facter.add(:memory_active) do
+      setcode do line.split(':')[1].to_i
+      end
+    end
+  end
+  if (line[/^Inactive:/])
+    Facter.add(:memory_inactive) do
+      setcode do line.split(':')[1].to_i
+      end
+    end
+  end
+  }
+end</pre></div><p>After synchronizing this file to a node, the <code class="literal">memory_active</code> and <code class="literal">memory_inactive</code> facts would be available as follows:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# facter -p |grep memory_</strong></span>
+<span class="strong"><strong>memory_active =&gt; 63780</strong></span>
+<span class="strong"><strong>memory_inactive =&gt; 58188</strong></span>
+</pre></div><p>You can extend the use of facts to build a completely nodeless Puppet configuration; in other words, Puppet can decide what resources to apply to a machine, based solely on the results of facts. Jordan Sissel has written about this <a id="id579" class="indexterm"/>approach at <a class="ulink" href="http://www.semicomplete.com/blog/geekery/puppet-nodeless-configuration.html">http://www.semicomplete.com/blog/geekery/puppet-nodeless-configuration.html</a>.</p><p>You can find out more about custom facts, including how to make sure that OS-specific facts work only on the relevant systems, and how to weigh facts so that they're evaluated in a specific order at the puppetlabs <a id="id580" class="indexterm"/>website:</p><p>
+<a class="ulink" href="http://docs.puppetlabs.com/guides/custom_facts.html">http://docs.puppetlabs.com/guides/custom_facts.html</a>
+</p></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec278"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The <span class="emphasis"><em>Importing dynamic information</em></span> recipe in <a class="link" href="ch03.html" title="Chapter 3. Writing Better Manifests">Chapter 3</a>, <span class="emphasis"><em>Writing Better Manifests</em></span></li><li class="listitem" style="list-style-type: disc">The <span class="emphasis"><em>Configuring Hiera</em></span> recipe in <a class="link" href="ch02.html" title="Chapter 2. Puppet Infrastructure">Chapter 2</a>, <span class="emphasis"><em>Puppet Infrastructure</em></span></li></ul></div></div></div>
+<div class="section" title="Adding external facts"><div class="titlepage"><div><div><h1 class="title"><a id="ch09lvl1sec101"/>Adding external facts</h1></div></div></div><p>The <span class="emphasis"><em>Creating custom facts</em></span> recipe <a id="id581" class="indexterm"/>describes how to add extra facts written in Ruby. You can also create facts from simple text files or scripts with external facts instead.</p><p>External facts live in the <code class="literal">/etc/facter/facts.d</code> directory and have a simple <code class="literal">key=value</code> format like this:</p><div class="informalexample"><pre class="programlisting">message="Hello, world"</pre></div><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec279"/>Getting ready</h2></div></div></div><p>Here's what you need to do to prepare your system to add external facts:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">You'll need Facter Version 1.7 or higher to use external facts, so look up the value of <code class="literal">facterversion</code> or use <code class="literal">facter -v</code>:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# facter facterversion</strong></span>
+<span class="strong"><strong>2.3.0</strong></span>
+<span class="strong"><strong>[root@cookbook ~]# facter -v</strong></span>
+<span class="strong"><strong>2.3.0</strong></span>
+</pre></div></li><li class="listitem">You'll also need to create the external facts directory, using the following command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# mkdir -p /etc/facter/facts.d</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec280"/>How to do it...</h2></div></div></div><p>In this example, we'll create a simple external fact that returns a message, as shown in the <span class="emphasis"><em>Creating custom facts</em></span> recipe:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Create the file <code class="literal">/etc/facter/facts.d/local.txt</code> with the following contents:<div class="informalexample"><pre class="programlisting">model=ED-209</pre></div></li><li class="listitem">Run the following command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# facter model</strong></span>
+<span class="strong"><strong>ED-209</strong></span>
+</pre></div><p>Well, that was easy! You can add more facts to the same file, or other files, of course, as follows:</p><div class="informalexample"><pre class="programlisting">model=ED-209
+builder=OCP
+directives=4</pre></div><p>However, what if you need to compute a fact in some way, for example, the number of logged-in users? You can create executable facts to do this.</p></li><li class="listitem">Create the file <code class="literal">/etc/facter/facts.d/users.sh</code> with the following contents:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>#!/bin/sh</strong></span>
+<span class="strong"><strong>echo users=`who |wc -l`</strong></span>
+</pre></div></li><li class="listitem">Make this file executable with the following command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# chmod a+x /etc/facter/facts.d/users.sh</strong></span>
+</pre></div></li><li class="listitem">Now check the <code class="literal">users</code> value with the following command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# facter users</strong></span>
+<span class="strong"><strong>2</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec281"/>How it works...</h2></div></div></div><p>In this example, we'll<a id="id582" class="indexterm"/> create an external fact by creating files on the node. We'll also show how to override a previously defined fact.</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Current versions of Facter will look into <code class="literal">/etc/facter/facts.d</code> for files of type <code class="literal">.txt</code>, <code class="literal">.json</code>, or <code class="literal">.yaml</code>. If facter finds a text file, it will parse the file for <code class="literal">key=value</code> pairs and add the key as a new fact:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# facter model</strong></span>
+<span class="strong"><strong>ED-209</strong></span>
+</pre></div></li><li class="listitem">If the file is a YAML or JSON file, then facter will parse the file for <code class="literal">key=value</code> pairs in the respective format. For YAML, for instance:<div class="informalexample"><pre class="programlisting">---
+registry: NCC-68814
+class: Andromeda
+shipname: USS Prokofiev</pre></div></li><li class="listitem">The resulting output will be as follows:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# facter registry class shipname</strong></span>
+<span class="strong"><strong>class =&gt; Andromeda</strong></span>
+<span class="strong"><strong>registry =&gt; NCC-68814</strong></span>
+<span class="strong"><strong>shipname =&gt; USS Prokofiev</strong></span>
+</pre></div></li><li class="listitem">In the case of executable files, Facter will assume that their output is a list of <code class="literal">key=value</code> pairs. It will execute all the files in the <code class="literal">facts.d</code> directory and add their output to the internal fact hash.<div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="tip16"/>Tip</h3><p>In Windows, batch files or PowerShell scripts may be used in the same way that executable scripts are used in Linux.</p></div></div></li><li class="listitem">In the <code class="literal">users</code> example, Facter will execute the <code class="literal">users.sh</code> script, which results in the following output:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>users=2</strong></span>
+</pre></div></li><li class="listitem">It will then search this output for <code class="literal">users</code> and return the matching value:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# facter users</strong></span>
+<span class="strong"><strong>2</strong></span>
+</pre></div></li><li class="listitem">If there are <a id="id583" class="indexterm"/>multiple matches for the key you specified, Facter determines which fact to return based on a weight property. In my version of facter, the weight of external facts is 10,000 (defined in <code class="literal">facter/util/directory_loader.rb</code> as <code class="literal">EXTERNAL_FACT_WEIGHT</code>). This high value is to ensure that the facts you define can override the supplied facts. For example:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# facter architecture</strong></span>
+<span class="strong"><strong>x86_64</strong></span>
+<span class="strong"><strong>[root@cookbook ~]# echo "architecture=ppc64"&gt;&gt;/etc/facter/facts.d/myfacts.txt</strong></span>
+<span class="strong"><strong>[root@cookbook ~]# facter architecture</strong></span>
+<span class="strong"><strong>ppc64</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec282"/>There's more...</h2></div></div></div><p>Since all external facts have a weight of 10,000, the order in which they are parsed within the <code class="literal">/etc/facter/facts.d</code> directory sets their precedence (with the last one encountered having the highest precedence). To create a fact that will be favored over another, you'll need to have it created in a file that comes last alphabetically:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# facter architecture</strong></span>
+<span class="strong"><strong>ppc64</strong></span>
+<span class="strong"><strong>[root@cookbook ~]# echo "architecture=r10000" &gt;&gt;/etc/facter/facts.d/z-architecture.txt</strong></span>
+<span class="strong"><strong>[root@cookbook ~]# facter architecture</strong></span>
+<span class="strong"><strong>r10000</strong></span>
+</pre></div><div class="section" title="Debugging external facts"><div class="titlepage"><div><div><h3 class="title"><a id="ch09lvl3sec30"/>Debugging external facts</h3></div></div></div><p>If you're having<a id="id584" class="indexterm"/> trouble getting Facter to recognize your external facts, run Facter in debug mode to see what's happening:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>ubuntu@cookbook:~/puppet$ facter -d robin</strong></span>
+<span class="strong"><strong>Fact file /etc/facter/facts.d/myfacts.json was parsed but returned an empty data set</strong></span>
+</pre></div><p>The <code class="literal">X</code> JSON file was parsed<a id="id585" class="indexterm"/> but returned an empty data set error, which means Facter didn't find any <code class="literal">key=value</code> pairs in the file or (in the case of an executable fact) in its output.</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note15"/>Note</h3><p>Note that if you have external facts present, Facter parses or runs all the facts in the <code class="literal">/etc/facter/facts.d</code> directory every time you query Facter. If some of these scripts take a long time to run, that can significantly slow down anything that uses Facter (run Facter with the <code class="literal">--iming</code> switch to troubleshoot this). Unless a particular fact needs to be recomputed every time it's queried, consider replacing it with a cron job that computes it every so often and writes the result to a text file in the Facter directory.</p></div></div></div><div class="section" title="Using external facts in Puppet"><div class="titlepage"><div><div><h3 class="title"><a id="ch09lvl3sec31"/>Using external facts in Puppet</h3></div></div></div><p>Any external facts you create <a id="id586" class="indexterm"/>will be available to both Facter and Puppet. To reference <a id="id587" class="indexterm"/>external facts in your Puppet manifests, just use the fact name in the same way you would for a built-in or custom fact:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>notify { "There are $::users people logged in right now.": }</strong></span>
+</pre></div><p>Unless you are specifically attempting to override a defined fact, you should avoid using the name of a predefined fact.</p></div></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec283"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The <span class="emphasis"><em>Importing dynamic information</em></span> recipe in <a class="link" href="ch03.html" title="Chapter 3. Writing Better Manifests">Chapter 3</a>, <span class="emphasis"><em>Writing Better Manifests</em></span></li><li class="listitem" style="list-style-type: disc">The <span class="emphasis"><em>Configuring Hiera</em></span> recipe in <a class="link" href="ch02.html" title="Chapter 2. Puppet Infrastructure">Chapter 2</a>, <span class="emphasis"><em>Puppet Infrastructure</em></span></li><li class="listitem" style="list-style-type: disc">The <span class="emphasis"><em>Creating custom facts</em></span> recipe in this chapter</li></ul></div></div></div>
+<div class="section" title="Setting facts as environment variables"><div class="titlepage"><div><div><h1 class="title"><a id="ch09lvl1sec102"/>Setting facts as environment variables</h1></div></div></div><p>Another handy way to get<a id="id588" class="indexterm"/> information into Puppet and Facter is to <a id="id589" class="indexterm"/>pass it using environment variables. Any environment variable whose name starts with <code class="literal">FACTER_</code> will be interpreted as a fact. For example, ask facter the value of hello using the following command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# facter -p hello</strong></span>
+<span class="strong"><strong>Hello, world</strong></span>
+</pre></div><p>Now override the value with an environment variable and ask again:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# FACTER_hello='Howdy!' facter -p hello</strong></span>
+<span class="strong"><strong>Howdy!</strong></span>
+</pre></div><p>It works just as well with Puppet, so let's run through an example.</p><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec284"/>How to do it...</h2></div></div></div><p>In this example we'll <a id="id590" class="indexterm"/>set a fact using an environment <a id="id591" class="indexterm"/>variable:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Keep the node definition for cookbook the same as our last example:<div class="informalexample"><pre class="programlisting">node cookbook {
+  notify {"$::hello": }
+}</pre></div></li><li class="listitem">Run the following command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# FACTER_hello="Hallo Welt" puppet agent -t</strong></span>
+<span class="strong"><strong>Info: Caching catalog for cookbook.example.com</strong></span>
+<span class="strong"><strong>Info: Applying configuration version '1416212026'</strong></span>
+<span class="strong"><strong>Notice: Hallo Welt</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Main/Node[cookbook]/Notify[Hallo Welt]/message: defined 'message' as 'Hallo Welt'</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 0.27 seconds</strong></span>
+</pre></div></li></ol></div></div></div>
+<div class="section" title="Generating manifests with the Puppet resource command"><div class="titlepage"><div><div><h1 class="title"><a id="ch09lvl1sec103"/>Generating manifests with the Puppet resource command</h1></div></div></div><p>If you have a server that is <a id="id592" class="indexterm"/>already configured as it needs<a id="id593" class="indexterm"/> to be, or nearly so, you can capture that configuration as a Puppet manifest. The Puppet resource command generates Puppet manifests from the existing configuration of a system. For example, you can have <code class="literal">puppet resource</code> generate a manifest that creates all the users found on the system. This is very useful to take a snapshot of a working system and get its configuration quickly into Puppet.</p><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec285"/>How to do it...</h2></div></div></div><p>Here are some examples of using <code class="literal">puppet resource</code> to get data from a running system:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">To generate the manifest for a particular user, run the following command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# puppet resource user thomas</strong></span>
+<span class="strong"><strong>user { 'thomas':</strong></span>
+<span class="strong"><strong>  ensure           =&gt; 'present',</strong></span>
+<span class="strong"><strong>  comment          =&gt; 'thomas Admin User',</strong></span>
+<span class="strong"><strong>  gid              =&gt; '1001',</strong></span>
+<span class="strong"><strong>  groups           =&gt; ['bin', 'wheel'],</strong></span>
+<span class="strong"><strong>  home             =&gt; '/home/thomas',</strong></span>
+<span class="strong"><strong>  password         =&gt; '!!',</strong></span>
+<span class="strong"><strong>  password_max_age =&gt; '99999',</strong></span>
+<span class="strong"><strong>  password_min_age =&gt; '0',</strong></span>
+<span class="strong"><strong>  shell            =&gt; '/bin/bash',</strong></span>
+<span class="strong"><strong>  uid              =&gt; '1001',</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div></li><li class="listitem">For a <a id="id594" class="indexterm"/>particular<a id="id595" class="indexterm"/> service, run the following command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# puppet resource service sshd</strong></span>
+<span class="strong"><strong>service { 'sshd':</strong></span>
+<span class="strong"><strong>  ensure =&gt; 'running',</strong></span>
+<span class="strong"><strong>  enable =&gt; 'true',</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div></li><li class="listitem">For a package, run the following command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# puppet resource package kernel</strong></span>
+<span class="strong"><strong>package { 'kernel':</strong></span>
+<span class="strong"><strong>  ensure =&gt; '2.6.32-431.23.3.el6',</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec286"/>There's more...</h2></div></div></div><p>You can use <code class="literal">puppet resource</code> to examine each of the <a id="id596" class="indexterm"/>resource types available in Puppet. In the preceding examples, we generated a manifest for a specific instance of the resource type, but you can also use <code class="literal">puppet resource</code> to dump all instances of the resource:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# puppet resource service</strong></span>
+<span class="strong"><strong>service { 'abrt-ccpp':</strong></span>
+<span class="strong"><strong>  ensure =&gt; 'running',</strong></span>
+<span class="strong"><strong>  enable =&gt; 'true',</strong></span>
+<span class="strong"><strong>}</strong></span>
+<span class="strong"><strong>service { 'abrt-oops':</strong></span>
+<span class="strong"><strong>  ensure =&gt; 'running',</strong></span>
+<span class="strong"><strong>  enable =&gt; 'true',</strong></span>
+<span class="strong"><strong>}</strong></span>
+<span class="strong"><strong>service { 'abrtd':</strong></span>
+<span class="strong"><strong>  ensure =&gt; 'running',</strong></span>
+<span class="strong"><strong>  enable =&gt; 'true',</strong></span>
+<span class="strong"><strong>}</strong></span>
+<span class="strong"><strong>service { 'acpid':</strong></span>
+<span class="strong"><strong>  ensure =&gt; 'running',</strong></span>
+<span class="strong"><strong>  enable =&gt; 'true',</strong></span>
+<span class="strong"><strong>}</strong></span>
+<span class="strong"><strong>service { 'atd':</strong></span>
+<span class="strong"><strong>  ensure =&gt; 'running',</strong></span>
+<span class="strong"><strong>  enable =&gt; 'true',</strong></span>
+<span class="strong"><strong>}</strong></span>
+<span class="strong"><strong>service { 'auditd':</strong></span>
+<span class="strong"><strong>  ensure =&gt; 'running',</strong></span>
+<span class="strong"><strong>  enable =&gt; 'true',</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div><p>This will output the state of <a id="id597" class="indexterm"/>each service on the system; this is because each service is an enumerable resource. When you try the same command with a resource that is not enumerable, you get an error message:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# puppet resource file</strong></span>
+<span class="strong"><strong>Error: Could not run: Listing all file instances is not supported.  Please specify a file or directory, e.g. puppet resource file /etc</strong></span>
+</pre></div><p>Asking Puppet to describe each file on the system will not work; that's something best left to an audit tool such as <code class="literal">tripwire</code> (a system designed to look for changes on every file on the<a id="id598" class="indexterm"/> system, <a class="ulink" href="http://www.tripwire.com">http://www.tripwire.com</a>).</p></div></div>
+<div class="section" title="Generating manifests with other tools"><div class="titlepage"><div><div><h1 class="title"><a id="ch09lvl1sec104"/>Generating manifests with other tools</h1></div></div></div><p>If you want to quickly <a id="id599" class="indexterm"/>capture the complete configuration of a running system as a Puppet manifest, there are a couple of tools available to help. In this example, we'll look at Blueprint, which is designed to examine a machine and dump its state as Puppet code.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec287"/>Getting ready</h2></div></div></div><p>Here's what you need to do to prepare your system to use Blueprint.</p><p>Run the following command to install Blueprint; we'll use <code class="literal">puppet resource</code> here to change the state of the <code class="literal">python-pip</code> package:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# puppet resource package python-pip ensure=installed</strong></span>
+<span class="strong"><strong>Notice: /Package[python-pip]/ensure: created</strong></span>
+<span class="strong"><strong>package { 'python-pip':</strong></span>
+<span class="strong"><strong>  ensure =&gt; '1.3.1-4.el6',</strong></span>
+<span class="strong"><strong>}</strong></span>
+<span class="strong"><strong>[root@cookbook ~]# pip install blueprint</strong></span>
+<span class="strong"><strong>Downloading/unpacking blueprint</strong></span>
+<span class="strong"><strong>  Downloading blueprint-3.4.2.tar.gz (59kB): 59kB downloaded</strong></span>
+<span class="strong"><strong>  Running setup.py egg_info for package blueprint</strong></span>
+<span class="strong"><strong>Installing collected packages: blueprint</strong></span>
+<span class="strong"><strong>  Running setup.py install for blueprint</strong></span>
+<span class="strong"><strong>    changing mode of build/scripts-2.6/blueprint from 644 to 755</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>Successfully installed blueprint</strong></span>
+<span class="strong"><strong>Cleaning up...</strong></span>
+</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="tip17"/>Tip</h3><p>You may need to install Git on your cookbook node if it is not already installed.</p></div></div></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec288"/>How to do it...</h2></div></div></div><p>These steps will <a id="id600" class="indexterm"/>show you how to run Blueprint:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Run the following commands:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# mkdir blueprint &amp;&amp; cd blueprint</strong></span>
+<span class="strong"><strong>[root@cookbook blueprint]# blueprint create -P blueprint_test</strong></span>
+<span class="strong"><strong># [blueprint] searching for APT packages to exclude</strong></span>
+<span class="strong"><strong># [blueprint] searching for Yum packages to exclude</strong></span>
+<span class="strong"><strong># [blueprint] caching excluded Yum packages</strong></span>
+<span class="strong"><strong># [blueprint] parsing blueprintignore(5) rules</strong></span>
+<span class="strong"><strong># [blueprint] searching for npm packages</strong></span>
+<span class="strong"><strong># [blueprint] searching for configuration files</strong></span>
+<span class="strong"><strong># [blueprint] searching for APT packages</strong></span>
+<span class="strong"><strong># [blueprint] searching for PEAR/PECL packages</strong></span>
+<span class="strong"><strong># [blueprint] searching for Python packages</strong></span>
+<span class="strong"><strong># [blueprint] searching for Ruby gems</strong></span>
+<span class="strong"><strong># [blueprint] searching for software built from source</strong></span>
+<span class="strong"><strong># [blueprint] searching for Yum packages</strong></span>
+<span class="strong"><strong># [blueprint] searching for service dependencies</strong></span>
+<span class="strong"><strong>blueprint_test/manifests/init.pp</strong></span>
+</pre></div></li><li class="listitem">Read<a id="id601" class="indexterm"/> the <code class="literal">blueprint_test/manifests/init.pp</code> file to see the generated code:<div class="informalexample"><pre class="programlisting">#
+# Automatically generated by blueprint(7).  Edit at your own risk.
+#
+class blueprint_test {
+  Exec {
+    path =&gt; '/usr/lib64/qt-3.3/bin:/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin',
+  }
+  Class['sources'] -&gt; Class['files'] -&gt; Class['packages']
+    class files {
+      file {
+        '/etc':
+          ensure =&gt; directory;
+        '/etc/aliases.db':
+content =&gt; template('blueprint_test/etc/aliases.db'),
+          ensure  =&gt; file,
+group   =&gt; root,
+          mode    =&gt; 0644,
+          owner   =&gt; root;
+'/etc/audit':
+          ensure =&gt; directory;
+'/etc/audit/audit.rules':
+          content =&gt; template('blueprint_test/etc/audit/audit.rules'),
+          ensure  =&gt; file,
+          group   =&gt; root,
+          mode    =&gt; 0640,
+          owner   =&gt; root;
+        '/etc/blkid':
+          ensure =&gt; directory;
+'/etc/cron.hourly':
+          ensure =&gt; directory;
+'/etc/cron.hourly/run-backup':
+          content =&gt; template('blueprint_test/etc/cron.hourly/run-backup'),
+          ensure  =&gt; file,
+          group   =&gt; root,
+          mode    =&gt; 0755,
+owner   =&gt; root;
+'/etc/crypttab':
+          content =&gt; template('blueprint_test/etc/crypttab'),
+          ensure  =&gt; file,
+          group   =&gt; root,
+          mode    =&gt; 0644,
+          owner   =&gt; root;</pre></div></li></ol></div></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec289"/>There's more...</h2></div></div></div><p>Blueprint<a id="id602" class="indexterm"/> just takes a snapshot of the system as it stands; it makes no intelligent decisions, and Blueprint captures all the files on the system and all the packages. It will generate a configuration much larger than you may actually require. For instance, when configuring a server, you may specify that you want the Apache package installed. The dependencies for the Apache package will be installed automatically and you need to specify them. When generating the configuration with a tool such as Blueprint, you will capture all those dependencies and lock the versions that are installed on your system currently. Looking at our generated Blueprint code, we can see that this is the case:</p><div class="informalexample"><pre class="programlisting">class yum {
+  package {
+    'GeoIP':
+      ensure =&gt; '1.5.1-5.el6.x86_64';
+    'PyXML':
+      ensure =&gt; '0.8.4-19.el6.x86_64';
+    'SDL':
+      ensure =&gt; '1.2.14-3.el6.x86_64';
+    'apr':
+      ensure =&gt; '1.3.9-5.el6_2.x86_64';
+    'apr-util':
+      ensure =&gt; '1.3.9-3.el6_0.1.x86_64';</pre></div><p>If you were creating this manifest yourself, you would likely specify <code class="literal">ensure =&gt; installed</code> instead of a specific version.</p><p>Packages install default versions of files. Blueprint has no notion of this and will add all the files to the manifest, even those that have not changed. By default, Blueprint will indiscriminately capture all the files in <code class="literal">/etc</code> as file resources.</p><p>Blueprint and similar tools have a very small use case generally, but may help you to get familiar with the Puppet syntax and give you some ideas on how to specify your own manifests. I would not recommend blindly using this tool to create a system, however.</p><p>There's no shortcut to good configuration management, those who hope to save time and effort by cutting and pasting someone else's code as a whole (as with public modules) are likely to find that it saves neither.</p></div></div>
+<div class="section" title="Using an external node classifier"><div class="titlepage"><div><div><h1 class="title"><a id="ch09lvl1sec105"/>Using an external node classifier</h1></div></div></div><p>When Puppet runs on a<a id="id603" class="indexterm"/> node, it needs to know which classes should be applied to that node. For example, if it is a web server node, it might need to include an <code class="literal">apache</code> class. The normal way to map nodes to classes is in the Puppet manifest itself, for example, in your <code class="literal">site.pp</code> file:</p><div class="informalexample"><pre class="programlisting">node 'web1' {
+  include apache
+}</pre></div><p>Alternatively, you can use an <span class="strong"><strong>External Node Classifier (ENC)</strong></span> to do this job. An ENC is any executable program that can accept the fully-qualified domain name (FQDN) as the first command-line argument (<code class="literal">$1</code>). The script is expected to return a list of classes, parameters, and an optional environment to apply to the node. The output is expected to be in the standard YAML format. When using an ENC, you should keep in mind that the classes applied through the standard <code class="literal">site.pp</code> manifest are merged with those provided by the ENC.</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note16"/>Note</h3><p>Parameters returned by the ENC are available as top-scope variables to the node.</p></div></div><p>An ENC could be a simple shell script, for example, or a wrapper around a more complicated program or API that can decide how to map nodes to classes. The ENC provided by Puppet enterprise and The Foreman<a id="id604" class="indexterm"/> (<a class="ulink" href="http://theforeman.org/">http://theforeman.org/</a>) are both simple scripts, which connect to the web API of their respective systems.</p><p>In this example, we'll build the most simple of ENCs, a shell script that simply prints a list of classes to include. We'll start by including an <code class="literal">enc</code> class, which defines <code class="literal">notify</code> that will print a top-scope variable <code class="literal">$enc</code>.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec290"/>Getting ready</h2></div></div></div><p>We'll start by creating our <code class="literal">enc</code> class to include with the <code class="literal">enc</code> script:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Run the following command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop ~/puppet $ mkdir -p modules/enc/manifests</strong></span>
+</pre></div></li><li class="listitem">Create the file <code class="literal">modules/enc/manifests/init.pp</code> with the following contents:<div class="informalexample"><pre class="programlisting">class enc {
+  notify {"We defined this from $enc": }
+}</pre></div></li></ol></div></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec291"/>How to do it...</h2></div></div></div><p>Here's how to build a simple external node classifier. We'll perform all these steps on our Puppet master server. If you are running masterless, then do these steps on a node:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Create the file <code class="literal">/etc/puppet/cookbook.sh</code> with the following contents:<div class="informalexample"><pre class="programlisting">#!/bin/bash
+cat &lt;&lt;EOF
+---
+classes:
+enc:
+parameters:
+  enc: $0
+EOF</pre></div></li><li class="listitem">Run the<a id="id605" class="indexterm"/> following command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:/etc/puppet# chmod a+x cookbook.sh </strong></span>
+</pre></div></li><li class="listitem">Modify your <code class="literal">/etc/puppet/puppet.conf</code> file as follows:<div class="informalexample"><pre class="programlisting">[main]
+  node_terminus = exec
+  external_nodes = /etc/puppet/cookbook.sh</pre></div></li><li class="listitem">Restart Apache (restart the master) to make the change effective.</li><li class="listitem">Ensure your <code class="literal">site.pp</code> file has the following empty definition for the default node:<div class="informalexample"><pre class="programlisting">node default {}</pre></div></li><li class="listitem">Run Puppet:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# puppet agent -t</strong></span>
+<span class="strong"><strong>Info: Caching catalog for cookbook.example.com</strong></span>
+<span class="strong"><strong>Info: Applying configuration version '1416376937'</strong></span>
+<span class="strong"><strong>Notice: We defined this from /etc/puppet/cookbook.sh</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Enc/Notify[We defined this from /etc/puppet/cookbook.sh]/message: defined 'message' as 'We defined this from /etc/puppet/cookbook.sh'</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 0.17 seconds</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec292"/>How it works...</h2></div></div></div><p>When an ENC is set in <code class="literal">puppet.conf</code>, Puppet will call the specified program with the node's fqdn (technically, the certname variable) as the first command-line argument. In our example script, this argument is ignored, and it just outputs a fixed list of classes (actually, just one class).</p><p>Obviously this script is not terribly useful; a more sophisticated script might check a database to find the class list, or look up the node in a hash, or an external text file or database (often an organization's <a id="id606" class="indexterm"/>configuration management database, <span class="strong"><strong>CMDB</strong></span>). Hopefully, this example is enough to get you started with writing your own external node classifier. Remember that you can write your script in any language you prefer.</p></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec293"/>There's more...</h2></div></div></div><p>An ENC can supply a<a id="id607" class="indexterm"/> whole list of classes to be included in the node, in the following (YAML) format:</p><div class="informalexample"><pre class="programlisting">---
+classes:
+  CLASS1:
+  CLASS2:
+  CLASS3:</pre></div><p>For classes that take parameters, you can use this format:</p><div class="informalexample"><pre class="programlisting">---
+classes:
+  mysql:
+    package: percona-server-server-5.5
+    socket:  /var/run/mysqld/mysqld.sock
+    port:    3306</pre></div><p>You can also produce top-scope variables using an ENC with this format:</p><div class="informalexample"><pre class="programlisting">---
+parameters:
+  message: 'Anyone home MyFly?'</pre></div><p>Variables that you set in this way will be available in your manifest using the normal syntax for a top-scope variable, for example <code class="literal">$::message</code>.</p></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec294"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">See the puppetlabs ENC page<a id="id608" class="indexterm"/> for more information on writing and using ENCs: <a class="ulink" href="http://docs.puppetlabs.com/guides/external_nodes.html">http://docs.puppetlabs.com/guides/external_nodes.html</a></li></ul></div></div></div>
+<div class="section" title="Creating your own resource types"><div class="titlepage"><div><div><h1 class="title"><a id="ch09lvl1sec106"/>Creating your own resource types</h1></div></div></div><p>As you know, Puppet has a bunch<a id="id609" class="indexterm"/> of useful built-in resource types: packages, files, users, and so on. Usually, you can do everything you need to do by using either combinations of these built-in resources, or <code class="literal">define</code>, which you can use more or less in the same way as a resource (see <a class="link" href="ch03.html" title="Chapter 3. Writing Better Manifests">Chapter 3</a>, <span class="emphasis"><em>Writing Better Manifests</em></span> for information on definitions).</p><p>In the early days of Puppet, creating your own resource type was more common as the list of core resources was shorter than it is today. Before you consider creating your own resource type, I suggest searching the Forge for alternative solutions. Even if you can find a project that only partially solves your problem, you will be better served by extending and helping out that project, rather than trying to create your own. However, if you need to create your own resource type, Puppet makes it quite easy. The native types are written in Ruby, and you will need a basic familiarity with Ruby in order to create your own.</p><p>Let's refresh our memory on the distinction between types and providers. A type describes a resource and the parameters it can have (for example, the <code class="literal">package</code> type). A provider tells Puppet how to implement a resource type for a particular platform or situation (for example, the <code class="literal">apt/dpkg</code> providers implement the <code class="literal">package</code> type for Debian-like systems).</p><p>A single type (<code class="literal">package</code>) can<a id="id610" class="indexterm"/> have many providers (APT, YUM, Fink, and so on). If you don't specify a provider when declaring a resource, Puppet will choose the most appropriate one given the environment.</p><p>We'll use Ruby<a id="id611" class="indexterm"/> in this section; if you are not familiar with Ruby try visiting <a class="ulink" href="http://www.ruby-doc.org/docs/Tutorial/">http://www.ruby-doc.org/docs/Tutorial/</a> or <a class="ulink" href="http://www.codecademy.com/tracks/ruby/">http://www.codecademy.com/tracks/ruby/</a>.</p><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec295"/>How to do it...</h2></div></div></div><p>In this section, we'll see how to create a custom type that we can use to manage Git repositories, and in the next section, we'll write a provider to implement this type.</p><p>Create the file <code class="literal">modules/cookbook/lib/puppet/type/gitrepo.rb</code> with the following contents:</p><div class="informalexample"><pre class="programlisting">Puppet::Type.newtype(:gitrepo) do
+  ensurable
+
+  newparam(:source) do
+    isnamevar
+  end
+
+  newparam(:path)
+end</pre></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec296"/>How it works...</h2></div></div></div><p>Custom types can<a id="id612" class="indexterm"/> live in any module, in a <code class="literal">lib/puppet/type</code> subdirectory and in a file named for the type (in our example, that's <code class="literal">modules/cookbook/lib/puppet/type/gitrepo.rb</code>).</p><p>The first line of <code class="literal">gitrepo.rb</code> tells Puppet to register a new type named <code class="literal">gitrepo</code>:</p><div class="informalexample"><pre class="programlisting">Puppet::Type.newtype(:gitrepo) do</pre></div><p>The <code class="literal">ensurable</code> line automatically gives the type an <code class="literal">ensure</code> property, such as Puppet's built-in resources:</p><div class="informalexample"><pre class="programlisting">ensurable</pre></div><p>We'll now give the type some parameters. For the moment, all we need is a <code class="literal">source</code> parameter for the Git source URL, and a <code class="literal">path</code> parameter to tell Puppet where the repo should be created in the filesystem:</p><div class="informalexample"><pre class="programlisting">newparam(:source) do
+  isnamevar
+end</pre></div><p>The <code class="literal">isnamevar</code> declaration tells Puppet that the <code class="literal">source</code> parameter is the type's namevar. So when you declare an instance of this resource, whatever name you give, it will be the value of <code class="literal">source</code>, for example:</p><div class="informalexample"><pre class="programlisting">gitrepo { 'git://github.com/puppetlabs/puppet.git':
+  path =&gt; '/home/ubuntu/dev/puppet',
+}</pre></div><p>Finally, we tell Puppet that the type accepts the <code class="literal">path</code> parameter:</p><div class="informalexample"><pre class="programlisting">newparam(:path)</pre></div></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec297"/>There's more...</h2></div></div></div><p>When deciding whether or not you should create a custom type, you should ask a few questions about the <a id="id613" class="indexterm"/>resource you are trying to describe such as:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Is the resource enumerable? Can you easily obtain a list of all the instances of the resource on the system?</li><li class="listitem" style="list-style-type: disc">Is the resource atomic? Can you ensure that only one copy of the resource exists on the system (this is particularly important when you want to use <code class="literal">ensure=&gt;absent</code> on the resource)?</li><li class="listitem" style="list-style-type: disc">Is there any other resource that describes this resource? In such a case, a defined type based on the existing resource would, in most cases, be a simpler solution.</li></ul></div><div class="section" title="Documentation"><div class="titlepage"><div><div><h3 class="title"><a id="ch09lvl3sec32"/>Documentation</h3></div></div></div><p>Our example is deliberately simple, but when you move on to developing real custom types for your production environment, you should add documentation strings<a id="id614" class="indexterm"/> to describe what the type and its parameters do, for example:</p><div class="informalexample"><pre class="programlisting">Puppet::Type.newtype(:gitrepo) do
+  @doc = "Manages Git repos"
+
+  ensurable
+
+  newparam(:source) do
+    desc "Git source URL for the repo"
+    isnamevar
+  end
+
+  newparam(:path) do
+    desc "Path where the repo should be created"
+  end
+end</pre></div></div><div class="section" title="Validation"><div class="titlepage"><div><div><h3 class="title"><a id="ch09lvl3sec33"/>Validation</h3></div></div></div><p>You can use parameter validation to generate useful error messages<a id="id615" class="indexterm"/> when someone tries to pass bad values to the resource. For example, you could validate that the directory where the repo is to be created actually exists:</p><div class="informalexample"><pre class="programlisting">newparam(:path) do
+  validate do |value|
+    basepath = File.dirname(value)
+    unless File.directory?(basepath)
+      raise ArgumentError , "The path %s doesn't exist" % basepath
+    end
+  end
+end</pre></div><p>You can also specify the list of allowed values that the parameter can take:</p><div class="informalexample"><pre class="programlisting">newparam(:breakfast) do
+  newvalues(:bacon, :eggs, :sausages)
+end</pre></div></div></div></div>
+<div class="section" title="Creating your own providers"><div class="titlepage"><div><div><h1 class="title"><a id="ch09lvl1sec107"/>Creating your own providers</h1></div></div></div><p>In the previous section, we <a id="id616" class="indexterm"/>created a new custom type called <code class="literal">gitrepo</code> and told Puppet that it takes two parameters, <code class="literal">source</code> and <code class="literal">path</code>. However, so far, we haven't told Puppet how to actually check out the repo; in other words, how to create a specific instance of this type. That's where the provider comes in.</p><p>We saw that a type will often have several possible providers. In our example, there is only one sensible way to instantiate a Git repo, so we'll only supply one provider: <code class="literal">git</code>. If you were to generalize this type—to just repo, say—it's not hard to imagine creating several different providers depending on the type of repo, for example, <code class="literal">git</code>, <code class="literal">svn</code>, <code class="literal">cvs</code>, and so on.</p><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec298"/>How to do it...</h2></div></div></div><p>We'll add the <code class="literal">git</code> provider, and create an instance of a <code class="literal">gitrepo</code> resource to check that it all works. You'll need Git installed for this to work, but if you're using the Git-based manifest management setup described in <a class="link" href="ch02.html" title="Chapter 2. Puppet Infrastructure">Chapter 2</a>, <span class="emphasis"><em>Puppet Infrastructure</em></span>, we can safely assume that Git is available.</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Create the file <code class="literal">modules/cookbook/lib/puppet/provider/gitrepo/git.rb</code> with the following contents:<div class="informalexample"><pre class="programlisting">require 'fileutils'
+
+Puppet::Type.type(:gitrepo).provide(:git) do
+  commands :git =&gt; "git"
+
+  def create
+    git "clone", resource[:source], resource[:path]
+  end
+
+  def exists?
+    File.directory? resource[:path]
+  end
+end</pre></div></li><li class="listitem">Modify your <code class="literal">site.pp</code> file as follows:<div class="informalexample"><pre class="programlisting">node 'cookbook' {
+  gitrepo { 'https://github.com/puppetlabs/puppetlabs-git':
+    ensure =&gt; present,
+    path   =&gt; '/tmp/puppet',
+  }
+}</pre></div></li><li class="listitem">Run Puppet:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# puppet agent -t</strong></span>
+<span class="strong"><strong>Notice: /File[/var/lib/puppet/lib/puppet/type/gitrepo.rb]/ensure: defined content as '{md5}6471793fe2b4372d40289ad4b614fe0b'</strong></span>
+<span class="strong"><strong>Notice: /File[/var/lib/puppet/lib/puppet/provider/gitrepo]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /File[/var/lib/puppet/lib/puppet/provider/gitrepo/git.rb]/ensure: defined content as '{md5}f860388234d3d0bdb3b3ec98bbf5115b'</strong></span>
+<span class="strong"><strong>Info: Caching catalog for cookbook.example.com</strong></span>
+<span class="strong"><strong>Info: Applying configuration version '1416378876'</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Main/Node[cookbook]/Gitrepo[https://github.com/puppetlabs/puppetlabs-git]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 2.59 seconds</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec299"/>How it works...</h2></div></div></div><p>Custom providers <a id="id617" class="indexterm"/>can live in any module, in a <code class="literal">lib/puppet/provider/TYPE_NAME</code> subdirectory in a file named after the provider. (The provider is the actual program that is run on the system; in our example, the program is Git and the provider is in <code class="literal">modules/cookbook/lib/puppet/provider/gitrepo/git.rb</code>. Note that the name of the module is irrelevant.)</p><p>After an ntitial require line in <code class="literal">git.rb</code>, we tell Puppet to register a new provider for the <code class="literal">gitrepo</code> type with the following line:</p><div class="informalexample"><pre class="programlisting">Puppet::Type.type(:gitrepo).provide(:git) do</pre></div><p>When you declare an instance of the <code class="literal">gitrepo</code> type in your manifest, Puppet will first of all check whether the instance already exists, by calling the <code class="literal">exists?</code> method on the provider. So we need to supply this method, complete with code to check whether an instance of the <code class="literal">gitrepo</code> type already exists:</p><div class="informalexample"><pre class="programlisting">def exists?
+  File.directory? resource[:path]
+end</pre></div><p>This is not the most sophisticated implementation; it simply returns <code class="literal">true</code> if a directory exists matching the <code class="literal">path</code> parameter of the instance. A better implementation of <code class="literal">exists?</code> might check, for example, whether there is a <code class="literal">.git</code> subdirectory and that it contains valid Git metadata. But this will do for now.</p><p>If <code class="literal">exists?</code> returns <code class="literal">true</code>, then Puppet will take no further action because the specified resource exists (as far as Puppet knows). If it returns <code class="literal">false</code>, Puppet assumes the resource doesn't yet exist, and will try to create it by calling the provider's <code class="literal">create</code> method.</p><p>Accordingly, we supply some code for the <code class="literal">create</code> method that calls the <code class="literal">git clone</code> command to create the repo:</p><div class="informalexample"><pre class="programlisting">def create
+  git "clone", resource[:source], resource[:path]
+end</pre></div><p>The method has<a id="id618" class="indexterm"/> access to the instance's parameters, which we need to know where to check out the repo from, and which directory to create it in. We get this by looking at <code class="literal">resource[:source]</code> and <code class="literal">resource[:path]</code>.</p></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec300"/>There's more...</h2></div></div></div><p>You can see that custom types and providers in Puppet are very powerful. In fact, they can do anything—at least, anything that Ruby can do. If you are managing some parts of your infrastructure with complicated <code class="literal">define</code> statements and <code class="literal">exec</code> resources, you may want to consider replacing these with a custom type. However, as stated previously, it's worth looking around to see if someone else has already done this before implementing your own.</p><p>Our example was very simple, and there is much more to learn about writing your own types. If you're going to distribute your code for others to use, or even if you aren't, it's a good idea to include tests with it. puppetlabs has a useful page on the interface between custom types<a id="id619" class="indexterm"/> and providers:</p><p>
+<a class="ulink" href="http://docs.puppetlabs.com/guides/custom_types.html">http://docs.puppetlabs.com/guides/custom_types.html</a>
+</p><p>on implementing<a id="id620" class="indexterm"/> providers:</p><p>
+<a class="ulink" href="http://docs.puppetlabs.com/guides/provider_development.html">http://docs.puppetlabs.com/guides/provider_development.html</a>
+</p><p>and a complete worked example of developing a custom <a id="id621" class="indexterm"/>type and provider, a little more advanced than that presented in this book:</p><p>
+<a class="ulink" href="http://docs.puppetlabs.com/guides/complete_resource_example.html">http://docs.puppetlabs.com/guides/complete_resource_example.html</a>
+</p></div></div>
+<div class="section" title="Creating custom functions"><div class="titlepage"><div><div><h1 class="title"><a id="ch09lvl1sec108"/>Creating custom functions</h1></div></div></div><p>If you've read the recipe <span class="emphasis"><em>Using GnuPG to encrypt secrets</em></span> in <a class="link" href="ch04.html" title="Chapter 4. Working with Files and Packages">Chapter 4</a>, <span class="emphasis"><em>Working with Files and Packages</em></span>, then <a id="id622" class="indexterm"/>you've already seen an example of a custom function (in that example, we created a <code class="literal">secret</code> function, which shelled out to GnuPG). Let's look at <code class="literal">custom</code> functions in a little more detail now and build an example.</p><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec301"/>How to do it...</h2></div></div></div><p>If you've read the <a id="id623" class="indexterm"/>recipe <span class="emphasis"><em>Distributing cron jobs efficiently</em></span> in <a class="link" href="ch06.html" title="Chapter 6. Managing Resources and Files">Chapter 6</a>, <span class="emphasis"><em>Managing Resources and Files</em></span>, you might remember that we used the <code class="literal">inline_template</code> function to set a random time for cron jobs to run, based on the hostname of the node. In this example, we'll take that idea and turn it into a custom function called <code class="literal">random_minute</code>:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Create the file <code class="literal">modules/cookbook/lib/puppet/parser/functions/random_minute.rb</code> with the following contents:<div class="informalexample"><pre class="programlisting">module Puppet::Parser::Functions
+  newfunction(:random_minute, :type =&gt; :rvalue) do |args|
+    lookupvar('hostname').sum % 60
+  end
+end</pre></div></li><li class="listitem">Modify your <code class="literal">site.pp</code> file as follows:<div class="informalexample"><pre class="programlisting">node 'cookbook' {
+  cron { 'randomised cron job':
+    command =&gt; '/bin/echo Hello, world &gt;&gt;/tmp/hello.txt',
+    hour    =&gt; '*',
+    minute  =&gt; random_minute(),
+  }
+}</pre></div></li><li class="listitem">Run Puppet:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# puppet agent -t</strong></span>
+<span class="strong"><strong>Info: Retrieving pluginfacts</strong></span>
+<span class="strong"><strong>Info: Retrieving plugin</strong></span>
+<span class="strong"><strong>Notice: /File[/var/lib/puppet/lib/puppet/parser/functions/random_minute.rb]/ensure: defined content as '{md5}e6ff40165e74677e5837027bb5610744'</strong></span>
+<span class="strong"><strong>Info: Loading facts</strong></span>
+<span class="strong"><strong>Info: Caching catalog for cookbook.example.com</strong></span>
+<span class="strong"><strong>Info: Applying configuration version '1416379652'</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Main/Node[cookbook]/Cron[custom fuction example job]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 0.41 seconds</strong></span>
+</pre></div></li><li class="listitem">Check <code class="literal">crontab</code> with the following command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# crontab -l</strong></span>
+<span class="strong"><strong># HEADER: This file was autogenerated at Wed Nov 19 01:48:11 -0500 2014 by puppet.</strong></span>
+<span class="strong"><strong># HEADER: While it can still be managed manually, it is definitely not recommended.</strong></span>
+<span class="strong"><strong># HEADER: Note particularly that the comments starting with 'Puppet Name' should</strong></span>
+<span class="strong"><strong># HEADER: not be deleted, as doing so could cause duplicate cron jobs.</strong></span>
+<span class="strong"><strong># Puppet Name: run-backup</strong></span>
+<span class="strong"><strong>0 15 * * * /usr/local/bin/backup</strong></span>
+<span class="strong"><strong># Puppet Name: custom fuction example job</strong></span>
+<span class="strong"><strong>15 * * * * /bin/echo Hallo, welt &gt;&gt;/tmp/hallo.txt</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec302"/>How it works...</h2></div></div></div><p>Custom <a id="id624" class="indexterm"/>functions can live in any module, in the <code class="literal">lib/puppet/parser/functions</code> subdirectory in a file named after the function (in our example, <code class="literal">random_minute.rb</code>).</p><p>The function code goes inside a <code class="literal">module ... end</code> block like this:</p><div class="informalexample"><pre class="programlisting">module Puppet::Parser::Functions
+  ...
+end</pre></div><p>We then call <code class="literal">newfunction</code> to declare our new function, passing the name (<code class="literal">:random_minute</code>) and the type of function (<code class="literal">:rvalue</code>):</p><div class="informalexample"><pre class="programlisting">newfunction(:random_minute, :type =&gt; :rvalue) do |args|</pre></div><p>The <code class="literal">:rvalue</code> bit simply means that this function returns a value.</p><p>Finally, the function code itself is as follows:</p><div class="informalexample"><pre class="programlisting">    lookupvar('hostname').sum % 60</pre></div><p>The <code class="literal">lookupvar</code> function lets you access facts and variables by name; in this case, <code class="literal">hostname</code> to get the name of the node we're running on. We use the Ruby <code class="literal">sum</code> method to get the numeric sum of the characters in this string, and then perform integer division modulo 60 to make sure the result is in the range <code class="literal">0..59</code>.</p></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec303"/>There's more...</h2></div></div></div><p>You can, of course, do a lot more with custom functions. In fact, anything you can do in Ruby, you can do in a custom function. You also have access to all the facts and variables that are in scope at the point in the Puppet manifest where the function is called, by calling <code class="literal">lookupvar</code> as shown in the example. You can also work on arguments, for example, a general purpose hashing function that takes two arguments: the size of the hash table and optionally the thing to hash. Create <code class="literal">modules/cookbook/lib/puppet/parser/functions/hashtable.rb</code> with the following contents:</p><div class="informalexample"><pre class="programlisting">module Puppet::Parser::Functions
+  newfunction(:hashtable, :type =&gt; :rvalue) do |args|
+    if args.length == 2
+      hashtable=lookupvar(args[1]).sum
+    else
+      hashtable=lookupvar('hostname').sum
+    end
+
+    if args.length &gt; 0
+      size = args[0].to_i
+    else
+      size = 60
+    end
+    unless size == 0
+      hashtable % size
+    else
+      0
+    end
+  end
+end</pre></div><p>Now we'll create a <a id="id625" class="indexterm"/>test for our <code class="literal">hashtable</code> function and alter <code class="literal">site.pp</code> as follows:</p><div class="informalexample"><pre class="programlisting">node cookbook {
+  $hours = hashtable(24)
+  $minutes = hashtable()
+  $days = hashtable(30)
+  $days_fqdn = hashtable(30,'fqdn')
+  $days_ipaddress = hashtable(30,'ipaddress')
+  notify {"\n hours=${hours}\n minutes=${minutes}\n days=${days}\n days_fqdn=${days_fqdn}\n days_ipaddress=${days_ipaddress}\n":}
+}</pre></div><p>Now, run Puppet and observe the values that are returned:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>Notice:  hours=15</strong></span>
+<span class="strong"><strong> minutes=15</strong></span>
+<span class="strong"><strong> days=15</strong></span>
+<span class="strong"><strong> days_fqdn=4</strong></span>
+<span class="strong"><strong> days_ipaddress=2</strong></span>
+</pre></div><p>Our simple definition quickly grew when we added the ability to add arguments. As with all programming, care should be taken when working with arguments to ensure that you do not have any error conditions. In the preceding code, we specifically looked for the situation where the size variable was 0, to avoid a divide by zero error.</p><p>To find out more about what you can do with <a id="id626" class="indexterm"/>custom functions, see the puppetlabs website:</p><p>
+<a class="ulink" href="http://docs.puppetlabs.com/guides/custom_functions.html">http://docs.puppetlabs.com/guides/custom_functions.html</a>
+</p></div></div>
+<div class="section" title="Testing your puppet manifests with rspec-puppet"><div class="titlepage"><div><div><h1 class="title"><a id="ch09lvl1sec109"/>Testing your puppet manifests with rspec-puppet</h1></div></div></div><p>It would be great if we could verify that our Puppet manifests satisfy certain expectations without even having to run Puppet. The <code class="literal">rspec-puppet</code> tool<a id="id627" class="indexterm"/> is a nifty <a id="id628" class="indexterm"/>tool to do this. Based on RSpec, a testing framework for Ruby programs, <code class="literal">rspec-puppet</code> lets you write test cases for your Puppet manifests that are especially useful to catch regressions (bugs introduced when fixing another bug), and refactoring problems (bugs introduced when reorganizing your code).</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec304"/>Getting ready</h2></div></div></div><p>Here's what you'll need to do to install <code class="literal">rspec-puppet</code>.</p><p>Run the following commands:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop~ $ sudo puppet resource package rspec-puppet ensure=installed provider=gem</strong></span>
+<span class="strong"><strong>Notice: /Package[rspec-puppet]/ensure: created</strong></span>
+<span class="strong"><strong>package { 'rspec-puppet':</strong></span>
+<span class="strong"><strong>  ensure =&gt; ['1.0.1'],</strong></span>
+<span class="strong"><strong>}</strong></span>
+<span class="strong"><strong>t@mylaptop ~ $ sudo puppet resource package puppetlabs_spec_helper ensure=installed provider=gem</strong></span>
+<span class="strong"><strong>Notice: /Package[puppetlabs_spec_helper]/ensure: created</strong></span>
+<span class="strong"><strong>package { 'puppetlabs_spec_helper':</strong></span>
+<span class="strong"><strong>  ensure =&gt; ['0.8.2'],</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec305"/>How to do it...</h2></div></div></div><p>Let's create an example class, <code class="literal">thing</code>, and write some tests for it.</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Define the <code class="literal">thing</code> class:<div class="informalexample"><pre class="programlisting">class thing {
+  service {'thing':
+    ensure  =&gt; 'running',
+    enable  =&gt; true,
+    require =&gt; Package['thing'],
+  }
+  package {'thing':
+    ensure =&gt; 'installed'
+  }
+  file {'/etc/thing.conf':
+    content =&gt; 'fubar\n',
+    mode    =&gt; 0644,
+    require =&gt; Package['thing'],
+    notify  =&gt; Service['thing'],
+  }
+}</pre></div></li><li class="listitem">Run the<a id="id629" class="indexterm"/> following <a id="id630" class="indexterm"/>commands:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop ~/puppet]$cd modules/thing</strong></span>
+<span class="strong"><strong>t@mylaptop~/puppet/modules/thing $ rspec-puppet-init</strong></span>
+<span class="strong"><strong> + spec/</strong></span>
+<span class="strong"><strong> + spec/classes/</strong></span>
+<span class="strong"><strong> + spec/defines/</strong></span>
+<span class="strong"><strong> + spec/functions/</strong></span>
+<span class="strong"><strong> + spec/hosts/</strong></span>
+<span class="strong"><strong> + spec/fixtures/</strong></span>
+<span class="strong"><strong> + spec/fixtures/manifests/</strong></span>
+<span class="strong"><strong> + spec/fixtures/modules/</strong></span>
+<span class="strong"><strong> + spec/fixtures/modules/heartbeat/</strong></span>
+<span class="strong"><strong> + spec/fixtures/manifests/site.pp</strong></span>
+<span class="strong"><strong> + spec/fixtures/modules/heartbeat/manifests</strong></span>
+<span class="strong"><strong> + spec/fixtures/modules/heartbeat/templates</strong></span>
+<span class="strong"><strong> + spec/spec_helper.rb</strong></span>
+<span class="strong"><strong> + Rakefile</strong></span>
+</pre></div></li><li class="listitem">Create the file <code class="literal">spec/classes/thing_spec.rb</code> with the following contents:<div class="informalexample"><pre class="programlisting">require 'spec_helper'
+
+describe 'thing' do
+  it { should create_class('thing') }
+  it { should contain_package('thing') }
+  it { should contain_service('thing').with(
+    'ensure' =&gt; 'running'
+  ) }
+  it { should contain_file('/etc/things.conf') }
+end</pre></div></li><li class="listitem">Run the following commands:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop ~/.puppet/modules/thing $ rspec</strong></span>
+<span class="strong"><strong>...F</strong></span>
+
+<span class="strong"><strong>Failures:</strong></span>
+
+<span class="strong"><strong>  1) thing should contain File[/etc/things.conf]</strong></span>
+<span class="strong"><strong>     Failure/Error: it { should contain_file('/etc/things.conf') }</strong></span>
+<span class="strong"><strong>       expected that the catalogue would contain File[/etc/things.conf]</strong></span>
+<span class="strong"><strong>     # ./spec/classes/thing_spec.rb:9:in `block (2 levels) in &lt;top (required)&gt;'</strong></span>
+
+<span class="strong"><strong>Finished in 1.66 seconds</strong></span>
+<span class="strong"><strong>4 examples, 1 failure</strong></span>
+
+<span class="strong"><strong>Failed examples:</strong></span>
+
+<span class="strong"><strong>rspec ./spec/classes/thing_spec.rb:9 # thing should contain File[/etc/things.conf]</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec306"/>How it works...</h2></div></div></div><p>The <code class="literal">rspec-puppet-init</code> command creates <a id="id631" class="indexterm"/>a framework of <a id="id632" class="indexterm"/>directories for you to put your specs (test programs) in. At the moment, we're just interested in the <code class="literal">spec/classes</code> directory. This is where you'll put your class specs, one per class, named after the class it tests, for example, <code class="literal">thing_spec.rb</code>.</p><p>The <code class="literal">spec</code> code itself begins with the following statement, which sets up the RSpec environment to run the specs:</p><div class="informalexample"><pre class="programlisting">require 'spec_helper'</pre></div><p>Then, a <code class="literal">describe</code> block follows:</p><div class="informalexample"><pre class="programlisting">describe 'thing' do
+  ..
+end</pre></div><p>The <code class="literal">describe</code> identifies the class we're going to test (<code class="literal">thing</code>) and wraps the list of assertions about the class inside a <code class="literal">do .. end</code> block.</p><p>Assertions are our stated expectations of the <code class="literal">thing</code> class. For example, the first assertion is the following:</p><div class="informalexample"><pre class="programlisting">  it { should create_class('thing') }</pre></div><p>The <code class="literal">create_class</code> assertion is used to ensure that the named class is actually created. The next line:</p><div class="informalexample"><pre class="programlisting">  it { should contain_package('thing') }</pre></div><p>The <code class="literal">contain_package</code> assertion means what it says: the class should contain a package resource named <code class="literal">thing</code>.</p><p>Next, we test for the existence of the <code class="literal">thing</code> service:</p><div class="informalexample"><pre class="programlisting">it { should contain_service('thing').with(
+  'ensure' =&gt; 'running'
+) }</pre></div><p>The preceding code actually contains two assertions. First, that the class contains a <code class="literal">thing</code> service:</p><div class="informalexample"><pre class="programlisting">contain_service('thing')</pre></div><p>Second, that the service has an <code class="literal">ensure</code> attribute with the value <code class="literal">running</code>:</p><div class="informalexample"><pre class="programlisting">with(
+  'ensure' =&gt; 'running'
+)</pre></div><p>You can specify any <a id="id633" class="indexterm"/>attributes and values you want using<a id="id634" class="indexterm"/> the <code class="literal">with</code> method, as a comma-separated list. For example, the following code asserts several attributes of a <code class="literal">file</code> resource:</p><div class="informalexample"><pre class="programlisting">it { should contain_file('/tmp/hello.txt').with(
+  'content' =&gt; "Hello, world\n",
+  'owner'   =&gt; 'ubuntu',
+  'group'   =&gt; 'ubuntu',
+  'mode'    =&gt; '0644'
+) }</pre></div><p>In our <code class="literal">thing</code> example, we need to only test that the file <code class="literal">thing.conf</code> is present, using the following code:</p><div class="informalexample"><pre class="programlisting">it { should contain_file('/etc/thing.conf') }</pre></div><p>When you run the <code class="literal">rake spec</code> command, <code class="literal">rspec-puppet</code> will compile the relevant Puppet classes, run all the specs it finds, and display the results:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>...F</strong></span>
+<span class="strong"><strong>Failures:</strong></span>
+<span class="strong"><strong>  1) thing should contain File[/etc/things.conf]</strong></span>
+<span class="strong"><strong>     Failure/Error: it { should contain_file('/etc/things.conf') }</strong></span>
+<span class="strong"><strong>       expected that the catalogue would contain File[/etc/things.conf]</strong></span>
+<span class="strong"><strong>     # ./spec/classes/thing_spec.rb:9:in `block (2 levels) in &lt;top (required)&gt;'</strong></span>
+<span class="strong"><strong>Finished in 1.66 seconds</strong></span>
+<span class="strong"><strong>4 examples, 1 failure</strong></span>
+</pre></div><p>As you can see, we <a id="id635" class="indexterm"/>defined the file in our test<a id="id636" class="indexterm"/> as <code class="literal">/etc/things.conf</code> but the file in the manifests is <code class="literal">/etc/thing.conf</code>, so the test fails. Edit <code class="literal">thing_spec.rb</code> and change <code class="literal">/etc/things.conf to /etc/thing.conf</code>:</p><div class="informalexample"><pre class="programlisting">  it { should contain_file('/etc/thing.conf') }</pre></div><p>Now run rspec again:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop ~/.puppet/modules/thing $ rspec</strong></span>
+<span class="strong"><strong>....</strong></span>
+<span class="strong"><strong>Finished in 1.6 seconds</strong></span>
+<span class="strong"><strong>4 examples, 0 failures</strong></span>
+</pre></div></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec307"/>There's more...</h2></div></div></div><p>There are many conditions you can verify with rspec. Any resource type can be verified with <code class="literal">contain_&lt;resource type&gt;</code>(title). In addition to verifying your classes will apply correctly, you can also test functions and definitions by using the appropriate subdirectories within the spec directory (classes, defines, or functions).</p><p>You can find more information about <code class="literal">rspec-puppet</code>, including complete documentation for the assertions available<a id="id637" class="indexterm"/> and a tutorial, at <a class="ulink" href="http://rspec-puppet.com/">http://rspec-puppet.com/</a>.</p><p>When you want to start testing how your code applies to nodes, you'll need to look at another tool, beaker. Beaker works with various virtualization platforms to create temporary virtual machines to which Puppet code is applied. The results are then used for acceptance testing of the Puppet code. This method of testing and developing at the same time is known as <a id="id638" class="indexterm"/>
+<span class="strong"><strong>Test-driven development</strong></span> (<span class="strong"><strong>TDD</strong></span>). More information about beaker is available on the GitHub site<a id="id639" class="indexterm"/> at <a class="ulink" href="https://github.com/puppetlabs/beaker">https://github.com/puppetlabs/beaker</a>.</p></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec308"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The <span class="emphasis"><em>Checking your manifests with puppet-lint</em></span> recipe in <a class="link" href="ch01.html" title="Chapter 1. Puppet Language and Style">Chapter 1</a>, <span class="emphasis"><em>Puppet Language and Style</em></span></li></ul></div></div></div>
+<div class="section" title="Using librarian-puppet"><div class="titlepage"><div><div><h1 class="title"><a id="ch09lvl1sec110"/>Using librarian-puppet</h1></div></div></div><p>When you begin to include<a id="id640" class="indexterm"/> modules from the forge in your Puppet infrastructure, keeping track of which versions you installed and ensuring consistency between all your testing areas can become a bit of a problem. Luckily, the tools we will discuss in the next two sections can bring order to your system. We will first begin with librarian-puppet, which uses a special configuration file named Puppetfile to specify the source location of your various modules.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec309"/>Getting ready</h2></div></div></div><p>We'll install librarian-puppet to work through the example.</p><p>Install <code class="literal">librarian-puppet</code> on your Puppet master, using Puppet of course:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~# puppet resource package librarian-puppet ensure=installed provider=gem</strong></span>
+<span class="strong"><strong>Notice: /Package[librarian-puppet]/ensure: created</strong></span>
+<span class="strong"><strong>package { 'librarian-puppet':</strong></span>
+<span class="strong"><strong>  ensure =&gt; ['2.0.0'],</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="tip18"/>Tip</h3><p>If you are working in a masterless environment, install <code class="literal">librarian-puppet</code> on the machine from which you will be managing your code. Your gem install may fail if the Ruby development packages are not available on your master; install the <code class="literal">ruby-dev</code> package to fix this issue (use Puppet to do it).</p></div></div></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec310"/>How to do it...</h2></div></div></div><p>We'll use librarian-puppet to download and install a module in this example:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Create a working directory for yourself; librarian-puppet will overwrite your modules directory by default, so we'll work in a temporary location for now:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~# mkdir librarian</strong></span>
+<span class="strong"><strong>root@puppet:~# cd librarian</strong></span>
+</pre></div></li><li class="listitem">Create a new Puppetfile with the following contents:<div class="informalexample"><pre class="programlisting">#!/usr/bin/env ruby
+#^syntax detection
+
+forge "https://forgeapi.puppetlabs.com"
+
+# A module from the Puppet Forge
+mod 'puppetlabs-stdlib'</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note17"/>Note</h3><p>Alternatively, you can use <code class="literal">librarian-puppet init</code> to create an example Puppetfile and edit it to match our example:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~/librarian# librarian-puppet init</strong></span>
+<span class="strong"><strong>      create  Puppetfile</strong></span>
+</pre></div></div></div></li><li class="listitem">Now, run librarian-puppet to download and install the <code class="literal">puppetlabs-stdlib</code> module in the <code class="literal">modules</code> directory:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~/librarian# librarian-puppet install</strong></span>
+<span class="strong"><strong>root@puppet:~/librarian # ls</strong></span>
+<span class="strong"><strong>modules  Puppetfile  Puppetfile.lock</strong></span>
+<span class="strong"><strong>root@puppet:~/librarian # ls modules</strong></span>
+<span class="strong"><strong>stdlib</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec311"/>How it works...</h2></div></div></div><p>The first line of <a id="id641" class="indexterm"/>the <code class="literal">Puppetfile</code> makes the <code class="literal">Puppetfile</code> appear to be a Ruby source file. These are completely optional but coerces editors into treating the file as though it was written in Ruby (which it is):</p><div class="informalexample"><pre class="programlisting">#!/usr/bin/env ruby</pre></div><p>We next define where the Puppet Forge is located; you may specify an internal Forge here if you have a local mirror:</p><div class="informalexample"><pre class="programlisting">forge "https://forgeapi.puppetlabs.com"</pre></div><p>Now, we added a line to include the <code class="literal">puppetlabs-stdlib</code> module:</p><div class="informalexample"><pre class="programlisting">mod 'puppetlabs-stdlib'</pre></div><p>With the <code class="literal">Puppetfile</code> in place, we ran <code class="literal">librarian-puppet</code> and it downloaded the module from the URL given in the Forge line. As the module was downloaded, <code class="literal">librarian-puppet</code> created a <code class="literal">Puppetfile.lock</code> file, which includes the location used as source and the version number for the downloaded module:</p><div class="informalexample"><pre class="programlisting">FORGE
+  remote: https://forgeapi.puppetlabs.com
+  specs:
+    puppetlabs-stdlib (4.4.0)
+
+DEPENDENCIES
+  puppetlabs-stdlib (&gt;= 0)</pre></div></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec312"/>There's more...</h2></div></div></div><p>The <code class="literal">Puppetfile</code> allows<a id="id642" class="indexterm"/> you to pull in modules from sources other than the forge. You may use a local Git url or even a GitHub url to download modules that are not on the Forge. More information on <a id="id643" class="indexterm"/>librarian-puppet can be found on the GitHub website at <a class="ulink" href="https://github.com/rodjek/librarian-puppet">https://github.com/rodjek/librarian-puppet</a>.</p><p>Note that librarian-puppet will create the modules directory and remove any modules you placed in there by default. Most installations using librarian-puppet opt to place their local modules in a <code class="literal">/local</code> subdirectory (<code class="literal">/dist</code> or <code class="literal">/companyname</code> are also used).</p><p>In the next section, we'll talk about r10k, which goes one step further than librarian and manages your entire environment directory.</p></div></div>
+<div class="section" title="Using r10k"><div class="titlepage"><div><div><h1 class="title"><a id="ch09lvl1sec111"/>Using r10k</h1></div></div></div><p>The <code class="literal">Puppetfile</code> is a very good format to describe which modules you wish to include in your environment. Building upon the <code class="literal">Puppetfile</code> is another tool, <span class="strong"><strong>r10k</strong></span>. r10k is<a id="id644" class="indexterm"/> a total environment management tool. You can use r10k to clone a local Git repository into your <code class="literal">environmentpath</code> and then place the modules specified in your <code class="literal">Puppetfile</code> into that directory. The local Git repository is known as the master repository; it is where r10k expects to find your <code class="literal">Puppetfile</code>. r10k also understands Puppet environments and will clone Git branches into subdirectories of your <code class="literal">environmentpath</code>, simplifying the deployment of multiple environments. What makes r10k particularly useful is its use of a local cache directory to speed up deployments. Using a configuration file, <code class="literal">r10k.yaml</code>, you can specify where to store this cache and also where your master repository is held.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec313"/>Getting ready</h2></div></div></div><p>We'll install r10k <a id="id645" class="indexterm"/>on our controlling machine (usually the master). This is where we will control all the modules downloaded and installed.</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Install r10k on your puppet master, or on whichever machine you wish to manage your <code class="literal">environmentpath</code> directory:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~# puppet resource package r10k ensure=installed provider=gem</strong></span>
+<span class="strong"><strong>Notice: /Package[r10k]/ensure: created</strong></span>
+<span class="strong"><strong>package { 'r10k':</strong></span>
+<span class="strong"><strong>  ensure =&gt; ['1.3.5'],</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div></li><li class="listitem">Make a new copy of your Git repository (optional, do this on your Git server):<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[git@git repos]$ git clone --bare puppet.git puppet-r10k.git</strong></span>
+<span class="strong"><strong>Initialized empty Git repository in /home/git/repos/puppet-r10k.git/</strong></span>
+</pre></div></li><li class="listitem">Check out the <a id="id646" class="indexterm"/>new Git repository (on your local machine) and move the existing modules directory to a new location. We'll use <code class="literal">/local</code> in this example:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop ~ $ git clone git@git.example.com:repos/puppet-r10k.git</strong></span>
+<span class="strong"><strong>Cloning into 'puppet-r10k'...</strong></span>
+<span class="strong"><strong>remote: Counting objects: 2660, done.</strong></span>
+<span class="strong"><strong>remote: Compressing objects: 100% (2136/2136), done.</strong></span>
+<span class="strong"><strong>remote: Total 2660 (delta 913), reused 1049 (delta 238)</strong></span>
+<span class="strong"><strong>Receiving objects: 100% (2660/2660), 738.20 KiB | 0 bytes/s, done.</strong></span>
+<span class="strong"><strong>Resolving deltas: 100% (913/913), done.</strong></span>
+<span class="strong"><strong>Checking connectivity... done.</strong></span>
+<span class="strong"><strong>t@mylaptop ~ $ cd puppet-r10k/</strong></span>
+<span class="strong"><strong>t@mylaptop ~/puppet-r10k $ git checkout production</strong></span>
+<span class="strong"><strong>Branch production set up to track remote branch production from origin.</strong></span>
+<span class="strong"><strong>Switched to a new branch 'production'</strong></span>
+<span class="strong"><strong>t@mylaptop ~/puppet-r10k $ git mv modules local</strong></span>
+<span class="strong"><strong>t@mylaptop ~/puppet-r10k $ git commit -m "moving modules in preparation for r10k"</strong></span>
+<span class="strong"><strong>[master c96d0dc] moving modules in preparation for r10k</strong></span>
+<span class="strong"><strong> 9 files changed, 0 insertions(+), 0 deletions(-)</strong></span>
+<span class="strong"><strong> rename {modules =&gt; local}/base (100%)</strong></span>
+<span class="strong"><strong> rename {modules =&gt; local}/puppet/files/papply.sh (100%)</strong></span>
+<span class="strong"><strong> rename {modules =&gt; local}/puppet/files/pull-updates.sh (100%)</strong></span>
+<span class="strong"><strong> rename {modules =&gt; local}/puppet/manifests/init.pp (100%)</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec314"/>How to do it...</h2></div></div></div><p>We'll create a Puppetfile to control r10k and install modules on our master.</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Create a <code class="literal">Puppetfile</code> into the new Git repository with the following contents:<div class="informalexample"><pre class="programlisting">forge "http://forge.puppetlabs.com"
+mod 'puppetlabs/puppetdb', '3.0.0'
+mod 'puppetlabs/stdlib', '3.2.0'
+mod 'puppetlabs/concat'
+mod 'puppetlabs/firewall'</pre></div></li><li class="listitem">Add the <code class="literal">Puppetfile</code> to your new repository:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop ~/puppet-r10k $ git add Puppetfile</strong></span>
+<span class="strong"><strong>t@mylaptop ~/puppet-r10k $ git commit -m "adding Puppetfile"</strong></span>
+<span class="strong"><strong>[production d42481f] adding Puppetfile</strong></span>
+<span class="strong"><strong> 1 file changed, 7 insertions(+)</strong></span>
+<span class="strong"><strong> create mode 100644 Puppetfile</strong></span>
+<span class="strong"><strong>t@mylaptop ~/puppet-r10k $ git push</strong></span>
+<span class="strong"><strong>Counting objects: 7, done.</strong></span>
+<span class="strong"><strong>Delta compression using up to 4 threads.</strong></span>
+<span class="strong"><strong>Compressing objects: 100% (5/5), done.</strong></span>
+<span class="strong"><strong>Writing objects: 100% (5/5), 589 bytes | 0 bytes/s, done.</strong></span>
+<span class="strong"><strong>Total 5 (delta 2), reused 0 (delta 0)</strong></span>
+<span class="strong"><strong>To git@git.example.com:repos/puppet-r10k.git</strong></span>
+<span class="strong"><strong>   cf8dfb9..d42481f  production -&gt; production</strong></span>
+</pre></div></li><li class="listitem">Back to <a id="id647" class="indexterm"/>your master, create <code class="literal">/etc/r10k.yaml</code> with the following contents:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>---</strong></span>
+<span class="strong"><strong>:cachedir: '/var/cache/r10k'</strong></span>
+<span class="strong"><strong>:sources:</strong></span>
+<span class="strong"><strong> :plops:</strong></span>
+<span class="strong"><strong>  remote: 'git@git.example.com:repos/puppet-r10k.git'</strong></span>
+<span class="strong"><strong>  basedir: '/etc/puppet/environments'</strong></span>
+</pre></div></li><li class="listitem">Run r10k to have the <code class="literal">/etc/puppet/environments</code> directory populated (hint: create a backup of your <code class="literal">/etc/puppet/environments</code> directory first):<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~# r10k deploy environment -p</strong></span>
+</pre></div></li><li class="listitem">Verify that your <code class="literal">/etc/puppet/environments</code> directory has a production subdirectory. Within that directory, the <code class="literal">/local</code> directory will exist and the modules directory will have all the modules listed in the <code class="literal">Puppetfile</code>:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:/etc/puppet/environments# tree -L 2</strong></span>
+<span class="strong"><strong>.</strong></span>
+<span class="strong"><strong>├── master</strong></span>
+<span class="strong"><strong>│   ├── manifests</strong></span>
+<span class="strong"><strong>│   ├── modules</strong></span>
+<span class="strong"><strong>│   └── README</strong></span>
+<span class="strong"><strong>└── production</strong></span>
+<span class="strong"><strong>    ├── environment.conf</strong></span>
+<span class="strong"><strong>    ├── local</strong></span>
+<span class="strong"><strong>    ├── manifests</strong></span>
+<span class="strong"><strong>    ├── modules</strong></span>
+<span class="strong"><strong>    ├── Puppetfile</strong></span>
+<span class="strong"><strong>    └── README</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec315"/>How it works...</h2></div></div></div><p>We started by <a id="id648" class="indexterm"/>creating a copy of our Git repository; this was only done to preserve the earlier work and is not required. The important thing to remember with r10k and librarian-puppet is that they both assume they are in control of the <code class="literal">/modules</code> subdirectory. We need to move our modules out of the way and create a new location for the modules.</p><p>In the <code class="literal">r10k.yaml</code> file, we specified the location of our new repository. When we ran r10k, it first downloaded this repository into its local cache. Once the Git repository is downloaded locally, r10k will go through each branch and look for a <code class="literal">Puppetfile</code> within the branch. For each <code class="literal">branch/Puppetfile</code> combination, the modules specified within are downloaded first to the local cache directory (<code class="literal">cachedir</code>) and then into the <code class="literal">basedir</code>, which was given in <code class="literal">r10k.yaml</code>.</p></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch09lvl2sec316"/>There's more...</h2></div></div></div><p>You can automate the deployment of your environments using <code class="literal">r10k</code>. The command we used to run <code class="literal">r10k</code> and populate our environments directory can be easily placed inside a Git hook to automatically update your environment. There is also a <span class="strong"><strong>marionette collective</strong></span> (<span class="strong"><strong>mcollective</strong></span>) plugin<a id="id649" class="indexterm"/> (<a class="ulink" href="https://github.com/acidprime/r10k">https://github.com/acidprime/r10k</a>), which can be used to have <code class="literal">r10k</code> run on an arbitrary set of servers.</p><p>Using either of these tools will help keep your site consistent, even if you are not taking advantage of the various modules available on the Forge.</p></div></div></body></html>

@@ -1,0 +1,419 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Puppet Server and Agents</h1>
+                </header>
+            
+            <article>
+                
+<p>So far, you have dealt with some concise Puppet manifests that were built to model some very specific goals. By means of the <kbd>puppet apply</kbd> command, you can use such snippets on any machine in your infrastructure. This is not the most common way of using Puppet, though, and this chapter will introduce you to the popular server/agent structure. It's worth noting, however, that applying standalone manifests that are independent of your overall Puppet design can always be useful.</p>
+<p>Under the server/agent paradigm, you will typically install the Puppet agent software on all nodes under your care and make them call the server, which is yet another Puppet installation. The server will compile the appropriate manifests and effectively remotely control the agents. Both the agent and the server authenticate themselves using trusted SSL certificates.</p>
+<p>This chapter covers the following topics:</p>
+<ul>
+<li>The Puppet server</li>
+<li>Setting up the Puppet agent</li>
+<li>Performance optimizations</li>
+<li>Completing the stack with PuppetDB</li>
+<li>The Puppet CA</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The Puppet server</h1>
+                </header>
+            
+            <article>
+                
+<p>Many Puppet-based workflows are centered on the server, which is the central source of configuration data and authority. The server hands instructions to all the computer systems in the infrastructure (where agents are installed). It serves multiple purposes in the distributed system of Puppet components.</p>
+<p>The server will perform the following tasks:</p>
+<ul>
+<li>Storing manifests and compiling catalogs</li>
+<li>Serving as the SSL certification authority</li>
+<li>Processing reports from the agent machines</li>
+<li>Gathering and storing information about the agents</li>
+</ul>
+<p>As such, the security of your server machine is paramount. The requirements for hardening are comparable to those of a Kerberos key distribution center.</p>
+<p>During its first initialization, the Puppet server generates the CA certificate. This self-signed certificate will be distributed among and trusted by all the components of your infrastructure. This is why its private key must be protected very carefully. New agent machines request individual certificates, which are signed with the CA certificate.</p>
+<div class="packt_tip">It's a good idea to include a copy of the CA certificate in your OS-provisioning process so that the agent can establish the authenticity of the master before requesting its individual certificate.</div>
+<p>The terminology around the master software might be a little confusing. That's because both the terms <strong>Puppet master</strong> and <strong>Puppet server</strong> are floating around, and they are closely related too. Let's consider some technological background in order to give you a better understanding of what is what.</p>
+<p>Puppet's master service mainly comprises a RESTful HTTP API. Agents initiate the HTTPS transactions, with both sides identifying each other using trusted SSL certificates. During the time when Puppet 3 and older versions were the most advanced versions available, the HTTPS layer was typically handled by Apache. Puppet's Ruby core was invoked through the <kbd>Passenger</kbd> module. This approach offered good stability and scalability.</p>
+<p>Puppet Inc. has improved upon this standard solution with specialized software called <kbd>puppetserver</kbd>. The Ruby-based core of the master remains basically unchanged, although it now runs on JRuby instead of Ruby's own MRI. The HTTPS layer is run by Jetty, sharing the same Java virtual machine with the master.</p>
+<p>By cutting out some middlemen, <kbd>puppetserver</kbd> is faster and more scalable than a Passenger solution. It is also significantly easier to set up.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Setting up the server machine</h1>
+                </header>
+            
+            <article>
+                
+<p>Getting the <kbd>puppetserver</kbd> software onto a Linux machine is just as simple as the agent package (which you did at the very beginning of <a href="8a22dc0e-3fe2-4153-b60e-935b7e6d9f94.xhtml" target="_blank"><span class="ChapterrefPACKT">Chapter 1</span></a>, <em>Writing Your First Manifests</em>). Packages are available on Red Hat Enterprise Linux and its derivatives, Debian and Ubuntu, and any other operating system that is supported to run a Puppet server.</p>
+<p>Until now, the Puppet server must run on a Linux-based operating system, and cannot run on Windows or any other Unix. A great way to get Puppet Inc. packages on any platform is the Puppet Collection. Shortly after the release of Puppet 4, Puppet Inc. created this new way of supplying software. This can be considered as a distribution in its own right. Unlike Linux distributions, it does not contain a Kernel, system tools, or libraries. Instead, it comprises various software from the Puppet ecosystem. Software versions that are available from the same Puppet collection are guaranteed to work well together.</p>
+<p>Use the following commands to install <kbd>puppetserver</kbd> from the first <strong>Puppet Collection</strong> (<strong>PC1</strong>) on a Debian 8 machine (the collection for Debian 9 has not yet received a <kbd>puppetserver</kbd> package at the time of writing this):</p>
+<pre><strong>root@puppetmaster# wget http://apt.puppetlabs.com/puppetlabs-release-pc1-jessie.deb</strong><br/><strong>root@puppetmaster# dpkg -i puppetlabs-release-pc1-jessie.deb</strong><br/><strong>root@puppetmaster# apt-get update</strong><br/><strong>root@puppetmaster# apt-get install puppetserver<br/></strong></pre>
+<p>The <kbd>puppetserver</kbd> package comprises only the Jetty server and the Clojure API, but the all-in-one <kbd>puppet-agent</kbd> package is pulled in as a dependency.</p>
+<div class="packt_infobox">The package name, <kbd>puppet-agent</kbd>, is misleading. This AIO package contains all the parts of Puppet, including the master core, a vendored Ruby build, and several pieces of additional software.</div>
+<p>Specifically, you can use the <kbd>puppet</kbd> command on the master node. You will soon learn how this is useful. However, when using the packages from Puppet Labs, everything gets installed under <kbd>/opt/puppetlabs</kbd>. It is advisable to make sure that your <kbd>PATH</kbd> variable always includes the <kbd>/opt/puppetlabs/bin</kbd> directory so that the <kbd>puppet</kbd> command is found here.</p>
+<p>Regardless of this, once the <kbd>puppetserver</kbd> package is installed, you can start the master service:</p>
+<pre><strong>root@puppetmaster# systemctl start puppetserver  </strong></pre>
+<p>Depending on the power of your machine, the startup can take a few minutes. Once initialization completes, the server will operate very smoothly, though. As soon as the master port <kbd>8140</kbd> is open, your Puppet master is ready to serve requests.</p>
+<div class="packt_tip">If the service fails to start, there might be an issue with certificate generation (we observed such issues with some versions of the software). Check the log file at <kbd>/var/log/puppetlabs/puppetserver/puppetserver-daemon.log</kbd>. If it indicates that there are problems while looking up its certificate file, you can work around the problem by temporarily running a standalone master as follows:<br/>
+<pre><strong>puppet master --no-daemonize</strong></pre>
+<span>After initialization, you can stop this process. The certificate is available now, and </span><kbd>puppetserver</kbd><span> should now be able to start as well.</span></div>
+<p class="mce-root">Another reason for start failures is an insufficient amount of memory. The Puppet server process needs 2 GB of memory.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating the master manifest</h1>
+                </header>
+            
+            <article>
+                
+<p>When you used Puppet locally in <a href="8a22dc0e-3fe2-4153-b60e-935b7e6d9f94.xhtml"><span class="ChapterrefPACKT">Chapter 1</span></a>, <em>Writing Your First Manifests</em>, you specified a manifest file that <kbd>puppet apply</kbd> should compile. The master compiles manifests for many machines, but the agent does not get to choose which source file is to be used; this is completely at the master's discretion. The starting point for any compilation by the master is always the site manifest, which can be found in <kbd>/opt/puppetlabs/code/environments/production/manifests/</kbd>.</p>
+<div class="packt_infobox">The significance of the environments/production part will be investigated in <a href="3217a4c2-135e-46b4-bcf2-eef9ddce9991.xhtml">Chapter 5</a>, <em>Combining Classes, Configuration Files, and Extensions into Modules</em>. In Puppet versions before 4.0, the site manifest is at another location, <kbd>/etc/puppet/manifests/site.pp</kbd>, and comprises just one file.</div>
+<p>Each connecting agent will use all the manifests found here. Of course, you don't want to manage only one identical set of resources on all your machines. To define a piece of manifest exclusively for a specific agent, put it in a <kbd>node</kbd> block. This block's contents will only be considered when the calling agent has a matching common name in its SSL certificate. You can dedicate a piece of the manifest to a machine with the name of <kbd>agent</kbd>, for example:</p>
+<pre>node 'agent' {<br/>  $packages = [ 'apache2',<br/>    'libapache2-mod-php5',<br/>    'libapache2-mod-passenger', ]<br/>  package { $packages:<br/>    ensure =&gt; 'installed',<br/>    before =&gt; Service['apache2'],<br/>  }<br/>  service { 'apache2':<br/>    ensure =&gt; 'running',<br/>    enable =&gt; true,<br/>  }<br/>}</pre>
+<div class="packt_tip">The given example does not show best practice for node classification. It is merely used as an example. We will show the modern best practice node classification in <a href="0a0cf4b0-23fa-48fd-abf9-77ed851bb581.xhtml">Chapter 9</a>, <em>Puppet Roles and Profiles</em>.</div>
+<p>Before you set up and connect your first agent to the master, step back and think about how the master should be addressed. By default, agents will try to resolve the unqualified <kbd>puppet</kbd> hostname in order to get the master's address. If you have a default domain that is being searched by your machines, you can use this as a default and add a record for <kbd>puppet</kbd> as a subdomain (such as <kbd>puppet.example.net</kbd>).</p>
+<p>Otherwise, pick a domain name that seems fitting to you, such as <kbd>master.example.net</kbd> or <kbd>adm01.example.net</kbd>. What's important is the following:</p>
+<ul>
+<li>All your agent machines can resolve the name to an address</li>
+<li>The master process is listening for connections on that address</li>
+<li>The master uses a certificate with the chosen name as CN or DNS Alt Names</li>
+</ul>
+<p>The mode of resolution depends on your circumstances; the <kbd>hosts</kbd> file on each machine is one ubiquitous possibility. The Puppet server listens on all the available addresses by default.</p>
+<p>This leaves the task of creating a suitable certificate, which is simple. Configure the master to use the appropriate certificate name and restart the service. If the certificate does not exist yet, Puppet will take the necessary steps to create it. Put the following setting into your <kbd>/etc/puppetlabs/puppet/puppet.conf</kbd> file on the master machine:</p>
+<pre>[main] 
+certname=puppetmaster.example.net </pre>
+<div class="packt_infobox">In Puppet versions earlier than 4.0, the default location for the configuration file is <kbd>/etc/puppet/puppet.conf</kbd>.</div>
+<p>Upon its next start, the master will use the appropriate certificate for all SSL connections. The automatic proliferation of SSL data is not dangerous, even in an existing setup, except for the certification authority. If the master were to generate a new CA certificate at any point in time, it would break the trust of all existing agents.</p>
+<div class="packt_infobox">Make sure that the CA data is neither lost nor compromised. All previously signed certificates become obsolete whenever Puppet needs to create a new certification authority. The default storage location is <kbd>/etc/puppetlabs/puppet/ssl/ca</kbd> for Puppet 4.0 and higher, and <kbd>/var/lib/puppet/ssl/ca</kbd> for older versions.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Inspecting the configuration settings</h1>
+                </header>
+            
+            <article>
+                
+<p>All the customization of the master's parameters can be made in the <kbd>puppet.conf</kbd> file. The operating system packages ship with some settings that are deemed sensible by the respective maintainers. Apart from these explicit settings, Puppet relies on defaults that are either built-in or derived from the environment (details on how this works follow in the <a href="be2d7b8b-9ea8-4459-b415-081e77db07c7.xhtml">Chapter 3</a>, <em>A Peek into the Ruby Part of Puppet - Facts, Types, and Providers</em>):</p>
+<pre><strong>root@puppetmaster # puppet master --configprint manifest</strong><br/><strong>/etc/puppetlabs/code/environments/production/manifests</strong></pre>
+<p>Most users will want to rely on these defaults for as many settings as possible. This is possible without any drawbacks because Puppet makes all settings fully transparent using the <kbd>--configprint</kbd> parameter. For example, you can find out where the master manifest files are located.</p>
+<p>To get an overview of all available settings and their values, use the following command:</p>
+<pre><strong>root@puppetmaster# puppet master --configprint all | less  </strong></pre>
+<p>While this command is especially useful on the master side, the same introspection is available for <kbd>puppet apply</kbd> and <kbd>puppet agent</kbd>.</p>
+<p>Setting specific configuration entries is possible with the <kbd>puppet config</kbd> command:</p>
+<pre><strong>root@puppetmaster # puppet config set –-section main certname puppetmaster.example.net</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Setting up the Puppet agent</h1>
+                </header>
+            
+            <article>
+                
+<p>As was explained earlier, the master mainly serves instructions to agents in the form of catalogs that are compiled from the manifest. You have also prepared a <kbd>node</kbd> block for your first agent in the master manifest.</p>
+<p>Installing the agent software is easy; you did this at the start of <a href="8a22dc0e-3fe2-4153-b60e-935b7e6d9f94.xhtml"><span class="ChapterrefPACKT">Chapter 1</span></a>, <em>Writing Your First Manifests</em>. The plain Puppet package that allows you to apply a local manifest contains all the required parts in order to operate a proper agent.</p>
+<p>If you are using Puppet Labs packages, use the instructions from earlier in this chapter. On agent machines, you need not install the <kbd>puppetserver</kbd> package. Just get <kbd>puppet-agent</kbd> instead.</p>
+<p>After a successful package installation, one needs to specify where puppet agent can find the puppet server:</p>
+<pre><strong>root@puppetmaster # puppet config set –-section agent server pup-petmaster.example.net</strong> </pre>
+<p>Afterwards, the following invocation is sufficient for an initial test:</p>
+<pre><strong>root@agent# puppet agent --test</strong><br/><strong>Info: Creating a new SSL key for agent</strong><br/><strong>Error: Could not request certificate: getaddrinfo: Name or service not known</strong><br/><strong>Exiting; failed to retrieve certificate and waitforcert is disabled</strong></pre>
+<p>Puppet first created a new SSL certificate key for itself. For its own name, it picked <kbd>agent</kbd>, which is the machine's hostname. That's fine for now. An error occurred because the <kbd>puppet</kbd> name cannot be currently resolved to anything. Add this to <kbd>/etc/hosts</kbd> so that Puppet can contact the master:</p>
+<pre><strong>root@agent# puppet agent --test</strong><br/><strong>Info: Caching certificate for ca</strong><br/><strong>Info: csr_attributes file loading from /etc/puppetlabs/puppet/csr_attributes.yaml</strong><br/><strong>Info: Creating a new SSL certificate request for agent</strong><br/><strong>Info: Certificate Request fingerprint (SHA256): 52:65:AE:24:5E:2A:C6:17:E2:5D:0A:C9: 86:E3:52:44:A2:EC:55:AE:3D:40:A9:F6:E1:28:31:50:FC:8E:80:69</strong><br/><strong>Exiting; failed to retrieve certificate and waitforcert is disabled</strong></pre>
+<div class="packt_infobox">How Puppet conveniently downloaded and cached the CA certificate. The agent will establish trust based on this certificate from now on.</div>
+<p class="mce-root">Puppet created a certificate request and sent it to the master. It then immediately tried to download the signed certificate. This is expected to fail the master won't just sign a certificate for any request it receives. This behavior is important for proper security.<br/>
+There is a configuration setting that enables such automatic signing, but users are generally discouraged from using this setting because it allows the creation of arbitrary numbers of signed (and therefore, trusted) certificates to any user who has network access to the master.</p>
+<p>To authorize the agent, look for the CSR on the master using the <kbd>puppet cert</kbd> command:</p>
+<pre><strong>root@puppetmaster# puppet cert --list</strong><br/><strong>"agent" (SHA256) 52:65:AE:24:5E:2A:C6:17:E2:5D:0A:C9:86:E3:52:44:A2:EC:55:AE: 3D:40:A9:F6:E1:28:31:50:FC:8E:80:69  </strong></pre>
+<p>This looks alright, so now you can sign a new certificate for the agent:</p>
+<pre><strong>root@puppetmaster# puppet cert --sign agent</strong><br/><strong>Notice: Signed certificate request for agent</strong><br/><strong>Notice: Removing file Puppet::SSL::CertificateRequest agent at '/etc/puppetlabs/ puppet/ssl/ca/requests/agent.pem'  </strong></pre>
+<div class="packt_tip">When choosing the action for <kbd>puppet cert</kbd>, the dashes in front of the option name can be omitted; you can just use <kbd>puppet cert list</kbd> and <kbd>puppet cert sign</kbd>.</div>
+<p>Now the agent can receive its certificate for its catalog run as follows:</p>
+<pre><strong>root@agent# puppet agent --test</strong><br/><strong>Info: Caching certificate for agent</strong><br/><strong>Info: Caching certificate_revocation_list for ca</strong><br/><strong>Info: Caching certificate for agent</strong><br/><strong>Info: Retrieving pluginfacts</strong><br/><strong>Info: Retrieving plugin</strong><br/><strong>Info: Caching catalog for agent</strong><br/><strong>Info: Applying configuration version '1437065761'</strong><br/><strong>Notice: Applied catalog in 0.11 seconds</strong></pre>
+<p>The agent is now fully operational. It received a catalog and applied all resources found within. Before you read on to learn how the agent usually operates, there is a note that is especially important for the users of Puppet 3.</p>
+<div class="packt_infobox">Remember that you configured the master to use the name <kbd>master.example.net</kbd> for the master machine earlier in this chapter by setting the <kbd>certname</kbd> option in the master's <kbd>puppet.conf</kbd> file.</div>
+<p>Since this is the common name in the master's certificate, the preceding command will not even work with a Puppet 3.x master. It works with <kbd>puppetserver</kbd> and Puppet 4 because the default <kbd>puppet</kbd> name is now included in the certificate's Subject Alternative Names by default.</p>
+<p>It is tidier to not rely on this alias name, though. After all, in production, you will probably want to make sure that the master has a fully qualified name that can be resolved, at least inside your network. You should, therefore, add the following to the <kbd>main</kbd> section of <kbd>puppet.conf</kbd> on each agent machine:</p>
+<pre>[agent] 
+server=master.example.net </pre>
+<p>In the absence of DNS to resolve this name, your agent will need an appropriate entry in its hosts file or a similar alternative way of address resolution.</p>
+<p>These steps are necessary in a Puppet 3.x setup. If you have been following along with a Puppet 4 agent, you might notice that after this change, it generates a new certificate signing request:</p>
+<pre><strong>root@agent# puppet agent –test</strong><br/><strong>Info: Creating a new SSL key for agent.example.net</strong><br/><strong>Info: csr_attributes file loading from /etc/puppetlabs/puppet/csr_attributes.yaml</strong><br/><strong>Info: Creating a new SSL certificate request for agent.example.net</strong><br/><strong>Info: Certificate Request fingerprint (SHA256): 85:AC:3E:D7:6E:16:62:BD:28:15:B6:18: 12:8E:5D:1C:4E:DE:DF:C3:4E:8F:3E:20:78:1B:79:47:AE:36:98:FD</strong><br/><strong>Exiting; no certificate found and waitforcert is disabled</strong></pre>
+<p>If this happens, you will have to use <kbd>puppet cert sign</kbd> on the master again. The agent will then retrieve a new certificate.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The agent's life cycle</h1>
+                </header>
+            
+            <article>
+                
+<p>In a Puppet-centric workflow, you typically want all changes to the configuration of servers (perhaps even workstations) to originate on the Puppet master and propagate to the agents automatically. Each new machine gets integrated into the Puppet infrastructure with the master at its center, and gets removed during the decommissioning, as shown in the following diagram:</p>
+<div class="CDPAlignCenter CDPAlign"><img class=" image-border" height="224" src="assets/0cad3915-47be-4fa8-a396-3ce43350b167.jpg" width="331"/></div>
+<p>The very first step, generating a key and a certificate signing request is always performed implicitly and automatically at the start of an agent run if no local SSL data exists yet. Puppet creates the required data if no appropriate files are found. There will be a short description on how to trigger this behavior manually later in this section.</p>
+<p>The next step is usually the signing of the agent's certificate, which is performed on the master. It is good practice to monitor the pending requests by listing them on the console:</p>
+<pre><strong>root@puppetmaster# puppet cert list</strong><br/><strong>root@puppetmaster# puppet cert sign '&lt;agent fqdn&gt;'</strong></pre>
+<p>From this point on, the agent will periodically check with the master to load updated catalogs. The default interval for this is 30 minutes. The agent will perform a run of a catalog each time and check the sync state of all the contained resources. The run is performed for unchanged catalogs as well, because the sync states can change between runs.</p>
+<div class="packt_infobox">Before you manage to sign the certificate, the agent process will query the master at short intervals for a while. This can avoid a 30 minute delay if the certificate is not ready right when the agent starts up.</div>
+<p>Launching this background process can be done manually through a simple command:</p>
+<pre><strong>root@agent# puppet agent</strong></pre>
+<p>However, it is preferable to do this through the <kbd>puppet</kbd> system service.</p>
+<p>When an agent machine is taken out of active service, its certificate should be invalidated. As is customary with SSL, this is done through revocation and cleaning the certificate. The master adds the serial number of the certificate to its certificate revocation list. This list, too, is shared with each agent machine. Revocation is initiated on the master through the <kbd>puppet cert</kbd> command:</p>
+<pre><strong>root@puppetmaster# puppet cert revoke agent</strong></pre>
+<div class="packt_infobox">The updated CRL is not honored until the master service is restarted. If security is a concern, this step must not be postponed.</div>
+<p>The agent can then no longer use its old certificate:</p>
+<pre><strong>root@agent# puppet agent --test</strong><br/><strong>Warning: Unable to fetch my node definition, but the agent run will continue:</strong><br/><strong>Warning: SSL_connect SYSCALL returned=5 errno=0 state=unknown state</strong><br/><strong>[...]</strong><br/><strong>Error: Could not retrieve catalog from remote server: SSL_connect SYSCALL returned=5 errno=0 state=unknown state</strong><br/><strong>[...]</strong></pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Renewing an agent's certificate</h1>
+                </header>
+            
+            <article>
+                
+<p>Sometimes, it is necessary during an agent machine's life cycle to regenerate its certificate and related data. The reasons for this can include data loss, human error, or certificate expiration, among others. The regeneration is achieved through the following steps:</p>
+<ol>
+<li>Performing the regeneration is quite simple: all relevant files are kept at <kbd>/etc/puppetlabs/puppet/ssl</kbd> (for Puppet 3.x, this is <kbd>/var/lib/puppet/ssl</kbd>) on the agent machine.</li>
+<li>Once these files are removed (or rather, the whole <kbd>ssl/</kbd> directory tree), Puppet will renew everything on the next agent run. Of course, a new certificate must be signed. This requires some preparation; just initiating the request from the agent will fail:</li>
+</ol>
+<pre style="padding-left: 90px"><strong>root@agent# puppet agent –test</strong><br/><strong>Info: Creating a new SSL key for agent</strong><br/><strong>Info: Caching certificate for ca</strong><br/><strong>Info: Caching certificate for agent.example.net</strong><br/><strong>Error: Could not request certificate: The certificate retrievedfrom the master does not match the agent's private key.</strong><br/><strong>Certificate fingerprint: 6A:9F:12:C8:75:C0:B6:10:45:ED:C3:97:24:CC:98:F2:B6:1A:B5: 4C:E3:98:96:4F:DA:CD:5B:59:E0:7F:F5:E6</strong></pre>
+<p style="padding-left: 90px">The master still has the old certificate cached. This is a simple protection against the impersonation of your agents by unauthorized entities.</p>
+<ol start="3">
+<li>To fix this, remove the certificate from both the master and the agent and then start a Puppet run, which will automatically regenerate a certificate:
+<ul>
+<li>On the master, use the following:</li>
+</ul>
+</li>
+</ol>
+<pre style="padding-left: 60px"><strong>         puppet cert clean agent.example.net</strong></pre>
+<ol>
+<li style="list-style-type: none">
+<ul>
+<li>On the agent, use the following:</li>
+<li>On most platforms, use the following:</li>
+</ul>
+</li>
+</ol>
+<pre style="padding-left: 150px"><strong>find /etc/puppetlabs/puppet/ssl -name agent.example.net.pem –delete</strong></pre>
+<ol>
+<li style="list-style-type: none">
+<ul>
+<li>On Windows, use the following:</li>
+</ul>
+</li>
+</ol>
+<pre style="padding-left: 150px"><strong>del "/etc/puppetlabs/puppet/ssl/agent.example.net.pem" /f</strong><br/><strong>puppet agent –t</strong><br/><strong>Exiting; failed to retrieve certificate and waitforcert is disabled</strong></pre>
+<ol start="4">
+<li>Once you perform the cleanup operation on the master, as advised in the preceding output, and remove the indicated file from the agent machine, the agent will be able to successfully place its new CSR:</li>
+</ol>
+<pre style="padding-left: 90px"><strong>root@puppetmaster# puppet cert clean agent</strong><br/><strong>Notice: Revoked certificate with serial 18</strong><br/><strong>Notice: Removing file Puppet::SSL::Certificate agent at '/etc/puppetlabs/ puppet/ssl/ca/signed/agent.pem'</strong><br/><strong>Notice: Removing file Puppet::SSL::Certificate agent at '/etc/puppetlabs/ puppet/ssl/certs/agent.pem'</strong></pre>
+<p>The rest of the process is identical to the original certificate creation. The agent uploads its CSR to the master, where the certificate is created through the <kbd>puppet cert sign</kbd> command.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Running the agent from cron</h1>
+                </header>
+            
+            <article>
+                
+<p>There is an alternative way to operate the agent. We covered starting one long-running <kbd>puppet agent</kbd> process that does its work in set intervals and then goes back to sleep. However, it is also possible to have cron launch a discrete agent process in the same interval. This agent will contact the master once, run the received catalog, and then terminate. This has several advantages, as follows:</p>
+<ul>
+<li>The agent operating system saves resources</li>
+<li>The interval is precise and not subject to skew (when running the background agent, deviations result from the time that elapses during the catalog run), and distributed interval skew can lead to thundering herd effects</li>
+<li>Any agent crash or an inadvertent termination is not fatal</li>
+</ul>
+<p>Setting Puppet to run the agent from cron is also very easy to do with Puppet! You can use a manifest like the following:</p>
+<pre>service { 'puppet': enable =&gt; false, }<br/>cron { 'puppet-agent-run':<br/>  user    =&gt; 'root',<br/>  command =&gt; 'puppet agent --no-daemonize --onetime --logdest=syslog',<br/>  minute  =&gt; fqdn_rand(60),<br/>  hour    =&gt; absent,<br/>}</pre>
+<p>The <kbd>fqdn_rand</kbd> function computes a distinct minute for each of your agents. Setting the <kbd>hour</kbd> property to <kbd>absent</kbd> means that the job should run every hour.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Performance optimizations</h1>
+                </header>
+            
+            <article>
+                
+<p>Operating a Puppet master gives you numerous benefits over just using <kbd>puppet apply</kbd> on all your machines. This comes at a cost, of course. The master and agents form a server/client relation, and, as with most such constructs, the server can become the bottleneck.</p>
+<p>The good news is that the Puppet agent is a fat client. The major share of the work inspecting file contents, interfacing with the package-management subsystem, services subsystem, and much more is done by the agent. The master only has to compile manifests and build catalogs from them. This becomes increasingly complex as you hand over more control to Puppet.</p>
+<p>There is one more task your master is responsible for. Many of your manifests will contain file resources that rely on prepared content:</p>
+<pre>file { '/usr/local/etc/my_app.ini':<br/>  ensure =&gt; file,<br/>  owner  =&gt; 'root',<br/>  group  =&gt; 'root',<br/>  source =&gt;  <br/>  'puppet:///modules/my_app/usr/local/etc/my_app.ini',<br/>}</pre>
+<p>The <kbd>source</kbd> parameter with a URL value indicates that the file has been pregenerated and placed in a module on the Puppet master (more on modules in <a href="3217a4c2-135e-46b4-bcf2-eef9ddce9991.xhtml"><span class="ChapterrefPACKT">Chapter 5</span></a>, <em>Combining Classes, Configuration Files, and Extensions into Modules</em>). The agent will compare the local file with the master's copy (by checksum) and download the canonical version, if required. The comparison is a frequent occurrence in most agent runs; you will make Puppet manage a lot of files. The master does not need a lot of resources to make this happen, but it <em>will</em> hinder fluent agent operation if the master gets congested.</p>
+<p>This can happen for any combination of the following reasons:</p>
+<ul>
+<li>The total number of agents is too large</li>
+<li>The agents check in too frequently</li>
+<li>The manifests are too complex</li>
+<li>The Puppet server is not tuned adequately</li>
+<li>The master's hardware resources are insufficient</li>
+</ul>
+<p>There are ways to scale your master operation via load balancing, but these are not covered in this book.</p>
+<div class="packt_tip">Puppet Labs have some documentation on a few advanced approaches at <a href="https://docs.puppetlabs.com/guides/scaling_multiple_masters.html.">https://docs.puppetlabs.com/guides/scaling_multiple_masters.html.</a></div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Tuning puppetserver</h1>
+                </header>
+            
+            <article>
+                
+<p>The puppetserver is a great way to run the master service. It is simple to set up and maintain, and it also has great performance during the operation. Starting up can take a little while to initialize everything to that end.</p>
+<p>There are only a few customizable settings that can impact performance. Seeing as puppetserver runs in the JVM, the most important tuning approach is to scale the heap. A small heap will increase the overhead for garbage collection. Therefore, you should use the <kbd>-Xmx</kbd> and <kbd>-Xms</kbd> Java options to allow the JVM to use large parts of your available memory for the aforementioned heap.</p>
+<p>On Debian, these settings are found in <kbd>/etc/default/puppetserver</kbd>. It is sensible to pass the same value to both. A dynamic heap has little benefit because you cannot safely use any saved memory.</p>
+<div class="packt_tip">For proper puppetserver functionality, it is recommended that you have 4 GB of RAM available. </div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Completing the stack with PuppetDB</h1>
+                </header>
+            
+            <article>
+                
+<p>PuppetDB is a specialized database REST API designed to interact with the Puppet master. It mainly comprises a PostgreSQL backend with an API wrapper. The latter was written in Clojure and runs in yet another JVM.</p>
+<p>PuppetDB aids the master's secondary task of storing reports and other agent data. It is also necessary for some specific manifest compiler functionality. This is covered in <a href="60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml"><span class="ChapterrefPACKT">Chapter 6</span></a>, <em>The Puppet Beginners Advanced Parts</em>.</p>
+<p>The best way to set up and configure PuppetDB is actually Puppet itself. Since the necessary tools have not yet been introduced, we will postpone this step until <a href="60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml"><span class="ChapterrefPACKT">Chapter 6</span></a>,  <em>The Puppet Beginners Advanced Parts</em>. This is not a problem, because PuppetDB is not essential for basic master operation.</p>
+<div class="packt_infobox">Nevertheless, after finishing this chapter, you should include PuppetDB into any new master setup because it allows for advanced reporting and introspection.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The Puppet CA</h1>
+                </header>
+            
+            <article>
+                
+<p>Among the most frustrating issues, especially for new users, are problems with the agent's SSL handshake. Such errors are especially troublesome because Puppet cannot always offer very helpful analysis in its logs - the problems occur in the SSL library functions, and the application cannot examine the circumstances.</p>
+<div class="packt_infobox">The online documentation at Puppet Labs has a <span class="packt_screen">troubleshooting</span> section that also has some advice concerning SSL-related issues at <a href="https://docs.puppet.com/pe/latest/trouble_puppet.html"><span class="URLPACKT">https://docs.puppetlabs.com/guides/troubleshooting.html</span></a>.</div>
+<p>Consider the following output for the <kbd>--test</kbd> command:</p>
+<pre><strong>root@agent# puppet agent --test</strong><br/><strong>Warning: Unable to fetch my node definition, but the agent run will continue:</strong><br/><strong>Warning: SSL_connect returned=1 errno=0 state=unknown state: certificate verify failed: [CRL is not yet valid for /CN=Puppet CA: puppet.example.net]  </strong></pre>
+<p>The agent opines that the CRL it receives from the master is not yet valid. Errors such as these can happen whenever the agent's clock gets reset to a very early date. This can also result from a slight clock skew, when the CRL has recently been updated through a revocation action on the master. If the system clock on the agent machine returns a time far in the future, it will consider certificates to be expired.</p>
+<p>These clock-related issues are best avoided by running an <kbd>ntp</kbd> service on all Puppet agents and masters.</p>
+<p>Errors will generally result if the data in the agent's <kbd>$ssldir</kbd> becomes inconsistent. This can happen when the agent interacts with an alternate master (a testing instance, for example). The first piece of advice you will most likely receive when asking the community what to do about such problems is to create a new agent certificate from scratch. This works as described in the <em>The agent's life cycle</em> section:</p>
+<ul>
+<li>Remove all the SSL data from the agent machine</li>
+<li>Revoke and remove the certificate from the master using <kbd>puppet cert clean</kbd></li>
+<li>Request and sign a new certificate</li>
+</ul>
+<div class="packt_infobox">Before you start the recovery procedure, make sure that you are logged in to the afflicted agent machine and not the master. Losing the master's SSL data will make it necessary to recreate your complete SSL infrastructure.</div>
+<p>This approach will indeed remedy most issues. Be careful not to leave any old files in the relevant location on the agent machine. If the problems persist, a more involved solution is required. The openssl command-line tool is helpful to analyze the certificates and related files. The details of such an analysis are beyond the scope of this book, though.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>You can now set up your own Puppet master, using the sophisticated puppetserver solution. You have successfully signed the certificate for a Puppet agent and can revoke certificates, if required. Using the <kbd>node</kbd> blocks in the master manifest, you can describe individual manifests for each distinct agent. Finally, you learned about some things that can go wrong with the SSL-based authentication.</p>
+<p>In <a href="be2d7b8b-9ea8-4459-b415-081e77db07c7.xhtml">Chapter 3</a>, <em>A Peek into the Ruby Part of Puppet - Facts, Types, and Providers</em>, we will take a look at the inner workings of Puppet in order to give you an understanding of how the Puppet agent adapts to its environment. You will also learn how the agent provides feedback to the master, allowing you to create flexible manifests that fit different needs.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

@@ -1,0 +1,1111 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Combining Classes, Configuration Files, and Extensions into Modules</h1>
+                </header>
+            
+            <article>
+                
+<p>In the previous chapter, you learned about the tools that create modularized and reusable Puppet code in the form of classes and defined types. We discussed that almost all Puppet resources should be separated into appropriate classes, except if they logically need to be part of a defined type. This is almost enough syntax to build manifests for an entire fleet of agent nodes; each selecting the appropriate composite classes, which in turn include further required classes, with all the classes recursively instantiating the defined types.</p>
+<p>What has not been discussed up until now is the organization of the manifests in the filesystem. It is obviously undesirable to stuff all of your code into one large <kbd>site.pp</kbd> file. The answer to this problem is provided by modules and will be explained in this chapter.</p>
+<p>Besides organizing classes and defines, modules are also a way to share common code. They are software libraries for Puppet manifests and plugins. They also offer a convenient place to locate the interface descriptions that were hinted at in the previous chapter. Puppet Labs runs a dedicated service for hosting open source modules, called the Puppet Forge.</p>
+<p>The existence and general location of the modules were mentioned briefly in <a href="be2d7b8b-9ea8-4459-b415-081e77db07c7.xhtml"><span class="ChapterrefPACKT">Chapter 3</span></a>, <em>A Peek into the Ruby Part of Puppet - Facts, Types, and Providers</em>. It is now time to explore these and other aspects in greater detail. We'll cover the following topics in this chapter:</p>
+<ul>
+<li>The contents of Puppet's modules</li>
+<li>Managing environments</li>
+<li>Building a component module</li>
+<li>Finding helpful Forge modules</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The contents of Puppet's modules</h1>
+                </header>
+            
+            <article>
+                
+<p>A module can be seen as a higher-order organizational unit. It bundles up classes and defined types that contribute to a common management goal (specific system aspects or a piece of software, for example). These manifests are not all that is organized through modules; most modules also bundle files and file templates. There can also be several kinds of Puppet plugins in a module. This section will explain these different parts of a module and show you where they are located. You will also learn about the means of module documentation and how to obtain existing modules for your own use.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Parts of a module</h1>
+                </header>
+            
+            <article>
+                
+<p>For most modules, <strong>manifests</strong> form the most important part - the core functionality. The manifests consist of classes and defined types, which all share a namespace, rooted at the module name. For example, an <kbd>ntp</kbd> module will contain only classes and defines whose names start with the <kbd>ntp::</kbd> prefix.</p>
+<p>Many modules contain files that can be synced to the agent's filesystem. This is often used for configuration files or snippets. You have seen examples of this, but let's repeat them. A frequent occurrence in many manifests is <kbd>file</kbd> resources such as the following:</p>
+<pre>file { ‘/etc/ntp.conf’: <br/>  source =&gt; ‘puppet:///modules/ntp/ntp.conf’, <br/>}  </pre>
+<p>The previous resource references a file that ships with a hypothetical <kbd>ntp</kbd> module. It has been prepared to provide generally suitable configuration data. However, there is often the need to tweak some parameters inside such a file, so that the node manifests can declare customized config settings for the respective agent. The tool of choice for this is templates, which will be discussed in <a href="60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml">Chapter 6</a>, <em>The Puppet Beginners Advanced Parts</em>.</p>
+<p>Another possible component of a module that you have already read about is custom facts-code that gets synchronized to the agent and runs before a catalog is requested, so that the output becomes available as facts about the agent system.</p>
+<p>These facts are not the only Puppet plugins that can be shipped with modules. There are also <strong>parser functions</strong> (also called <strong>custom functions</strong>), for one. These are actual functions that you can use in your manifests. In many situations, they are the most convenient way, if not the only way, to build some specific implementations.</p>
+<p>The final plugin type that has also been hinted at in an earlier chapter is the custom native types and providers, which are conveniently placed in modules as well.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Module structure</h1>
+                </header>
+            
+            <article>
+                
+<p>All the mentioned components need to be located in specific filesystem locations for the master to pick them up. Each module forms a directory tree. Its root is named after the module itself. For example, the <kbd>ntp</kbd> module is stored in a directory called <kbd>ntp/</kbd>.</p>
+<p>All manifests are stored in a subdirectory called <kbd>manifests/</kbd>. Each class and defined type has its own respective file. The <kbd>ntp::package</kbd> class will be found in <kbd>manifests/package.pp</kbd>, and the defined type called <kbd>ntp::monitoring::nagios</kbd> will be found in <kbd>manifests/monitoring/nagios.pp</kbd>. The first particle of the container name (<kbd>ntp</kbd>) is always the module name, and the rest describes the location under <kbd>manifests/</kbd>. You can refer to the module tree in the following paragraphs for more examples.</p>
+<p>The <kbd>manifests/init.pp</kbd> file is special. It can be thought of as a default manifest location, because it is looked up for any definition from the module in question.</p>
+<p>Both the examples that were just mentioned can be put into <kbd>init.pp</kbd> and will still work. Doing this makes it harder to locate the definitions, though.</p>
+<p>In practice, <kbd>init.pp</kbd> should only hold one class, which is named after the module (such as the <kbd>ntp</kbd> class), if your module implements such a class. This is a common practice, as it allows the manifests to use a simple statement to tap the core functionality of the module:</p>
+<pre><strong>include ntp </strong></pre>
+<p>You can refer to the <em>Module best practices</em> section for some more notes on this subject.</p>
+<p>The files and templates that a module serves to the agents are not this strictly sorted into specific locations. It is only important that they be placed in the <kbd>files/</kbd> and <kbd>templates/</kbd> subdirectories, respectively. The contents of these subtrees can be structured to the module author's liking, and the manifest must reference them correctly. Static files should always be addressed through URLs, such as these:</p>
+<pre><strong>puppet:///modules/ntp/ntp.conf 
+puppet:///modules/my_app/opt/scripts/find_my_app.sh</strong> </pre>
+<p>These files are found in the corresponding subdirectories of <kbd>files/</kbd>:</p>
+<pre><strong>.../modules/ntp/files/ntp.conf 
+.../modules/my_app/files/opt/scripts/find_my_app.sh </strong></pre>
+<p>The <kbd>modules</kbd> prefix in the URI is mandatory and is always followed by the module name. The rest of the path translates directly to the contents of the <kbd>files/</kbd> directory. There are similar rules for templates. You can refer to <a href="60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml"><span class="ChapterrefPACKT">Chapter 6</span></a>, <em>The Puppet Beginners Advanced Parts</em>, for the details.</p>
+<p>Finally, all plugins are located in the <kbd>lib/</kbd> subtree. Custom facts are Ruby files in <kbd>lib/facter/</kbd>. Parser functions are stored in <kbd>lib/puppet/parser/functions/</kbd>, the Puppet 4 API functions are located in <kbd>lib/puppet/functions/</kbd>, and for custom resource types and providers, there is <kbd>lib/puppet/type/</kbd> and <kbd>lib/puppet/provider/</kbd>, respectively. This is not a coincidence; these Ruby libraries are looked up by the master and the agent in the according namespaces. There are examples for all these components later in this chapter.</p>
+<p>In short, the following are the contents of a possible module in a tree view:</p>
+<pre>/opt/puppetlabs/code/environments/production/modules/my_app<br/>    |- templates/ # templates are covered in the next chapter<br/>    |- files/<br/>    | |- subdir1/ # puppet:///modules/my_app/subdir1/&lt;filename&gt;<br/>    | |- subdir2/ # puppet:///modules/my_app/subdir2/&lt;filename&gt;<br/>    | | \- subsubdir/ # puppet:///modules/my_app/subdir2/subsubdir/...<br/>    |- manifests/<br/>    | |- init.pp # class my_app is defined here<br/>    | |- params.pp # class my_app::params is defined here<br/>    | |- config/<br/>    | | |- detail.pp # my_app::config::detail is defined here<br/>    | | \- basics.pp # my_app::config::basics is defined here<br/>    \- lib/<br/>        |- facter/ # contains .rb files with custom facts<br/>        \- puppet/<br/>           |- functions # contains .rb files with Puppet 4 functions<br/>           |- parser/<br/>           | \- functions # contains .rb files with parser functions<br/>           |- type/ # contains .rb files with custom types<br/>           \- provider/ # contains .rb files with custom providers</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Documentation in modules</h1>
+                </header>
+            
+            <article>
+                
+<p>A module can and should include documentation. The Puppet master does not process any module documentation by itself. As such, it is largely up to the authors to decide how to structure the documentation of the modules that are created for their specific site only. That being said, there are some common practices, and it's a good idea to adhere to them. Besides, if a module should end up being published on the Forge, appropriate documentation should be considered mandatory.</p>
+<div class="packt_infobox">The process of publishing modules is beyond the scope of this book. You can find a guide at <a href="https://docs.puppet.com/puppet/latest/modules_publishing.html">https://docs.puppetlabs.com/puppet/latest/reference/modules_publishing.html.</a></div>
+<p>For many modules, the main focus of the documentation is centered on the <kbd>README</kbd> file, which is located right in the module's root directory. It is customarily formatted in Markdown as <kbd>README.md</kbd> or <kbd>README.markdown</kbd>. The <kbd>README</kbd> file should contain explanations and, often, there is a reference documentation as well.</p>
+<p>Puppet DSL interfaces can also be documented right in the manifest, in the <kbd>rdoc</kbd> and <kbd>YARD</kbd> format. This applies to classes and defined types:</p>
+<pre># Class: my_app::firewall<br/>#<br/># @summary This class adds firewall rules to allow access to my_app.<br/>#<br/># @example Declaring the class<br/># include my_app::firewall<br/>#<br/># @param Parameters: none<br/>class my_app::firewall {<br/>  # class code here<br/>}</pre>
+<p>You can generate HTML documentation (including navigation) for all your modules using the <kbd>puppet strings</kbd> subcommand. This subcommand is available after installation of the puppet-strings Ruby extension: <kbd>puppet resource package puppet-strings provider=puppet_gem</kbd>. This practice is somewhat obscure, so it won't be discussed here in great detail. However, if this option is attractive to you, we encourage you to peruse the documentation.</p>
+<p>The following command provides an overview of possible puppet strings functionality:</p>
+<pre><strong>puppet help strings</strong> </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Managing environments</h1>
+                </header>
+            
+            <article>
+                
+<p>Puppet doesn't organize things in modules exclusively. There is a higher-level unit called <strong>environment</strong> that groups and contains the modules. An environment mainly consists of:</p>
+<ul>
+<li>One or more site manifest files</li>
+<li>A <kbd>modules</kbd> directory with your modules inside</li>
+<li>An optional <kbd>environment.conf</kbd> configuration file</li>
+</ul>
+<p>When the master compiles the manifest for a node, it uses exactly one environment for this task. As described in <a href="7cafeeab-0e5c-4848-9eb0-1bae38ed3525.xhtml"><span class="ChapterrefPACKT">Chapter 2</span></a><span class="ChapterrefPACKT">﻿</span>, <em>Puppet Server and Agents</em>, it always starts in <kbd>manifests/*.pp</kbd>, which form the environment's site manifest. Before we take a look at how this works in practice, let's look at an example <kbd>environment</kbd> directory:</p>
+<pre>/opt/puppetlabs/code/environments/<br/>    \- production/<br/>         |- environment.conf<br/>         |- manifests/<br/>         | |- site.pp<br/>         | \- nodes.pp<br/>         \- modules/<br/>             |- my_app/<br/>             \- ntp/</pre>
+<p>The <kbd>environment.conf</kbd> file can customize the environment. Normally, Puppet uses <kbd>site.pp</kbd> and the other files in the <kbd>manifests</kbd> directory. To make Puppet read all the <kbd>pp</kbd> files in another directory, set the <kbd>manifest</kbd> option in <kbd>environment.conf</kbd>:</p>
+<pre>#/opt/puppetlabs/code/environments/production/environment.conf <br/>manifest = puppet_manifests</pre>
+<p>In most circumstances, the manifest option need not be changed.</p>
+<p>The <kbd>site.pp</kbd> file will include node classification with classes from the modules. Puppet looks for modules in the <kbd>modules</kbd> subdirectory of the active environment. You can define additional subdirectories that hold the modules by setting the <kbd>modulepath</kbd> option in <kbd>environment.conf</kbd>:</p>
+<pre>#/opt/puppetlabs/code/environments/production/environment.conf <br/>modulepath = modules:site-modules </pre>
+<p>The directory structure can be made more distinctive:</p>
+<pre>/opt/puppetlabs/code/environments/<br/>     \- production/<br/>         |- manifests/<br/>         |- modules/<br/>         | \- ntp/<br/>         \- site-modules/<br/>             \- my_app/</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring environment locations</h1>
+                </header>
+            
+            <article>
+                
+<p>Puppet uses the <kbd>production</kbd> environment by default. This and the other environments are expected to be located in <kbd>/opt/puppetlabs/code/environments</kbd>. You can override this default by setting the <kbd>environmentpath</kbd> option in <kbd>puppet.conf</kbd>:</p>
+<pre>[main]<br/>environmentpath = /etc/local/puppet/environments</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Obtaining and installing modules</h1>
+                </header>
+            
+            <article>
+                
+<p>Downloading existing modules is very common. Puppet Labs hosts a dedicated site for sharing and obtaining the modules - the Puppet Forge. It works just the same as RubyGems or CPAN and makes it simple for the user to retrieve a given module through a command-line interface. In the Forge, the modules are fully named by prefixing the actual module name with the author's name, such as <kbd>puppetlabs-stdlib</kbd> or <kbd>ffrank-constraints</kbd>.</p>
+<p>The <kbd>puppet module install</kbd> command installs a module in the active environment:</p>
+<pre><strong>root@puppetmaster# puppet module install puppetlabs-stdlib</strong></pre>
+<div class="mce-root packt_tip">The <em>Testing your modules</em> section has information on using different environments.</div>
+<p>The current release of the <kbd>stdlib</kbd> module (authored by the user <kbd>puppetlabs</kbd>) is downloaded from the Forge and installed in the standard modules' location. This is the first location in the current environment's <kbd>modulepath</kbd>, which is usually the <kbd>modules</kbd> subdirectory. Specifically, the modules will most likely end up in the <kbd>environments/production/modules</kbd> directory.</p>
+<div class="packt_tip">The <kbd>stdlib</kbd> module in particular should be considered mandatory; it adds a large number of useful functions to the Puppet language. Examples include the <kbd>keys</kbd>, <kbd>values</kbd>, and <kbd>has_key</kbd> functions, which are essential for implementing the proper handling of hash structures, to name only a few. The functions are available to your manifests as soon as the module is installed, there is no need to include any class or other explicit loading. If you write your own modules that add functions, these are loaded automatically in the same way.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Module best practices</h1>
+                </header>
+            
+            <article>
+                
+<p>With all the current versions of Puppet, you should make it a habit to put all the manifest code into modules, with only the following few exceptions:</p>
+<ul>
+<li>The <kbd>node</kbd> blocks</li>
+<li><a href="7cafeeab-0e5c-4848-9eb0-1bae38ed3525.xhtml"/><a href="7cafeeab-0e5c-4848-9eb0-1bae38ed3525.xhtml"/><a href="7cafeeab-0e5c-4848-9eb0-1bae38ed3525.xhtml"/><a href="7cafeeab-0e5c-4848-9eb0-1bae38ed3525.xhtml"/><a href="7cafeeab-0e5c-4848-9eb0-1bae38ed3525.xhtml"/>The <kbd>include</kbd> statements for very select classes that should be omnipresent (the most common design pattern does this in the so-called base role, however; see <a href="0a0cf4b0-23fa-48fd-abf9-77ed851bb581.xhtml"><span class="ChapterrefPACKT">Chapter 9</span></a>, <em>Puppet Roles and Profiles</em>, for the roles and profiles pattern)</li>
+<li>Declarations of helpful variables that should have the same availability as the Facter facts in your manifests</li>
+</ul>
+<p>This section provides details on how to organize your manifests accordingly. It also advises some design practices and strategies in order to test the changes to the modules.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Putting everything in modules</h1>
+                </header>
+            
+            <article>
+                
+<p>You might find some manifests in very old installations that gather lots of manifest files in one or more directories and use the <kbd>import</kbd> statements in the <kbd>site.pp</kbd> file, such as:</p>
+<pre><strong>import '/etc/puppet/manifests/custom/*.pp'</strong> </pre>
+<p>All classes and defined types in these files are then available globally.  </p>
+<div class="packt_infobox">This whole approach had scalability issues and has long been deprecated. The <kbd>import</kbd> keyword is missing from Puppet 4 and the newer versions.</div>
+<p>It is far more efficient to give meaningful names to the classes and defined types so that Puppet can look them up in the collection of modules. The scheme has been discussed in an earlier section already, so let's just look at another example where the Puppet compiler encounters a class name, such as:</p>
+<pre><strong>include ntp::server::component::watchdog </strong></pre>
+<p>Puppet will go ahead and locate the <kbd>ntp</kbd> module in all the configured module locations of the active environment (path names in the <kbd>modulepath</kbd> setting). It will then try and read the <kbd>ntp/manifests/server/component/watchdog.pp</kbd> file in order to find the class definition. Failing this, it will try <kbd>ntp/manifests/init.pp</kbd>.</p>
+<p>This makes compilation very efficient. Puppet dynamically identifies the required manifest files and includes only those for parsing. It also aids code inspection and development, as it is abundantly clear where you should look for specific definitions.  </p>
+<div class="packt_tip">Technically, it is possible to stuff all of a module's manifests into its <kbd>init.pp</kbd> file, but you lose the advantages that a structured tree of module manifests offers.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Avoiding generalization</h1>
+                </header>
+            
+            <article>
+                
+<p>Each module should ideally serve a specific purpose. On a site that relies on Puppet to manage a diverse server infrastructure, there are likely modules for each respective service, such as <kbd>apache</kbd>, <kbd>ssh</kbd>, <kbd>nagios</kbd>, <kbd>nginx</kbd>, and so forth. Most of these modules will be taken from an upstream development and are referred to as "technical component modules". There can also be site-specific modules, such as <kbd>users</kbd> or <kbd>shell_settings,</kbd> if the operations require this kind of fine-grained control. Such customized modules are sometimes just named after the group or the company that owns them.</p>
+<p>The ideal granularity depends on the individual requirements of your setup. What you generally want to avoid are modules with names such as <kbd>utilities</kbd> or <kbd>helpers,</kbd> which serve as a melting pot for ideas that don't fit in any of the existing modules. Such a lack of organization can be detrimental to discipline and can lead to chaotic modules that include definitions that should have become their own respective modules instead.</p>
+<p>Adding more modules is cheap. A module generally incurs no cost for the Puppet master operation, and your user experience will usually become more efficient with more modules, not less so. Of course, this balance can tip if your site imposes special documentation or other handling prerequisites on each module. Such rulings must then be weighed into the decisions about module organization.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Testing your modules</h1>
+                </header>
+            
+            <article>
+                
+<p>Depending on the size of your agent network, some or many of your modules can be used by a large variety of nodes. Despite these commonalities, these nodes can be quite different from one another. A change to a central module, such as <kbd>ssh</kbd> or <kbd>ntp</kbd>, which are likely used by a large number of agents, can have quite extensive consequences.</p>
+<p>The first and the most important tool for testing your work is the <kbd>--noop</kbd> option for Puppet. It works for <kbd>puppet agent</kbd>, as well as <kbd>puppet apply</kbd>. If it is given on the command-line, Puppet will not perform any necessary sync actions, and will merely present the respective line of output to you instead. There is an example of this in <a href="8a22dc0e-3fe2-4153-b60e-935b7e6d9f94.xhtml"><span class="ChapterrefPACKT">Chapter 1</span></a>, <em>Writing Your First Manifests</em>.</p>
+<p>When using a master instead of working locally with <kbd>puppet apply</kbd>, a new problem arises, though. The master is queried by all your agents. Unless all the agents are disabled while you are testing a new manifest, it is very likely that one will check in and accidentally run the untested code.</p>
+<div class="packt_tip">In fact, even your test agent can trigger its regular run while you are logged in, transparently in the background.</div>
+<p>It is very important to guard against such uncontrolled manifest applications. A small mistake can damage a number of agent machines in a short time period. The best way to go about this is to define multiple environments on the master and stage code changes. <a href="0a0cf4b0-23fa-48fd-abf9-77ed851bb581.xhtml">Chapter 9</a><em>, Puppet Roles and Profiles,</em> will provide further information on this topic.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Safe testing with environments</h1>
+                </header>
+            
+            <article>
+                
+<p>Besides the <kbd>production</kbd> environment, you should create at least one testing environment. You can call it <kbd>testing</kbd> or whatever you like. When using the directory environments, just create its directory in <kbd>environmentpath</kbd>.</p>
+<p>Such an additional environment is very useful for testing changes. The test environment or environments should be copies of the production data. Prepare all the manifest changes in <kbd>testing</kbd> first. You can make your agents test this change before you copy it to production:</p>
+<pre><strong>root@agent# puppet agent --test --noop --environment testing</strong></pre>
+<p>You can even omit the <kbd>noop</kbd> flag on some or all of your agents so that the change is actually deployed. Some subtle mistakes in the manifests cannot be detected from an inspection of the <kbd>noop</kbd> output, so it is usually a good idea to run the code at least once before releasing it.</p>
+<div class="packt_tip">Environments are even more effective when used in conjunction with source control, especially distributed systems such as <kbd>git</kbd> or <kbd>mercurial</kbd>. Versioning your Puppet code is a good idea independently of environments and testing; this is one of the greatest advantages that Puppet has to offer you through its infrastructure as code paradigm.</div>
+<p>Using environments and the <kbd>noop</kbd> mode form a pragmatic approach to testing that can serve in most scenarios. The safety against erroneous Puppet behavior is limited, of course. There are more formal ways of testing the modules:</p>
+<ul>
+<li>The <kbd>rspec-puppet</kbd> tool allows the module authors to implement unit tests based on <kbd>rspec</kbd>. You can find more details at <a href="http://rspec-puppet.com/">http://rspec-puppet.com/</a></li>
+<li>Acceptance testing can be performed through <kbd>beaker</kbd>. You can refer to <a href="https://github.com/puppetlabs/beaker/wiki/How-To-Beaker">https://github.com/puppetlabs/beaker/wiki/How-To-Beaker</a> for details</li>
+</ul>
+<p>Explaining these tools in detail is beyond the scope of this book.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Building a component module</h1>
+                </header>
+            
+            <article>
+                
+<p>This chapter has discussed many theoretical and operational aspects of modules, but you are yet to gain an insight into the process of writing modules. For this purpose, the rest of this chapter will have you create an example module step by step.</p>
+<p>It should be stressed again that, for the most part, you will want to find general purpose modules from the Forge. The number of available modules is ever-growing, so the odds are good that there is something already there to help you with what you need to do.</p>
+<p>Assume that you want to add Cacti to your network: an RRD tool-based trend monitor and graphing server, including a web interface. If you would check the Forge first, you would indeed find some modules. However, let's further assume that none of them speak to you, because either the feature set or the implementation is not to your liking. If even the respective interfaces don't meet your requirements, it doesn't make much sense to base your own module on an existing one (in the form of a fork on GitHub) either. You will, then, need to write your own module from scratch.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Naming your module</h1>
+                </header>
+            
+            <article>
+                
+<p>Module names should be concise and to the point. If you manage a specific piece of software, name your module after it - <kbd>apache</kbd>, <kbd>java</kbd>, <kbd>mysql</kbd>, and so forth. Avoid verbs such as <kbd>install_cacti</kbd> or <kbd>manage_cacti</kbd>. If your module name does need to consist of several words (because the target subsystem has a long name), they should be divided by underscore characters. Spaces, dashes, and other non-alphanumeric characters are not allowed.</p>
+<p>In our example, the module should just be named <kbd>cacti</kbd>.</p>
+<div class="packt_tip">Usually, you will never write a module with names such as apache, mysql, java, as these are names already used from upstream development. When learning Puppet, one wants to start with a simple module implementation, maybe the upstream module is yet too complicated to understand. In this case, you want to prefix your modules with a company or team name. Keep in mind to not use the hyphen but an underscore to separate company/team name, for example, <kbd>packt_apache</kbd>, <kbd>infra_mysql</kbd>. This pattern will keep the original namepsace available and allow easier migration to upstream modules later.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Making your module available to Puppet</h1>
+                </header>
+            
+            <article>
+                
+<p>To use your own module, you don't need to make it available for installation through <kbd>puppet module</kbd>. For that, you will need to upload the module to the Forge first, which will require quite some additional effort. Luckily, a module will work just fine without all this preparation, if you just put the source code in the proper location on your master.</p>
+<p>To create your own <kbd>cacti</kbd> module, create the basic directories:</p>
+<pre><strong>root@puppetmaster# mkdir -p /opt/puppetlabs/code/environments/testing/packt_cacti/{manifests,files}</strong>  </pre>
+<p>Don't forget to synchronize all the changes to <kbd>production</kbd> once the agents use them.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Implementing basic module functionality</h1>
+                </header>
+            
+            <article>
+                
+<p>Most modules perform all of their work through their manifests.</p>
+<div class="packt_tip">There are notable exceptions, such as the <kbd>stdlib</kbd> module. It mainly adds the parser functions and a few general-purpose resource types.</div>
+<p>When planning the classes for your module, it is most straightforward to think about how you would like to use the finished module. There is a wide range of possible interface designs. The de facto standard stipulates that the managed subsystem is initialized on the agent system by including the module's main class; the class that bears the same name as the module and is implemented in the module's <kbd>init.pp</kbd> file.</p>
+<p>For our Cacti module, the user should use the following:</p>
+<pre><strong>include packt_cacti </strong></pre>
+<p>As a result, Puppet would take all the required steps in order to install the software and, if necessary, perform any additional initialization.</p>
+<p>Start by creating the <kbd>cacti</kbd> class and implementing the setup in the way you would from the command-line, replacing the commands with appropriate Puppet resources. On a Debian system, installing the <kbd>cacti</kbd> package is enough. Other required software is brought in through the dependencies (completing the LAMP stack), and after the package installation, the interface becomes available through the web URI <kbd>/cacti/</kbd> on the server machine:</p>
+<pre># .../modules/packt_cacti/manifests/init.pp 
+class packt_cacti { 
+  package { 'cacti': 
+    ensure =&gt; installed, 
+  } 
+} </pre>
+<p>Your module is now ready for testing. Invoke it from your agent's manifest in <kbd>site.pp</kbd> or <kbd>nodes.pp</kbd> of the <kbd>testing</kbd> environment:</p>
+<pre>node 'agent' { 
+  include packt_cacti 
+} </pre>
+<p>Apply it on your agent directly:</p>
+<pre><strong>root@agent# puppet agent --test --environment testing</strong>  </pre>
+<p>This will work on Debian, and Cacti is reachable via <kbd>http://&lt;address&gt;/cacti/</kbd>.</p>
+<div class="packt_infobox">Some sites use an <strong>External Node Classifier</strong> (<strong>ENC</strong>), such as the Foreman. Among other helpful things, it can centrally assign environments to the nodes. In this scenario, the <kbd>--environment</kbd> switch will not work.</div>
+<p>It's unfortunate that the Cacti web interface will not come up when the home page is requested through the <kbd>/</kbd> URI. To enable this, give the module the ability to configure an appropriate redirection. Prepare an Apache configuration snippet in the module in <kbd>/opt/puppetlabs/code/environments/testing/packt_cacti/files/etc/apache2/conf.d/cacti-redirect.conf</kbd>:</p>
+<pre><strong># Do not edit this file - it is managed by Puppet! 
+RedirectMatch permanent ^/$ /cacti/ </strong></pre>
+<div class="packt_tip">The warning notice is helpful, especially when multiple administrators have access to the Cacti server.</div>
+<p>It makes sense to add a dedicated class that will sync this file to the agent machine:</p>
+<pre># .../modules/packt_cacti/manifests/redirect.pp<br/>class packt_cacti::redirect {<br/>  file { '/etc/apache2/conf.d/cacti-redirect.conf':<br/>    ensure =&gt; file,<br/>    source =&gt; 'puppet:///modules/packt_cacti/etc/apache2/conf.d/cacti-redirect.conf',<br/>    require =&gt; Package['cacti'];<br/>  }<br/>}</pre>
+<p class="mce-root">A short file such as this can also be managed through the <kbd>file</kbd> type's <kbd>content</kbd> property instead of <kbd>source</kbd>:</p>
+<pre>$puppet_warning = '# Do not edit - managed by Puppet!'<br/>$line = 'RedirectMatch permanent ^/$ /cacti/'<br/>file { '/etc/apache2/conf.d/cacti-redirect.conf':<br/>  ensure  =&gt; file,<br/>  content =&gt; "${puppet_warning}\n${line}\n",<br/>}</pre>
+<div class="mce-root packt_tip">This is more efficient, because the content is part of the catalog and so the agent does not need to retrieve the checksum through another request to the master.</div>
+<p>The module now allows the user to <kbd>include packt_cacti::redirect</kbd> in order to get this functionality. This is not a bad interface as such, but this kind of modification is actually well-suited to become a parameter of the <kbd>cacti</kbd> class:</p>
+<pre>class packt_cacti( 
+  $redirect = true,) <br/>{ 
+  if $redirect { 
+    contain packt_cacti::redirect 
+  } 
+  package { 'cacti': 
+    ensure =&gt; installed, 
+  } 
+} </pre>
+<p>The redirect is now installed by default when a manifest uses <kbd>include cacti</kbd>.<br/>
+If the web server has other virtual hosts that serve things that are not Cacti, this might be undesirable. In such cases, the manifest will declare the class with the following parameter:</p>
+<pre>class { 'packt_cacti': 
+  redirect =&gt; false,<br/>} </pre>
+<p>Speaking of best practices, most modules will also separate the installation routine into a class of its own. In our case, this is hardly helpful, because the installation status is ensured through a single resource, but let's do it anyway:</p>
+<pre>class packt_cacti( 
+  $redirect = true, 
+) { 
+  contain packt_cacti::install 
+  if $redirect { 
+    contain packt_cacti::redirect 
+  } 
+} </pre>
+<p>It's sensible to use <kbd>contain</kbd> here in order to make the Cacti management a solid unit. The <kbd>cacti::install</kbd> class is put into a separate <kbd>install.pp</kbd> manifest file:</p>
+<pre># .../modules/packt_cacti/manifests/install.pp 
+class packt_cacti::install { 
+  package { 'cacti': 
+    ensure =&gt; 'installed', 
+  } 
+} </pre>
+<p>On Debian, the installation process of the <kbd>cacti</kbd> package copies another Apache configuration file to <kbd>/etc/apache2/conf.d</kbd>. Since Puppet performs a normal <kbd>apt</kbd> installation, this result will be achieved. However, Puppet does not make sure that the configuration stays in this desired state.</p>
+<div class="packt_infobox">There is an actual risk that the configuration might get broken. If the <kbd>puppetlabs-apache</kbd> module is in use for a given node, it will usually purge any unmanaged configuration files from the <kbd>/etc/apache2/</kbd> tree. Be very careful when you enable this module for an existing server. Test it in the <kbd>noop</kbd> mode. If required, amend the manifest to include the existing configuration.</div>
+<p>It is prudent to add a <kbd>file</kbd> resource to the manifest that keeps the configuration snippet in its post-installation state. Usually with Puppet, this will require you to copy the config file contents to the module, just as the redirect configuration is in a file on the master. However, since the Debian package for Cacti includes a copy of the snippet in <kbd>/usr/share/doc/cacti/cacti.apache.conf</kbd>, you can instruct the agent to sync the actual configuration with that. Perform this in yet another de facto standard for modules the <kbd>config</kbd> class:</p>
+<pre># .../modules/packt_cacti/manifests/config.pp 
+class packt_cacti::config {  
+  file { '/etc/apache2/conf.d/cacti.conf':  
+    mode   =&gt; '0644',  
+    source =&gt; '/usr/share/doc/cacti/cacti.apache.conf',  
+  }  
+}  </pre>
+<p>This class should be contained by the <kbd>packt_cacti</kbd> class as well. Running the agent again will now have no effect, because the configuration is already in place.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating utilities for derived manifests</h1>
+                </header>
+            
+            <article>
+                
+<p>You have now created several classes that compartmentalize the basic installation and configuration work for your module. Classes lend themselves very well to implementing global settings that are relevant for the managed software as a whole.</p>
+<p>However, just installing Cacti and making its web interface available is not an especially powerful capability after all, the module does little beyond what a user can achieve by installing Cacti through the package manager. The much greater pain point with Cacti is that it usually requires configuration via its web interface; adding servers as well as choosing and configuring graphs for each server can be an arduous task and require dozens of clicks per server, depending on the complexity of your graphing needs.</p>
+<p>This is where Puppet can be the most helpful. A textual representation of the desired states allows for quick copy and paste repetition and name substitution through regular expressions. Better yet, once there is a Puppet interface, users can devise their own defined types in order to save themselves from the copy and paste work.</p>
+<p>Speaking of defined types, they are what is required for your module to allow this kind of configuration. Each machine in Cacti's configuration should be an instance of a defined type. The graphs can have their own type as well.</p>
+<p>As with the implementation of the classes, the first thing you always need to ask yourself is how this task would be done from the command-line.</p>
+<div class="packt_tip">Actually, the better question can be what API you should use for this, preferably from Ruby. However, this is only important if you intend to write Puppet plugins: resource types and providers. We will look into this later in this very chapter.</div>
+<p>Cacti comes with a set of CLI scripts. The Debian package makes these available in <kbd>/usr/share/cacti/cli</kbd>. Let's discover these while we step through the implementation of the Puppet interface. The goals are defined types that will effectively wrap the command-line tools so that Puppet can always maintain the defined configuration state through appropriate queries and update commands.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Adding configuration items</h1>
+                </header>
+            
+            <article>
+                
+<p>When designing more capabilities for the Cacti module, first comes the ability to register a machine for monitoring - or rather, a <strong>device</strong>, as Cacti itself calls it (network infrastructure such as switches and routers are frequently monitored as well, and not only computers). The name for the first defined type should, therefore, be <kbd>cacti::device</kbd>.</p>
+<div class="packt_infobox">The same warnings from the <em>Naming your module</em> subsection apply - don't give in to the temptation to give names such as <kbd>create_device</kbd> or <kbd>define_domain</kbd> to your type, unless you have very good reasons, such as the removal being impossible. Even then, it's probably better to skip the verb.</div>
+<p>The CLI script used to register a device is named <kbd>add_device.php</kbd>. Its help output readily indicate that it requires two parameters, which are <kbd>description</kbd> and <kbd>ip</kbd>. A custom description of an entity is often a good use for the respective Puppet resource's title. The type almost writes itself now:</p>
+<pre># .../modules/packt_cacti/manifests/device.pp 
+define packt_cacti::device ( 
+  $ip, 
+) { 
+  $cli = '/usr/share/cacti/cli' 
+  $options = "--description='${title}' --ip='${ip}'" 
+  exec { "add-cacti-device-${title}": 
+    command =&gt; "${cli}/add_device.php ${options}", 
+    require =&gt; Class['cacti'], 
+} </pre>
+<div class="packt_tip">In practice, it is often unnecessary to use so many variables, but it serves readability with the limited horizontal space of the page.</div>
+<p>This <kbd>exec</kbd> resource gives Puppet the ability to use the CLI to create a new device in the Cacti configuration. Since PHP is among the Cacti package's requirements, it's sufficient to make the <kbd>exec</kbd> resource <kbd>require</kbd> the <kbd>cacti</kbd> class. Note the use of <kbd>$title</kbd>, not only for the <kbd>--description</kbd> parameter, but in the resource name for the <kbd>exec</kbd> resource as well. This ensures that each <kbd>packt_cacti::device</kbd> instance declares a unique <kbd>exec</kbd> resource in order to create itself.</p>
+<p class="mce-root">The <kbd>exec</kbd> resource type allows one to run arbitrary commands with root privileges and an empty shell environment. This allows one to flexibly wrap configuration commands in puppet DSL. But the exec resource type has its downside: the <kbd>exec</kbd> resource type is not, per-se idempotent and bares the risk that everything is done with running commands, which is against Puppet's nature of being a declarative configuration management system. The best option is to see the <kbd>exec</kbd> resource type as an emergency exit: only use it if one sees no other possibilities to achieve the goals.</p>
+<div class="packt_infobox">Usually, a custom resource type is more suitable, especially when running difficult commands with difficult check options. The custom resource type is explained later in this chapter.</div>
+<p>However, this still lacks an important aspect. Written as in the preceding example, this <kbd>exec</kbd> resource will make the Puppet agent run the CLI script always, under any circumstances. This is incorrect though - it should only run if the device has not yet been added.</p>
+<p>Every <kbd>exec</kbd> resource should have one of the <kbd>creates</kbd>, <kbd>onlyif</kbd>, or <kbd>unless</kbd> parameters. It defines a query for Puppet to determine the current sync state. The <kbd>add_device</kbd> call must be made unless the device exists already. The query for the existing devices must be made through the <kbd>add_graphs.php</kbd> script (counterintuitively). When called with the <kbd>--list-hosts</kbd> option, it prints one header line and a table of devices, with the description in the fourth column. The following <kbd>unless</kbd> query will find the resource in question:</p>
+<pre>$search = "sed 1d | cut -f4- | grep -q '^${title}\$'" 
+exec { "add-cacti-device-${title}": 
+  command =&gt; "${cli}/add_device.php ${options}", 
+  path    =&gt; '/bin:/usr/bin', 
+  unless  =&gt; "${cli}/add_graphs.php --list-hosts |  <br/>              ${search}", 
+  require =&gt; Class[cacti], 
+} </pre>
+<p>The <kbd>path</kbd> parameter is useful, as it allows for calling the core utilities without the respective full path.</p>
+<div class="packt_tip">It is a good idea to generally set a standard list of search paths, because some tools will not work with an empty <kbd>PATH</kbd> environment variable.</div>
+<p>The <kbd>unless</kbd> command will return <kbd>0</kbd> if the exact resource title is found among the list of devices. The final <kbd>$</kbd> sign is escaped so that Puppet includes it in the <kbd>$search</kbd> command string literally.</p>
+<p>You can now test your new define by adding the following resource to the agent machine's manifest:</p>
+<pre># in manifests/nodes.pp 
+node 'agent' { 
+  include packt_cacti 
+  packt_cacti::device { 'Puppet test agent (Debian 7)':  
+    ip =&gt; $::ipaddress, 
+  }  
+} </pre>
+<p>On the next <kbd>puppet agent --test</kbd> run, you will be notified that the command for adding the device has been run. Repeat the run and Puppet will determine that everything is now already synchronized with the catalog.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Allowing customization</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>add_device.php</kbd> script has a range of optional parameters that allow the user to customize the device. The Puppet module should expose these dials as well. Let's pick one and implement it in the <kbd>packt_cacti::device</kbd> type. Each Cacti device has a <kbd>ping_method</kbd> that defaults to <kbd>tcp</kbd>. With the module, we can even superimpose our own defaults over those of the software:</p>
+<pre>define packt_cacti::device(<br/>  $ip,<br/>  $ping_method='icmp'<br/>){<br/>  $cli = '/usr/share/cacti/cli'<br/>  $base_opt = "--description='${title}' --ip='${ip}'"<br/>  $ping_opt = "--ping_method=${ping_method}"<br/>  $options = "${base_opt} ${ping_opt}"<br/>  $search = "sed 1d | cut -f4- | grep -q '^${title}\$'"<br/>  exec { "add-cacti-device-${title}":<br/>    command =&gt; "${cli}/add_device.php ${options}",<br/>    path    =&gt; '/bin:/usr/bin',<br/>    unless  =&gt; "${cli}/add_graphs.php --list-hosts | ${search}",<br/>    require =&gt; Class[cacti],<br/>  }<br/>}</pre>
+<p>The module uses a default of <kbd>icmp</kbd> instead of <kbd>tcp</kbd>. The value is always passed to the CLI script, whether it was passed to the <kbd>packt_cacti::device</kbd> instance or not. The parameter default is used in the latter case.</p>
+<div class="packt_tip">If you plan to publish your module, it is more sensible to try and use the same defaults as the managed software whenever possible.</div>
+<p>Once you incorporate all the available CLI switches, you will have successfully created a Puppet API in order to add devices to your Cacti configuration, giving the user the benefits of easy reproduction, sharing, implicit documentation, simple versioning, and more.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Removing unwanted configuration items</h1>
+                </header>
+            
+            <article>
+                
+<p>There is still one remaining wrinkle. It is atypical for Puppet types to be unable to remove the entities that they create. As it stands, this is a technical limitation of the CLI that powers your module, because it does not implement a <kbd>remove_device</kbd> function yet. Such scripts have been made available on the internet, but are not properly a part of Cacti at the time of writing this.</p>
+<p>To give the module more functionality, it would make sense to incorporate additional CLI scripts among the module's files. Put the appropriate file into the right directory under <kbd>modules/cacti/files/</kbd> and add another <kbd>file</kbd> resource to the <kbd>cacti::install</kbd> class:</p>
+<pre>file { '/usr/share/cacti/cli/remove_device.php': 
+  ensure  =&gt; file, 
+  mode    =&gt; '0755', 
+  source  =&gt; <br/>       'puppet:///modules/packt_cacti/usr/share/cacti/cli/<br/>     remove_device.php', 
+  require =&gt; Package['cacti'], 
+} </pre>
+<p>You can then add an <kbd>ensure</kbd> attribute to the <kbd>cacti::device</kbd> type:</p>
+<pre>define packt_cacti::device( 
+  $ensure='present', 
+  $ip, 
+  $ping_method='icmp', 
+{ 
+  $cli = '/usr/share/cacti/cli' 
+  $search = "sed 1d | cut -f4- | grep -q '^${title}\$'" 
+  case $ensure { 
+  'present': { 
+    # existing cacti::device code goes here 
+  } 
+  'absent': { 
+    $remove = "${cli}/remove_device.php" 
+    $get_id = "${remove} --list-devices | awk -F'\\t' <br/>       '\$4==\"${title}\" { print \$1 }'" 
+    exec { "remove-cacti-device-${name}": 
+        command =&gt; "${remove} --device-id=\$( ${get_id} <br/>      )", 
+        path    =&gt; '/bin:/usr/bin', 
+        onlyif  =&gt; "${cli}/add_graphs.php --list-hosts | <br/>           ${search}", 
+        require =&gt; Class[cacti], 
+      } 
+    } 
+  } 
+} </pre>
+<p>Note that we took some liberties with the indentation here, so as to not break too many lines. This new <kbd>exec</kbd> resource is quite a mouthful, because the <kbd>remove_device.php</kbd> script requires the numeric ID of the device to be removed. This is retrieved with a <kbd>--list-devices</kbd> call that is piped to <kbd>awk</kbd>. To impair readability even more, some things such as double quotes, <kbd>$</kbd> signs, and backslashes must be escaped so that Puppet includes a valid <kbd>awk</kbd> script in the catalog.</p>
+<p>Also note that the query for the sync state of this <kbd>exec</kbd> resource is identical to the one for the <kbd>add</kbd> resource, except that now it is used with the <kbd>onlyif</kbd> parameter: only take action <em>if</em> the device in question is still found in the configuration.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Dealing with complexity</h1>
+                </header>
+            
+            <article>
+                
+<p>The commands we implemented for the <kbd>packt_cacti::device</kbd> define are quite convoluted. At this level of complexity, shell one-liners become unwieldy for powering Puppet's resources. It gets even worse when handling the Cacti graphs; the <kbd>add_graphs.php</kbd> CLI script requires numeric IDs of not only the devices, but of the graphs as well. At this point, it makes sense to move the complexity out of the manifest and write wrapper scripts for the actual CLI. I will just sketch the implementation. The wrapper script will follow this general pattern.</p>
+<pre>#!/bin/bash 
+DEVICE_DESCR=$1 
+GRAPH_DESCR=$2 
+DEVICE_ID=` #scriptlet to retrieve numeric device ID` 
+GRAPH_ID=`  #scriptlet to retrieve numeric graph ID` 
+GRAPH_TYPE=`#scriptlet to determine the graph type` 
+/usr/share/cacti/cli/add_graphs.php \ 
+  --graph-type=$GRAPH_TYPE \ 
+  --graph-template-id=$GRAPH_ID \ 
+  --host-id=$DEVICE_ID<strong> </strong></pre>
+<p>With this, you can add a straightforward <kbd>graph</kbd> type:</p>
+<pre>define packt_cacti::graph( 
+  $device, 
+  $graph=$title 
+) { 
+  $add = '/usr/local/bin/cacti-add-graph' 
+  $find = '/usr/local/bin/cacti-find-graph' 
+  exec { "add-graph-${title}-to-${device}": 
+    command =&gt; "${add} '${device}' '${graph}'", 
+    path    =&gt; '/bin:/usr/bin', 
+    unless  =&gt; "${find} '${device}' '${graph}'", 
+  } 
+} </pre>
+<p>This also requires, an additional <kbd>cacti-find-graph</kbd> script. Adding this poses an additional challenge as the current CLI has no capabilities for listing configured graphs. There are many more functionalities that can be added to a <kbd>cacti</kbd> module, such as the management of Cacti's data sources and the ability to change options of the devices and, possibly, other objects that already exist in the configuration.</p>
+<p>Such commodities are beyond the essentials and won't be detailed here. Let's look at some other parts for your exemplary <kbd>cacti</kbd> module instead.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Enhancing the agent through plugins</h1>
+                </header>
+            
+            <article>
+                
+<p>The reusable classes and defines give manifests that use your module much more expressive power. Installing and configuring Cacti now works concisely, and the manifest to do this becomes very readable and maintainable.</p>
+<p>It's time to tap into the even more powerful aspect of modules: Puppet plugins. The different types of plugins are custom facts (which were discussed in <a href="be2d7b8b-9ea8-4459-b415-081e77db07c7.xhtml"><span class="ChapterrefPACKT">Chapter 3﻿</span></a>, <em>A Peek into the Ruby Part of Puppet - Facts, Types, and Providers</em>), parser functions, resource types, and providers. All these plugins are stored in the modules on the master and get synchronized to all the agents. The agent will not use the parser functions (they are available to the users of <kbd>puppet apply</kbd> on the agent machine once they are synchronized, however); instead, the facts and resource types do most of their work on the agent. Let's concentrate on the types and providers for now; the other plugins will be discussed in dedicated sections later.</p>
+<div class="packt_infobox">This section can be considered optional. Many users will never touch the code for any resource type or provider the manifests give you all the flexibility you will ever need. If you don't care for plugins, do skip ahead to the final sections about finding the Forge modules. On the other hand, if you are confident about your Ruby skills and would like to take advantage of them in your Puppet installations, read on to find the ways in which custom types and providers can help you.</div>
+<p>While the custom resource types are functional on both the master and the agent, the provider will do all its work on the agent side. Although the resource types also perform mainly through the agent, they have one effect on the master; they enable manifests to declare resources of the type. The code not only describes what properties and parameters exist, but it can also include the validation and transformation code for the respective values. This part is invoked by the agent. Some resource types even do the synchronization and queries themselves, although there is usually at least one provider that takes care of this.</p>
+<p>In the previous section, you implemented a defined type that did all its synchronization by wrapping some <kbd>exec</kbd> resources. By installing binaries and scripts through Puppet, you can implement almost any kind of functionality this way and extend Puppet without ever writing one plugin. This does have some disadvantages, however:</p>
+<ul>
+<li>The output is cryptic in the ideal case and overwhelming in the case of errors</li>
+<li>Puppet shells out to at least one external process per resource; and in many cases, multiple forks are required</li>
+</ul>
+<p>In short, you pay a price, both in terms of usability and performance. Consider the <kbd>packt_cacti::device</kbd> type. For each declared resource, Puppet will have to run an <kbd>exec</kbd> resource's <kbd>unless</kbd> query on each run (or <kbd>onlyif</kbd> when <kbd>ensure =&gt; absent</kbd> is specified). This consists of one call to a PHP script (which can be expensive) as well as several core utilities that have to parse the output. On a Cacti server with dozens or hundreds of managed devices, these calls add up and make the agent spend a lot of time forking off and waiting for these child processes.</p>
+<p>Consider a provider, on the other hand. It can implement an <kbd>instances</kbd> hook, which will create an internal list of configured Cacti devices once during initialization. This requires only one PHP call in total, and all the processing of the output can be done in the Ruby code directly inside the agent process. These savings alone will make each run much less expensive: resources that are already synchronized will incur no penalty, because no additional external commands need to be run.</p>
+<p>Let's take a quick look at the agent output before we go ahead and implement a simple type/provider pair. The following is the output of the <kbd>cacti::device</kbd> type when it creates a device:</p>
+<pre><strong>Notice: /Stage[main]/Main/Node[agent]/Packt_cacti::Device[Agent_VM_Debian_7]/Exec[add-cacti-device-Agent_VM_Debian_7]/returns: executed successfully</strong>  </pre>
+<p>The native types express such actions in a much cleaner manner, such as the output from a <kbd>file</kbd> resource:</p>
+<pre><strong>Notice: /Stage[main]/Main/File[/usr/local/bin/cacti-search-graph]/ensure: created</strong>  </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Replacing a defined type with a native type</h1>
+                </header>
+            
+            <article>
+                
+<p>The process of creating a custom resource type with a matching provider<br/>
+(or several providers) is not easy. Let's go through the steps involved:</p>
+<ul>
+<li>Naming your type</li>
+<li>Creating the resource type's interface</li>
+<li>Designing sensible parameter hooks</li>
+<li>Using resource names</li>
+<li>Adding a provider</li>
+<li>Declaring management commands</li>
+<li>Implementing the basic functionality</li>
+<li>Allowing the provider to prefetch existing resources</li>
+<li>Making the type robust during provisioning</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Naming your type</h1>
+                </header>
+            
+            <article>
+                
+<p>The first important difference between the native and defined types is the naming. There is no module namespacing for the custom types as you get with the defined types, which are manifest-based. Native types from all the installed modules mingle freely, if you will. They use plain names. It would, therefore, be unwise to call the native implementation of <kbd>packt_cacti::device</kbd> just <kbd>device -</kbd> this will easily clash with whatever notion of devices another module might have. The obvious choice for naming your first resource type is <kbd>cacti_device</kbd>.</p>
+<p>The type must be completely implemented in <kbd>packt_cacti/lib/puppet/type/cacti_device.rb</kbd>. All hooks and calls will be enclosed in a <kbd>Type.newtype</kbd> block:</p>
+<pre>Puppet::Type.newtype(:cacti_device) do 
+  @doc = &lt;&lt;-EOD 
+    Manages Cacti devices. 
+    EOD 
+end </pre>
+<p>The documentation string in <kbd>@doc</kbd> should be considered mandatory, and it should be a bit more substantial than this example. Consider including one or more example resource declarations. Put all the further code pieces between the <kbd>EOD</kbd> terminator and the final <kbd>end</kbd>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating the resource type's interface</h1>
+                </header>
+            
+            <article>
+                
+<p>First of all, the type should have the <kbd>ensure</kbd> property. Puppet's resource types have a handy helper method that generates all the necessary type code for it through a simple invocation:</p>
+<pre><strong>ensurable </strong></pre>
+<p>With this method call in the body of the type, you add the typical <kbd>ensure</kbd> property, including all the necessary hooks. This line is all that is needed in the type code (actual implementation will follow in the provider). Most properties and parameters require more code, just the same as the <kbd>ip</kbd> parameter:</p>
+<pre>require 'ipaddr' 
+newparam(:ip) do 
+  desc "The IP address of the device." 
+  isrequired 
+  validate do |value| 
+    begin 
+      IPAddr.new(value) 
+    rescue ArgumentError 
+      fail "'#{value}' is not a valid IP address" 
+    end 
+  end 
+  munge do |value| 
+    value.downcase 
+  end 
+end</pre>
+<div class="packt_infobox">This should usually be an <kbd>ip</kbd> property instead, but the provider will rely on the Cacti CLI, which has no capability for changing the already configured devices. If the IP address was a property, such changes would be required in order to perform property-value synchronization.</div>
+<p>As you can see, the IP address parameter code consists mostly of validation.<br/>
+Add the <kbd>require 'ipaddr'</kbd> line near the top of the file rather than inside the <kbd>Type.newtype</kbd> block.</p>
+<p>The parameter is now available for the <kbd>cacti_device</kbd> resources, and the agent will even refuse to add devices whose IP addresses are not valid. This is helpful for users, because obvious typos in the addresses will be detected early. Let's implement the next parameter before we look at the <kbd>munge</kbd> hook more closely.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Designing sensible parameter hooks</h1>
+                </header>
+            
+            <article>
+                
+<p>Moving right along to the <kbd>ping_method</kbd> parameter, it accepts values only from a limited set, so validation is easy:</p>
+<pre>newparam(:ping_method) do 
+  desc "How the device's reachability is determined. 
+    One of `tcp` (default), `udp` or `icmp`." 
+  validate do |value| 
+    [ :tcp, :udp, :icmp ].include?(value.downcase.to_sym) 
+  end 
+  munge do |value| 
+    value.downcase.to_sym 
+  end 
+  defaultto :tcp 
+end </pre>
+<p>Looking at the <kbd>munge</kbd> blocks carefully, you will notice that they aim at unifying the input values. This is much less critical for the parameters than the properties, but if either of these parameters is changed to a property in a future release of your Cacti module, it will not try to sync a <kbd>ping_method</kbd> of <kbd>tcp</kbd> to <kbd>TCP.</kbd> The latter might appear if the users prefer uppercase in their manifest. Both values just become <kbd>:tcp</kbd> through munging. For the IP address, invoking <kbd>downcase</kbd> has an effect only for IPv6.</p>
+<div class="packt_infobox">Beyond the scope of Puppet itself, the munging of a parameter's value is important as well. It allows Puppet to accept more convenient values than the subsystem being managed. For example, Cacti might not accept <kbd>TCP</kbd> as a value, but Puppet will, and it will do the right thing with it.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using resource names</h1>
+                </header>
+            
+            <article>
+                
+<p>You need to take care of one final requirement: each Puppet resource type must declare a <kbd>name variable</kbd> or <kbd>namevar</kbd>, for short. This parameter will use the resource title from the manifest as its value, if the parameter itself is not specified for the resource. For example, the <kbd>exec</kbd> type has the <kbd>command</kbd> parameter for its <kbd>namevar</kbd>. You can either put the executable command into the resource title or explicitly declare the parameter:</p>
+<pre>exec { '/bin/true': } 
+# same effect: 
+exec { 'some custom name': command =&gt; '/bin/true' } </pre>
+<p>To mark one of the existing parameters as the name variable, call the <kbd>isnamevar</kbd> method in that parameter's body. If a type has a parameter called <kbd>:name</kbd>, it automatically becomes the name variable. This is a safe default.</p>
+<pre>newparam(:name) do 
+  desc "The name of the device." 
+  #isnamevar # → commented because automatically assumed 
+end </pre>
+<p>The resource type is now already usable inside a manifest:</p>
+<pre>cacti_device { 'eth0': 
+  ensure      =&gt; present, 
+  ip          =&gt; $::ipaddress, 
+  ping_method =&gt; 'icmp', 
+} </pre>
+<p>This code will get compiled into a catalog, but the agent will produce an error, due to the reason that there is no provider available.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Adding a provider</h1>
+                </header>
+            
+            <article>
+                
+<p>The resource type itself is ready for action, but it lacks a provider to do the actual work of inspecting the system and performing the synchronization. Let's build it step by step, just the same as the type. The name of the provider need not reflect the resource type it's for. Instead, it should contain a reference to the management approach it implements. Since your provider will rely on the Cacti CLI, name it <kbd>cli</kbd>. It's fine for multiple providers to share a name if they provide functionality to different types.</p>
+<p>Create the skeleton structure in <kbd>packt_cacti/lib/puppet/provider/cacti_device/cli.rb</kbd>:</p>
+<pre>Puppet::Type.type(:cacti_device).provide( 
+  :cli, 
+  :parent =&gt; Puppet::Provider 
+  ) do 
+end </pre>
+<p>Specifying <kbd>:parent =&gt; Puppet::Provider</kbd> is not necessary, actually. <kbd>Puppet::Provider</kbd> is the default base class for the providers. If you write a couple of similar providers for a subsystem (each catering to a different resource type), all of which rely on the same toolchain, you might want to implement a base provider that becomes the parent for all the sibling providers.</p>
+<p>For now, let's concentrate on putting together a self-sufficient <kbd>cli</kbd> provider for the <kbd>cacti_device</kbd> type. First of all, declare the commands that you are going to need.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Declaring management commands</h1>
+                </header>
+            
+            <article>
+                
+<p>Providers use the <kbd>commands</kbd> method to conveniently bind executables to<br/>
+Ruby identifiers:</p>
+<pre><strong>commands :php =&gt; ‘php’</strong><br/><strong>commands :add_device =&gt; ‘/usr/share/cacti/cli/add_device.php’</strong><br/><strong>commands :add_graphs =&gt; ‘/usr/share/cacti/cli/add_graphs.php’</strong><br/><strong>commands :rm_device =&gt; ‘/usr/share/cacti/cli/remove_device.php’</strong></pre>
+<p>You won't be invoking <kbd>php</kbd> directly. It's included here because declaring commands serves two purposes:</p>
+<ul>
+<li>You can conveniently call the commands through a generated method</li>
+<li>The provider will mark itself as <kbd>valid</kbd> only if all the commands are found</li>
+</ul>
+<p>So, if the <kbd>php</kbd> CLI command is not found in Puppet's search path, Puppet will consider the provider to be dysfunctional. The user can determine this error condition quite quickly through Puppet's debug output.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Implementing the basic functionality</h1>
+                </header>
+            
+            <article>
+                
+<p>The basic functions of the provider can now be implemented in three instance methods. The names of these methods are not magic as such, but these are the methods that the default <kbd>ensure</kbd> property expects to be available (remember that you used the <kbd>ensurable</kbd> shortcut in the type code).</p>
+<p>The first is the method that creates a resource if it does not exist yet. It must gather all the resource parameter's values and build an appropriate call to <kbd>add_device.php</kbd>:</p>
+<pre>def create 
+  args = [] 
+  args &lt;&lt; "--description=#{resource[:name]}" 
+  args &lt;&lt; "--ip=#{resource[:ip]}" 
+  args &lt;&lt; "--ping_method=#{resource[:ping_method]}" 
+  add_device(*args) 
+end </pre>
+<div class="packt_infobox">Don't quote the parameter values as you would quote them on the command-line. Puppet takes care of this for you. It also escapes any quotes that are in the arguments, so in this case, Cacti will receive any quotes for inclusion in the configuration. For example, this will lead to an incorrect title.</div>
+<pre>args &lt;&lt; "--description='#{resource[:name]}'" </pre>
+<p>The provider must also be able to remove or <kbd>destroy</kbd> an entity:</p>
+<pre>def destroy 
+  rm_device("--device-id=#{@property_hash[:id]}") 
+end </pre>
+<p>The <kbd>property_hash</kbd> variable is an instance member of the provider. Each resource gets its specific provider instance. Read on to learn how it gets initialized to include the device's ID number.</p>
+<p>Before we get to that, let's add the final provider method in order to implement the <kbd>ensure</kbd> property. This is a query method that the agent uses to determine whether a resource is already present:</p>
+<pre>def exists? 
+  self.class.instances.find do |provider| 
+    provider.name == resource[:name] 
+  end 
+end </pre>
+<p>The <kbd>ensure</kbd> property relies on the provider class method <kbd>instances</kbd> in order to get a list of <kbd>providers</kbd> for all the entities on the system. It compares each of them with the <kbd>resource</kbd> attribute, which is the resource type instance for which this current provider instance is performing the work. If this is rather confusing, please refer to the diagram in the next section.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Allowing the provider to prefetch existing resources</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>instances</kbd> method is truly special - it implements the prefetching of the system resources during the provider initialization. You have to add it to the provider yourself. Some subsystems are not suitable for the mass-fetching of all the existing resources (such as the <kbd>file</kbd> type). These providers don't have an <kbd>instances</kbd> method. Enumerating the Cacti devices, on the other hand, is quite possible:</p>
+<pre>def self.instances<br/>  return @instances ||= add_graphs(“--list-hosts”).<br/>    split(“\n”).<br/>    drop(1).<br/>    collect do |line|<br/>      fields = line.split(/\t/, 4)<br/>      Puppet.debug “prefetching cacti_device #{fields[3]} <br/>      “ +<br/>                   “with ID #{fields[0]}”<br/>      new(:ensure =&gt; :present,<br/>            :name =&gt; fields[3],<br/>              :id =&gt; fields[0])<br/>    end<br/>end</pre>
+<p>The <kbd>ensure</kbd> value of the provider instance reflects the current state. The method creates instances for the resources that are found on the system, so for these, the value is always <kbd>present</kbd>. Also note that the result of the method is cached in the <kbd>@instances</kbd> class member variable. This is important, because the <kbd>exists?</kbd> method calls <kbd>instances</kbd>, which can happen a lot.</p>
+<p>Puppet requires another method to perform proper prefetching. The mass-fetching you implemented through <kbd>instances</kbd> supplies the agent with a list of provider instances that represent the entities found on the system. From the master, the agent received a list of the resource type instances. However, Puppet has not yet built a relation between the resources (type instances) and providers. You need to add a <kbd>prefetch</kbd> method to the provider class in order to make this happen:</p>
+<pre>def self.prefetch(resources)<br/>  instances.each do |provider|<br/>    if res = resources[provider.name]<br/>      res.provider = provider<br/>    end<br/>  end<br/>end </pre>
+<p>The agent passes the <kbd>cacti_device</kbd> resources as a hash, with the resource title as the respective key. This makes lookups very simple (and quick).</p>
+<p>This completes the <kbd>cli</kbd> provider for the <kbd>cacti_device</kbd> type. You can now replace your <kbd>cacti::device</kbd> resources with the <kbd>cacti_device</kbd> instances to enjoy improved performance and cleaner agent output:</p>
+<pre>node "agent" {<br/>  include cacti<br/>  cacti_device { ‘Puppet test agent (Debian 7)":<br/>    ensure =&gt; present,<br/>    ip     =&gt; $::ipaddress,<br/>  }<br/>}</pre>
+<p>Note that, unlike your defined type <kbd>cacti::device</kbd>, a native type will not assume a default value of <kbd>present</kbd> for its <kbd>ensure</kbd> property. Therefore, you have to specify it for any <kbd>cacti_device</kbd> resource. Otherwise, Puppet will only manage the properties of the resources that already exist and not care about whether the entity exists or not. In the particular case of <kbd>cacti_device</kbd>, this will never do anything, because there are no other properties (only parameters).</p>
+<div class="packt_infobox">You can refer to <a href="60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml"><span class="ChapterrefPACKT">Chapter 6</span></a>, <em>The Puppet Beginners Advanced Parts</em>, on how to use resource defaults to save you from the repetition of the <kbd>ensure =&gt; present</kbd> specification.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Making the type robust during provisioning</h1>
+                </header>
+            
+            <article>
+                
+<p>There is yet another small issue with the <kbd>packt_cacti</kbd> module. It is self-sufficient and handles both the installation and configuration of Cacti. However, this means that during Puppet's first run, the <kbd>cacti</kbd> package and its CLI will not be available, and the agent will correctly determine that the <kbd>cli</kbd> provider is not yet suitable. Since it is the only provider for the <kbd>cacti_device</kbd> type, any resource of this type that is synchronized before the <kbd>cacti</kbd> package will fail.</p>
+<p>In the case of the defined type <kbd>packt_cacti::device</kbd>, you just added the <kbd>require</kbd> metaparameters to the inner resources. To achieve the same end for the native type instances, you can work with the <kbd>autorequire</kbd> feature. Just as the files automatically depend on their containing directory, the Cacti resources should depend on the successful synchronization of the <kbd>cacti</kbd> package. Add the following block to the <kbd>cacti_device</kbd> type:</p>
+<pre>autorequire :package do 
+  catalog.resource(:package, 'cacti') 
+end </pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Enhancing Puppet's system knowledge through facts</h1>
+                </header>
+            
+            <article>
+                
+<p>When facts were introduced in <a href="be2d7b8b-9ea8-4459-b415-081e77db07c7.xhtml"><span class="ChapterrefPACKT">Chapter 3</span></a>, <em>A Peek into the Ruby Part of Puppet - Facts, Types, and Providers</em>, you got a small tour of the process of creating your own custom facts.<br/>
+We hinted at modules at that point, and now, we can take a closer look at how the fact code is deployed, using the example of the <kbd>Cacti</kbd> module. Let's focus on native Ruby facts - they are more portable than the external facts. As the latter are easy to create, there is no need to discuss them in depth here.</p>
+<div class="packt_infobox">For details on external facts, you can refer to the online documentation on custom facts on the Puppet Labs site at <a href="http://docs.puppetlabs.com/facter/latest/custom_facts.html#external-facts">http://docs.puppetlabs.com/facter/latest/custom_facts.html#external-facts</a>.</div>
+<p>Facts are part of the Puppet plugins that a module can contain, just as the types and providers from the previous sections. They belong in the <kbd>lib/facter/</kbd> subtree. For users of the <kbd>cacti</kbd> module, it might be helpful to learn which graph templates are available on a given Cacti server (once the graph management is implemented, that is). The complete list can be passed through a fact. The following code in <kbd>packt_cacti/lib/facter/cacti_graph_templates.rb</kbd> will do just this job:</p>
+<pre>Facter.add(:cacti_graph_templates) do<br/>  setcode do<br/>    cmd = ‘/usr/share/cacti/cli/add_graphs.php’<br/>    Facter::Core::Execution.exec(“#{cmd} --list-graph-<br/>    templates”).<br/>      split(“\n”).<br/>      drop(1).<br/>      collect do |line|<br/>        line.split(/\t/)[1]<br/>      end<br/>  end<br/>end</pre>
+<p>The code will call the CLI script, skip its first line of output, and join the values from the second column of each remaining line in a list. Manifests can access this list through the global <kbd>$cacti_graph_templates</kbd> variable, just the same as any other fact.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Refining the interface of your module through custom functions</h1>
+                </header>
+            
+            <article>
+                
+<p>Functions can be of great help in keeping your manifest clean and maintainable, and some tasks cannot even be implemented without resorting to a Ruby function.</p>
+<p>A frequent use of the custom functions (especially in Puppet 3) is input validation. You can do this in the manifest itself, but it can be a frustrating exercise because of the limitations of the language. The resulting Puppet DSL code can be hard to read and maintain. The <kbd>stdlib</kbd> module comes with the <kbd>validate_X</kbd> functions for many basic data types, such as <kbd>validate_bool</kbd>. Typed parameters in Puppet 4 and later versions make this more convenient and natural, because for the supported variable types, no validation function is needed anymore.</p>
+<p>As with all the plugins, the functions need not be specific to the module's domain, and they instantly become available for all the manifests. A case in point is the <kbd>packt_cacti</kbd> module that can use the validation functions for the <kbd>packt_cacti::device</kbd> parameters. Checking whether a string contains a valid IP address is not at all specific to Cacti. On the other hand, checking whether <kbd>ping_method</kbd> is one of those that Cacti recognizes is not that generic.</p>
+<p>To see how it works, let's just implement a function that does the job of the <kbd>validate</kbd> and <kbd>munge</kbd> hooks from the custom <kbd>cacti_device</kbd> type for the IP address parameter of <kbd>packt_cacti::device</kbd>. This should fail the compilation if the address is invalid; otherwise, it should return the unified address value:</p>
+<pre>module Puppet::Parser::Functions<br/>  require ‘ipaddr’<br/>  newfunction(:cacti_canonical_ip, :type =&gt; :rvalue) do |args|<br/>    ip = args[0]<br/>    begin<br/>      IPAddr.new(ip)<br/>    rescue ArgumentError<br/>      raise “#{@resource.ref}: invalid IP address ‘#{ip}’”<br/>    end<br/>    ip.downcase<br/>  end<br/>end</pre>
+<p>In the exception message, <kbd>@resource.ref</kbd> is expanded to the textual reference of the offending resource type instance, such as <kbd>Packt_cacti::Device[Edge Switch 03]</kbd>.</p>
+<p>The following example illustrates the use of the function in the simple version of <kbd>cacti::device</kbd> without the <kbd>ensure</kbd> parameter:</p>
+<pre>define packt_cacti::device($ip) {<br/>  $cli = ‘/usr/share/cacti/cli’<br/>  <strong>$c_ip = cacti_canonical_ip(${ip})</strong><br/>  $options = “--description=‘${name}’ --ip=‘${c_ip}’”<br/>  exec { “add-cacti-device-${name}”:<br/>    command =&gt; “${cli}/add_device.php ${options}”,<br/>    require =&gt; Class[cacti],<br/>  }<br/>}</pre>
+<p>The manifest will then fail to compile if an IP address has (conveniently)<br/>
+transposed digits:</p>
+<pre><strong>ip =&gt; '912.168.12.13' </strong></pre>
+<p>IPv6 addresses will be converted to all lowercase letters.  </p>
+<div class="mce-root packt_infobox">Puppet 4 introduced a more powerful API for defining the custom functions. Refer to <a href="60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml"><span class="ChapterrefPACKT">Chapter 6</span></a>, <em>The Puppet Beginners Advanced Parts</em>, to learn about its advantages.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Making your module portable across platforms</h1>
+                </header>
+            
+            <article>
+                
+<p>Sadly, our <kbd>Cacti</kbd> module is very specific to the Debian package. It expects to find the CLI at a certain place and the Apache configuration snippet at another. These locations are most likely specific to the Debian package. It would be useful for the module to work on the Red Hat derivatives as well.</p>
+<p>The first step is to get an overview of the differences by performing a manual installation. I chose to test this with a virtual machine running Fedora 18. The basic installation is identical to Debian, except using <kbd>yum</kbd> instead of <kbd>apt-get</kbd>, of course. Puppet will automatically do the right thing here. The <kbd>puppet::install</kbd> class also contains a CLI file, though. The Red Hat package installs the CLI in <kbd>/var/lib/cacti/cli</kbd>, rather than <kbd>/usr/share/cacti/cli</kbd>.</p>
+<p>If the module is supposed to support both platforms, the target location for the <kbd>remove_device.php</kbd> script is no longer fixed. Therefore, it's best to deploy the script from a central location in the module, while the target location on the agent system becomes a module parameter, if you will. Such values are customarily gathered in a <kbd>params</kbd> class:</p>
+<pre># …/packt_cacti/manifests/params.pp<br/>class packt_cacti::params {<br/>  case $osfamily {<br/>    ‘Debian’: {<br/>      $cli_path = ‘/usr/share/cacti/cli’<br/>    }<br/>    ‘RedHat’: {<br/>      $cli_path = ‘/var/lib/cacti/cli’<br/>    }<br/>    default: {<br/>      fail “the cacti module does not yet support the <br/>      ${osfamily} <br/>        platform”<br/>    }<br/>  }<br/>}</pre>
+<p>It is best to fail the compilation for unsupported agent platforms. Users will have to remove the declaration of the <kbd>cacti</kbd> class from their module, rather than have Puppet try untested installation steps that most likely will not work (this might concern Gentoo or a BSD variant).</p>
+<p>Classes that need to access the variable value must include the <kbd>params</kbd> class:</p>
+<pre>class packt_cacti::install {<br/>  include pack_cacti::params<br/>  file { ‘remove_device.php’:<br/>    ensure =&gt; file,<br/>    path   =&gt; <br/>     “${packt_cacti::params::cli_path}/remove_device.php’,<br/>    source =&gt; <br/>    ‘puppet:///modules/packt_cacti/cli/remove_device.php’,<br/>    mode   =&gt; ‘0755’,<br/>  }<br/>}</pre>
+<p>Similar transformations will be required for the <kbd>cacti::redirect</kbd> class and the <kbd>cacti::config</kbd> class. Just add more variables to the <kbd>params</kbd> class. This is not limited to the manifests, either; the facts and providers must behave in accordance with the agent platform as well.</p>
+<p>You will often see that the <kbd>params</kbd> class is inherited rather than included:</p>
+<pre>class packt_cacti(<br/>  $redirect = ${packt_cacti::params::redirect}<br/>)inherits packt_cacti::params{<br/>  # ...<br/>}</pre>
+<p>This is done because an <kbd>include</kbd> statement in the class body won't allow the use of variable values from the <kbd>params</kbd> class as the class parameter's default values, such as the <kbd>$redirect</kbd> parameter in this example.</p>
+<p>The portability practices are often not required for your own custom modules. In the ideal case, you won't use them on more than one platform. The practice should be considered mandatory if you intend to share them on the Forge, though. For most of your Puppet needs, you will not want to write modules anyway, but download existing solutions from the Forge instead.</p>
+<div class="packt_infobox">In Puppet 4.9 and later versions, the params class pattern will no longer be necessary to ship the default parameter values. There is a new data binding mechanism instead. This mechanism is explained in <a href="6d37b9a7-780a-49f2-a965-4431d8517de6.xhtml">Chapter 8</a>, <em>Separation of Code and Data with Hiera</em>.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Finding helpful Forge modules</h1>
+                </header>
+            
+            <article>
+                
+<p>Using the web interface at <a href="http://forge.puppetlabs.com/"><span class="URLPACKT">http://forge.puppetlabs.com</span></a> is very straightforward. By filling the search form with the name of the software, system, or service you need to manage, you will usually get a list of very fitting modules often with just your search term as their name. In fact, for common terms, the number of available modules can be overwhelming.</p>
+<p>You can get immediate feedback about the maturity and popularity of each module. A module is being actively used and maintained if:</p>
+<ul>
+<li>It has a score close to 5</li>
+<li>It has a version number that indicates releases past 1.0.0 (or even 0.1.0)</li>
+<li>Its most recent release was not too long ago, perhaps less than half a year</li>
+<li>It has a significant number of downloads</li>
+</ul>
+<p>The latter three numbers can vary a lot though, depending on the number of features that the module implements and how widespread its subject is. Even more importantly, just because a particular module gets much attention and regular contributions, it does necessarily mean that it is the best choice for your situation.</p>
+<p>You are encouraged to evaluate less trafficked modules as well - you can unearth some hidden gems this way. The next section details some deeper indicators of quality for you to take into consideration.</p>
+<p>If you cannot, or don't want to, spend too much time digging for the best module, you can also just refer to the sidebar with the <span class="packt_screen">Puppet Supported</span> and <span class="packt_screen">Puppet Approved</span> modules. All modules that are featured in these categories have got a seal of quality from Puppet Labs.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Identifying module characteristics</h1>
+                </header>
+            
+            <article>
+                
+<p>When navigating to a module's details in the Forge, you are presented with its <kbd>README</kbd> file. An empty or very sparse documentation speaks of little care taken by the module author. A sample manifest in the <kbd>README</kbd> file is often a good starting point in order to put a module to work quickly.</p>
+<p>If you are looking for a module that will enhance your agents through additional resource types and providers, look for the <span class="packt_screen">Types</span> tab on the module details page. It can also be enlightening to click on the <span class="packt_screen">Project URL</span> link near the top of the module description. This usually leads to GitHub. Here, you can not only conveniently browse the plugins in the <kbd>lib/</kbd> subtree, but also get a feel of how the module's manifests are structured.</p>
+<p>Another sign of a carefully maintained module are unit tests. These are found in the <kbd>spec/</kbd> subtree. This tree does exist for most of the Forge modules. It tends to be devoid of actual tests, though. There may be test code files for all the classes and the defined types that are part of the module's manifest; these are typically in the <kbd>spec/classes/</kbd> and <kbd>spec/defines/</kbd> subdirectories, respectively. For plugins, there will ideally be unit tests in <kbd>spec/unit/</kbd> and <kbd>spec/functions/</kbd>.</p>
+<p>Some <kbd>README</kbd> files of the modules contain a small greenish tag saying <strong>build passing</strong>. This can turn red on occasions, stating <strong>build failing</strong>. These modules use the Travis CI through GitHub, so they are likely to have at least a few unit tests.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>All the development in Puppet should be done in modules, and each such module should serve as specific a purpose as possible. Most modules comprise only manifests. This suffices to provide very effective and readable node manifests that clearly and concisely express their intent by including aptly named classes and instantiating defined types.</p>
+<p>Modules can also contain Puppet plugins in the form of resource types and providers, parser functions, or facts. All of these are usually Ruby code. External facts can be written in any language, though. Writing your own types and providers is not required, but it can boost your performance and management flexibility.</p>
+<p>It is not necessary to write all your modules yourself. On the contrary, it's advisable to rely on the open source modules from the Puppet Forge as much as possible. The Puppet Forge is an ever-growing collection of helpful code for virtually all the systems and software that Puppet can manage. In particular, the modules that are curated by Puppet Labs are usually of very high quality. As with any open source software, you are more than welcome to add any missing requirements to the modules yourself.</p>
+<p>After this broad view on Puppet's larger building blocks, <a href="60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml">Chapter 6</a>, <em>The Puppet Beginners Advanced Parts</em>, narrows the scope a little. Now that you have the tools to structure and compose a manifest code base, you will learn some refined techniques in order to elegantly solve some distinct problems with Puppet.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

@@ -1,0 +1,787 @@
+<html><head></head><body><div class="chapter" title="Chapter&#xA0;2.&#xA0;Puppet Infrastructure"><div class="titlepage"><div><div><h1 class="title"><a id="ch02"/>Chapter 2. Puppet Infrastructure</h1></div></div></div><div class="blockquote"><table border="0" width="100%" cellspacing="0" cellpadding="0" class="blockquote" summary="Block quote"><tr><td valign="top"> </td><td valign="top"><p><span class="emphasis"><em>"Computers in the future may have as few as 1,000 vacuum tubes and weigh only 1.5 tons."</em></span></p></td><td valign="top"> </td></tr><tr><td valign="top"> </td><td colspan="2" align="right" valign="top" style="text-align: center">--<span class="attribution"><span class="emphasis"><em>Popular Mechanics, 1949</em></span></span></td></tr></table></div><p>In this chapter, we will cover:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Installing Puppet</li><li class="listitem" style="list-style-type: disc">Managing your manifests with Git</li><li class="listitem" style="list-style-type: disc">Creating a decentralized Puppet architecture</li><li class="listitem" style="list-style-type: disc">Writing a papply script</li><li class="listitem" style="list-style-type: disc">Running Puppet from cron</li><li class="listitem" style="list-style-type: disc">Bootstrapping Puppet with bash</li><li class="listitem" style="list-style-type: disc">Creating a centralized Puppet infrastructure</li><li class="listitem" style="list-style-type: disc">Creating certificates with multiple DNS names</li><li class="listitem" style="list-style-type: disc">Running Puppet from passenger</li><li class="listitem" style="list-style-type: disc">Setting up the environment</li><li class="listitem" style="list-style-type: disc">Configuring PuppetDB</li><li class="listitem" style="list-style-type: disc">Configuring Hiera</li><li class="listitem" style="list-style-type: disc">Setting-node specific data with Hiera</li><li class="listitem" style="list-style-type: disc">Storing secret data with hiera-gpg</li><li class="listitem" style="list-style-type: disc">Using MessagePack serialization</li><li class="listitem" style="list-style-type: disc">Automatic syntax checking with Git hooks</li><li class="listitem" style="list-style-type: disc">Pushing code around with Git</li><li class="listitem" style="list-style-type: disc">Managing environments with Git</li></ul></div><div class="section" title="Introduction"><div class="titlepage"><div><div><h1 class="title"><a id="ch02lvl1sec26"/>Introduction</h1></div></div></div><p>In this chapter, we will cover how to deploy Puppet in a centralized and decentralized manner. With each approach, we'll see a combination of best practices, my personal experience, and community solutions.</p><p>We'll configure and use both PuppetDB and Hiera. PuppetDB is used with exported resources, which we will cover in <a class="link" href="ch05.html" title="Chapter 5. Users and Virtual Resources">Chapter 5</a>, <span class="emphasis"><em>Users and Virtual Resources</em></span>. Hiera is used to separate variable data from Puppet code.</p><p>Finally, I'll introduce Git and see how to use Git to organize our code and our infrastructure.</p><p>Because Linux distributions, such as Ubuntu, Red Hat, and CentOS, differ in the specific details of package names, configuration file paths, and many other things, I have decided that for reasons of space and clarity the best approach for this book is to pick one distribution (<span class="emphasis"><em>Debian 7</em></span> named as <span class="emphasis"><em>Wheezy</em></span>) and stick to that. However, Puppet runs on most popular operating systems, so you should have very little trouble adapting the recipes to your own favorite OS and distribution.</p><p>At the time of writing, Puppet 3.7.2 is the latest stable version available, this is the version of Puppet used in the book. The syntax of Puppet commands changes often, so be aware that while older versions of Puppet are still perfectly usable, they may not support all of the features and syntax described in this book. As we saw in <a class="link" href="ch01.html" title="Chapter 1. Puppet Language and Style">Chapter 1</a>, <span class="emphasis"><em>Puppet Language and Style</em></span>, the future parser showcases features of the language scheduled to become default in Version 4 of Puppet.</p></div></div>
+<div class="section" title="Installing Puppet"><div class="titlepage"><div><div><h1 class="title"><a id="ch02lvl1sec27"/>Installing Puppet</h1></div></div></div><p>In <a class="link" href="ch01.html" title="Chapter 1. Puppet Language and Style">Chapter 1</a>, <span class="emphasis"><em>Puppet Language and Style</em></span>, we installed Puppet as a rubygem using the gem install. When<a id="id139" class="indexterm"/> deploying to several nodes, this may not be the best approach. Using the package manager of your chosen distribution is the best way to keep your Puppet versions similar on all of the nodes in your deployment. Puppet labs maintain repositories for APT-based and YUM-based distributions.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec56"/>Getting ready</h2></div></div></div><p>If your Linux distribution uses APT for package management, go to <a class="ulink" href="http://apt.puppetlabs.com/">http://apt.puppetlabs.com/</a> and download the appropriate Puppet labs release package for <a id="id140" class="indexterm"/>your distribution. For our wheezy cookbook node, we will use <a class="ulink" href="http://apt.puppetlabs.com/puppetlabs-release-wheezy.deb">http://apt.puppetlabs.com/puppetlabs-release-wheezy.deb</a>.</p><p>If you are using a Linux distribution that uses YUM for package management, go to <a class="ulink" href="http://yum.puppetlabs.com/">http://yum.puppetlabs.com/</a> and download the appropriate Puppet labs release package <a id="id141" class="indexterm"/>for your distribution.</p></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec57"/>How to do it...</h2></div></div></div><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Once you have found the appropriate Puppet labs release package for your distribution, the steps to install Puppet are the same for either APT or YUM:<div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Install Puppet labs release package</li><li class="listitem" style="list-style-type: disc">Install Puppet package</li></ul></div></li><li class="listitem">Once you have installed Puppet, verify the version of Puppet as shown in the following example:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@ckbk:~ puppet --version 3.7.2</strong></span>
+</pre></div></li></ol></div><p>Now that<a id="id142" class="indexterm"/> we have a method to install Puppet on our nodes, we need to turn our attention to keeping our Puppet manifests organized. In the next section, we will see how to use Git to keep our code organized and consistent.</p></div></div>
+<div class="section" title="Managing your manifests with Git"><div class="titlepage"><div><div><h1 class="title"><a id="ch02lvl1sec28"/>Managing your manifests with Git</h1></div></div></div><p>It's a<a id="id143" class="indexterm"/> great idea to put your Puppet manifests<a id="id144" class="indexterm"/> in a version control system such as Git or Subversion (Git is the de facto standard for Puppet). This gives you several advantages:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">You can undo changes and revert to any previous version of your manifest</li><li class="listitem" style="list-style-type: disc">You can experiment with new features using a branch</li><li class="listitem" style="list-style-type: disc">If several people need to make changes to the manifests, they can make them independently, in their own working copies, and then merge their changes later</li><li class="listitem" style="list-style-type: disc">You can use the <code class="literal">git log</code> feature to see what was changed, and when (and by whom)</li></ul></div><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec58"/>Getting ready</h2></div></div></div><p>In this section, we'll import your existing manifest files into Git. If you have created a Puppet directory in a previous section use that, otherwise, use your existing manifest directory.</p><p>In this example, we'll create a new Git repository on a server accessible from all our nodes. There are several steps we need to take to have our code held in a Git repository:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Install Git on a central server.</li><li class="listitem">Create a user to run Git and own the repository.</li><li class="listitem">Create a repository to hold the code.</li><li class="listitem">Create <span class="strong"><strong>SSH</strong></span> keys<a id="id145" class="indexterm"/> to allow key-based access to the repository.</li><li class="listitem">Install Git on a node and download the latest version from our Git repository.</li></ol></div></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec59"/>How to do it...</h2></div></div></div><p>Follow these steps:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">First, install<a id="id146" class="indexterm"/> Git on your Git server (<code class="literal">git.example.com</code> in our example). The easiest way to do this is using<a id="id147" class="indexterm"/> Puppet. Create the following manifest, call it <code class="literal">git.pp</code>:<div class="informalexample"><pre class="programlisting">  package {'git':
+    ensure =&gt; installed }</pre></div></li><li class="listitem">Apply this manifest using <code class="literal">puppet apply git.pp</code>, this will install Git.</li><li class="listitem">Next, create a Git user that the nodes will use to log in and retrieve the latest code. Again, we'll do this with puppet. We'll also create a directory to hold our repository (<code class="literal">/home/git/repos</code>) as shown in the following code snippet:<div class="informalexample"><pre class="programlisting">group { 'git': gid =&gt; 1111, }
+user {'git': uid =&gt; 1111, gid =&gt; 1111, comment =&gt; 'Git User', home =&gt; '/home/git', require =&gt; Group['git'], }
+file {'/home/git': ensure =&gt; 'directory', owner =&gt; 1111, group =&gt; 1111, require =&gt; User['git'], }
+file {'/home/git/repos': ensure =&gt; 'directory', owner =&gt; 1111, group =&gt; 1111, require =&gt; File['/home/git'] }</pre></div></li><li class="listitem">After applying that manifest, log in as the Git user and create an empty Git repository using the following command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong># sudo -iu git git@git $ cd repos git@git $ git init --bare puppet.git Initialized empty Git repository in /home/git/repos/puppet.git/</strong></span>
+</pre></div></li><li class="listitem">Set a password for the Git user, we'll need to log in remotely after the next step:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@git ~]# passwd git</strong></span>
+<span class="strong"><strong>Changing password for user git.</strong></span>
+<span class="strong"><strong>New password: </strong></span>
+<span class="strong"><strong>Retype new password: </strong></span>
+<span class="strong"><strong>passwd: all authentication tokens updated successfully.</strong></span>
+</pre></div></li><li class="listitem">Now<a id="id148" class="indexterm"/> back on your local machine, create<a id="id149" class="indexterm"/> an <code class="literal">ssh</code> key for our nodes to use to update the repository:<div class="informalexample"><pre class="programlisting">t@mylaptop ~ $ cd .ssh
+t@mylaptop ~/.ssh $ ssh-keygen -b 4096 -f git_rsa
+Generating public/private rsa key pair.
+Enter passphrase (empty for no passphrase): 
+Enter same passphrase again: 
+Your identification has been saved in git_rsa.
+Your public key has been saved in git_rsa.pub.
+The key fingerprint is:
+87:35:0e:4e:d2:96:5f:e4:ce:64:4a:d5:76:c8:2b:e4 thomas@mylaptop</pre></div></li><li class="listitem">Now copy the newly created public key to the <code class="literal">authorized_keys</code> file. This will allow us to connect to the Git server using this new key:<div class="informalexample"><pre class="programlisting">t@mylaptop ~/.ssh $ ssh-copy-id -i git_rsa git@git.example.com
+git@git.example.com's password: 
+Number of key(s) added: 1</pre></div></li><li class="listitem">Now try logging into the machine, with: "ssh 'git@git.example.com'" and check to make sure that only the key(s) you wanted were added.</li><li class="listitem">Next, configure <code class="literal">ssh</code> to use your key when accessing the Git server and add the following to your <code class="literal">~/.ssh/config</code> file:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>Host git git.example.com</strong></span>
+<span class="strong"><strong>  User git</strong></span>
+<span class="strong"><strong>  IdentityFile /home/thomas/.ssh/git_rsa</strong></span>
+</pre></div></li><li class="listitem">Clone the repo onto your machine into a directory named Puppet (substitute your server name if you didn't use <code class="literal">git.example.com</code>):<div class="informalexample"><pre class="programlisting">t@mylaptop ~$ git clone git@git.example.com:repos/puppet.git
+Cloning into 'puppet'...
+warning: You appear to have cloned an empty repository.
+Checking connectivity... done.</pre></div><p>We've created a Git repository; before we commit any changes to the repository, it's a good idea to set your name and e-mail in Git. Your name and e-mail will be appended to each commit you make.</p></li><li class="listitem">When you are working in a large team, knowing who made a change is very important; for this, use the following code snippet:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop puppet$ git config --global user.email"thomas@narrabilis.com"</strong></span>
+<span class="strong"><strong>t@mylaptop puppet$ git config --global user.name "ThomasUphill"</strong></span>
+</pre></div></li><li class="listitem">You<a id="id150" class="indexterm"/> can verify your Git settings<a id="id151" class="indexterm"/> using the following snippet:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop ~$ git config --global --list</strong></span>
+<span class="strong"><strong>user.name=Thomas Uphill</strong></span>
+<span class="strong"><strong>user.email=thomas@narrabilis.com</strong></span>
+<span class="strong"><strong>core.editor=vim</strong></span>
+<span class="strong"><strong>merge.tool=vimdiff</strong></span>
+<span class="strong"><strong>color.ui=true</strong></span>
+<span class="strong"><strong>push.default=simple</strong></span>
+</pre></div></li><li class="listitem">Now that we have Git configured properly, change directory to your repository directory and create a new site manifest as shown in the following snippet:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop ~$ cd puppet</strong></span>
+<span class="strong"><strong>t@mylaptop puppet$ mkdir manifests</strong></span>
+<span class="strong"><strong>t@mylaptop puppet$ vim manifests/site.pp</strong></span>
+<span class="strong"><strong>node default {</strong></span>
+<span class="strong"><strong>  include base</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div></li><li class="listitem">This site manifest will install our base class on every node; we will create the base class using the Puppet module as we did in <a class="link" href="ch01.html" title="Chapter 1. Puppet Language and Style">Chapter 1</a>, <span class="emphasis"><em>Puppet Language and Style</em></span>:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop puppet$ mkdir modules</strong></span>
+<span class="strong"><strong>t@mylaptop puppet$ cd modules</strong></span>
+<span class="strong"><strong>t@mylaptop modules$ puppet module generate thomas-base</strong></span>
+<span class="strong"><strong>Notice: Generating module at /home/tuphill/puppet/modules/thomas-base</strong></span>
+<span class="strong"><strong>thomas-base</strong></span>
+<span class="strong"><strong>thomas-base/Modulefile</strong></span>
+<span class="strong"><strong>thomas-base/README</strong></span>
+<span class="strong"><strong>thomas-base/manifests</strong></span>
+<span class="strong"><strong>thomas-base/manifests/init.pp</strong></span>
+<span class="strong"><strong>thomas-base/spec</strong></span>
+<span class="strong"><strong>thomas-base/spec/spec_helper.rb</strong></span>
+<span class="strong"><strong>thomas-base/tests</strong></span>
+<span class="strong"><strong>thomas-base/tests/init.pp</strong></span>
+<span class="strong"><strong>t@mylaptop modules$ ln -s thomas-base base</strong></span>
+</pre></div></li><li class="listitem">As a<a id="id152" class="indexterm"/> last step, we create a symbolic <a id="id153" class="indexterm"/>link between the <code class="literal">thomas-base</code> directory and <code class="literal">base</code>. Now to make sure our module does something useful, add the following to the body of the <code class="literal">base</code> class defined in <code class="literal">thomas-base/manifests/init.pp</code>:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>class base {</strong></span>
+<span class="strong"><strong>  file {'/etc/motd':</strong></span>
+<span class="strong"><strong>    content =&gt; "${::fqdn}\nManaged by puppet ${::puppetversion}\n"</strong></span>
+<span class="strong"><strong>  }</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div></li><li class="listitem">Now add the new base module and site manifest to Git using <code class="literal">git add</code> and <code class="literal">git commit</code> as follows:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop modules$ cd ..</strong></span>
+<span class="strong"><strong>t@mylaptop puppet$ git add modules manifests</strong></span>
+<span class="strong"><strong>t@mylaptop puppet$ git status</strong></span>
+<span class="strong"><strong>On branch master</strong></span>
+<span class="strong"><strong>Initial commit</strong></span>
+<span class="strong"><strong>Changes to be committed:</strong></span>
+<span class="strong"><strong>  (use "git rm --cached &lt;file&gt;..." to unstage)</strong></span>
+<span class="strong"><strong>new file:   manifests/site.pp</strong></span>
+<span class="strong"><strong>new file:   modules/base</strong></span>
+<span class="strong"><strong>new file:   modules/thomas-base/Modulefile</strong></span>
+<span class="strong"><strong>new file:   modules/thomas-base/README</strong></span>
+<span class="strong"><strong>new file:   modules/thomas-base/manifests/init.pp</strong></span>
+<span class="strong"><strong>new file:   modules/thomas-base/spec/spec_helper.rb</strong></span>
+<span class="strong"><strong>new file:   modules/thomas-base/tests/init.pp</strong></span>
+<span class="strong"><strong>t@mylaptop puppet$ git commit -m "Initial commit with simple base module"</strong></span>
+<span class="strong"><strong>[master (root-commit) 3e1f837] Initial commit with simple base module</strong></span>
+<span class="strong"><strong> 7 files changed, 102 insertions(+)</strong></span>
+<span class="strong"><strong> create mode 100644 manifests/site.pp</strong></span>
+<span class="strong"><strong> create mode 120000 modules/base</strong></span>
+<span class="strong"><strong> create mode 100644 modules/thomas-base/Modulefile</strong></span>
+<span class="strong"><strong> create mode 100644 modules/thomas-base/README</strong></span>
+<span class="strong"><strong> create mode 100644 modules/thomas-base/manifests/init.pp</strong></span>
+<span class="strong"><strong> create mode 100644 modules/thomas-base/spec/spec_helper.rb</strong></span>
+<span class="strong"><strong> create mode 100644 modules/thomas-base/tests/init.pp</strong></span>
+</pre></div></li><li class="listitem">At this<a id="id154" class="indexterm"/> point your changes to the <a id="id155" class="indexterm"/>Git repository have been committed locally; you now need to push those changes back to <code class="literal">git.example.com</code> so that other nodes can retrieve the updated files:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop puppet$ git push origin master</strong></span>
+<span class="strong"><strong>Counting objects: 15, done.</strong></span>
+<span class="strong"><strong>Delta compression using up to 4 threads.</strong></span>
+<span class="strong"><strong>Compressing objects: 100% (9/9), done.</strong></span>
+<span class="strong"><strong>Writing objects: 100% (15/15), 2.15 KiB | 0 bytes/s, done.</strong></span>
+<span class="strong"><strong>Total 15 (delta 0), reused 0 (delta 0)</strong></span>
+<span class="strong"><strong>To git@git.example.com:repos/puppet.git</strong></span>
+<span class="strong"><strong> * [new branch]      master -&gt; master</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec60"/>How it works...</h2></div></div></div><p>Git tracks changes to files, and stores a complete history of all changes. The history of the repo is made up of commits. A commit represents the state of the repo at a particular point in time, which you create with the <code class="literal">git commit</code> command and annotate with a message.</p><p>You've now added your Puppet manifest files to the repo and created your first commit. This updates the history of the repo, but only in your local working copy. To synchronize the changes with the <code class="literal">git.example.com</code> copy, the <code class="literal">git push</code> command pushes all changes made since the last sync.</p></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec61"/>There's more...</h2></div></div></div><p>Now that you have a central Git repository for your Puppet manifests, you can check out multiple copies of it in different places and work on them before committing your changes. For example, if you're working in a team, each member can have their own local copy of the <a id="id156" class="indexterm"/>repo and synchronize changes with<a id="id157" class="indexterm"/> the others via the central server. You may also choose to use GitHub as your central Git repository server. GitHub offers free Git repository hosting for public repositories, and you can pay for GitHub's premium service if you don't want your Puppet code to be publicly available.</p><p>In the next section, we will use our Git repository for both centralized and decentralized Puppet configurations.</p></div></div>
+<div class="section" title="Creating a decentralized Puppet architecture"><div class="titlepage"><div><div><h1 class="title"><a id="ch02lvl1sec29"/>Creating a decentralized Puppet architecture</h1></div></div></div><p>Puppet<a id="id158" class="indexterm"/> is a configuration management tool. You can use Puppet to configure and prevent configuration drift in a large number of client computers. If all your client computers are easily reached via a central location, you may choose to have a central Puppet server control all the client computers. In the centralized model, the Puppet server is known as the Puppet master. We will cover how to configure a central Puppet master in a few sections.</p><p>If your client computers are widely distributed or you cannot guarantee communication between the client computers and a central location, then a decentralized architecture may be a good fit for your deployment. In the next few sections, we will see how to configure a decentralized Puppet architecture.</p><p>As we have seen, we can run the <code class="literal">puppet apply</code> command directly on a manifest file to have Puppet apply it. The problem with this arrangement is that we need to have the manifests transferred to the client computers.</p><p>We can use the Git repository we created in the previous section to transfer our manifests to each new node we create.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec62"/>Getting ready</h2></div></div></div><p>Create a new test node, call this new node whatever you wish, I'll use <code class="literal">testnode</code> for mine. Install Puppet on the machine as we have previously done.</p></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec63"/>How to do it...</h2></div></div></div><p>Create a <code class="literal">bootstrap.pp</code> manifest that will perform the following configuration steps on our new node:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Install Git:<div class="informalexample"><pre class="programlisting">package {'git':
+  ensure =&gt; 'installed'
+}</pre></div></li><li class="listitem">Install<a id="id159" class="indexterm"/> the <code class="literal">ssh</code> key to access <code class="literal">git.example.com</code> in the Puppet user's home directory (<code class="literal">/var/lib/puppet/.ssh/id_rsa</code>):<div class="informalexample"><pre class="programlisting">File {
+  owner =&gt; 'puppet',
+  group =&gt; 'puppet',
+}
+file {'/var/lib/puppet/.ssh':
+  ensure =&gt; 'directory',
+}
+file {'/var/lib/puppet/.ssh/id_rsa':
+  content =&gt; "
+-----BEGIN RSA PRIVATE KEY-----
+…
+NIjTXmZUlOKefh4MBilqUU3KQG8GBHjzYl2TkFVGLNYGNA0U8VG8SUJq
+-----END RSA PRIVATE KEY-----
+",
+  mode    =&gt; 0600,
+  require =&gt; File['/var/lib/puppet/.ssh']
+}</pre></div></li><li class="listitem">Download the <code class="literal">ssh</code> host key from <code class="literal">git.example.com</code> (<code class="literal">/var/lib/puppet/.ssh/known_hosts</code>):<div class="informalexample"><pre class="programlisting">exec {'download git.example.com host key': 
+  command =&gt; 'sudo -u puppet ssh-keyscan git.example.com &gt;&gt; /var/lib/puppet/.ssh/known_hosts',
+  path    =&gt; '/usr/bin:/usr/sbin:/bin:/sbin',
+  unless  =&gt; 'grep git.example.com /var/lib/puppet/.ssh/known_hosts',
+  require =&gt; File['/var/lib/puppet/.ssh'],
+}</pre></div></li><li class="listitem">Create a directory to contain the Git repository (<code class="literal">/etc/puppet/cookbook</code>):<div class="informalexample"><pre class="programlisting">file {'/etc/puppet/cookbook':
+  ensure =&gt; 'directory',
+}</pre></div></li><li class="listitem">Clone the Puppet repository onto the new machine:<div class="informalexample"><pre class="programlisting">exec {'create cookbook':
+  command =&gt; 'sudo -u puppet git clone git@git.example.com:repos/puppet.git /etc/puppet/cookbook',
+  path    =&gt; '/usr/bin:/usr/sbin:/bin:/sbin',
+  require =&gt; [Package['git'],File['/var/lib/puppet/.ssh/id_rsa'],Exec['download git.example.com host key']],
+  unless  =&gt; 'test -f /etc/puppet/cookbook/.git/config',
+}</pre></div></li><li class="listitem">Now when we run Puppet apply on the new machine, the <code class="literal">ssh</code> key will be installed<a id="id160" class="indexterm"/> for the Puppet user. The Puppet user will then clone the Git repository into <code class="literal">/etc/puppet/cookbook</code>:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@testnode /tmp# puppet apply bootstrap.pp </strong></span>
+<span class="strong"><strong>Notice: Compiled catalog for testnode.example.com in environment production in 0.40 seconds</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Main/File[/etc/puppet/cookbook]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Main/File[/var/lib/puppet/.ssh]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Main/Exec[download git.example.com host key]/returns: executed successfully</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Main/File[/var/lib/puppet/.ssh/id_rsa]/ensure: defined content as '{md5}da61ce6ccc79bc6937bd98c798bc9fd3'</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Main/Exec[create cookbook]/returns: executed successfully</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 0.82 seconds</strong></span>
+</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note03"/>Note</h3><p>You may have to disable the <code class="literal">tty</code> requirement of <code class="literal">sudo</code>. Comment out the line <code class="literal">Defaults requiretty</code> at <code class="literal">/etc/sudoers</code> if you have this line.</p><p>Alternatively, you can set <code class="literal">user =&gt; Puppet</code> within the <code class="literal">'create cookbook' exec</code> type. Beware that using the user attribute will cause any error messages from the command to be lost.</p></div></div></li><li class="listitem">Now that your Puppet code is available on the new node, you can apply it using <code class="literal">puppet apply</code>, specifying that <code class="literal">/etc/puppet/cookbook/modules</code> will contain the modules:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@testnode ~# puppet apply --modulepath=/etc/puppet/cookbook/modules /etc/puppet/cookbook/manifests/site.pp </strong></span>
+<span class="strong"><strong>Notice: Compiled catalog for testnode.example.com in environment production in 0.12 seconds</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Base/File[/etc/motd]/content: content changed '{md5}86d28ff83a8d49d349ba56b5c64b79ee' to '{md5}4c4c3ab7591d940318279d78b9c51d4f'</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 0.11 seconds</strong></span>
+<span class="strong"><strong>root@testnode /tmp# cat /etc/motd</strong></span>
+<span class="strong"><strong>testnode.example.com</strong></span>
+<span class="strong"><strong>Managed by puppet 3.6.2</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec64"/>How it works...</h2></div></div></div><p>First, our <code class="literal">bootstrap.pp</code> manifest ensures that Git is installed. The manifest then goes on to ensure<a id="id161" class="indexterm"/> that the <code class="literal">ssh</code> key for the Git user on <code class="literal">git.example.com</code> is installed into the Puppet user's home directory (<code class="literal">/var/lib/puppet</code> by default). The manifest then ensures that the host key for <code class="literal">git.example.com</code> is trusted by the Puppet user. With <code class="literal">ssh</code> configured, the bootstrap ensures that <code class="literal">/etc/puppet/cookbook</code> exists and is a directory.</p><p>We then use an <code class="literal">exec</code> to have Git clone the repository into <code class="literal">/etc/puppet/cookbook</code>. With all the code in place, we then call <code class="literal">puppet apply</code> a final time to deploy the code from the repository. In a production setting, you would distribute the <code class="literal">bootstrap.pp</code> manifest to all your nodes, possibly via an internal web server, using a method similar to curl <a class="ulink" href="http://puppet/bootstrap.pp &gt;bootstrap.pp &amp;&amp; puppet apply bootstrap.pp">http://puppet/bootstrap.pp &gt;bootstrap.pp &amp;&amp; puppet apply bootstrap.pp</a>
+</p></div></div>
+<div class="section" title="Writing a papply script"><div class="titlepage"><div><div><h1 class="title"><a id="ch02lvl1sec30"/>Writing a papply script</h1></div></div></div><p>We'd like<a id="id162" class="indexterm"/> to make it as quick and easy as possible to apply Puppet on a machine; for this we'll write a little script that wraps the <code class="literal">puppet apply</code> command with the parameters it needs. We'll deploy the script where it's needed with Puppet itself.</p><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec65"/>How to do it...</h2></div></div></div><p>Follow these steps:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">In your Puppet repo, create the directories needed for a Puppet module:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop ~$ cd puppet/modules</strong></span>
+<span class="strong"><strong>t@mylaptop modules$ mkdir -p puppet/{manifests,files}</strong></span>
+</pre></div></li><li class="listitem">Create the <code class="literal">modules/puppet/files/papply.sh</code> file with the following contents:<div class="informalexample"><pre class="programlisting">#!/bin/sh sudo puppet apply /etc/puppet/cookbook/manifests/site.pp \--modulepath=/etc/puppet/cookbook/modules $*</pre></div></li><li class="listitem">Create the <code class="literal">modules/puppet/manifests/init.pp</code> file with the following contents:<div class="informalexample"><pre class="programlisting">class puppet {
+  file { '/usr/local/bin/papply':
+    source =&gt; 'puppet:///modules/puppet/papply.sh',
+    mode   =&gt; '0755',
+  }
+}</pre></div></li><li class="listitem">Modify<a id="id163" class="indexterm"/> your <code class="literal">manifests/site.pp</code> file as follows:<div class="informalexample"><pre class="programlisting">node default {
+  include base
+  include puppet
+}</pre></div></li><li class="listitem">Add the Puppet module to the Git repository and commit the change as follows:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop puppet$ git add manifests/site.pp modules/puppet</strong></span>
+<span class="strong"><strong>t@mylaptop puppet$ git status</strong></span>
+<span class="strong"><strong>On branch master</strong></span>
+<span class="strong"><strong>Your branch is up-to-date with 'origin/master'.</strong></span>
+<span class="strong"><strong>Changes to be committed:</strong></span>
+<span class="strong"><strong>  (use "git reset HEAD &lt;file&gt;..." to unstage)</strong></span>
+<span class="strong"><strong>modified:   manifests/site.pp</strong></span>
+<span class="strong"><strong>new file:   modules/puppet/files/papply.sh</strong></span>
+<span class="strong"><strong>new file:   modules/puppet/manifests/init.pp</strong></span>
+<span class="strong"><strong>t@mylaptop puppet$ git commit -m "adding puppet module to include papply"</strong></span>
+<span class="strong"><strong>[master 7c2e3d5] adding puppet module to include papply</strong></span>
+<span class="strong"><strong> 3 files changed, 11 insertions(+)</strong></span>
+<span class="strong"><strong> create mode 100644 modules/puppet/files/papply.sh</strong></span>
+<span class="strong"><strong> create mode 100644 modules/puppet/manifests/init.pp</strong></span>
+</pre></div></li><li class="listitem">Now remember to push the changes to the Git repository on <code class="literal">git.example.com</code>:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop puppet$ git push origin master Counting objects: 14, done. Delta compression using up to 4 threads. Compressing objects: 100% (7/7), done. Writing objects: 100% (10/10), 894 bytes | 0 bytes/s, done. Total 10 (delta 0), reused 0 (delta 0) To git@git.example.com:repos/puppet.git 23e887c..7c2e3d5  master -&gt; master</strong></span>
+</pre></div></li><li class="listitem">Pull the latest version of the Git repository to your new node (<code class="literal">testnode</code> for me) as shown in the following command line:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@testnode ~# sudo -iu puppet</strong></span>
+<span class="strong"><strong>puppet@testnode ~$ cd /etc/puppet/cookbook/puppet@testnode /etc/puppet/cookbook$ git pull origin master remote: Counting objects: 14, done. remote: Compressing objects: 100% (7/7), done. remote: Total 10 (delta 0), reused 0 (delta 0) Unpacking objects: 100% (10/10), done. From git.example.com:repos/puppet * branch            master     -&gt; FETCH_HEAD Updating 23e887c..7c2e3d5 Fast-forward manifests/site.pp                |    1 + modules/puppet/files/papply.sh   |    4 ++++ modules/puppet/manifests/init.pp |    6 ++++++ 3 files changed, 11 insertions(+), 0 deletions(-) create mode 100644 modules/puppet/files/papply.sh create mode 100644 modules/puppet/manifests/init.pp</strong></span>
+</pre></div></li><li class="listitem">Apply<a id="id164" class="indexterm"/> the manifest manually once to install the <code class="literal">papply</code> script:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@testnode ~# puppet apply /etc/puppet/cookbook/manifests/site.pp --modulepath /etc/puppet/cookbook/modules</strong></span>
+<span class="strong"><strong>Notice: Compiled catalog for testnode.example.com in environment production in 0.13 seconds</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Puppet/File[/usr/local/bin/papply]/ensure: defined content as '{md5}d5c2cdd359306dd6e6441e6fb96e5ef7'</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 0.13 seconds</strong></span>
+</pre></div></li><li class="listitem">Finally, test the script:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@testnode ~# papply</strong></span>
+<span class="strong"><strong>Notice: Compiled catalog for testnode.example.com in environment production in 0.13 seconds</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 0.09 seconds</strong></span>
+</pre></div></li></ol></div><p>Now, whenever you need to run Puppet, you can simply run <code class="literal">papply</code>. In future, when we apply Puppet changes, I'll ask you to run <code class="literal">papply</code> instead of the full <code class="literal">puppet apply</code> command.</p></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec66"/>How it works...</h2></div></div></div><p>As you've seen, to run Puppet on a machine and apply a specified manifest file, we use the <code class="literal">puppet apply</code> command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>puppet apply manifests/site.pp</strong></span>
+</pre></div><p>When you're using modules (such as the Puppet module we just created), you also need to tell Puppet where to search for modules, using the <code class="literal">modulepath</code> argument:</p><div class="informalexample"><pre class="programlisting">puppet apply manifests/nodes.pp \--modulepath=/home/ubuntu/puppet/modules</pre></div><p>In order to run Puppet with the root privileges it needs, we have to put <code class="literal">sudo</code> before everything:</p><div class="informalexample"><pre class="programlisting">sudo puppet apply manifests/nodes.pp \--modulepath=/home/ubuntu/puppet/modules</pre></div><p>Finally, any<a id="id165" class="indexterm"/> additional arguments passed to <code class="literal">papply</code> will be passed through to Puppet itself, by adding the <code class="literal">$*</code> parameter:</p><div class="informalexample"><pre class="programlisting">sudo puppet apply manifests/nodes.pp \--modulepath=/home/ubuntu/puppet/modules $*</pre></div><p>That's a lot of typing, so putting this in a script makes sense. We've added a Puppet file resource that will deploy the script to <code class="literal">/usr/local/bin</code> and make it executable:</p><div class="informalexample"><pre class="programlisting">file { '/usr/local/bin/papply': source =&gt; 'puppet:///modules/puppet/papply.sh', mode   =&gt; '0755',}</pre></div><p>Finally, we include the Puppet module in our default node declaration:</p><div class="informalexample"><pre class="programlisting">node default {
+  include base
+  include puppet
+}</pre></div><p>You can do the same for any other nodes managed by Puppet.</p></div></div>
+<div class="section" title="Running Puppet from cron"><div class="titlepage"><div><div><h1 class="title"><a id="ch02lvl1sec31"/>Running Puppet from cron</h1></div></div></div><p>You can<a id="id166" class="indexterm"/> do a lot with the setup you already have: work on<a id="id167" class="indexterm"/> your Puppet manifests as a team, communicate changes via a central Git repository, and manually apply them on a machine using the <code class="literal">papply</code> script.</p><p>However, you still have to log into each machine to update the Git repo and rerun Puppet. It would be helpful to have each machine update itself and apply any changes automatically. Then all you need to do is to push a change to the repo, and it will go out to all your machines within a certain time.</p><p>The simplest way to do this is with a <span class="strong"><strong>cron</strong></span> job that pulls updates from the repo at regular intervals and then runs Puppet if anything has changed.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec67"/>Getting ready</h2></div></div></div><p>You'll need the Git repo we set up in the <span class="emphasis"><em>Managing your manifests with Git</em></span> and <span class="emphasis"><em>Creating a decentralized Puppet architecture</em></span> recipes, and the <code class="literal">papply</code> script from the <span class="emphasis"><em>Writing a papply script</em></span> recipe. You'll need to apply the <code class="literal">bootstrap.pp</code> manifest we created to install <code class="literal">ssh</code> keys to download the latest repository.</p></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec68"/>How to do it...</h2></div></div></div><p>Follow<a id="id168" class="indexterm"/> these steps:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Copy<a id="id169" class="indexterm"/> the <code class="literal">bootstrap.pp</code> script to any node you wish to enroll. The <code class="literal">bootstrap.pp</code> manifest includes the private key used to access the Git repository, it should be protected in a production environment.</li><li class="listitem">Create the <code class="literal">modules/puppet/files/pull-updates.sh</code> file with the following contents:<div class="informalexample"><pre class="programlisting">#!/bin/sh
+cd /etc/puppet/cookbook
+sudo –u puppet git pull &amp;&amp; /usr/local/bin/papply</pre></div></li><li class="listitem">Modify the <code class="literal">modules/puppet/manifests/init.pp</code> file and add the following snippet after the <code class="literal">papply</code> file definition:<div class="informalexample"><pre class="programlisting">file { '/usr/local/bin/pull-updates':
+  source =&gt; 'puppet:///modules/puppet/pull-updates.sh',
+  mode   =&gt; '0755',
+}
+cron { 'run-puppet':
+  ensure  =&gt; 'present',
+  user    =&gt; 'puppet',
+  command =&gt; '/usr/local/bin/pull-updates',
+  minute  =&gt; '*/10',
+  hour    =&gt; '*',
+}</pre></div></li><li class="listitem">Commit the changes as before and push to the Git server as shown in the following command line:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop puppet$ git add modules/puppet
+t@mylaptop puppet$ git commit -m "adding pull-updates"
+[master 7e9bac3] adding pull-updates
+ 2 files changed, 14 insertions(+)
+ create mode 100644 modules/puppet/files/pull-updates.sh
+t@mylaptop puppet$ git push
+Counting objects: 14, done.
+Delta compression using up to 4 threads.
+Compressing objects: 100% (7/7), done.
+Writing objects: 100% (8/8), 839 bytes | 0 bytes/s, done.
+Total 8 (delta 0), reused 0 (delta 0)
+To git@git.example.com:repos/puppet.git
+   7c2e3d5..7e9bac3  master -&gt; master</strong></span>
+</pre></div></li><li class="listitem">Issue a Git pull on the test node:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@testnode ~# cd /etc/puppet/cookbook/</strong></span>
+<span class="strong"><strong>root@testnode /etc/puppet/cookbook# sudo –u puppet git pull</strong></span>
+<span class="strong"><strong>remote: Counting objects: 14, done.</strong></span>
+<span class="strong"><strong>remote: Compressing objects: 100% (7/7), done.</strong></span>
+<span class="strong"><strong>remote: Total 8 (delta 0), reused 0 (delta 0)</strong></span>
+<span class="strong"><strong>Unpacking objects: 100% (8/8), done.</strong></span>
+<span class="strong"><strong>From git.example.com:repos/puppet</strong></span>
+<span class="strong"><strong>   23e887c..7e9bac3  master     -&gt; origin/master</strong></span>
+<span class="strong"><strong>Updating 7c2e3d5..7e9bac3</strong></span>
+<span class="strong"><strong>Fast-forward</strong></span>
+<span class="strong"><strong> modules/puppet/files/pull-updates.sh |    3 +++</strong></span>
+<span class="strong"><strong> modules/puppet/manifests/init.pp     |   11 +++++++++++</strong></span>
+<span class="strong"><strong> 2 files changed, 14 insertions(+), 0 deletions(-)</strong></span>
+<span class="strong"><strong> create mode 100644 modules/puppet/files/pull-updates.sh</strong></span>
+</pre></div></li><li class="listitem">Run <a id="id170" class="indexterm"/>Puppet on the test node:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@testnode /etc/puppet/cookbook# papply</strong></span>
+<span class="strong"><strong>Notice: Compiled catalog for testnode.example.com in environment production in 0.17 seconds</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Puppet/Cron[run-puppet]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Puppet/File[/usr/local/bin/pull-updates]/ensure: defined content as '{md5}04c023feb5d566a417b519ea51586398'</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 0.16 seconds</strong></span>
+</pre></div></li><li class="listitem">Check<a id="id171" class="indexterm"/> that the <code class="literal">pull-updates</code> script works properly:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@testnode /etc/puppet/cookbook# pull-updates</strong></span>
+<span class="strong"><strong>Already up-to-date.</strong></span>
+<span class="strong"><strong>Notice: Compiled catalog for testnode.example.com in environment production in 0.15 seconds</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 0.14 seconds</strong></span>
+</pre></div></li><li class="listitem">Verify the <code class="literal">cron</code> job was created successfully:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@testnode /etc/puppet/cookbook# crontab -l -u puppet</strong></span>
+<span class="strong"><strong># HEADER: This file was autogenerated at Tue Sep 09 02:31:00 -0400 2014 by puppet.</strong></span>
+<span class="strong"><strong># HEADER: While it can still be managed manually, it is definitely not recommended.</strong></span>
+<span class="strong"><strong># HEADER: Note particularly that the comments starting with 'Puppet Name' should</strong></span>
+<span class="strong"><strong># HEADER: not be deleted, as doing so could cause duplicate cron jobs.</strong></span>
+<span class="strong"><strong># Puppet Name: run-puppet</strong></span>
+<span class="strong"><strong>*/10 * * * * /usr/local/bin/pull-updates</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec69"/>How it works...</h2></div></div></div><p>When we created the <code class="literal">bootstrap.pp</code> manifest, we made sure that the Puppet user can checkout <a id="id172" class="indexterm"/>the Git repository using an <code class="literal">ssh</code> key. This enables<a id="id173" class="indexterm"/> the Puppet user to run the Git pull in the cookbook directory unattended. We've also added the <code class="literal">pull-updates</code> script, which does this and runs Puppet if any changes are pulled:</p><div class="informalexample"><pre class="programlisting">#!/bin/sh
+cd /etc/puppet/cookbook
+sudo –u puppet git pull &amp;&amp; papply</pre></div><p>We deploy this script to the node with Puppet:</p><div class="informalexample"><pre class="programlisting">file { '/usr/local/bin/pull-updates':
+  source =&gt; 'puppet:///modules/puppet/pull-updates.sh',
+  mode   =&gt; '0755',
+}</pre></div><p>Finally, we've created a <code class="literal">cron</code> job that runs <code class="literal">pull-updates</code> at regular intervals (every 10 minutes, but feel free to change this if you need to):</p><div class="informalexample"><pre class="programlisting">cron { 'run-puppet':
+  ensure  =&gt; 'present',
+  command =&gt; '/usr/local/bin/pull-updates',
+  minute  =&gt; '*/10',
+  hour    =&gt; '*',
+}</pre></div></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec70"/>There's more...</h2></div></div></div><p>Congratulations, you now have a fully-automated Puppet infrastructure! Once you have applied the <code class="literal">bootstrap.pp</code> manifest, run Puppet on the repository; the machine will be set up to pull any new changes and apply them automatically.</p><p>So, for example, if you wanted to add a new user account to all your machines, all you have to do is add the account in your working copy of the manifest, and commit and push the changes to the central Git repository. Within 10 minutes, it will automatically be applied to every machine that's running Puppet.</p></div></div>
+<div class="section" title="Bootstrapping Puppet with bash"><div class="titlepage"><div><div><h1 class="title"><a id="ch02lvl1sec32"/>Bootstrapping Puppet with bash</h1></div></div></div><p>Previous <a id="id174" class="indexterm"/>versions of this book used Rakefiles to bootstrap <a id="id175" class="indexterm"/>Puppet. The problem with using Rake to configure a node is that you are running the commands from your laptop; you assume you already have <code class="literal">ssh</code> access to the machine. Most bootstrap processes work by issuing an easy to remember command from a node once it has been provisioned. In this section, we'll show how to use bash to bootstrap Puppet with a web server and a bootstrap script.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec71"/>Getting ready</h2></div></div></div><p>Install httpd on a centrally accessible server and create a password protected area to store the bootstrap script. In my example, I'll use the Git server I set up previously, <code class="literal">git.example.com</code>. Start by creating a directory in the root of your web server:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong># cd /var/www/html</strong></span>
+<span class="strong"><strong># mkdir bootstrap</strong></span>
+</pre></div><p>Now perform the following steps:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Add the following location definition to your apache configuration:<div class="informalexample"><pre class="programlisting">&lt;Location /bootstrap&gt;
+AuthType basic
+AuthName "Bootstrap"
+AuthBasicProvider file
+AuthUserFile /var/www/puppet.passwd
+Require valid-user
+&lt;/Location&gt;</pre></div></li><li class="listitem">Reload your web server to ensure the location configuration is operating. Verify with curl that you cannot download from the bootstrap directory without authentication:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@bootstrap-test tmp]# curl http://git.example.com/bootstrap/</strong></span>
+<span class="strong"><strong>&lt;!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN"&gt;</strong></span>
+<span class="strong"><strong>&lt;html&gt;&lt;head&gt;</strong></span>
+<span class="strong"><strong>&lt;title&gt;401 Authorization Required&lt;/title&gt;</strong></span>
+<span class="strong"><strong>&lt;/head&gt;&lt;body&gt;</strong></span>
+<span class="strong"><strong>&lt;h1&gt;Authorization Required&lt;/h1&gt;</strong></span>
+</pre></div></li><li class="listitem">Create the password file you referenced in the apache configuration (<code class="literal">/var/www/puppet.passwd</code>):<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@git# cd /var/www
+root@git# htpasswd –cb puppet.passwd bootstrap cookbook
+Adding password for user bootstrap
+</strong></span>
+</pre></div></li><li class="listitem">Verify that the username and password permit access to the bootstrap directory as follows:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@node1 tmp]# curl --user bootstrap:cookbook http://git.example.com/bootstrap/</strong></span>
+<span class="strong"><strong>&lt;!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN"&gt;</strong></span>
+<span class="strong"><strong>&lt;html&gt;</strong></span>
+<span class="strong"><strong> &lt;head&gt;</strong></span>
+<span class="strong"><strong>  &lt;title&gt;Index of /bootstrap&lt;/title&gt;</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec72"/>How to do it...</h2></div></div></div><p>Now<a id="id176" class="indexterm"/> that you have a safe location to store the bootstrap<a id="id177" class="indexterm"/> script, create a bootstrap script for each OS you support in the bootstrap directory. In this example, I'll show you how to do this for a Red Hat Enterprise Linux 6-based distribution.</p><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="tip03"/>Tip</h3><p>Although the bootstrap location requires a password, there is no encryption since we haven't configured SSL on our server. Without encryption, the location is not very safe.</p></div></div><p>Create a script named <code class="literal">el6.sh</code> in the bootstrap directory with the following contents:</p><div class="informalexample"><pre class="programlisting">#!/bin/bash
+
+# bootstrap for EL6 distributions
+SERVER=git.example.com
+LOCATION=/bootstrap
+BOOTSTRAP=bootstrap.pp
+USER=bootstrap
+PASS=cookbook
+
+# install puppet
+curl http://yum.puppetlabs.com/RPM-GPG-KEY-puppetlabs &gt;/etc/pki/rpm-gpg/RPM-GPG-KEY-puppetlabs
+rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-puppetlabs
+yum -y install http://yum.puppetlabs.com/puppetlabs-release-el-6.noarch.rpm
+yum -y install puppet
+# download bootstrap
+curl --user $USER:$PASS http://$SERVER/$LOCATION/$BOOTSTRAP &gt;/tmp/$BOOTSTRAP
+# apply bootstrap
+cd /tmp
+puppet apply /tmp/$BOOTSTRAP
+# apply puppet
+puppet apply --modulepath /etc/puppet/cookbook/modules /etc/puppet/cookbook/manifests/site.pp</pre></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec73"/>How it works...</h2></div></div></div><p>The<a id="id178" class="indexterm"/> apache configuration only permits access to the bootstrap <a id="id179" class="indexterm"/>directory with a username and password combination. We supply these with the <code class="literal">--user</code> argument to curl, thereby getting access to the file. We use a pipe (<code class="literal">|</code>) to redirect the output of curl into bash. This causes bash to execute the script. We write our bash script like we would any other bash script. The bash script downloads our <code class="literal">bootstrap.pp</code> manifest and applies it. Finally, we apply the Puppet manifest from the Git repository and the machine is configured as a member of our decentralized infrastructure.</p></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec74"/>There's more...</h2></div></div></div><p>To support another operating system, we only need to create a new bash script. All Linux distributions will support bash scripting, Mac OS X does as well. Since we placed much of our logic into the <code class="literal">bootstrap.pp</code> manifest, the bootstrap script is quite minimal and easy to port to new operating systems.</p></div></div>
+<div class="section" title="Creating a centralized Puppet infrastructure"><div class="titlepage"><div><div><h1 class="title"><a id="ch02lvl1sec33"/>Creating a centralized Puppet infrastructure</h1></div></div></div><p>A<a id="id180" class="indexterm"/> configuration management tool such as Puppet is best used when you have many machines to manage. If all the machines can reach a central location, using a centralized Puppet infrastructure might be a good solution. Unfortunately, Puppet doesn't scale well with a large number of nodes. If your deployment has less than 800 servers, a single Puppet master should be able to handle the load, assuming your catalogs are not complex (take less than 10 seconds to compile each catalog). If you have a larger number of nodes, I suggest a load balancing configuration described in <span class="emphasis"><em>Mastering Puppet</em></span>, <span class="emphasis"><em>Thomas Uphill</em></span>, <span class="emphasis"><em>Packt Publishing</em></span>.</p><p>A Puppet master is a Puppet server that acts as an X509 certificate authority for Puppet and distributes catalogs (compiled manifests) to client nodes. Puppet ships with a built-in web server<a id="id181" class="indexterm"/> called <span class="strong"><strong>WEBrick,</strong></span> which can handle a very small number of nodes. In this section, we will see how to use that built-in server to control a very small (less than 10) number of nodes.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec75"/>Getting ready</h2></div></div></div><p>The Puppet master process is started by running <code class="literal">puppet master</code>; most Linux distributions have start and stop scripts for the Puppet master in a separate package. To get started, we'll create a new debian server named <code class="literal">puppet.example.com</code>.</p></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec76"/>How to do it...</h2></div></div></div><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Install Puppet on the new server and then use Puppet to install the Puppet master package:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong># puppet resource package puppetmaster ensure='installed' Notice: /Package[puppetmaster]/ensure: created package { 'puppetmaster': ensure =&gt; '3.7.0-1puppetlabs1', }</strong></span>
+</pre></div></li><li class="listitem">Now start the Puppet master service and ensure it will start at boot:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong># puppet resource service puppetmaster ensure=true enable=true service { 'puppetmaster': ensure =&gt; 'running', enable =&gt; 'true', }</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec77"/>How it works...</h2></div></div></div><p>The<a id="id182" class="indexterm"/> Puppet master package includes the start and stop scripts for the Puppet master service. We use Puppet to install the package and start the service. Once the service is started, we can point another node at the Puppet master (you might need to disable the host-based firewall on your machine).</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">From another node, run <code class="literal">puppet agent</code> to start a <code class="literal">puppet agent</code>, which will contact the server and request a new certificate:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@ckbk:~$ sudo puppet agent -t</strong></span>
+<span class="strong"><strong>Info: Creating a new SSL key for cookbook.example.com</strong></span>
+<span class="strong"><strong>Info: Caching certificate for ca</strong></span>
+<span class="strong"><strong>Info: Creating a new SSL certificate request for cookbook.example.com</strong></span>
+<span class="strong"><strong>Info: Certificate Request fingerprint (SHA256): 06:C6:2B:C4:97:5D:16:F2:73:82:C4:A9:A7:B1:D0:95:AC:69:7B:27:13:A9:1A:4C:98:20:21:C2:50:48:66:A2</strong></span>
+<span class="strong"><strong>Info: Caching certificate for ca</strong></span>
+<span class="strong"><strong>Exiting; no certificate found and waitforcert is disabled</strong></span>
+</pre></div></li><li class="listitem">Now on the Puppet server, sign the new key:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~# puppet cert list</strong></span>
+<span class="strong"><strong>pu  "cookbook.example.com" (SHA256) 06:C6:2B:C4:97:5D:16:F2:73:82:C4:A9:A7:B1:D0:95:AC:69:7B:27:13:A9:1A:4C:98:20:21:C2:50:48:66:A2</strong></span>
+<span class="strong"><strong>root@puppet:~# puppet cert sign cookbook.example.com</strong></span>
+<span class="strong"><strong>Notice: Signed certificate request for cookbook.example.com</strong></span>
+<span class="strong"><strong>Notice: Removing file Puppet::SSL::CertificateRequestcookbook.example.com at'/var/lib/puppet/ssl/ca/requests/cookbook.example.com.pem'</strong></span>
+</pre></div></li><li class="listitem">Return <a id="id183" class="indexterm"/>to the cookbook node and run Puppet again:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@ckbk:~$ sudo puppet agent –vt</strong></span>
+<span class="strong"><strong>Info: Caching certificate for cookbook.example.com</strong></span>
+<span class="strong"><strong>Info: Caching certificate_revocation_list for ca</strong></span>
+<span class="strong"><strong>Info: Caching certificate for cookbook.example.comInfo: Retrieving pluginfacts Info: Retrieving plugin Info: Caching catalog for cookbook Info: Applying configuration version '1410401823' Notice: Finished catalog run in 0.04 seconds</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec78"/>There's more...</h2></div></div></div><p>When we ran <code class="literal">puppet agent</code>, Puppet looked for a host named <code class="literal">puppet.example.com</code> (since our test node is in the <code class="literal">example.com</code> domain); if it couldn't find that host, it would then look for a host named Puppet. We can specify the server to contact with the <code class="literal">--server</code> option to <code class="literal">puppet agent</code>. When we installed the Puppet master package and started the Puppet master service, Puppet created default SSL certificates based on our hostname. In the next section, we'll see how to create an SSL certificate that has multiple DNS names for our Puppet server.</p></div></div>
+<div class="section" title="Creating certificates with multiple DNS names"><div class="titlepage"><div><div><h1 class="title"><a id="ch02lvl1sec34"/>Creating certificates with multiple DNS names</h1></div></div></div><p>By<a id="id184" class="indexterm"/> default, Puppet will create an SSL <a id="id185" class="indexterm"/>certificate for your Puppet master that contains the fully qualified domain name of the server only. Depending on how your network is configured, it can be useful for the server to be known by other names. In this recipe, we'll make a new certificate for our Puppet master that has multiple DNS names.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec79"/>Getting ready</h2></div></div></div><p>Install the Puppet master package if you haven't already done so. You will then need to start the Puppet master service at least once to create<a id="id186" class="indexterm"/> a <span class="strong"><strong>certificate authority</strong></span> (<span class="strong"><strong>CA</strong></span>).</p></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec80"/>How to do it...</h2></div></div></div><p>The steps are as follows:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Stop the running Puppet master process with the following command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong># service puppetmaster stop</strong></span>
+<span class="strong"><strong>[ ok ] Stopping puppet master.</strong></span>
+</pre></div></li><li class="listitem">Delete (<code class="literal">clean</code>) the current server certificate:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong># puppet cert clean puppet</strong></span>
+<span class="strong"><strong>Notice: Revoked certificate with serial 6</strong></span>
+<span class="strong"><strong>Notice: Removing file Puppet::SSL::Certificate puppet at '/var/lib/puppet/ssl/ca/signed/puppet.pem'</strong></span>
+<span class="strong"><strong>Notice: Removing file Puppet::SSL::Certificate puppet at '/var/lib/puppet/ssl/certs/puppet.pem'</strong></span>
+<span class="strong"><strong>Notice: Removing file Puppet::SSL::Key puppet at '/var/lib/puppet/ssl/private_keys/puppet.pem'</strong></span>
+</pre></div></li><li class="listitem">Create<a id="id187" class="indexterm"/> a new Puppet certificate<a id="id188" class="indexterm"/> using Puppet certificate generate with the <code class="literal">--dns-alt-names</code> option:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~# puppet certificate generate puppet --dns-alt-names puppet.example.com,puppet.example.org,puppet.example.net --ca-location local</strong></span>
+<span class="strong"><strong>Notice: puppet has a waiting certificate request</strong></span>
+<span class="strong"><strong>true</strong></span>
+</pre></div></li><li class="listitem">Sign the new certificate:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~# puppet cert --allow-dns-alt-names sign puppet</strong></span>
+<span class="strong"><strong>Notice: Signed certificate request for puppet</strong></span>
+<span class="strong"><strong>Notice: Removing file Puppet::SSL::CertificateRequest puppet at '/var/lib/puppet/ssl/ca/requests/puppet.pem'</strong></span>
+</pre></div></li><li class="listitem">Restart the Puppet master process:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~# service puppetmaster restart</strong></span>
+<span class="strong"><strong>[ ok ] Restarting puppet master.</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec81"/>How it works...</h2></div></div></div><p>When your puppet agents connect to the Puppet server, they look for a host called <code class="literal">Puppet</code>, they then look for a host called <code class="literal">Puppet.[your domain]</code>. If your clients are in different domains, then you need your Puppet master to reply to all the names correctly. By removing the existing certificate and generating a new one, you can have your Puppet master reply to multiple DNS names.</p></div></div>
+<div class="section" title="Running Puppet from passenger"><div class="titlepage"><div><div><h1 class="title"><a id="ch02lvl1sec35"/>Running Puppet from passenger</h1></div></div></div><p>The WEBrick server we configured in the previous section is not capable of handling a large<a id="id189" class="indexterm"/> number of nodes. To deal with a large number<a id="id190" class="indexterm"/> of nodes, a scalable web server is required. Puppet is a ruby process, so we need a way to run a ruby process within a web server. <span class="strong"><strong>Passenger</strong></span> is<a id="id191" class="indexterm"/> the solution to this problem. It allows us to run the Puppet master process within a web server (apache by default). Many distributions ship with a puppetmaster-passenger package that configures this for you. In this section, we'll use the package to configure Puppet to run within passenger.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec82"/>Getting ready</h2></div></div></div><p>Install the puppetmaster-passenger package:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong># puppet resource package puppetmaster-passenger ensure=installed</strong></span>
+<span class="strong"><strong>Notice: /Package[puppetmaster-passenger]/ensure: ensure changed 'purged'</strong></span>
+<span class="strong"><strong> to 'present'</strong></span>
+<span class="strong"><strong>package { 'puppetmaster-passenger':</strong></span>
+<span class="strong"><strong>  ensure =&gt; '3.7.0-1puppetlabs1',</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note04"/>Note</h3><p>Using <code class="literal">puppet resource</code> to install packages ensures the same command will work on multiple distributions (provided the package names are the same).</p></div></div></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec83"/>How to do it...</h2></div></div></div><p>The steps are as follows:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Ensure the Puppet master site is enabled in your apache configuration. Depending on your distribution this may be at <code class="literal">/etc/httpd/conf.d</code> or <code class="literal">/etc/apache2/sites-enabled</code>. The configuration file should be created for you and contain the following information:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>PassengerHighPerformance on</strong></span>
+<span class="strong"><strong>PassengerMaxPoolSize 12</strong></span>
+<span class="strong"><strong>PassengerPoolIdleTime 1500</strong></span>
+<span class="strong"><strong># PassengerMaxRequests 1000</strong></span>
+<span class="strong"><strong>PassengerStatThrottleRate 120</strong></span>
+<span class="strong"><strong>RackAutoDetect Off</strong></span>
+<span class="strong"><strong>RailsAutoDetect Off</strong></span>
+<span class="strong"><strong>Listen 8140</strong></span>
+</pre></div></li><li class="listitem">These lines are tuning settings for passenger. The file then instructs apache to listen on port 8140, the Puppet master port. Next a <code class="literal">VirtualHost</code> definition is created <a id="id192" class="indexterm"/>that loads the Puppet CA certificates<a id="id193" class="indexterm"/> and the Puppet master's certificate:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>&lt;VirtualHost *:8140&gt;</strong></span>
+<span class="strong"><strong>        SSLEngine on</strong></span>
+<span class="strong"><strong>        SSLProtocol             ALL -SSLv2 -SSLv3</strong></span>
+<span class="strong"><strong>        SSLCertificateFile      /var/lib/puppet/ssl/certs/puppet.pem</strong></span>
+<span class="strong"><strong>        SSLCertificateKeyFile   /var/lib/puppet/ssl/private_keys/puppet.pem</strong></span>
+<span class="strong"><strong>        SSLCertificateChainFile /var/lib/puppet/ssl/certs/ca.pem</strong></span>
+<span class="strong"><strong>        SSLCACertificateFile    /var/lib/puppet/ssl/certs/ca.pem</strong></span>
+<span class="strong"><strong>        SSLCARevocationFile     /var/lib/puppet/ssl/ca/ca_crl.pem</strong></span>
+<span class="strong"><strong>        SSLVerifyClient optional</strong></span>
+<span class="strong"><strong>        SSLVerifyDepth  1</strong></span>
+<span class="strong"><strong>        SSLOptions +StdEnvVars +ExportCertData</strong></span>
+</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="tip04"/>Tip</h3><p>You may have more or less lines of SSL configuration here depending on your version of the puppetmaster-passenger package.</p></div></div></li><li class="listitem">Next, a few important headers are set so that the passenger process has access to the SSL information sent by the client node:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>RequestHeader unset X-Forwarded-For</strong></span>
+<span class="strong"><strong>RequestHeader set X-SSL-Subject %{SSL_CLIENT_S_DN}e</strong></span>
+<span class="strong"><strong>RequestHeader set X-Client-DN %{SSL_CLIENT_S_DN}e</strong></span>
+<span class="strong"><strong>RequestHeader set X-Client-Verify %{SSL_CLIENT_VERIFY}e</strong></span>
+</pre></div></li><li class="listitem">Finally, the location of the passenger configuration file <code class="literal">config.ru</code> is given with the <code class="literal">DocumentRoot</code> location as follows:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>       DocumentRoot /usr/share/puppet/rack/puppetmasterd/public/</strong></span>
+<span class="strong"><strong>        RackBaseURI /</strong></span>
+</pre></div></li><li class="listitem">The <code class="literal">config.ru</code> file should exist at <code class="literal">/usr/share/puppet/rack/puppetmasterd/</code> and should have the following content:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>$0 = "master"</strong></span>
+<span class="strong"><strong>ARGV &lt;&lt; "--rack"</strong></span>
+<span class="strong"><strong>ARGV &lt;&lt; "--confdir" &lt;&lt; "/etc/puppet"</strong></span>
+<span class="strong"><strong>ARGV &lt;&lt; "--vardir"  &lt;&lt; "/var/lib/puppet"</strong></span>
+<span class="strong"><strong>require 'puppet/util/command_line'</strong></span>
+<span class="strong"><strong>run Puppet::Util::CommandLine.new.execute</strong></span>
+</pre></div></li><li class="listitem">With the passenger apache configuration file in place and the <code class="literal">config.ru</code> file correctly<a id="id194" class="indexterm"/> configured, start the apache<a id="id195" class="indexterm"/> server and verify that apache is listening on the Puppet master port (if you configured the standalone Puppet master previously, you must stop that process now using <code class="literal">service puppetmaster stop</code>):<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~ # service apache2 start</strong></span>
+<span class="strong"><strong>[ ok ] Starting web server: apache2</strong></span>
+<span class="strong"><strong>root@puppet:~ # lsof -i :8140</strong></span>
+<span class="strong"><strong>COMMAND  PID     USER   FD   TYPE DEVICE SIZE/OFF NODE NAME</strong></span>
+<span class="strong"><strong>apache2 9048     root    8u  IPv6  16842      0t0  TCP *:8140 (LISTEN)</strong></span>
+<span class="strong"><strong>apache2 9069 www-data    8u  IPv6  16842      0t0  TCP *:8140 (LISTEN)</strong></span>
+<span class="strong"><strong>apache2 9070 www-data    8u  IPv6  16842      0t0  TCP *:8140 (LISTEN)</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec84"/>How it works...</h2></div></div></div><p>The passenger configuration file uses the existing Puppet master certificates to listen on port 8140 and handles all the SSL communication between the server and the client. Once the certificate information has been dealt with, the connection is handed off to a ruby process started from passenger using the command line arguments from the <code class="literal">config.ru</code> file.</p><p>In this case, the <code class="literal">$0</code> variable is set to <code class="literal">master</code> and the arguments variable is set to <code class="literal">--rack --confdir /etc/puppet --vardir /var/lib/puppet</code>; this is equivalent to running the following from the command line:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>puppet master --rack --confdir /etc/puppet --vardir /var/lib/puppet</strong></span>
+</pre></div></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec85"/>There's more...</h2></div></div></div><p>You can add additional configuration parameters to the <code class="literal">config.ru</code> file to further alter how Puppet<a id="id196" class="indexterm"/> runs when it's running through passenger. For <a id="id197" class="indexterm"/>instance, to enable debugging on the passenger Puppet master, add the following line to <code class="literal">config.ru</code> before the run <code class="literal">Puppet::Util::CommandLine.new.execute</code> line:</p><div class="informalexample"><pre class="programlisting">ARGV &lt;&lt; "--debug"</pre></div></div></div>
+<div class="section" title="Setting up the environment"><div class="titlepage"><div><div><h1 class="title"><a id="ch02lvl1sec36"/>Setting up the environment</h1></div></div></div><p>Environments<a id="id198" class="indexterm"/> in Puppet are directories holding different versions of your Puppet manifests. Environments prior to Version 3.6 of Puppet were not a default configuration for Puppet. In newer versions of Puppet, environments are configured by default.</p><p>Whenever a node connects to a Puppet master, it informs the Puppet master of its environment. By default, all nodes report to the <code class="literal">production</code> environment. This causes the Puppet master to look in the production environment for manifests. You may specify an alternate environment with the <code class="literal">--environment</code> setting when running puppet agent or by setting environment <code class="literal">= newenvironment</code> in <code class="literal">/etc/puppet/puppet.conf</code> in the [agent] section.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec86"/>Getting ready</h2></div></div></div><p>Set the <code class="literal">environmentpath</code> function of your installation by adding a line to the <code class="literal">[main]</code> section of <code class="literal">/etc/puppet/puppet.conf</code> as follows:</p><div class="informalexample"><pre class="programlisting">[main]
+...
+environmentpath=/etc/puppet/environments</pre></div></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec87"/>How to do it...</h2></div></div></div><p>The steps are as follows:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Create a <code class="literal">production</code> directory at <code class="literal">/etc/puppet/environments</code> that contains both a <code class="literal">modules</code> and <code class="literal">manifests</code> directory. Then create a <code class="literal">site.pp</code> which creates a file in <code class="literal">/tmp</code> as follows:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~# cd /etc/puppet/environments/</strong></span>
+<span class="strong"><strong>root@puppet:/etc/puppet/environments# mkdir -p production/{manifests,modules}</strong></span>
+<span class="strong"><strong>root@puppet:/etc/puppet/environments# vim production/manifests/site.pp</strong></span>
+<span class="strong"><strong>node default {</strong></span>
+<span class="strong"><strong>  file {'/tmp/production':</strong></span>
+<span class="strong"><strong>    content =&gt; "Hello World!\nThis is production\n",</strong></span>
+<span class="strong"><strong>  }</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div></li><li class="listitem">Run puppet agent on the master to connect to it and verify that the production code was delivered:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~# puppet agent -vt</strong></span>
+<span class="strong"><strong>Info: Retrieving pluginfacts</strong></span>
+<span class="strong"><strong>Info: Retrieving plugin</strong></span>
+<span class="strong"><strong>Info: Caching catalog for puppet</strong></span>
+<span class="strong"><strong>Info: Applying configuration version '1410415538'</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Main/Node[default]/File[/tmp/production]/ensure: defined content as '{md5}f7ad9261670b9da33a67a5126933044c'</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 0.04 seconds</strong></span>
+<span class="strong"><strong># cat /tmp/production</strong></span>
+<span class="strong"><strong>Hello World!</strong></span>
+<span class="strong"><strong>This is production</strong></span>
+</pre></div></li><li class="listitem">Configure<a id="id199" class="indexterm"/> another environment <code class="literal">devel</code>. Create a new manifest in the <code class="literal">devel</code> environment:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:/etc/puppet/environments# mkdir -p devel/{manifests,modules}</strong></span>
+<span class="strong"><strong>root@puppet:/etc/puppet/environments# vim devel/manifests/site.pp</strong></span>
+<span class="strong"><strong>node default {</strong></span>
+<span class="strong"><strong>  file {'/tmp/devel':</strong></span>
+<span class="strong"><strong>    content =&gt; "Good-bye! Development\n",</strong></span>
+<span class="strong"><strong>  }</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div></li><li class="listitem">Apply the new environment by running the <code class="literal">--environment devel</code> puppet agent using the following command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:/etc/puppet/environments# puppet agent -vt --environment devel</strong></span>
+<span class="strong"><strong>Info: Retrieving pluginfacts</strong></span>
+<span class="strong"><strong>Info: Retrieving plugin</strong></span>
+<span class="strong"><strong>Info: Caching catalog for puppet</strong></span>
+<span class="strong"><strong>Info: Applying configuration version '1410415890'</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Main/Node[default]/File[/tmp/devel]/ensure: defined content as '{md5}b6313bb89bc1b7d97eae5aa94588eb68'</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 0.04 seconds</strong></span>
+<span class="strong"><strong>root@puppet:/etc/puppet/environments# cat /tmp/devel</strong></span>
+<span class="strong"><strong>Good-bye! Development</strong></span>
+</pre></div></li></ol></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="tip05"/>Tip</h3><p>You may need to restart apache2 to enable your new environment, this depends on your version of Puppet and the <code class="literal">environment_timeout</code> parameter of <code class="literal">puppet.conf</code>.</p></div></div></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec88"/>There's more...</h2></div></div></div><p>Each <a id="id200" class="indexterm"/>environment can have its own <code class="literal">modulepath</code> if you create an <code class="literal">environment.conf</code> file within the environment directory. More information<a id="id201" class="indexterm"/> on environments can be found on the Puppet labs website at <a class="ulink" href="https://docs.puppetlabs.com/puppet/latest/reference/environments.html">https://docs.puppetlabs.com/puppet/latest/reference/environments.html</a>.</p></div></div>
+<div class="section" title="Configuring PuppetDB"><div class="titlepage"><div><div><h1 class="title"><a id="ch02lvl1sec37"/>Configuring PuppetDB</h1></div></div></div><p>PuppetDB is<a id="id202" class="indexterm"/> a database for Puppet that is used to store information about nodes connected to a Puppet master. PuppetDB is also a storage area for exported resources. Exported resources are resources that are defined on nodes but applied to other nodes. The simplest way to install PuppetDB is to use the PuppetDB module from Puppet labs. From this point on, we'll assume you are using the <code class="literal">puppet.example.com</code> machine and have a passenger-based configuration of Puppet.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec89"/>Getting ready</h2></div></div></div><p>Install the PuppetDB module in the production environment you created in the previous recipe. If you didn't create directory environments, don't worry, using <code class="literal">puppet module install</code> will install the module to the correct location for your installation with the following command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~# puppet module install puppetlabs-puppetdb</strong></span>
+<span class="strong"><strong>Notice: Preparing to install into /etc/puppet/environments/production/modules ...</strong></span>
+<span class="strong"><strong>Notice: Downloading from https://forgeapi.puppetlabs.com ...</strong></span>
+<span class="strong"><strong>Notice: Installing -- do not interrupt ...</strong></span>
+<span class="strong"><strong>/etc/puppet/environments/production/modules</strong></span>
+<span class="strong"><strong>└─┬ puppetlabs-puppetdb (v3.0.1)</strong></span>
+<span class="strong"><strong>  ├── puppetlabs-firewall (v1.1.3)</strong></span>
+<span class="strong"><strong>  ├── puppetlabs-inifile (v1.1.3)</strong></span>
+<span class="strong"><strong>  └─┬ puppetlabs-postgresql (v3.4.2)</strong></span>
+<span class="strong"><strong>    ├─┬ puppetlabs-apt (v1.6.0)</strong></span>
+<span class="strong"><strong>    │ └── puppetlabs-stdlib (v4.3.2)</strong></span>
+<span class="strong"><strong>    └── puppetlabs-concat (v1.1.0)</strong></span>
+</pre></div></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec90"/>How to do it...</h2></div></div></div><p>Now that our Puppet master has the PuppetDB module installed, we need to apply the PuppetDB module to our Puppet master, we can do this in the site manifest. Add the following to<a id="id203" class="indexterm"/> your (production) <code class="literal">site.pp</code>:</p><div class="informalexample"><pre class="programlisting">node puppet {
+  class { 'puppetdb': }
+  class { 'puppetdb::master::config': 
+    puppet_service_name =&gt; 'apache2',
+  }
+}</pre></div><p>Run <code class="literal">puppet agent</code> to apply the <code class="literal">puppetdb</code> class and the <code class="literal">puppetdb::master::config</code> class:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~# puppet agent -t</strong></span>
+<span class="strong"><strong>Info: Caching catalog for puppet</strong></span>
+<span class="strong"><strong>Info: Applying configuration version '1410416952'</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>Info: Class[Puppetdb::Server::Jetty_ini]: Scheduling refresh of Service[puppetdb]</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 160.78 seconds</strong></span>
+</pre></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec91"/>How it works...</h2></div></div></div><p>The PuppetDB module is a great example of how a complex configuration task can be puppetized. Simply by adding the <code class="literal">puppetdb</code> class to our Puppet master node, Puppet installed and configured <code class="literal">postgresql</code> and <code class="literal">puppetdb</code>.</p><p>When we called the <code class="literal">puppetdb::master::config</code> class, we set the <code class="literal">puppet_service_name</code> variable to <code class="literal">apache2</code>, this is because we are running Puppet through passenger. Without this line our agent would try to start the puppetmaster process instead of <code class="literal">apache2</code>.</p><p>The agent then set up the configuration files for PuppetDB and configured Puppet to use PuppetDB. If <a id="id204" class="indexterm"/>you look at <code class="literal">/etc/puppet/puppet.conf</code>, you'll see the following two new lines:</p><div class="informalexample"><pre class="programlisting">storeconfigs = true
+storeconfigs_backend = puppetdb</pre></div></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec92"/>There's more...</h2></div></div></div><p>Now that PuppetDB is configured and we've had a successful agent run, PuppetDB will have data we can query:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~# puppet node status puppet</strong></span>
+<span class="strong"><strong>puppet</strong></span>
+<span class="strong"><strong>Currently active</strong></span>
+<span class="strong"><strong>Last catalog: 2014-09-11T06:45:25.267Z</strong></span>
+<span class="strong"><strong>Last facts: 2014-09-11T06:45:22.351Z</strong></span>
+</pre></div></div></div>
+<div class="section" title="Configuring Hiera"><div class="titlepage"><div><div><h1 class="title"><a id="ch02lvl1sec38"/>Configuring Hiera</h1></div></div></div><p>
+<span class="strong"><strong>Hiera</strong></span> is an<a id="id205" class="indexterm"/> information repository for Puppet. Using Hiera you can have a hierarchical categorization of data about your nodes that is maintained outside of your manifests. This is very useful for sharing code and dealing with exceptions that will creep into any Puppet deployment.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec93"/>Getting ready</h2></div></div></div><p>Hiera should have already been installed as a dependency on your Puppet master. If it has not already, install it using Puppet:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~# puppet resource package hiera ensure=installed</strong></span>
+<span class="strong"><strong>package { 'hiera':</strong></span>
+<span class="strong"><strong>  ensure =&gt; '1.3.4-1puppetlabs1',</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec94"/>How to do it...</h2></div></div></div><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Hiera is configured from a yaml file, <code class="literal">/etc/puppet/hiera.yaml</code>. Create the file and add the following as a minimal configuration:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>---</strong></span>
+<span class="strong"><strong>:hierarchy:</strong></span>
+<span class="strong"><strong>  - common</strong></span>
+<span class="strong"><strong>:backends:</strong></span>
+<span class="strong"><strong>  - yaml</strong></span>
+<span class="strong"><strong>:yaml:</strong></span>
+<span class="strong"><strong>  :datadir: '/etc/puppet/hieradata'</strong></span>
+</pre></div></li><li class="listitem">Create the <code class="literal">common.yaml</code> file referenced in the hierarchy:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:/etc/puppet# mkdir hieradata</strong></span>
+<span class="strong"><strong>root@puppet:/etc/puppet# vim hieradata/common.yaml</strong></span>
+<span class="strong"><strong>---</strong></span>
+<span class="strong"><strong>message: 'Default Message'</strong></span>
+</pre></div></li><li class="listitem">Edit the <code class="literal">site.pp</code> file and add a notify resource based on the Hiera value:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>node default {</strong></span>
+<span class="strong"><strong>  $message = hiera('message','unknown')</strong></span>
+<span class="strong"><strong>  notify {"Message is $message":}</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div></li><li class="listitem">Apply the manifest to a test node:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@ckbk:~$ sudo puppet agent -t</strong></span>
+<span class="strong"><strong>Info: Retrieving pluginfacts</strong></span>
+<span class="strong"><strong>Info: Retrieving plugin</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>Info: Caching catalog for cookbook-test</strong></span>
+<span class="strong"><strong>Info: Applying configuration version '1410504848'</strong></span>
+<span class="strong"><strong>Notice: Message is Default Message</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Main/Node[default]/Notify[Message is Default Message]/message: defined 'message' as 'Message is Default Message'</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 0.06 seconds</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec95"/>How it works...</h2></div></div></div><p>Hiera uses<a id="id206" class="indexterm"/> a hierarchy to search through a set of yaml files to find the appropriate values. We defined this hierarchy in <code class="literal">hiera.yaml</code> with the single entry for <code class="literal">common.yaml</code>. We used the <code class="literal">hiera</code> function in <code class="literal">site.pp</code> to lookup the value for message and store that value in the variable <code class="literal">$message</code>. The values used for the definition of the hierarchy can be any facter facts defined about the system. A common hierarchy is shown as:</p><div class="informalexample"><pre class="programlisting">:hierarchy:
+  - hosts/%{hostname}
+  - os/%{operatingsystem}
+  - network/%{network_eth0}
+  - common</pre></div></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec96"/>There's more...</h2></div></div></div><p>Hiera can be used for automatic parameter lookup with parameterized classes. For example, if you have a class named <code class="literal">cookbook::example</code> with a parameter named <code class="literal">publisher</code>, you can include the following in a Hiera yaml file to automatically set this parameter:</p><div class="informalexample"><pre class="programlisting">cookbook::example::publisher: 'PacktPub'</pre></div><p>Another often used fact is <code class="literal">environment</code> you may reference the <code class="literal">environment</code> of the client node using <code class="literal">%{environment}</code> as shown in the following hierarchy:</p><div class="informalexample"><pre class="programlisting">:hierarchy:
+hosts/%{hostname}
+os/%{operatingsystem}
+environment/%{environment}
+common</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="tip06"/>Tip</h3><p>A good rule of thumb is to limit the hierarchy to 8 levels or less. Keep in mind that each time a parameter is searched with Hiera, all the levels are searched until a match is found.</p></div></div><p>The default <a id="id207" class="indexterm"/>Hiera function returns the first match to the search key, you can also use <code class="literal">hiera_array</code> and <code class="literal">hiera_hash</code> to search and return all values stored in Hiera.</p><p>Hiera can also be searched from the command line as shown in the following command line (note that currently the command line Hiera utility uses <code class="literal">/etc/hiera.yaml</code> as its configuration file whereas the Puppet master uses <code class="literal">/etc/puppet/hiera.yaml</code>):</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:/etc/puppet# rm /etc/hiera.yaml </strong></span>
+<span class="strong"><strong>root@puppet:/etc/puppet# ln -s /etc/puppet/hiera.yaml /etc/</strong></span>
+<span class="strong"><strong>root@puppet:/etc/puppet# hiera message</strong></span>
+<span class="strong"><strong>Default Message</strong></span>
+</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="note05"/>Note</h3><p>For more<a id="id208" class="indexterm"/> information, consult the Puppet labs website at <a class="ulink" href="https://docs.puppetlabs.com/hiera/1/">https://docs.puppetlabs.com/hiera/1/</a>.</p></div></div></div></div>
+<div class="section" title="Setting node-specific data with Hiera"><div class="titlepage"><div><div><h1 class="title"><a id="ch02lvl1sec39"/>Setting node-specific data with Hiera</h1></div></div></div><p>In our<a id="id209" class="indexterm"/> hierarchy defined in <code class="literal">hiera.yaml</code>, we<a id="id210" class="indexterm"/> created an entry based on the hostname fact; in this section, we'll create yaml files in the <code class="literal">hosts</code> subdirectory of Hiera data with information specific to a particular host.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec97"/>Getting ready</h2></div></div></div><p>Install and configure Hiera as in the last section and use the hierarchy defined in the previous recipe that includes a <code class="literal">hosts/%{hostname}</code> entry.</p></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec98"/>How to do it...</h2></div></div></div><p>The following are the steps:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Create a file at <code class="literal">/etc/puppet/hieradata/hosts</code> that is the hostname of your test node. For example if your host is named <code class="literal">cookbook-test</code>, then the file would be named <code class="literal">cookbook-test.yaml</code>.</li><li class="listitem">Insert a specific message in this file:<div class="informalexample"><pre class="programlisting">message: 'This is the test node for the cookbook'</pre></div></li><li class="listitem">Run Puppet on two different test nodes to note the difference:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@ckbk:~$ sudo puppet agent -t</strong></span>
+<span class="strong"><strong>Info: Caching catalog for cookbook-test</strong></span>
+<span class="strong"><strong>Notice: Message is This is the test node for the cookbook</strong></span>
+<span class="strong"><strong>[root@hiera-test ~]# puppet agent -t</strong></span>
+<span class="strong"><strong>Info: Caching catalog for hiera-test.example.com</strong></span>
+<span class="strong"><strong>Notice: Message is Default Message</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec99"/>How it works...</h2></div></div></div><p>Hiera <a id="id211" class="indexterm"/>searches the hierarchy for files that match the <a id="id212" class="indexterm"/>values returned by facter. In this case, the <code class="literal">cookbook-test.yaml</code> file is found by substituting the hostname of the node into the search path <code class="literal">/etc/puppet/hieradata/hosts/%{hostname}.yaml</code>.</p><p>Using Hiera, it is possible to greatly reduce the complexity of your Puppet code. We will use <code class="literal">yaml</code> files for separate values, where previously you had large <code class="literal">case</code> statements or nested <code class="literal">if</code> statements.</p></div></div>
+<div class="section" title="Storing secret data with hiera-gpg"><div class="titlepage"><div><div><h1 class="title"><a id="ch02lvl1sec40"/>Storing secret data with hiera-gpg</h1></div></div></div><p>If you're <a id="id213" class="indexterm"/>using Hiera to store your configuration <a id="id214" class="indexterm"/>data, there's a gem available called <span class="strong"><strong>hiera-gpg</strong></span> that adds an encryption backend to Hiera to allow you to protect values stored in Hiera.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec100"/>Getting ready</h2></div></div></div><p>To set up hiera-gpg, follow these steps:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Install the <code class="literal">ruby-dev</code> package; it will be required to build the <code class="literal">hiera-gpg</code> gem as follows:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~# puppet resource package ruby-dev ensure=installed</strong></span>
+<span class="strong"><strong>Notice: /Package[ruby-dev]/ensure: ensure changed 'purged' to 'present'</strong></span>
+<span class="strong"><strong>package { 'ruby-dev':</strong></span>
+<span class="strong"><strong>  ensure =&gt; '1:1.9.3',</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div></li><li class="listitem">Install the <code class="literal">hiera-gpg</code> gem using the gem provider:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~# puppet resource package hiera-gpg ensure=installed provider=gem</strong></span>
+<span class="strong"><strong>Notice: /Package[hiera-gpg]/ensure: created</strong></span>
+<span class="strong"><strong>package { 'hiera-gpg':</strong></span>
+<span class="strong"><strong>  ensure =&gt; ['1.1.0'],</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div></li><li class="listitem">Modify your <code class="literal">hiera.yaml</code> file as follows:<div class="informalexample"><pre class="programlisting">    :hierarchy:
+        - secret
+        - common
+    :backends:
+        - yaml
+        - gpg
+    :yaml:
+        :datadir: '/etc/puppet/hieradata'
+    :gpg:
+        :datadir: '/etc/puppet/secret'</pre></div></li></ol></div></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec101"/>How to do it...</h2></div></div></div><p>In this<a id="id215" class="indexterm"/> example, we'll create a piece of encrypted <a id="id216" class="indexterm"/>data and retrieve it using <code class="literal">hiera-gpg</code> as follows:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Create the <code class="literal">secret.yaml</code> file at <code class="literal">/etc/puppet/secret</code> with the following contents:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>top_secret: 'Val Kilmer'</strong></span>
+</pre></div></li><li class="listitem">If you don't already have a GnuPG encryption key, follow the steps in the <span class="emphasis"><em>Using GnuPG to encrypt secrets</em></span> recipe in <a class="link" href="ch04.html" title="Chapter 4. Working with Files and Packages">Chapter 4</a>, <span class="emphasis"><em>Working with Files and Packages</em></span>.</li><li class="listitem">Encrypt the <code class="literal">secret.yaml</code> file to this key using the following command (replace the <code class="literal">puppet@puppet.example.com</code> with the e-mail address you specified when creating the key). This will create the <code class="literal">secret.gpg </code>file:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:/etc/puppet/secret# gpg -e -o secret.gpg -r puppet@puppet.example.com secret.yaml </strong></span>
+<span class="strong"><strong>root@puppet:/etc/puppet/secret# file secret.gpg</strong></span>
+<span class="strong"><strong>secret.gpg: GPG encrypted data</strong></span>
+</pre></div></li><li class="listitem">Remove the plaintext <code class="literal">secret.yaml</code> file:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:/etc/puppet/secret# rm secret.yaml</strong></span>
+</pre></div></li><li class="listitem">Modify your default node in the <code class="literal">site.pp</code> file as follows:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>node default {</strong></span>
+<span class="strong"><strong>  $message = hiera('top_secret','Deja Vu')</strong></span>
+<span class="strong"><strong>  notify { "Message is $message": }</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div></li><li class="listitem">Now run Puppet on a node:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@hiera-test ~]# puppet agent -t</strong></span>
+<span class="strong"><strong>Info: Caching catalog for hiera-test.example.com</strong></span>
+<span class="strong"><strong>Info: Applying configuration version '1410508276'</strong></span>
+<span class="strong"><strong>Notice: Message is Deja Vu</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Main/Node[default]/Notify[Message is Deja Vu]/message: defined 'message' as 'Message is Deja Vu'</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 0.08 seconds</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec102"/>How it works...</h2></div></div></div><p>When<a id="id217" class="indexterm"/> you install <code class="literal">hiera-gpg</code>, it adds to Hiera, the<a id="id218" class="indexterm"/> ability to decrypt <code class="literal">.gpg</code> files. So you can put any secret data into a <code class="literal">.yaml</code> file that you then encrypt to the appropriate key with GnuPG. Only machines that have the right secret key will be able to access this data.</p><p>For example, you might encrypt the MySQL root password using <code class="literal">hiera-gpg</code> and install the corresponding key only on your database servers. Although other machines may also have a copy of the <code class="literal">secret.gpg</code> file, it's not readable to them unless they have the decryption key.</p></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec103"/>There's more...</h2></div></div></div><p>You might also like to know about <code class="literal">hiera-eyaml</code>, another secret-data backend for Hiera that supports encryption of individual values within a Hiera data file. This could be handy if you need <a id="id219" class="indexterm"/>to mix encrypted and unencrypted facts within a single file. Find out more about hiera-eyaml at <a class="ulink" href="https://github.com/TomPoulton/hiera-eyaml">https://github.com/TomPoulton/hiera-eyaml</a>.</p></div><div class="section" title="See also"><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec104"/>See also</h2></div></div></div><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">The <span class="emphasis"><em>Using GnuPG to encrypt secrets</em></span> recipe in <a class="link" href="ch04.html" title="Chapter 4. Working with Files and Packages">Chapter 4</a>, <span class="emphasis"><em>Working with Files and Packages</em></span>.</li></ul></div></div></div>
+<div class="section" title="Using MessagePack serialization"><div class="titlepage"><div><div><h1 class="title"><a id="ch02lvl1sec41"/>Using MessagePack serialization</h1></div></div></div><p>Running <a id="id220" class="indexterm"/>Puppet in a centralized architecture creates a lot of traffic between nodes. The bulk of this traffic is JSON and yaml data. An experimental<a id="id221" class="indexterm"/> feature of the latest releases of Puppet allow for the serialization of this data using <span class="strong"><strong>MessagePack</strong></span> (<span class="strong"><strong>msgpack</strong></span>).</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec105"/>Getting ready</h2></div></div></div><p>Install the msgpack gem onto your Puppet master and your nodes. Use Puppet to do the work for you with Puppet resource. You may need to install the <code class="literal">ruby-dev</code> or <code class="literal">ruby-devel</code> package on your nodes/server at this point:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@ckbk:~$ sudo puppet resource package msgpack ensure=installedprovider=gem</strong></span>
+<span class="strong"><strong>Notice: /Package[msgpack]/ensure: created</strong></span>
+<span class="strong"><strong>package { 'msgpack':</strong></span>
+<span class="strong"><strong>  ensure =&gt; ['0.5.8'],</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec106"/>How to do it...</h2></div></div></div><p>Set the <code class="literal">preferred_serialization_format</code> to <code class="literal">msgpack</code> in the <code class="literal">[agent]</code> section of your nodes <code class="literal">puppet.conf</code> file:</p><div class="informalexample"><pre class="programlisting">[agent]
+preferred_serialization_format=msgpack</pre></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec107"/>How it works...</h2></div></div></div><p>The master will be sent this option when the node begins communicating with the master. Any classes that support serialization with <code class="literal">msgpack</code> will be transmitted with <code class="literal">msgpack.Serialization</code> of the data between nodes and the master will in theory increase the speed at which nodes communicate by optimizing the data that is travelling between<a id="id222" class="indexterm"/> them. This feature is still experimental.</p></div></div>
+<div class="section" title="Automatic syntax checking with Git hooks"><div class="titlepage"><div><div><h1 class="title"><a id="ch02lvl1sec42"/>Automatic syntax checking with Git hooks</h1></div></div></div><p>It would<a id="id223" class="indexterm"/> be nice if we knew there was a syntax<a id="id224" class="indexterm"/> error in the manifest before we even committed it. You can have Puppet check the manifest using the <code class="literal">puppet parser validate</code> command:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@ckbk:~$ puppet parser validate bootstrap.pp
+Error: Could not parse for environment production: Syntax error at
+ 'File'; expected '}' at /home/thomas/bootstrap.pp:3
+</strong></span>
+</pre></div><p>This is especially useful because a mistake anywhere in the manifest will stop Puppet from running on any node, even on nodes that don't use that particular part of the manifest. So checking in a bad manifest can cause Puppet to stop applying updates to production for some time, until the problem is discovered, and this could potentially have serious consequences. The best way to avoid this is to automate the syntax check, by using a precommit hook in your version control repo.</p><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec108"/>How to do it...</h2></div></div></div><p>Follow these steps:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">In your Puppet repo, create a new <code class="literal">hooks</code> directory:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop:~/puppet$ mkdir hooks</strong></span>
+</pre></div></li><li class="listitem">Create the file <code class="literal">hooks/check_syntax.sh</code> with the following contents (based on a script by Puppet Labs):<div class="informalexample"><pre class="programlisting">#!/bin/sh
+
+syntax_errors=0
+error_msg=$(mktemp /tmp/error_msg.XXXXXX)
+
+if git rev-parse --quiet --verify HEAD &gt; /dev/null
+then
+    against=HEAD
+else
+    # Initial commit: diff against an empty tree object
+    against=4b825dc642cb6eb9a060e54bf8d69288fbee4904
+fi
+
+# Get list of new/modified manifest and template files
+  to check (in git index)
+for indexfile in 'git diff-index --diff-filter=AM --
+  name-only --cached $against | egrep '\.(pp|erb)''
+do
+    # Don't check empty files
+    if [ 'git cat-file -s :0:$indexfile' -gt 0 ]
+    then
+        case $indexfile in
+            *.pp )
+                # Check puppet manifest syntax
+                git cat-file blob :0:$indexfile | 
+                  puppet parser validate &gt; $error_msg ;;
+            *.erb )
+                # Check ERB template syntax
+                git cat-file blob :0:$indexfile | 
+                  erb -x -T - | ruby -c 2&gt; $error_msg &gt;
+                    /dev/null ;;
+        esac
+        if [ "$?" -ne 0 ]
+        then
+            echo -n "$indexfile: "
+            cat $error_msg
+            syntax_errors='expr $syntax_errors + 1'
+        fi
+    fi
+done
+
+rm -f $error_msg
+
+if [ "$syntax_errors" -ne 0 ]
+then
+    echo "Error: $syntax_errors syntax errors found,
+      aborting commit."
+    exit 1
+fi</pre></div></li><li class="listitem">Set <a id="id225" class="indexterm"/>execute permission for the <a id="id226" class="indexterm"/><code class="literal">hook</code> script with the following command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop:~/puppet$ chmod a+x hooks/check_syntax.sh</strong></span>
+</pre></div></li><li class="listitem">Now either symlink or copy the script to the precommit hook in your hooks directory. If your Git repo is checked out in <code class="literal">~/puppet</code>, then create the symlink at <code class="literal">~/puppet/hooks/pre-commit</code> as follows:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop:~/puppet$ ln -s ~/puppet/hooks/check_syntax.sh.git/hooks/pre-commit</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec109"/>How it works...</h2></div></div></div><p>The <code class="literal">check_syntax.sh</code> script will prevent you from committing any files with syntax errors when it is used as the pre-commit hook for Git:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop:~/puppet$ git commit -m "test commit"</strong></span>
+<span class="strong"><strong>Error: Could not parse for environment production: Syntax error at</strong></span>
+<span class="strong"><strong>  '}' at line 3</strong></span>
+<span class="strong"><strong>Error: Try 'puppet help parser validate' for usage</strong></span>
+<span class="strong"><strong>manifests/nodes.pp: Error: 1 syntax errors found, aborting commit.</strong></span>
+</pre></div><p>If you<a id="id227" class="indexterm"/> add the <code class="literal">hooks</code> directory to your Git<a id="id228" class="indexterm"/> repo, anyone who has a checkout can copy the script into their local <code class="literal">hooks</code> directory to get this syntax checking behavior.</p></div></div>
+<div class="section" title="Pushing code around with Git"><div class="titlepage"><div><div><h1 class="title"><a id="ch02lvl1sec43"/>Pushing code around with Git</h1></div></div></div><p>As we <a id="id229" class="indexterm"/>have already seen in the decentralized model, Git can be<a id="id230" class="indexterm"/> used to transfer files between machines using a combination of <code class="literal">ssh</code> and <code class="literal">ssh</code> keys. It can also be useful to have a Git hook do the same on each successful commit to the repository.</p><p>There exists a hook called post-commit that can be run after a successful commit to the repository. In this recipe, we'll create a hook that updates the code on our Puppet master with code from our Git repository on the Git server.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec110"/>Getting ready</h2></div></div></div><p>Follow these steps to get started:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Create an <code class="literal">ssh</code> key that can access your Puppet user on your Puppet master and install this key into the Git user's account on <code class="literal">git.example.com</code>:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[git@git ~]$ ssh-keygen -f ~/.ssh/puppet_rsa</strong></span>
+<span class="strong"><strong>Generating public/private rsa key pair.</strong></span>
+<span class="strong"><strong>Your identification has been saved in /home/git/.ssh/puppet_rsa.</strong></span>
+<span class="strong"><strong>Your public key has been saved in /home/git/.ssh/puppet_rsa.pub.</strong></span>
+<span class="strong"><strong>Copy the public key into the authorized_keys file of the puppet user on your puppetmaster</strong></span>
+<span class="strong"><strong>puppet@puppet:~/.ssh$ cat puppet_rsa.pub &gt;&gt;authorized_keys</strong></span>
+</pre></div></li><li class="listitem">Modify the Puppet account to allow the Git user to log in as follows:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~# chsh puppet -s /bin/bash</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec111"/>How to do it...</h2></div></div></div><p>Perform the following steps:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Now that the Git user can log in to the Puppet master as the Puppet user, modify the Git user's <code class="literal">ssh</code> configuration to use the newly created <code class="literal">ssh</code> key by default:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[git@git ~]$ vim .ssh/config</strong></span>
+<span class="strong"><strong>Host puppet.example.com</strong></span>
+<span class="strong"><strong>  IdentityFile ~/.ssh/puppet_rsa</strong></span>
+</pre></div></li><li class="listitem">Add the Puppet master as a remote location for the Puppet repository on the Git server with the following command:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[git@git puppet.git]$ git remote add puppetmaster puppet@puppet.example.com:/etc/puppet/environments/puppet.git</strong></span>
+</pre></div></li><li class="listitem">On the Puppet master, move the <code class="literal">production</code> directory out of the way and check out your Puppet repository:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@puppet:~# chown -R puppet:puppet /etc/puppet/environments</strong></span>
+<span class="strong"><strong>root@puppet:~# sudo -iu puppet</strong></span>
+<span class="strong"><strong>puppet@puppet:~$ cd /etc/puppet/environments/</strong></span>
+<span class="strong"><strong>puppet@puppet:/etc/puppet/environments$ mv production production.orig</strong></span>
+<span class="strong"><strong>puppet@puppet:/etc/puppet/environments$ git clone git@git.example.com:repos/puppet.git</strong></span>
+<span class="strong"><strong>Cloning into 'puppet.git'...</strong></span>
+<span class="strong"><strong>remote: Counting objects: 63, done.</strong></span>
+<span class="strong"><strong>remote: Compressing objects: 100% (52/52), done.</strong></span>
+<span class="strong"><strong>remote: Total 63 (delta 10), reused 0 (delta 0)</strong></span>
+<span class="strong"><strong>Receiving objects: 100% (63/63), 9.51 KiB, done.</strong></span>
+<span class="strong"><strong>Resolving deltas: 100% (10/10), done.</strong></span>
+</pre></div></li><li class="listitem">Now <a id="id231" class="indexterm"/>we have a local bare repository on the Puppet <a id="id232" class="indexterm"/>server that we can push to, to remotely clone this into the <code class="literal">production</code> directory:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>puppet@puppet:/etc/puppet/environments$ git clone puppet.git production</strong></span>
+<span class="strong"><strong>Cloning into 'production'...</strong></span>
+<span class="strong"><strong>done.</strong></span>
+</pre></div></li><li class="listitem">Now perform a Git push from the Git server to the Puppet master:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[git@git ~]$ cd repos/puppet.git/</strong></span>
+<span class="strong"><strong>[git@git puppet.git]$ git push puppetmaster</strong></span>
+<span class="strong"><strong>Everything up-to-date</strong></span>
+</pre></div></li><li class="listitem">Create a<a id="id233" class="indexterm"/> post-commit file in the <code class="literal">hooks</code> directory <a id="id234" class="indexterm"/>of the repository on the Git server with the following contents:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[git@git puppet.git]$ vim hooks/post-commit</strong></span>
+<span class="strong"><strong>#!/bin/sh</strong></span>
+<span class="strong"><strong>git push puppetmaster</strong></span>
+<span class="strong"><strong>ssh puppet@puppet.example.com "cd /etc/puppet/environments/production &amp;&amp; git pull"</strong></span>
+<span class="strong"><strong>[git@git puppet.git]$ chmod 755 hooks/post-commit</strong></span>
+</pre></div></li><li class="listitem">Commit a change to the repository from your laptop and verify that the change is propagated to the Puppet master as follows:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop puppet$ vim README</strong></span>
+<span class="strong"><strong>t@mylaptop puppet$ git add README</strong></span>
+<span class="strong"><strong>t@mylaptop puppet$ git commit -m "Adding README"</strong></span>
+<span class="strong"><strong>[master 8148902] Adding README</strong></span>
+<span class="strong"><strong> 1 file changed, 4 deletions(-)</strong></span>
+<span class="strong"><strong>t@mylaptop puppet$ git push</strong></span>
+<span class="strong"><strong>X11 forwarding request failed on channel 0</strong></span>
+<span class="strong"><strong>Counting objects: 5, done.</strong></span>
+<span class="strong"><strong>Delta compression using up to 4 threads.</strong></span>
+<span class="strong"><strong>Compressing objects: 100% (3/3), done.</strong></span>
+<span class="strong"><strong>Writing objects: 100% (3/3), 371 bytes | 0 bytes/s, done.</strong></span>
+<span class="strong"><strong>Total 3 (delta 1), reused 0 (delta 0)</strong></span>
+<span class="strong"><strong>remote: To puppet@puppet.example.com:/etc/puppet/environments/puppet.git</strong></span>
+<span class="strong"><strong>remote:    377ed44..8148902  master -&gt; master</strong></span>
+<span class="strong"><strong>remote: From /etc/puppet/environments/puppet</strong></span>
+<span class="strong"><strong>remote:    377ed44..8148902  master     -&gt; origin/master</strong></span>
+<span class="strong"><strong>remote: Updating 377ed44..8148902</strong></span>
+<span class="strong"><strong>remote: Fast-forward</strong></span>
+<span class="strong"><strong>remote:  README |    4 ----</strong></span>
+<span class="strong"><strong>remote:  1 file changed, 4 deletions(-)</strong></span>
+<span class="strong"><strong>To git@git.example.com:repos/puppet.git</strong></span>
+<span class="strong"><strong>   377ed44..8148902  master -&gt; master</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec112"/>How it works...</h2></div></div></div><p>We<a id="id235" class="indexterm"/> created a bare repository on the Puppet master that we then <a id="id236" class="indexterm"/>use as a remote for the repository on <code class="literal">git.example.com</code> (remote repositories must be bare). We then clone that bare repository into the <code class="literal">production</code> directory. We add the bare repository on <code class="literal">puppet.example.com</code> as a remote to the bare repository on <code class="literal">git.example.com</code>. We then create a post-receive hook in the repository on <code class="literal">git.example.com</code>.</p><p>The hook issues a Git push to the Puppet master bare repository. We then update the <code class="literal">production</code> directory from the updated bare repository on the Puppet master. In the next section, we'll modify the hook to use branches.</p></div></div>
+<div class="section" title="Managing Environments with Git"><div class="titlepage"><div><div><h1 class="title"><a id="ch02lvl1sec44"/>Managing Environments with Git</h1></div></div></div><p>Branches <a id="id237" class="indexterm"/>are a way of keeping several different<a id="id238" class="indexterm"/> tracks of development within a single source repository. Puppet environments are a lot like Git branches. You can have the same code with slight variations between branches, just as you can have different modules for different environments. In this section, we'll show how to use Git branches to define environments on the Puppet master.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec113"/>Getting ready</h2></div></div></div><p>In the previous section, we created a <code class="literal">production</code> directory that was based on the master branch; we'll remove that directory now:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>puppet@puppet:/etc/puppet/environments$ mv production production.master</strong></span>
+</pre></div></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec114"/>How to do it...</h2></div></div></div><p>Modify the <code class="literal">post-receive</code> hook to accept a branch variable. The hook will use this variable to create a directory on the Puppet master as follows:</p><div class="informalexample"><pre class="programlisting">#!/bin/sh
+
+read oldrev newrev refname
+branch=${refname#*\/*\/}
+
+git push puppetmaster $branch
+ssh puppet@puppet.example.com "if [ ! -d 
+/etc/puppet/environments/$branch ]; then git clone
+ /etc/puppet/environments/puppet.git
+ /etc/puppet/environments/$branch; fi; cd
+ /etc/puppet/environments/$branch; git checkout $branch; git pull"
+</pre></div><p>Modify your <code class="literal">README</code> file again and push to the repository on <code class="literal">git.example.com</code>:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop puppet$ git add README</strong></span>
+<span class="strong"><strong>t@mylaptop puppet$ git commit -m "Adding README"</strong></span>
+<span class="strong"><strong>[master 539d9f8] Adding README</strong></span>
+<span class="strong"><strong> 1 file changed, 1 insertion(+)</strong></span>
+<span class="strong"><strong>t@mylaptop puppet$ git push</strong></span>
+<span class="strong"><strong>Counting objects: 5, done.</strong></span>
+<span class="strong"><strong>Delta compression using up to 4 threads.</strong></span>
+<span class="strong"><strong>Compressing objects: 100% (3/3), done.</strong></span>
+<span class="strong"><strong>Writing objects: 100% (3/3), 374 bytes | 0 bytes/s, done.</strong></span>
+<span class="strong"><strong>Total 3 (delta 1), reused 0 (delta 0)</strong></span>
+<span class="strong"><strong>remote: To puppet@puppet.example.com:/etc/puppet/environments/puppet.git</strong></span>
+<span class="strong"><strong>remote:    0d6b49f..539d9f8  master -&gt; master</strong></span>
+<span class="strong"><strong>remote: Cloning into '/etc/puppet/environments/master'...</strong></span>
+<span class="strong"><strong>remote: done.</strong></span>
+<span class="strong"><strong>remote: Already on 'master'</strong></span>
+<span class="strong"><strong>remote: Already up-to-date.</strong></span>
+<span class="strong"><strong>To git@git.example.com:repos/puppet.git</strong></span>
+<span class="strong"><strong>   0d6b49f..539d9f8  master -&gt; master</strong></span>
+</pre></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec115"/>How it works...</h2></div></div></div><p>The<a id="id239" class="indexterm"/> hook now reads in the <code class="literal">refname</code> and <a id="id240" class="indexterm"/>parses out the branch that is being updated. We use that branch variable to clone the repository into a new directory and check out the branch.</p></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch02lvl2sec116"/>There's more...</h2></div></div></div><p>Now when we want to create a new environment, we can create a new branch in the Git repository. The branch will create a directory on the Puppet master. Each branch of the Git repository represents an environment on the Puppet master:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Create the production branch as shown in the following command line:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop puppet$ git branch production</strong></span>
+<span class="strong"><strong>t@mylaptop puppet$ git checkout production</strong></span>
+<span class="strong"><strong>Switched to branch 'production'</strong></span>
+</pre></div></li><li class="listitem">Update the production branch and push to the Git server as follows:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop puppet$ vim README</strong></span>
+<span class="strong"><strong>t@mylaptop puppet$ git add README</strong></span>
+<span class="strong"><strong>t@mylaptop puppet$ git commit -m "Production Branch"</strong></span>
+<span class="strong"><strong>t@mylaptop puppet$ git push origin production</strong></span>
+<span class="strong"><strong>Counting objects: 7, done.</strong></span>
+<span class="strong"><strong>Delta compression using up to 4 threads.</strong></span>
+<span class="strong"><strong>Compressing objects: 100% (3/3), done.</strong></span>
+<span class="strong"><strong>Writing objects: 100% (3/3), 372 bytes | 0 bytes/s, done.</strong></span>
+<span class="strong"><strong>Total 3 (delta 1), reused 0 (delta 0)</strong></span>
+<span class="strong"><strong>remote: To puppet@puppet.example.com:/etc/puppet/environments/puppet.git</strong></span>
+<span class="strong"><strong>remote:    11db6e5..832f6a9  production -&gt; production</strong></span>
+<span class="strong"><strong>remote: Cloning into '/etc/puppet/environments/production'...</strong></span>
+<span class="strong"><strong>remote: done.</strong></span>
+<span class="strong"><strong>remote: Switched to a new branch 'production'</strong></span>
+<span class="strong"><strong>remote: Branch production set up to track remote branch production from origin.</strong></span>
+<span class="strong"><strong>remote: Already up-to-date.</strong></span>
+<span class="strong"><strong>To git@git.example.com:repos/puppet.git</strong></span>
+<span class="strong"><strong>   11db6e5..832f6a9  production -&gt; production</strong></span>
+</pre></div></li></ol></div><p>Now<a id="id241" class="indexterm"/> whenever we create a new branch, a corresponding <a id="id242" class="indexterm"/>directory is created in our environment's directory. A one-to-one mapping is established between environments and branches.</p></div></div></body></html>

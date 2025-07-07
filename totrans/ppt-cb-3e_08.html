@@ -1,0 +1,716 @@
+<html><head></head><body><div class="chapter" title="Chapter&#xA0;8.&#xA0;Internode Coordination"><div class="titlepage"><div><div><h1 class="title"><a id="ch08"/>Chapter 8. Internode Coordination</h1></div></div></div><div class="blockquote"><table border="0" width="100%" cellspacing="0" cellpadding="0" class="blockquote" summary="Block quote"><tr><td valign="top"> </td><td valign="top"><p><span class="emphasis"><em>"Rest is not idleness, and to lie sometimes on the grass under trees on a summer's day, listening to the murmur of the water, or watching the clouds float across the sky, is by no means a waste of time."</em></span></p></td><td valign="top"> </td></tr><tr><td valign="top"> </td><td colspan="2" align="right" valign="top" style="text-align: center">--<span class="attribution"><span class="emphasis"><em>John Lubbock</em></span></span></td></tr></table></div><p>In this chapter, we will cover the following recipes:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Managing firewalls with iptables</li><li class="listitem" style="list-style-type: disc">Building high-availability services using Heartbeat</li><li class="listitem" style="list-style-type: disc">Managing NFS servers and file shares</li><li class="listitem" style="list-style-type: disc">Using HAProxy to load-balance multiple web servers</li><li class="listitem" style="list-style-type: disc">Managing Docker with Puppet</li></ul></div><div class="section" title="Introduction"><div class="titlepage"><div><div><h1 class="title"><a id="ch08lvl1sec93"/>Introduction</h1></div></div></div><p>As powerful as Puppet is to manage the configuration of a single server, it's even more useful when coordinating many machines. In this chapter, we'll explore ways to use Puppet to help you create high-availability clusters, share files across your network, set up automated firewalls, and use load-balancing to get more out of the machines you have. We'll use exported resources as the communication between nodes.</p></div></div>
+<div class="section" title="Managing firewalls with iptables"><div class="titlepage"><div><div><h1 class="title"><a id="ch08lvl1sec94"/>Managing firewalls with iptables</h1></div></div></div><p>In this chapter, we will begin to configure services that require communication between hosts over the network. Most Linux distributions will default to running a host-based firewall, <a id="id491" class="indexterm"/>
+<span class="strong"><strong>iptables</strong></span>. If you want your hosts to communicate with each other, you have two options: turn off iptables or configure iptables to allow the communication.</p><p>I prefer to leave iptables turned on and configure access. Keeping iptables is just another layer on your defense across the network. iptables isn't a magic bullet that will make your system secure, but it will block access to services you didn't intend to expose to the network.</p><p>Configuring iptables properly is a complicated task, which requires deep knowledge of networking. The example presented here is a simplification. If you are unfamiliar with iptables, I suggest you research iptables<a id="id492" class="indexterm"/> before continuing. More information can be found at <a class="ulink" href="http://wiki.centos.org/HowTos/Network/IPTables">http://wiki.centos.org/HowTos/Network/IPTables</a> or <a class="ulink" href="https://help.ubuntu.com/community/IptablesHowTo">https://help.ubuntu.com/community/IptablesHowTo</a>.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec258"/>Getting ready</h2></div></div></div><p>In the following <a id="id493" class="indexterm"/>examples, we'll be using the Puppet Labs Firewall <a id="id494" class="indexterm"/>module to configure iptables. Prepare by installing the module into your Git repository with <code class="literal">puppet module install</code>:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop ~ $ puppet module install -i ~/puppet/modules puppetlabs-firewall</strong></span>
+<span class="strong"><strong>Notice: Preparing to install into /home/thomas/puppet/modules ...</strong></span>
+<span class="strong"><strong>Notice: Downloading from https://forgeapi.puppetlabs.com ...</strong></span>
+<span class="strong"><strong>/home/thomas/puppet/modules</strong></span>
+<span class="strong"><strong>└── puppetlabs-firewall (v1.2.0)</strong></span>
+</pre></div></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec259"/>How to do it...</h2></div></div></div><p>To configure the firewall module, we need to create a set of rules, which will be applied before all other rules. As a simple example, we'll create the following rules:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc">Allow all traffic on the loopback (lo) interface</li><li class="listitem" style="list-style-type: disc">Allow all ICMP traffic</li><li class="listitem" style="list-style-type: disc">Allow all traffic that is part of an established connection (ESTABLISHED, RELATED)</li><li class="listitem" style="list-style-type: disc">Allow all TCP traffic to port 22 (ssh)</li></ul></div><p>We will create a <code class="literal">myfw</code> (my firewall) class to configure the firewall module. We will then apply the <code class="literal">myfw</code> class to a node to have iptables configured on that node:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Create a class to contain these rules and call it <code class="literal">myfw::pre</code>:<div class="informalexample"><pre class="programlisting">class myfw::pre {
+  Firewall {
+    require =&gt; undef,
+  }
+  firewall { '0000 Allow all traffic on loopback':
+    proto =&gt; 'all',
+    iniface =&gt; 'lo',
+    action =&gt; 'accept',
+  }
+  firewall { '0001 Allow all ICMP':
+    proto =&gt; 'icmp',
+    action =&gt; 'accept',
+  }
+  firewall { '0002 Allow all established traffic':
+    proto =&gt; 'all',
+    state =&gt; ['RELATED', 'ESTABLISHED'],
+    action =&gt; 'accept',
+  }
+  firewall { '0022 Allow all TCP on port 22 (ssh)':
+    proto =&gt; 'tcp',
+    port =&gt; '22',
+    action =&gt; 'accept',
+  }
+}</pre></div></li><li class="listitem">When traffic <a id="id495" class="indexterm"/>doesn't match any of the previous rules, we <a id="id496" class="indexterm"/>want a final rule that will drop the traffic. Create the class <code class="literal">myfw::post</code> to contain the default drop rule:<div class="informalexample"><pre class="programlisting">class myfw::post {
+  firewall { '9999 Drop all other traffic':
+    proto  =&gt; 'all',
+    action =&gt; 'drop',
+    before =&gt; undef,
+  } 
+}</pre></div></li><li class="listitem">Create a <code class="literal">myfw</code> class, which will include <code class="literal">myfw::pre</code> and <code class="literal">myfw::post</code> to configure the firewall:<div class="informalexample"><pre class="programlisting">class myfw {
+  include firewall
+  # our rulesets
+  include myfw::post
+  include myfw::pre
+
+  # clear all the rules
+  resources { "firewall":
+    purge =&gt; true
+  }
+
+  # resource defaults
+  Firewall {
+    before =&gt; Class['myfw::post'],
+    require =&gt; Class['myfw::pre'],
+  }
+}</pre></div></li><li class="listitem">Attach the <code class="literal">myfw</code> class to a node definition; I'll do this to my cookbook node:<div class="informalexample"><pre class="programlisting">node cookbook {
+  include myfw
+}</pre></div></li><li class="listitem">Run Puppet <a id="id497" class="indexterm"/>on cookbook to see whether the firewall <a id="id498" class="indexterm"/>rules have been applied:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# puppet agent -t	</strong></span>
+<span class="strong"><strong>Info: Retrieving pluginfacts</strong></span>
+<span class="strong"><strong>Info: Retrieving plugin</strong></span>
+<span class="strong"><strong>Info: Loading facts</strong></span>
+<span class="strong"><strong>Info: Caching catalog for cookbook.example.com</strong></span>
+<span class="strong"><strong>Info: Applying configuration version '1415512948'</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Myfw::Pre/Firewall[000 Allow all traffic on loopback]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /File[/etc/sysconfig/iptables]/seluser: seluser changed 'unconfined_u' to 'system_u'</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Myfw::Pre/Firewall[0001 Allow all ICMP]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Myfw::Pre/Firewall[0022 Allow all TCP on port 22 (ssh)]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Myfw::Pre/Firewall[0002 Allow all established traffic]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Myfw::Post/Firewall[9999 Drop all other traffic]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Myfw/Firewall[9003 49bcd611c61bdd18b235cea46ef04fae]/ensure: removed</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 15.65 seconds</strong></span>
+</pre></div></li><li class="listitem">Verify the new rules with <code class="literal">iptables-save</code>:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong># Generated by iptables-save v1.4.7 on Sun Nov  9 01:18:30 2014</strong></span>
+<span class="strong"><strong>*filter</strong></span>
+<span class="strong"><strong>:INPUT ACCEPT [0:0]</strong></span>
+<span class="strong"><strong>:FORWARD ACCEPT [0:0]</strong></span>
+<span class="strong"><strong>:OUTPUT ACCEPT [74:35767]</strong></span>
+<span class="strong"><strong>-A INPUT -i lo -m comment --comment "0000 Allow all traffic on loopback" -j ACCEPT </strong></span>
+<span class="strong"><strong>-A INPUT -p icmp -m comment --comment "0001 Allow all ICMP" -j ACCEPT </strong></span>
+<span class="strong"><strong>-A INPUT -m comment --comment "0002 Allow all established traffic" -m state --state RELATED,ESTABLISHED -j ACCEPT </strong></span>
+<span class="strong"><strong>-A INPUT -p tcp -m multiport --ports 22 -m comment --comment "022 Allow all TCP on port 22 (ssh)" -j ACCEPT </strong></span>
+<span class="strong"><strong>-A INPUT -m comment --comment "9999 Drop all other traffic" -j DROP </strong></span>
+<span class="strong"><strong>COMMIT</strong></span>
+<span class="strong"><strong># Completed on Sun Nov  9 01:18:30 2014</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec260"/>How it works...</h2></div></div></div><p>This is a great <a id="id499" class="indexterm"/>example of how to use metaparameters to <a id="id500" class="indexterm"/>achieve a complex ordering with little effort. Our <code class="literal">myfw</code> module achieves the following configuration:</p><div class="mediaobject"><img src="graphics/4882OS_08_01.jpg" alt="How it works..."/></div><p>All the rules in the <code class="literal">myfw::pre</code> class are guaranteed to come before any other firewall rules we define. The rules in <code class="literal">myfw::post</code> are guaranteed to come after any other firewall rules. So, we have the rules in <code class="literal">myfw::pre</code> first, then any other rules, followed by the rules in <code class="literal">myfw::post</code>.</p><p>Our definition for the <code class="literal">myfw</code> class sets up this dependency with resource defaults:</p><div class="informalexample"><pre class="programlisting">  # resource defaults
+  Firewall {
+    before =&gt; Class['myfw::post'],
+    require =&gt; Class['myfw::pre'],
+  }</pre></div><p>These defaults first tell Puppet that any firewall resource should be executed before anything in the <code class="literal">myfw::post</code> class. Second, they tell Puppet that any firewall resource should require that the resources in <code class="literal">myfw::pre</code> already be executed.</p><p>When we<a id="id501" class="indexterm"/> defined the <code class="literal">myfw::pre</code> class, we removed the require<a id="id502" class="indexterm"/> statement in a resource default for Firewall resources. This ensures that the resources within the myfw::pre-class don't require themselves before executing (Puppet will complain that we created a cyclic dependency otherwise):</p><div class="informalexample"><pre class="programlisting">Firewall {
+    require =&gt; undef,
+  }</pre></div><p>We use the same trick in our <code class="literal">myfw::post</code> definition. In this case, we only have a single rule in the post class, so we simply remove the <code class="literal">before</code> requirement:</p><div class="informalexample"><pre class="programlisting">firewall { '9999 Drop all other traffic':
+    proto  =&gt; 'all',
+    action =&gt; 'drop',
+    before =&gt; undef,
+  }</pre></div><p>Finally, we include a rule to purge all the existing iptables rules on the system. We do this to ensure we have a consistent set of rules; only rules defined in Puppet will persist:</p><div class="informalexample"><pre class="programlisting"># clear all the rules
+resources { "firewall":
+  purge =&gt; true
+}</pre></div></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec261"/>There's more...</h2></div></div></div><p>As we hinted, we can now define firewall resources in our manifests and have them applied to the iptables configuration after the initialization rules (<code class="literal">myfw::pre</code>) but before the final drop (<code class="literal">myfw::post</code>). For example, to allow http traffic on our cookbook machine, modify the node definition<a id="id503" class="indexterm"/> as follows:</p><div class="informalexample"><pre class="programlisting">  include myfw
+  firewall {'0080 Allow HTTP':
+    proto  =&gt; 'tcp',
+    action =&gt; 'accept',
+    port  =&gt; 80,
+  }</pre></div><p>Run Puppet on cookbook:</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# puppet agent -t</strong></span>
+<span class="strong"><strong>Info: Retrieving pluginfacts</strong></span>
+<span class="strong"><strong>Info: Retrieving plugin</strong></span>
+<span class="strong"><strong>Info: Loading facts</strong></span>
+<span class="strong"><strong>Info: Caching catalog for cookbook.example.com</strong></span>
+<span class="strong"><strong>Info: Applying configuration version '1415515392'</strong></span>
+<span class="strong"><strong>Notice: /File[/etc/sysconfig/iptables]/seluser: seluser changed 'unconfined_u' to 'system_u'</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Main/Node[cookbook]/Firewall[0080 Allow HTTP]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 2.74 seconds</strong></span>
+</pre></div><p>Verify that the new rule has been added after the last myfw::pre rule (port 22, ssh):</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# iptables-save</strong></span>
+<span class="strong"><strong># Generated by iptables-save v1.4.7 on Sun Nov  9 01:46:38 2014</strong></span>
+<span class="strong"><strong>*filter</strong></span>
+<span class="strong"><strong>:INPUT ACCEPT [0:0]</strong></span>
+<span class="strong"><strong>:FORWARD ACCEPT [0:0]</strong></span>
+<span class="strong"><strong>:OUTPUT ACCEPT [41:26340]</strong></span>
+<span class="strong"><strong>-A INPUT -i lo -m comment --comment "0000 Allow all traffic on loopback" -j ACCEPT </strong></span>
+<span class="strong"><strong>-A INPUT -p icmp -m comment --comment "0001 Allow all ICMP" -j ACCEPT </strong></span>
+<span class="strong"><strong>-A INPUT -m comment --comment "0002 Allow all established traffic" -m state --state RELATED,ESTABLISHED -j ACCEPT </strong></span>
+<span class="strong"><strong>-A INPUT -p tcp -m multiport --ports 22 -m comment --comment "0022 Allow all TCP on port 22 (ssh)" -j ACCEPT </strong></span>
+<span class="strong"><strong>-A INPUT -p tcp -m multiport --ports 80 -m comment --comment "0080 Allow HTTP" -j ACCEPT </strong></span>
+<span class="strong"><strong>-A INPUT -m comment --comment "9999 Drop all other traffic" -j DROP </strong></span>
+<span class="strong"><strong>COMMIT</strong></span>
+<span class="strong"><strong># Completed on Sun Nov  9 01:46:38 2014</strong></span>
+</pre></div><div class="note" title="Note" style=""><div class="inner"><h3 class="title"><a id="tip14"/>Tip</h3><p>The Puppet Labs Firewall module has a built-in notion of order, all our firewall resource titles begin with a number. This is a requirement. The module attempts to order resources based on the title. You should keep this in mind when naming your firewall resources.</p></div></div><p>In the next section, we'll use our firewall module to ensure that two nodes can communicate as required.</p></div></div>
+<div class="section" title="Building high-availability services using Heartbeat"><div class="titlepage"><div><div><h1 class="title"><a id="ch08lvl1sec95"/>Building high-availability services using Heartbeat</h1></div></div></div><p>High-availability services <a id="id504" class="indexterm"/>are those that can survive the failure of an individual<a id="id505" class="indexterm"/> machine or network <a id="id506" class="indexterm"/>connection. The primary technique for high availability is redundancy, otherwise known as throwing hardware at the problem. Although the eventual failure of an individual server is certain, the simultaneous failure of two servers is unlikely enough that this provides a good level of redundancy for most applications.</p><p>One of the simplest ways to build a redundant pair of servers is to have them share an IP address using Heartbeat. Heartbeat is a daemon that runs on both machines and exchanges regular messages—heartbeats—between the two. One server is the primary one, and normally has the resource; in this case, an IP address (known as a virtual IP, or VIP). If the secondary server fails to detect a heartbeat from the primary server, it can take over the address, ensuring continuity of service. In real-world scenarios, you may want more machines involved in the VIP, but for this example, two machines works well enough.</p><p>In this recipe, we'll set up two machines in this configuration using Puppet, and I'll explain how to use it to provide a high-availability service.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec262"/>Getting ready</h2></div></div></div><p>You'll need two machines, of course, and an extra IP address to use as the VIP. You can usually request this from your ISP, if necessary. In this example, I'll be using machines named <code class="literal">cookbook</code> and <code class="literal">cookbook2</code>, with <code class="literal">cookbook</code> being the primary. We'll add the hosts to the heartbeat configuration.</p></div><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec263"/>How to do it…</h2></div></div></div><p>Follow these steps to build the example:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Create the file <code class="literal">modules/heartbeat/manifests/init.pp</code> with the following contents:<div class="informalexample"><pre class="programlisting"># Manage Heartbeat
+class heartbeat {
+  package { 'heartbeat':
+    ensure =&gt; installed,
+  }
+
+  service { 'heartbeat':
+    ensure  =&gt; running,
+    enable  =&gt; true,
+    require =&gt; Package['heartbeat'],
+  }
+
+  file { '/etc/ha.d/authkeys':
+    content =&gt; "auth 1\n1 sha1 TopSecret",
+    mode    =&gt; '0600',
+    require =&gt; Package['heartbeat'],
+    notify  =&gt; Service['heartbeat'],
+  }
+  include myfw
+  firewall {'0694 Allow UDP ha-cluster':
+    proto  =&gt; 'udp',
+    port   =&gt; 694,
+    action =&gt; 'accept',
+  }
+}</pre></div></li><li class="listitem">Create the <a id="id507" class="indexterm"/>file <code class="literal">modules/heartbeat/manifests/vip.pp</code> with <a id="id508" class="indexterm"/>the following contents:<div class="informalexample"><pre class="programlisting"># Manage a specific VIP with Heartbeat
+class 
+  heartbeat::vip($node1,$node2,$ip1,$ip2,$vip,$interface='eth0:1') {
+  include heartbeat
+
+  file { '/etc/ha.d/haresources':
+    content =&gt; "${node1} IPaddr::${vip}/${interface}\n",
+    require =&gt; Package['heartbeat'],
+    notify  =&gt; Service['heartbeat'],
+  }
+
+  file { '/etc/ha.d/ha.cf':
+    content =&gt; template('heartbeat/vip.ha.cf.erb'),
+    require =&gt; Package['heartbeat'],
+    notify  =&gt; Service['heartbeat'],
+  }
+}</pre></div></li><li class="listitem">Create the file <code class="literal">modules/heartbeat/templates/vip.ha.cf.erb</code> with the following contents:<div class="informalexample"><pre class="programlisting">use_logd yes
+udpport 694
+autojoin none
+ucast eth0 &lt;%= @ip1 %&gt;
+ucast eth0 &lt;%= @ip2 %&gt;
+keepalive 1
+deadtime 10
+warntime 5
+auto_failback off
+node &lt;%= @node1 %&gt;
+node &lt;%= @node2 %&gt;</pre></div></li><li class="listitem">Modify <a id="id509" class="indexterm"/>your <code class="literal">site.pp</code> file as <a id="id510" class="indexterm"/>follows. Replace the <code class="literal">ip1</code> and <code class="literal">ip2</code> addresses with the primary IP addresses of your two nodes, <code class="literal">vip</code> with the virtual IP address you'll be using, and <code class="literal">node1</code> and <code class="literal">node2</code> with the hostnames of the two nodes. (Heartbeat uses the fully-qualified domain name of a node to determine whether it's a member of the cluster, so the values for <code class="literal">node1</code> and <code class="literal">node2</code> should match what's given by <code class="literal">facter fqdn</code> on each machine.):<div class="informalexample"><pre class="programlisting">node cookbook,cookbook2 {
+  class { 'heartbeat::vip':
+    ip1   =&gt; '192.168.122.132',
+    ip2   =&gt; '192.168.122.133',
+    node1 =&gt; 'cookbook.example.com',
+    node2 =&gt; 'cookbook2.example.com',
+    vip   =&gt; '192.168.122.200/24',
+  }
+}</pre></div></li><li class="listitem">Run Puppet on each of the two servers:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook2 ~]# puppet agent -t</strong></span>
+<span class="strong"><strong>Info: Retrieving pluginfacts</strong></span>
+<span class="strong"><strong>Info: Retrieving plugin</strong></span>
+<span class="strong"><strong>Info: Loading facts</strong></span>
+<span class="strong"><strong>Info: Caching catalog for cookbook2.example.com</strong></span>
+<span class="strong"><strong>Info: Applying configuration version '1415517914'</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Heartbeat/Package[heartbeat]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Myfw::Pre/Firewall[0000 Allow all traffic on loopback]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Myfw::Pre/Firewall[0001 Allow all ICMP]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /File[/etc/sysconfig/iptables]/seluser: seluser changed 'unconfined_u' to 'system_u'</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Myfw::Pre/Firewall[0022 Allow all TCP on port 22 (ssh)]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Heartbeat::Vip/File[/etc/ha.d/haresources]/ensure: defined content as '{md5}fb9f5d9d2b26e3bddf681676d8b2129c'</strong></span>
+<span class="strong"><strong>Info: /Stage[main]/Heartbeat::Vip/File[/etc/ha.d/haresources]: Scheduling refresh of Service[heartbeat]</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Heartbeat::Vip/File[/etc/ha.d/ha.cf]/ensure: defined content as '{md5}84da22f7ac1a3629f69dcf29ccfd8592'</strong></span>
+<span class="strong"><strong>Info: /Stage[main]/Heartbeat::Vip/File[/etc/ha.d/ha.cf]: Scheduling refresh of Service[heartbeat]</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Heartbeat/Service[heartbeat]/ensure: ensure changed 'stopped' to 'running'</strong></span>
+<span class="strong"><strong>Info: /Stage[main]/Heartbeat/Service[heartbeat]: Unscheduling refresh on Service[heartbeat]</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Myfw::Pre/Firewall[0002 Allow all established traffic]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Myfw::Post/Firewall[9999 Drop all other traffic]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Heartbeat/Firewall[0694 Allow UDP ha-cluster]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 12.64 seconds</strong></span>
+</pre></div></li><li class="listitem">Verify that the <a id="id511" class="indexterm"/>VIP is running on <a id="id512" class="indexterm"/>one of the nodes (it should be on cookbook at this point; note that you will need to use the <code class="literal">ip</code> command, <code class="literal">ifconfig</code> will not show the address):<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# ip addr show dev eth0</strong></span>
+<span class="strong"><strong>2: eth0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc pfifo_fast state UP qlen 1000</strong></span>
+<span class="strong"><strong>    link/ether 52:54:00:c9:d5:63 brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>    inet 192.168.122.132/24 brd 192.168.122.255 scope global eth0</strong></span>
+<span class="strong"><strong>    inet 192.168.122.200/24 brd 192.168.122.255 scope global secondary eth0:1</strong></span>
+<span class="strong"><strong>    inet6 fe80::5054:ff:fec9:d563/64 scope link </strong></span>
+<span class="strong"><strong>       valid_lft forever preferred_lft forever</strong></span>
+</pre></div></li><li class="listitem">As we can see, cookbook has the <code class="literal">eth0:1</code> interface active. If you stop heartbeat on <code class="literal">cookbook</code>, <code class="literal">cookbook2</code> will create <code class="literal">eth0:1</code> and take over:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook2 ~]# ip a show dev eth0</strong></span>
+<span class="strong"><strong>2: eth0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc pfifo_fast state UP qlen 1000</strong></span>
+<span class="strong"><strong>    link/ether 52:54:00:ee:9c:fa brd ff:ff:ff:ff:ff:ff</strong></span>
+<span class="strong"><strong>    inet 192.168.122.133/24 brd 192.168.122.255 scope global eth0</strong></span>
+<span class="strong"><strong>    inet 192.168.122.200/24 brd 192.168.122.255 scope global secondary eth0:1</strong></span>
+<span class="strong"><strong>    inet6 fe80::5054:ff:feee:9cfa/64 scope link </strong></span>
+<span class="strong"><strong>       valid_lft forever preferred_lft forever</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works…"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec264"/>How it works…</h2></div></div></div><p>We need to install <a id="id513" class="indexterm"/>Heartbeat first of all, using <a id="id514" class="indexterm"/>the <code class="literal">heartbeat</code> class:</p><div class="informalexample"><pre class="programlisting"># Manage Heartbeat
+class heartbeat {
+  package { 'heartbeat':
+    ensure =&gt; installed,
+  }
+  ...
+}</pre></div><p>Next, we use the <code class="literal">heartbeat::vip</code> class to manage a specific virtual IP:</p><div class="informalexample"><pre class="programlisting"># Manage a specific VIP with Heartbeat
+class 
+  heartbeat::vip($node1,$node2,$ip1,$ip2,$vip,$interface='eth0:1') {
+  include heartbeat</pre></div><p>As you can see, the class includes an <code class="literal">interface</code> parameter; by default, the VIP will be configured on <code class="literal">eth0:1</code>, but if you need to use a different interface, you can pass it in using this parameter.</p><p>Each pair of servers that we configure with a virtual IP will use the <code class="literal">heartbeat::vip</code> class with the same parameters. These will be used to build the <code class="literal">haresources</code> file:</p><div class="informalexample"><pre class="programlisting">file { '/etc/ha.d/haresources':
+  content =&gt; "${node1} IPaddr::${vip}/${interface}\n",
+  notify  =&gt; Service['heartbeat'],
+  require =&gt; Package['heartbeat'],
+}</pre></div><p>This tells Heartbeat about the resource it should manage (that's a Heartbeat resource, such as an IP address or a service, not a Puppet resource). The resulting <code class="literal">haresources</code> file might look as follows:</p><div class="informalexample"><pre class="programlisting">cookbook.example.com IPaddr::192.168.122.200/24/eth0:1</pre></div><p>The file is<a id="id515" class="indexterm"/> interpreted by Heartbeat as<a id="id516" class="indexterm"/> follows:</p><div class="itemizedlist"><ul class="itemizedlist"><li class="listitem" style="list-style-type: disc"><code class="literal">cookbook.example.com</code>: This is the name of the primary node, which should be the default owner of the resource</li><li class="listitem" style="list-style-type: disc"><code class="literal">IPaddr</code>: This is the type of resource to manage; in this case, an IP address</li><li class="listitem" style="list-style-type: disc"><code class="literal">192.168.122.200/24</code>: This is the value for the IP address</li><li class="listitem" style="list-style-type: disc"><code class="literal">eth0:1</code>: This is the virtual interface to configure with the managed IP address</li></ul></div><p>For more information on how <a id="id517" class="indexterm"/>heartbeat is configured, please visit the high-availability site at <a class="ulink" href="http://linux-ha.org/wiki/Heartbeat">http://linux-ha.org/wiki/Heartbeat</a>.</p><p>We will also build the <code class="literal">ha.cf</code> file that tells Heartbeat how to communicate between cluster nodes:</p><div class="informalexample"><pre class="programlisting">file { '/etc/ha.d/ha.cf':
+  content =&gt; template('heartbeat/vip.ha.cf.erb'),
+  notify  =&gt; Service['heartbeat'],
+  require =&gt; Package['heartbeat'],
+}</pre></div><p>To do this, we use the template file:</p><div class="informalexample"><pre class="programlisting">use_logd yes
+udpport 694
+autojoin none
+ucast eth0 &lt;%= @ip1 %&gt;
+ucast eth0 &lt;%= @ip2 %&gt;
+keepalive 1
+deadtime 10
+warntime 5
+auto_failback off
+node &lt;%= @node1 %&gt;
+node &lt;%= @node2 %&gt;</pre></div><p>The interesting values here are the IP addresses of the two nodes (<code class="literal">ip1</code> and <code class="literal">ip2</code>), and the names of the two nodes (<code class="literal">node1</code> and <code class="literal">node2</code>).</p><p>Finally, we<a id="id518" class="indexterm"/> create an instance of <code class="literal">heartbeat::vip</code> on<a id="id519" class="indexterm"/> both machines and pass it an identical set of parameters as follows:</p><div class="informalexample"><pre class="programlisting">class { 'heartbeat::vip':
+  ip1   =&gt; '192.168.122.132',
+  ip2   =&gt; '192.168.122.133',
+  node1 =&gt; 'cookbook.example.com',
+  node2 =&gt; 'cookbook2.example.com',
+  vip   =&gt; '192.168.122.200/24',
+}</pre></div></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec265"/>There's more...</h2></div></div></div><p>With Heartbeat set up as described in the example, the virtual IP address will be configured on <code class="literal">cookbook</code> by default. If something happens to interfere with this (for example, if you halt or reboot <code class="literal">cookbook</code>, or stop the <code class="literal">heartbeat</code> service, or the machine loses network connectivity), <code class="literal">cookbook2</code> will immediately take over the virtual IP.</p><p>The <code class="literal">auto_failback</code> setting<a id="id520" class="indexterm"/> in <code class="literal">ha.cf</code> governs what happens next. If <code class="literal">auto_failback</code> is set to <code class="literal">on</code>, when <code class="literal">cookbook</code> becomes available once more, it will automatically take over the IP address. Without <code class="literal">auto_failback</code>, the IP will stay where it is until you manually fail it again (by stopping <code class="literal">heartbeart</code> on <code class="literal">cookbook2</code>, for example).</p><p>One common use for a Heartbeat-managed virtual IP is to provide a highly available website or service. To do this, you need to set the DNS name for the service (for example, <code class="literal">cat-pictures.com</code>) to point to the virtual IP. Requests for the service will be routed to whichever of the two servers currently has the virtual IP. If this server should go down, requests will go to the other, with no visible interruption in service to users.</p><p>Heartbeat works great for the previous example but is not in widespread use in this form. Heartbeat only works in two node clusters; for n-node clusters, the newer pacemaker project should be used. More information on Heartbeat, pacemaker, corosync, and other clustering packages can be <a id="id521" class="indexterm"/>found at <a class="ulink" href="http://www.linux-ha.org/wiki/Main_Page">http://www.linux-ha.org/wiki/Main_Page</a>.</p><p>Managing cluster configuration is one area where exported resources are useful. Each node in a cluster would export information about itself, which could then be collected by the other members of the cluster. Using the puppetlabs-concat module, you can build up a configuration file using exported concat fragments from all the nodes in the cluster.</p><p>Remember to look at the Forge before starting your own module. If nothing else, you'll get some ideas that you can use in your own module. Corosync can be managed with the Puppet labs module <a id="id522" class="indexterm"/>at <a class="ulink" href="https://forge.puppetlabs.com/puppetlabs/corosync">https://forge.puppetlabs.com/puppetlabs/corosync</a>.</p></div></div>
+<div class="section" title="Managing NFS servers and file shares"><div class="titlepage"><div><div><h1 class="title"><a id="ch08lvl1sec96"/>Managing NFS servers and file shares</h1></div></div></div><p>
+<span class="strong"><strong>NFS</strong></span> (<span class="strong"><strong>Network File System</strong></span>) is a protocol to mount a shared directory from a remote <a id="id523" class="indexterm"/>server. For example, a pool of web servers might all <a id="id524" class="indexterm"/>mount the same NFS share to serve static assets such as <a id="id525" class="indexterm"/>images and stylesheets. Although NFS is generally slower and less secure than local storage or a clustered filesystem, the ease with which it can be used makes it a common choice in the datacenter. We'll use our <code class="literal">myfw</code> module from before to ensure the local firewall permits <code class="literal">nfs</code> communication. We'll also use the Puppet labs-concat module to edit the list of exported filesystems on our <code class="literal">nfs</code> server.</p><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec266"/>How to do it...</h2></div></div></div><p>In this example, we'll configure an <code class="literal">nfs</code> server to share (export) some filesystem via NFS.</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Create an <code class="literal">nfs</code> module with the following <code class="literal">nfs::exports</code> class, which defines a concat resource:<div class="informalexample"><pre class="programlisting">class nfs::exports {
+  exec {'nfs::exportfs':
+    command     =&gt; 'exportfs -a',
+    refreshonly =&gt; true,
+    path        =&gt; '/usr/bin:/bin:/sbin:/usr/sbin',
+  }
+  concat {'/etc/exports':
+    notify =&gt; Exec['nfs::exportfs'],
+  }
+}</pre></div></li><li class="listitem">Create the <code class="literal">nfs::export</code> defined type, we'll use this definition for any <code class="literal">nfs</code> exports we create:<div class="informalexample"><pre class="programlisting">define nfs::export (
+  $where = $title,
+  $who = '*',
+  $options = 'async,ro',
+  $mount_options = 'defaults',
+  $tag     = 'nfs'
+) {
+  # make sure the directory exists
+  # export the entry locally, then export a resource to be picked up later.
+  file {"$where":
+    ensure =&gt; 'directory',
+  }
+  include nfs::exports
+  concat::fragment { "nfs::export::$where":
+    content =&gt; "${where} ${who}(${options})\n",
+    target  =&gt; '/etc/exports'
+  }
+  @@mount { "nfs::export::${where}::${::ipaddress}":
+    name    =&gt; "$where",
+    ensure  =&gt; 'mounted',
+    fstype  =&gt; 'nfs',
+    options =&gt; "$mount_options",
+    device  =&gt; "${::ipaddress}:${where}",
+    tag     =&gt; "$tag",
+  }
+}</pre></div></li><li class="listitem">Now create<a id="id526" class="indexterm"/> the <code class="literal">nfs::server</code> class, which will include <a id="id527" class="indexterm"/>the OS-specific configuration for the server:<div class="informalexample"><pre class="programlisting">class nfs::server {
+  # ensure nfs server is running
+  # firewall should allow nfs communication
+  include nfs::exports
+  case $::osfamily {
+    'RedHat': { include nfs::server::redhat }
+    'Debian': { include nfs::server::debian }
+  }
+  include myfw
+  firewall {'2049 NFS TCP communication':
+    proto  =&gt; 'tcp',
+    port   =&gt; '2049',
+    action =&gt; 'accept',
+  }
+  firewall {'2049 UDP NFS communication':
+    proto  =&gt; 'udp',
+    port   =&gt; '2049',
+    action =&gt; 'accept',
+  }
+  firewall {'0111 TCP PORTMAP':
+    proto  =&gt; 'tcp',
+    port   =&gt; '111',
+    action =&gt; 'accept',
+  }
+  firewall {'0111 UDP PORTMAP':
+    proto  =&gt; 'udp',
+    port   =&gt; '111',
+    action =&gt; 'accept',
+  }
+  firewall {'4000 TCP STAT':
+    proto  =&gt; 'tcp',
+    port   =&gt; '4000-4010',
+    action =&gt; 'accept',
+  }
+  firewall {'4000 UDP STAT':
+    proto  =&gt; 'udp',
+    port   =&gt; '4000-4010',
+    action =&gt; 'accept',
+  }
+}</pre></div></li><li class="listitem">Next, create the <code class="literal">nfs::server::redhat</code> class:<div class="informalexample"><pre class="programlisting">class nfs::server::redhat {
+  package {'nfs-utils':
+    ensure =&gt; 'installed',
+  }
+  service {'nfs':
+    ensure =&gt; 'running',
+    enable =&gt; true
+  }
+  file {'/etc/sysconfig/nfs':
+    source =&gt; 'puppet:///modules/nfs/nfs',
+    mode   =&gt; 0644,
+    notify =&gt; Service['nfs'],
+  }
+}</pre></div></li><li class="listitem">Create<a id="id528" class="indexterm"/> the <code class="literal">/etc/sysconfig/nfs</code> support file for <a id="id529" class="indexterm"/>RedHat systems in the files directory of our <code class="literal">nfs</code> repo (<code class="literal">modules/nfs/files/nfs</code>):<div class="informalexample"><pre class="programlisting">STATD_PORT=4000
+STATD_OUTGOING_PORT=4001
+RQUOTAD_PORT=4002
+LOCKD_TCPPORT=4003
+LOCKD_UDPPORT=4003
+MOUNTD_PORT=4004</pre></div></li><li class="listitem">Now create the support class for Debian systems, <code class="literal">nfs::server::debian</code>:<div class="informalexample"><pre class="programlisting">class nfs::server::debian {
+  # install the package
+  package {'nfs':
+    name   =&gt; 'nfs-kernel-server',
+    ensure =&gt; 'installed',
+  }
+  # config
+  file {'/etc/default/nfs-common':
+    source =&gt; 'puppet:///modules/nfs/nfs-common',
+    mode   =&gt; 0644,
+    notify =&gt; Service['nfs-common']
+  }
+  # services
+  service {'nfs-common':
+    ensure =&gt; 'running',
+    enable =&gt; true,
+  }
+  service {'nfs':
+    name   =&gt; 'nfs-kernel-server',
+    ensure =&gt; 'running',
+    enable =&gt; true,
+    require =&gt; Package['nfs-kernel-server']
+  }
+}</pre></div></li><li class="listitem">Create the <a id="id530" class="indexterm"/>nfs-common configuration for Debian (which will be placed in <code class="literal">modules/nfs/files/nfs-common</code>):<div class="informalexample"><pre class="programlisting">STATDOPTS="--port 4000 --outgoing-port 4001"</pre></div></li><li class="listitem">Apply<a id="id531" class="indexterm"/> the <code class="literal">nfs::server</code> class to a node and then create an export on that node:<div class="informalexample"><pre class="programlisting">node debian {
+  include nfs::server
+  nfs::export {'/srv/home': 
+    tag =&gt; "srv_home" }
+}</pre></div></li><li class="listitem">Create a collector for the exported resource created by the <code class="literal">nfs::server</code> class in the preceding code snippet:<div class="informalexample"><pre class="programlisting">node cookbook {
+  Mount &lt;&lt;| tag == "srv_home" |&gt;&gt; {
+    name   =&gt; '/mnt',
+  }
+}</pre></div></li><li class="listitem">Finally, run Puppet on the node Debian to create the exported resource. Then, run Puppet on the cookbook node to mount that resource:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@debian:~# puppet agent -t</strong></span>
+<span class="strong"><strong>Info: Caching catalog for debian.example.com</strong></span>
+<span class="strong"><strong>Info: Applying configuration version '1415602532'</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 0.78 seconds</strong></span>
+<span class="strong"><strong>[root@cookbook ~]# puppet agent -t</strong></span>
+<span class="strong"><strong>Info: Caching catalog for cookbook.example.com</strong></span>
+<span class="strong"><strong>Info: Applying configuration version '1415603580'</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Main/Node[cookbook]/Mount[nfs::export::/srv/home::192.168.122.148]/ensure: ensure changed 'ghost' to 'mounted'</strong></span>
+<span class="strong"><strong>Info: Computing checksum on file /etc/fstab</strong></span>
+<span class="strong"><strong>Info: /Stage[main]/Main/Node[cookbook]/Mount[nfs::export::/srv/home::192.168.122.148]: Scheduling refresh of Mount[nfs::export::/srv/home::192.168.122.148]</strong></span>
+<span class="strong"><strong>Info: Mount[nfs::export::/srv/home::192.168.122.148](provider=parsed): Remounting</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Main/Node[cookbook]/Mount[nfs::export::/srv/home::192.168.122.148]: Triggered 'refresh' from 1 events</strong></span>
+<span class="strong"><strong>Info: /Stage[main]/Main/Node[cookbook]/Mount[nfs::export::/srv/home::192.168.122.148]: Scheduling refresh of Mount[nfs::export::/srv/home::192.168.122.148]</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 0.34 seconds</strong></span>
+</pre></div></li><li class="listitem">Verify the mount with <code class="literal">mount</code>:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@cookbook ~]# mount -t nfs</strong></span>
+<span class="strong"><strong>192.168.122.148:/srv/home on /mnt type nfs (rw)</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works…"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec267"/>How it works…</h2></div></div></div><p>The <code class="literal">nfs::exports</code> class<a id="id532" class="indexterm"/> defines<a id="id533" class="indexterm"/> an exec, which runs <code class="literal">'exportfs -a'</code>, to export all<a id="id534" class="indexterm"/> filesystems defined in <code class="literal">/etc/exports</code>. Next, we define a concat resource to contain <code class="literal">concat::fragments</code>, which we will define next in our <code class="literal">nfs::export</code> class. Concat resources specify the file that the fragments are to be placed into; <code class="literal">/etc/exports</code> in this case. Our <code class="literal">concat</code> resource has a notify for the previous exec. This has the effect that whenever <code class="literal">/etc/exports</code> is updated, we run <code class="literal">'exportfs -a'</code> again to export the new entries:</p><div class="informalexample"><pre class="programlisting">class nfs::exports {
+  exec {'nfs::exportfs':
+    command     =&gt; 'exportfs -a',
+    refreshonly =&gt; true,
+    path        =&gt; '/usr/bin:/bin:/sbin:/usr/sbin',
+  }
+  concat {'/etc/exports':
+    notify =&gt; Exec['nfs::exportfs'],
+  }
+}</pre></div><p>We then created an <code class="literal">nfs::export</code> defined type, which does all the work. The defined type adds an entry to <code class="literal">/etc/exports</code> via a <code class="literal">concat::fragment</code> resource:</p><div class="informalexample"><pre class="programlisting">define nfs::export (
+  $where = $title,
+  $who = '*',
+  $options = 'async,ro',
+  $mount_options = 'defaults',
+  $tag     = 'nfs'
+) {
+  # make sure the directory exists
+  # export the entry locally, then export a resource to be picked up later.
+  file {"$where":
+    ensure =&gt; 'directory',
+  }
+  include nfs::exports
+  concat::fragment { "nfs::export::$where":
+    content =&gt; "${where} ${who}(${options})\n",
+    target  =&gt; '/etc/exports'
+  }</pre></div><p>In the definition, we use the<a id="id535" class="indexterm"/> attribute <code class="literal">$where</code> to define what filesystem we are <a id="id536" class="indexterm"/>exporting. We use <code class="literal">$who</code> to specify who can mount the filesystem. The attribute <code class="literal">$options</code> contains the exporting options such as <a id="id537" class="indexterm"/>
+<span class="strong"><strong>rw</strong></span> (<span class="strong"><strong>read-write</strong></span>), <a id="id538" class="indexterm"/>
+<span class="strong"><strong>ro</strong></span> (<span class="strong"><strong>read-only</strong></span>). Next, we have the options that will be placed in <code class="literal">/etc/fstab</code> on the client machine, the mount options, stored in <code class="literal">$mount_options</code>. The <code class="literal">nfs::exports</code> class is included here so that <code class="literal">concat::fragment</code> has a concat target defined.</p><p>Next, the exported mount resource is created; this is done on the server, so the <code class="literal">${::ipaddress}</code> variable holds the IP address of the server. We use this to define the device for the mount. The device is the IP address of the server, a colon, and then the filesystem being exported. In this example, it is <code class="literal">'192.168.122.148:/srv/home'</code>:</p><div class="informalexample"><pre class="programlisting">@@mount { "nfs::export::${where}::${::ipaddress}":
+    name    =&gt; "$where",
+    ensure  =&gt; 'mounted',
+    fstype  =&gt; 'nfs',
+    options =&gt; "$mount_options",
+    device  =&gt; "${::ipaddress}:${where}",
+    tag     =&gt; "$tag",
+  }</pre></div><p>We reuse our <code class="literal">myfw</code> module <a id="id539" class="indexterm"/>and include it in the <code class="literal">nfs::server</code> class. This class<a id="id540" class="indexterm"/> illustrates one of the things to consider when writing your modules. Not all Linux distributions are created equal. Debian and RedHat deal with NFS server configuration quite differently. The <code class="literal">nfs::server</code> module deals with this by including OS-specific subclasses:</p><div class="informalexample"><pre class="programlisting">class nfs::server {
+  # ensure nfs server is running
+  # firewall should allow nfs communication
+  include nfs::exports
+  case $::osfamily {
+    'RedHat': { include nfs::server::redhat }
+    'Debian': { include nfs::server::debian }
+  }
+  include myfw
+  firewall {'2049 NFS TCP communication':
+    proto  =&gt; 'tcp',
+    port   =&gt; '2049',
+    action =&gt; 'accept',
+  }
+  firewall {'2049 UDP NFS communication':
+    proto  =&gt; 'udp',
+    port   =&gt; '2049',
+    action =&gt; 'accept',
+  }
+  firewall {'0111 TCP PORTMAP':
+    proto  =&gt; 'tcp',
+    port   =&gt; '111',
+    action =&gt; 'accept',
+  }
+  firewall {'0111 UDP PORTMAP':
+    proto  =&gt; 'udp',
+    port   =&gt; '111',
+    action =&gt; 'accept',
+  }
+  firewall {'4000 TCP STAT':
+    proto  =&gt; 'tcp',
+    port   =&gt; '4000-4010',
+    action =&gt; 'accept',
+  }
+  firewall {'4000 UDP STAT':
+    proto  =&gt; 'udp',
+    port   =&gt; '4000-4010',
+    action =&gt; 'accept',
+  }
+}</pre></div><p>The <code class="literal">nfs::server</code> module opens several firewall ports for NFS communication. NFS traffic is always carried over port 2049 but ancillary systems, such as locking, quota, and file status daemons, use ephemeral ports chosen by the portmapper, by default. The portmapper itself uses port 111. So our module needs to allow 2049, 111, and a few other ports. We attempt to configure<a id="id541" class="indexterm"/> the ancillary services to use ports 4000 through <a id="id542" class="indexterm"/>4010.</p><p>In the <code class="literal">nfs::server::redhat</code> class, we modify <code class="literal">/etc/sysconfig/nfs</code> to use the ports specified. Also, we install the nfs-utils package and start the nfs service:</p><div class="informalexample"><pre class="programlisting">class nfs::server::redhat {
+  package {'nfs-utils':
+    ensure =&gt; 'installed',
+  }
+  service {'nfs':
+    ensure =&gt; 'running',
+    enable =&gt; true
+  }
+  file {'/etc/sysconfig/nfs':
+    source =&gt; 'puppet:///modules/nfs/nfs',
+    mode   =&gt; 0644,
+    notify =&gt; Service['nfs'],
+  }
+}</pre></div><p>We do the same for Debian-based systems in the <code class="literal">nfs::server::debian</code> class. The packages and services have different names but overall the process is similar:</p><div class="informalexample"><pre class="programlisting">class nfs::server::debian {
+  # install the package
+  package {'nfs':
+    name   =&gt; 'nfs-kernel-server',
+    ensure =&gt; 'installed',
+  }
+  # config
+  file {'/etc/default/nfs-common':
+    source =&gt; 'puppet:///modules/nfs/nfs-common',
+    mode   =&gt; 0644,
+    notify =&gt; Service['nfs-common']
+  }
+  # services
+  service {'nfs-common':
+    ensure =&gt; 'running',
+    enable =&gt; true,
+  }
+  service {'nfs':
+    name   =&gt; 'nfs-kernel-server',
+    ensure =&gt; 'running',
+    enable =&gt; true,
+  }
+}</pre></div><p>With everything in place, we include the server class to configure the NFS server and then define an export:</p><div class="informalexample"><pre class="programlisting">  include nfs::server
+  nfs::export {'/srv/home': 
+    tag =&gt; "srv_home" }</pre></div><p>What's important here is that we defined the <code class="literal">tag</code> attribute, which will be used in the exported resource we collect in the following code snippet:</p><div class="informalexample"><pre class="programlisting">Mount &lt;&lt;| tag == "srv_home" |&gt;&gt; {
+  name   =&gt; '/mnt',
+}</pre></div><p>We use the spaceship <a id="id543" class="indexterm"/>syntax (<code class="literal">&lt;&lt;| |&gt;&gt;</code>) to collect all the exported mount resources <a id="id544" class="indexterm"/>that have the tag we defined earlier (<code class="literal">srv_home</code>). We then use a syntax called "override on collect" to modify the name attribute of the mount to specify where to mount the filesystem.</p><p>Using this design pattern with exported resources, we can change the server exporting the filesystem and have any nodes that mount the resource updated automatically. We can have many different nodes collecting the exported mount resource.</p></div></div>
+<div class="section" title="Using HAProxy to load-balance multiple web servers"><div class="titlepage"><div><div><h1 class="title"><a id="ch08lvl1sec97"/>Using HAProxy to load-balance multiple web servers</h1></div></div></div><p>Load balancers<a id="id545" class="indexterm"/> are used to spread a load among a number of servers. Hardware load balancers are still somewhat expensive, whereas software balancers can achieve most of the benefits of a hardware solution.</p><p>
+<span class="strong"><strong>HAProxy</strong></span><a id="id546" class="indexterm"/> is the software load balancer of choice for most people: fast, powerful, and highly configurable.</p><div class="section" title="How to do it…"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec268"/>How to do it…</h2></div></div></div><p>In this recipe, I'll <a id="id547" class="indexterm"/>show you how to build an<a id="id548" class="indexterm"/> HAProxy server to load-balance web requests across web servers. We'll use exported resources to build the <code class="literal">haproxy</code> configuration file just like we did for the NFS example.</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">Create the file <code class="literal">modules/haproxy/manifests/master.pp</code> with the following contents:<div class="informalexample"><pre class="programlisting">class haproxy::master ($app = 'myapp') {
+  # The HAProxy master server
+  # will collect haproxy::slave resources and add to its balancer
+  package { 'haproxy': ensure =&gt; installed }
+  service { 'haproxy':
+    ensure  =&gt; running,
+    enable  =&gt; true,
+    require =&gt; Package['haproxy'],
+  }
+
+  include haproxy::config
+
+  concat::fragment { 'haproxy.cfg header':
+    target  =&gt; 'haproxy.cfg',
+    source  =&gt; 'puppet:///modules/haproxy/haproxy.cfg',
+    order   =&gt; '001',
+    require =&gt; Package['haproxy'],
+    notify  =&gt; Service['haproxy'],
+  }
+
+  # pull in the exported entries
+  Concat::Fragment &lt;&lt;| tag == "$app" |&gt;&gt; {
+    target =&gt; 'haproxy.cfg',
+    notify =&gt; Service['haproxy'],
+  }
+}</pre></div></li><li class="listitem">Create the file <code class="literal">modules/haproxy/files/haproxy.cfg</code> with the following contents:<div class="informalexample"><pre class="programlisting">global
+        daemon
+        user haproxy
+        group haproxy
+        pidfile /var/run/haproxy.pid
+
+defaults
+        log     global
+        stats   enable
+        mode    http
+        option  httplog
+        option  dontlognull
+        option  dontlog-normal
+        retries 3
+        option  redispatch
+        timeout connect 4000
+        timeout client 60000
+        timeout server 30000
+
+listen  stats :8080
+        mode http
+        stats uri /
+        stats auth haproxy:topsecret
+
+listen  myapp 0.0.0.0:80
+        balance leastconn</pre></div></li><li class="listitem">Modify <a id="id549" class="indexterm"/>your <code class="literal">manifests/nodes.pp</code> file as<a id="id550" class="indexterm"/> follows:<div class="informalexample"><pre class="programlisting">node 'cookbook' {
+  include haproxy
+}</pre></div></li><li class="listitem">Create the slave server configuration in the <code class="literal">haproxy::slave</code> class:<div class="informalexample"><pre class="programlisting">class haproxy::slave ($app = "myapp", $localport = 8000) {
+  # haproxy slave, export haproxy.cfg fragment
+  # configure simple web server on different port
+  @@concat::fragment { "haproxy.cfg $::fqdn":
+    content =&gt; "\t\tserver ${::hostname} ${::ipaddress}:${localport}   check maxconn 100\n",
+    order   =&gt; '0010',
+    tag     =&gt; "$app",
+  }
+  include myfw
+  firewall {"${localport} Allow HTTP to haproxy::slave":
+    proto  =&gt; 'tcp',
+    port   =&gt; $localport,
+    action =&gt; 'accept',
+  }
+
+  class {'apache': }
+  apache::vhost { 'haproxy.example.com':
+    port          =&gt; '8000',
+    docroot =&gt; '/var/www/haproxy',
+  }
+  file {'/var/www/haproxy':
+    ensure  =&gt; 'directory',
+    mode    =&gt; 0755,
+    require =&gt; Class['apache'],
+  }
+  file {'/var/www/haproxy/index.html':
+    mode    =&gt; '0644',
+    content =&gt; "&lt;html&gt;&lt;body&gt;&lt;h1&gt;${::fqdn} haproxy::slave\n&lt;/body&gt;&lt;/html&gt;\n",
+    require =&gt; File['/var/www/haproxy'],
+  }
+}</pre></div></li><li class="listitem">Create the<a id="id551" class="indexterm"/> <code class="literal">concat</code> container<a id="id552" class="indexterm"/> resource in the <code class="literal">haproxy::config</code> class as follows:<div class="informalexample"><pre class="programlisting">class haproxy::config {
+  concat {'haproxy.cfg':
+    path  =&gt; '/etc/haproxy/haproxy.cfg',
+    order =&gt; 'numeric',
+    mode  =&gt; '0644',
+  }
+}</pre></div></li><li class="listitem">Modify <code class="literal">site.pp</code> to define the master and slave nodes:<div class="informalexample"><pre class="programlisting">node master {
+  class {'haproxy::master':
+    app =&gt; 'cookbook'
+  }
+}
+node slave1,slave2 {
+  class {'haproxy::slave':
+    app =&gt; 'cookbook'
+  }
+}</pre></div></li><li class="listitem">Run Puppet on each of the slave servers:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>root@slave1:~# puppet agent -t</strong></span>
+<span class="strong"><strong>Info: Caching catalog for slave1</strong></span>
+<span class="strong"><strong>Info: Applying configuration version '1415646194'</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Haproxy::Slave/Apache::Vhost[haproxy.example.com]/File[25-haproxy.example.com.conf]/ensure: created</strong></span>
+<span class="strong"><strong>Info: /Stage[main]/Haproxy::Slave/Apache::Vhost[haproxy.example.com]/File[25-haproxy.example.com.conf]: Scheduling refresh of Service[httpd]</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Haproxy::Slave/Apache::Vhost[haproxy.example.com]/File[25-haproxy.example.com.conf symlink]/ensure: created</strong></span>
+<span class="strong"><strong>Info: /Stage[main]/Haproxy::Slave/Apache::Vhost[haproxy.example.com]/File[25-haproxy.example.com.conf symlink]: Scheduling refresh of Service[httpd]</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Apache::Service/Service[httpd]/ensure: ensure changed 'stopped' to 'running'</strong></span>
+<span class="strong"><strong>Info: /Stage[main]/Apache::Service/Service[httpd]: Unscheduling refresh on Service[httpd]</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 1.71 seconds</strong></span>
+</pre></div></li><li class="listitem">Run Puppet<a id="id553" class="indexterm"/> on the master node <a id="id554" class="indexterm"/>to configure and run <code class="literal">haproxy</code>:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@master ~]# puppet agent -t</strong></span>
+<span class="strong"><strong>Info: Caching catalog for master.example.com</strong></span>
+<span class="strong"><strong>Info: Applying configuration version '1415647075'</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Haproxy::Master/Package[haproxy]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Myfw::Pre/Firewall[0000 Allow all traffic on loopback]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Myfw::Pre/Firewall[0001 Allow all ICMP]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Haproxy::Master/Firewall[8080 haproxy statistics]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /File[/etc/sysconfig/iptables]/seluser: seluser changed 'unconfined_u' to 'system_u'</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Myfw::Pre/Firewall[0022 Allow all TCP on port 22 (ssh)]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Haproxy::Master/Firewall[0080 http haproxy]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Myfw::Pre/Firewall[0002 Allow all established traffic]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Myfw::Post/Firewall[9999 Drop all other traffic]/ensure: created</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Haproxy::Config/Concat[haproxy.cfg]/File[haproxy.cfg]/content: </strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>+listen  myapp 0.0.0.0:80</strong></span>
+<span class="strong"><strong>+        balance leastconn</strong></span>
+<span class="strong"><strong>+    server slave1 192.168.122.148:8000   check maxconn 100</strong></span>
+<span class="strong"><strong>+    server slave2 192.168.122.133:8000   check maxconn 100</strong></span>
+
+<span class="strong"><strong>Info: Computing checksum on file /etc/haproxy/haproxy.cfg</strong></span>
+<span class="strong"><strong>Info: /Stage[main]/Haproxy::Config/Concat[haproxy.cfg]/File[haproxy.cfg]: Filebucketed /etc/haproxy/haproxy.cfg to puppet with sum 1f337186b0e1ba5ee82760cb437fb810</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Haproxy::Config/Concat[haproxy.cfg]/File[haproxy.cfg]/content: content changed '{md5}1f337186b0e1ba5ee82760cb437fb810' to '{md5}b070f076e1e691e053d6853f7d966394'</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Haproxy::Master/Service[haproxy]/ensure: ensure changed 'stopped' to 'running'</strong></span>
+<span class="strong"><strong>Info: /Stage[main]/Haproxy::Master/Service[haproxy]: Unscheduling refresh on Service[haproxy]</strong></span>
+<span class="strong"><strong>Notice: Finished catalog run in 33.48 seconds</strong></span>
+</pre></div></li><li class="listitem">Check the<a id="id555" class="indexterm"/> HAProxy stats interface<a id="id556" class="indexterm"/> on master port <code class="literal">8080</code><a id="id557" class="indexterm"/> in your web browser (<code class="literal">http://master.example.com:8080</code>) to make sure everything is okay (The username and password are in <code class="literal">haproxy.cfg</code>, <code class="literal">haproxy</code>, and <code class="literal">topsecret</code>). Try going to the proxied service as well. Notice that the page changes on each reload as the service is redirected from slave1 to slave2 (<code class="literal">http://master.example.com</code>).</li></ol></div></div><div class="section" title="How it works…"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec269"/>How it works…</h2></div></div></div><p>We built a complex configuration from various components of the previous sections. This type of deployment becomes easier the more you do it. At a top level, we configured the master to collect exported resources from slaves. The slaves exported their configuration information to allow haproxy to use them in the load balancer. As slaves are added to the system, they can export their resources and be added to the balancer automatically.</p><p>We used our <code class="literal">myfw</code> module to configure the firewall on the slaves and the master to allow communication.</p><p>We used the Forge Apache module to configure the listening web server on the slaves. We were able to generate a fully functioning website with five lines of code (10 more to place <code class="literal">index.html</code> on the website).</p><p>There are <a id="id558" class="indexterm"/>several things going on <a id="id559" class="indexterm"/>here. We have the firewall configuration and the Apache configuration in addition to the <code class="literal">haproxy</code> configuration. We'll focus on how the exported resources and the <code class="literal">haproxy</code> configuration fit together.</p><p>In the <code class="literal">haproxy::config</code> class, we created the concat container for the <code class="literal">haproxy</code> configuration:</p><div class="informalexample"><pre class="programlisting">class haproxy::config {
+  concat {'haproxy.cfg':
+    path  =&gt; '/etc/haproxy/haproxy.cfg',
+    order =&gt; 'numeric',
+    mode  =&gt; 0644,
+  }
+}</pre></div><p>We reference this in <code class="literal">haproxy::slave</code>:</p><div class="informalexample"><pre class="programlisting">class haproxy::slave ($app = "myapp", $localport = 8000) {
+  # haproxy slave, export haproxy.cfg fragment
+  # configure simple web server on different port
+  @@concat::fragment { "haproxy.cfg $::fqdn":
+    content =&gt; "\t\tserver ${::hostname} ${::ipaddress}:${localport}   check maxconn 100\n",
+    order   =&gt; '0010',
+    tag     =&gt; "$app",
+  }</pre></div><p>We are doing a little trick here with concat; we don't define the target in the exported resource. If we did, the slaves would try and create a <code class="literal">/etc/haproxy/haproxy.cfg</code> file, but the slaves do not have <code class="literal">haproxy</code> installed so we would get catalog failures. What we do is modify the resource when we collect it in <code class="literal">haproxy::master</code>:</p><div class="informalexample"><pre class="programlisting"># pull in the exported entries
+  Concat::Fragment &lt;&lt;| tag == "$app" |&gt;&gt; {
+    target =&gt; 'haproxy.cfg',
+    notify =&gt; Service['haproxy'],
+  }</pre></div><p>In addition to adding the target when we collect the resource, we also add a notify so that the <code class="literal">haproxy</code> service is restarted when we add a new host to the configuration. Another important point here is that we set the order attribute of the slave configurations to 0010, when we define the header for the <code class="literal">haproxy.cfg</code> file; we use an order value of 0001 to ensure that the header is placed at the beginning of the file:</p><div class="informalexample"><pre class="programlisting">concat::fragment { 'haproxy.cfg header':
+    target  =&gt; 'haproxy.cfg',
+    source  =&gt; 'puppet:///modules/haproxy/haproxy.cfg',
+    order   =&gt; '001',
+    require =&gt; Package['haproxy'],
+    notify  =&gt; Service['haproxy'],
+  }</pre></div><p>The rest <a id="id560" class="indexterm"/>of the <code class="literal">haproxy::master</code> class is<a id="id561" class="indexterm"/> concerned with configuring the firewall as we did in previous examples.</p></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec270"/>There's more...</h2></div></div></div><p>HAProxy has a vast range of configuration parameters, which you can explore; see the HAProxy<a id="id562" class="indexterm"/> website at <a class="ulink" href="http://haproxy.1wt.eu/#docs">http://haproxy.1wt.eu/#docs</a>.</p><p>Although it's most often used as a web server, HAProxy can proxy a lot more than just HTTP. It can handle any kind of TCP traffic, so you can use it to balance the load of MySQL servers, SMTP, video servers, or anything you like.</p><p>You can use the design we showed to attack many problems of coordination of services between multiple servers. This type of interaction is very common; you can apply it to many configurations for load balancing or distributed systems. You can use the same workflow described previously to have nodes export firewall resources (<code class="literal">@@firewall</code>) to permit their own access.</p></div></div>
+<div class="section" title="Managing Docker with Puppet"><div class="titlepage"><div><div><h1 class="title"><a id="ch08lvl1sec98"/>Managing Docker with Puppet</h1></div></div></div><p>
+<span class="strong"><strong>Docker</strong></span><a id="id563" class="indexterm"/> is a platform for rapid deployment of containers. Containers are like a lightweight virtual machine that might only run a single process. The containers in Docker are called docks and are configured with files called Dockerfiles. Puppet can be used to configure a node to not only run Docker but also configure and start several docks. You can then use Puppet to ensure that your docks are running and are consistently configured.</p><div class="section" title="Getting ready"><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec271"/>Getting ready</h2></div></div></div><p>Download and install the Puppet Docker<a id="id564" class="indexterm"/> module from the Forge (<a class="ulink" href="https://forge.puppetlabs.com/garethr/docker">https://forge.puppetlabs.com/garethr/docker</a>):</p><div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>t@mylaptop ~ $ cd puppet</strong></span>
+<span class="strong"><strong>t@mylaptop ~/puppet $ puppet module install -i modules garethr-docker</strong></span>
+<span class="strong"><strong>Notice: Preparing to install into /home/thomas/puppet/modules ...</strong></span>
+<span class="strong"><strong>Notice: Downloading from https://forgeapi.puppetlabs.com ...</strong></span>
+<span class="strong"><strong>Notice: Installing -- do not interrupt ...</strong></span>
+<span class="strong"><strong>/home/thomas/puppet/modules</strong></span>
+<span class="strong"><strong>└─┬ garethr-docker (v3.3.0)</strong></span>
+<span class="strong"><strong>  ├── puppetlabs-apt (v1.7.0)</strong></span>
+<span class="strong"><strong>  ├── puppetlabs-stdlib (v4.3.2)</strong></span>
+<span class="strong"><strong>  └── stahnma-epel (v1.0.2)</strong></span>
+</pre></div><p>Add these <a id="id565" class="indexterm"/>modules<a id="id566" class="indexterm"/> to your Puppet repository. The <code class="literal">stahnma-epel</code> module<a id="id567" class="indexterm"/> is required for Enterprise Linux-based distributions; it contains the Extra Packages for Enterprise Linux YUM repository.</p></div><div class="section" title="How to do it..."><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec272"/>How to do it...</h2></div></div></div><p>Perform the following steps to manage Docker with Puppet:</p><div class="orderedlist"><ol class="orderedlist arabic"><li class="listitem">To install Docker on a node, we just need to include the <code class="literal">docker</code> class. We'll do more than install Docker; we'll also download an image and start an application on our test node. In this example, we'll create a new machine called <code class="literal">shipyard.</code> Add the following node definition to <code class="literal">site.pp</code>:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>   node shipyard {</strong></span>
+<span class="strong"><strong>  class {'docker': }</strong></span>
+<span class="strong"><strong>  docker::image {'phusion/baseimage': }</strong></span>
+<span class="strong"><strong>  docker::run {'cookbook':</strong></span>
+<span class="strong"><strong>    image   =&gt; 'phusion/baseimage',</strong></span>
+<span class="strong"><strong>    expose  =&gt; '8080',</strong></span>
+<span class="strong"><strong>    ports   =&gt; '8080',</strong></span>
+<span class="strong"><strong>    command =&gt; 'nc -k -l 8080',</strong></span>
+<span class="strong"><strong>  }</strong></span>
+<span class="strong"><strong>}</strong></span>
+</pre></div></li><li class="listitem">Run Puppet on your shipyard node to install Docker. This will also download the <code class="literal">phusion/baseimage docker</code> image:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@shipyard ~]# puppet agent -t</strong></span>
+<span class="strong"><strong>Info: Retrieving pluginfacts</strong></span>
+<span class="strong"><strong>Info: Retrieving plugin</strong></span>
+<span class="strong"><strong>Info: Loading facts</strong></span>
+<span class="strong"><strong>Info: Caching catalog for shipyard</strong></span>
+<span class="strong"><strong>Info: Applying configuration version '1421049252'</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Epel/File[/etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-6]/ensure: defined content as '{md5}d865e6b948a74cb03bc3401c0b01b785'</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Epel/Epel::Rpm_gpg_key[EPEL-6]/Exec[import-EPEL-6]/returns: executed successfully</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Docker::Install/Package[docker]/ensure: created</strong></span>
+<span class="strong"><strong>...</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Main/Node[shipyard]/Docker::Run[cookbook]/File[/etc/init.d/docker-cookbook]/ensure: created</strong></span>
+<span class="strong"><strong>Info: /Stage[main]/Main/Node[shipyard]/Docker::Run[cookbook]/File[/etc/init.d/docker-cookbook]: Scheduling refresh of Service[docker-cookbook]</strong></span>
+<span class="strong"><strong>Notice: /Stage[main]/Main/Node[shipyard]/Docker::Run[cookbook]/Service[docker-cookbook]: Triggered 'refresh' from 1 events</strong></span>
+</pre></div></li><li class="listitem">Verify that your container is running on shipyard using <code class="literal">docker ps</code>:<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@shipyard ~]# docker ps</strong></span>
+<span class="strong"><strong>CONTAINER ID        IMAGE                      COMMAND             CREATED              STATUS              PORTS                     NAMES</strong></span>
+<span class="strong"><strong>f6f5b799a598        phusion/baseimage:0.9.15   "/bin/nc -l 8080"   About a minute ago   Up About a minute   0.0.0.0:49157-&gt;8080/tcp   suspicious_hawking  </strong></span>
+</pre></div></li><li class="listitem">Verify that the dock is running netcat on port 8080 by connecting to the port listed previously (<code class="literal">49157</code>):<div class="informalexample"><pre class="programlisting">
+<span class="strong"><strong>[root@shipyard ~]# nc -v localhost 49157</strong></span>
+<span class="strong"><strong>Connection to localhost 49157 port [tcp/*] succeeded!</strong></span>
+</pre></div></li></ol></div></div><div class="section" title="How it works..."><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec273"/>How it works...</h2></div></div></div><p>We<a id="id568" class="indexterm"/> began by installing the docker module from the Forge. This <a id="id569" class="indexterm"/>module installs the <code class="literal">docker-io</code> package on our node, along with any required dependencies.</p><p>We then defined a <code class="literal">docker::image</code> resource. This instructs Puppet to ensure that the named image is downloaded and available to docker. On our first run, Puppet will make docker download the image. We used <code class="literal">phusion/baseimage</code> as our example because it is quite small, well-known, and includes the netcat daemon we used in the example. More information on <code class="literal">baseimage</code> can <a id="id570" class="indexterm"/>be found at <a class="ulink" href="http://phusion.github.io/baseimage-docker/">http://phusion.github.io/baseimage-docker/</a>.</p><p>We <a id="id571" class="indexterm"/>then went on to define a <code class="literal">docker::run</code> resource. This <a id="id572" class="indexterm"/>example isn't terribly useful; it simply starts netcat in listen mode on port 8080. We need to expose that port to our machine, so we define the expose attribute of our <code class="literal">docker::run</code> resource. There are many other options available for the <code class="literal">docker::run</code> resource. Refer to the source code for more details.</p><p>We then used docker ps to list the running docks on our shipyard machine. We parsed out the listening port on our local machine and verified that netcat was listening.</p></div><div class="section" title="There's more..."><div class="titlepage"><div><div><h2 class="title"><a id="ch08lvl2sec274"/>There's more...</h2></div></div></div><p>Docker <a id="id573" class="indexterm"/>is a great tool for rapid deployment and development. You can spin as many docks as you need on even the most modest hardware. One great use for docker is having docks act as test nodes for your modules. You can create a docker image, which includes Puppet, and then have Puppet run within the dock. For more information on <a id="id574" class="indexterm"/>docker, visit <a class="ulink" href="http://www.docker.com/">http://www.docker.com/</a>.</p></div></div></body></html>
