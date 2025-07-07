@@ -818,11 +818,13 @@
   id: totrans-113
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本节中，我们将讨论如何扩展 Puppetserver、PuppetDB 和证书授权中心，以便为更多的代理提供服务。通过垂直调优和水平扩展的概念，我们可以为大量节点提供服务，最多可在单一设置中支持数万个单独的服务器。
 - en: Puppetserver
   id: totrans-114
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: Puppetserver
 - en: Generally, the first component that is required to scale in any Puppet setup
     is the Puppetserver. The Puppetserver does the bulk of the work in Puppet, compiling
     catalogs to agents. In this section, we're going to explore some of the theory
@@ -832,47 +834,57 @@
   id: totrans-115
   prefs: []
   type: TYPE_NORMAL
+  zh: 一般来说，在任何 Puppet 设置中，首个需要扩展的组件是 Puppetserver。Puppetserver 承担了 Puppet 中的大部分工作，负责将目录编译传输到代理。在本节中，我们将探讨一些关于
+    Puppetserver 能支持多少个代理的理论，如何创建新的 Puppetservers，以及围绕 Puppet 主节点的一些负载均衡策略。我们将从开源和企业版的角度来进行分析。
 - en: Estimating the number of agents a Puppetserver supports
   id: totrans-116
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 估算一个 Puppetserver 能支持的代理数量
 - en: Puppet has a mathematics equation for estimating how many nodes a Puppetserver
     can support. This equation is an estimate and should not replace actual benchmarks,
     as things such as catalog compile size often shift over time.
   id: totrans-117
   prefs: []
   type: TYPE_NORMAL
+  zh: Puppet 有一个数学公式用于估算一个 Puppetserver 能够支持多少个节点。这个公式只是一个估算值，不能替代实际的基准测试，因为如目录编译大小等因素通常会随着时间的推移发生变化。
 - en: 'The estimation of Puppetservers is represented as *j = ns/mr*. In this equation,
     we see the following values:'
   id: totrans-118
   prefs: []
   type: TYPE_NORMAL
+  zh: Puppetserver 的估算公式表示为 *j = ns/mr*。在这个公式中，我们看到以下的值：
 - en: '*j*: JRuby instances per master'
   id: totrans-119
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*j*：每个主节点的 JRuby 实例数量'
 - en: '*m*: Number of compile masters (Puppetservers)'
   id: totrans-120
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*m*：编译主节点数量（Puppetservers）'
 - en: '*n*: Number of nodes served by the master'
   id: totrans-121
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*n*：主节点服务的节点数量'
 - en: '*s*: Catalog compile size in seconds'
   id: totrans-122
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*s*：目录编译大小（秒）'
 - en: '*r*: Run interval in seconds'
   id: totrans-123
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*r*：运行间隔（秒）'
 - en: 'Using this equation, let''s post a simple metric to work with: how many nodes
     can a single Puppetserver with one JRuby instance serve, with an average catalog
     compile time of 10 seconds and a default run interval of 30 minutes? Our equation
@@ -882,32 +894,40 @@
   id: totrans-124
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用这个公式，我们可以设定一个简单的指标来进行计算：一台拥有一个 JRuby 实例的 Puppetserver，平均目录编译时间为 10 秒，默认运行间隔为
+    30 分钟，最多能为多少个节点提供服务？我们的公式如下：*1 = n10 / 1*1800*。我们可以简化为 *1 = n10 / 1800*。将公式两边相乘得到
+    *1800 = n10*。通过将两边同时除以 10，我们得到 *n = 180*。
 - en: 'A single master, with one JRuby instance, with a run interval of 30 minutes
     and catalog compile time of 10 seconds can serve 180 agents. If we want to serve
     more agents, we have the following options:'
   id: totrans-125
   prefs: []
   type: TYPE_NORMAL
+  zh: 一台主节点，拥有一个 JRuby 实例，运行间隔为 30 分钟，目录编译时间为 10 秒，可以为 180 个代理提供服务。如果我们想要支持更多代理，可以选择以下方式：
 - en: Increase the number of JRuby instances per master
   id: totrans-126
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 增加每个主节点的 JRuby 实例数量
 - en: Increase the number of compile masters
   id: totrans-127
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 增加编译主节点数量
 - en: Decrease run interval
   id: totrans-128
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 减少运行间隔
 - en: Decrease catalog compilation times with more efficient code
   id: totrans-129
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用更高效的代码减少目录编译时间
 - en: Just increasing this tiny server to a server with 8 CPUs, and setting the `jruby_max_active_instances`
     setting to 8 would allow us to serve 1,440 agents on this server. Adding two more
     compile masters with the same number of CPUs would get us to 4,320 agents to serve.
@@ -916,21 +936,26 @@
   id: totrans-130
   prefs: []
   type: TYPE_NORMAL
+  zh: 只需将这个小型服务器升级为具有 8 个 CPU 的服务器，并将 `jruby_max_active_instances` 设置为 8，就可以在此服务器上支持
+    1,440 个代理。再增加两个具有相同数量 CPU 的编译主节点后，可以支持 4,320 个代理。我们可以不断增加更多的 Puppetservers，直到能够为我们基础设施中的所有节点提供服务。
 - en: Adding new compile masters
   id: totrans-131
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 添加新的编译主节点
 - en: 'In a Puppet Enterprise installation, bringing on new compile masters is very
     easy. Simply add a new node to the PE Master **Classification** group underneath
     the PE Infrastructure:'
   id: totrans-132
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 Puppet Enterprise 安装中，增加新的编译主节点非常容易。只需将新节点添加到 PE Master **分类**组下的 PE 基础设施中：
 - en: '![](img/21a8fd6c-27e0-4e14-8453-82118a0b64cf.png)'
   id: totrans-133
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/21a8fd6c-27e0-4e14-8453-82118a0b64cf.png)'
 - en: These nodes will receive the same configuration as the Primary Master, including
     code manager configuration and necessary connections to PuppetDB. There are no
     hidden tricks to managing additional compile masters in Puppet Enterprise. Classify
@@ -938,11 +963,13 @@
   id: totrans-134
   prefs: []
   type: TYPE_NORMAL
+  zh: 这些节点将接收与主节点相同的配置，包括代码管理器配置和与PuppetDB的必要连接。管理Puppet Enterprise中额外编译主节点没有任何隐藏的技巧。只需将它们分类并添加到负载均衡器中。
 - en: 'In open source, we need to ensure each Puppet Master is configured to use PuppetDB.
     Luckily, `puppetlabs/puppetdb` provides that connection for us:'
   id: totrans-135
   prefs: []
   type: TYPE_NORMAL
+  zh: 在开源版本中，我们需要确保每个Puppet Master都配置为使用PuppetDB。幸运的是，`puppetlabs/puppetdb`为我们提供了这个连接：
 - en: '[PRE13]'
   id: totrans-136
   prefs: []
@@ -958,6 +985,7 @@
   id: totrans-137
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们仍然需要确保这个开源安装能够检索代码。与Code Manager不同，r10k不能跨服务器进行联邦管理，因此你需要确定将代码部署到这些主节点的策略。管理此问题的一种简便方法包含在`puppet/r10k模块`中！`puppet/r10k`模块不仅可以在每个Puppetserver上以相同方式配置r10k，还可以在该模块中使用新的Puppet任务来部署代码。可以从命令行运行此任务，或者最好是在CI/CD服务器上进行提交时运行：
 - en: '[PRE14]'
   id: totrans-138
   prefs: []
@@ -968,6 +996,7 @@
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 负载均衡
 - en: When we have multiple Puppetservers, it's important we decide how agents determine
     which server to connect to. We'll be inspecting a simple strategy of placing Puppetservers
     closest to the nodes they serve, as well as load balancing strategies that cover
@@ -977,11 +1006,13 @@
   id: totrans-140
   prefs: []
   type: TYPE_NORMAL
+  zh: 当我们有多个Puppetserver时，重要的是要决定代理如何确定连接到哪个服务器。我们将检查一种简单的策略，即将Puppetserver放置在最接近它们所服务节点的位置，以及适用于更大基础设施需求的负载均衡策略。如果存在隔离主节点的安全需求和更多Puppetserver进行目录编译的技术需求，这两种方法可以结合使用。
 - en: Simple setup – direct connection
   id: totrans-141
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 简单设置 – 直接连接
 - en: 'One of the simplest setups many organizations use is to isolate data centers
     and provide a Puppetserver for each data center. Some organizations have data
     centers across the world, whether in the cloud in regions, or on site in various
@@ -990,17 +1021,20 @@
   id: totrans-142
   prefs: []
   type: TYPE_NORMAL
+  zh: 许多组织使用的最简单的设置之一是隔离数据中心并为每个数据中心提供一个Puppetserver。一些组织在全球各地都有数据中心，无论是在云中不同的区域，还是在不同地点的本地数据中心。为这些单独的数据中心提供编译主节点是一个相对简单的任务，只需要做几件事：
 - en: The agent is aware of compile master FQDN and has network connectivity to it
   id: totrans-143
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 代理知道编译主节点的完全限定域名（FQDN）并具有与其的网络连接。
 - en: Compile master has connectivity back to the primary master, sometimes called
     **Master of Masters**
   id: totrans-144
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 编译主节点与主节点有连接，主节点有时被称为**主节点的主节点**。
 - en: In this setup, during provisioning an agent would reach out to the local compile
     master for it's agent installation. On a Puppet Enterprise installation, the agent
     can simply run `curl -k https://<compile_master>:8140/packages/current/install.bash` command
@@ -1011,20 +1045,25 @@
   id: totrans-145
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这个设置中，在配置过程中，代理会联系本地的编译主节点进行代理安装。在Puppet Enterprise安装中，代理只需在配置过程中运行`curl -k
+    https://<compile_master>:8140/packages/current/install.bash`命令，它将通过在PE Master节点组中找到的`pe_repo`分类来获取代理。该代理不需要与PuppetDB、主节点或PE控制台的网络连接，因为信息将由中间的编译主节点处理。
 - en: 'The following infographic from Puppet shows the necessary firewall connections
     required for each component in a large environment installation of Puppet Enterprise:'
   id: totrans-146
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下是来自Puppet的图示，展示了在Puppet Enterprise的大型环境安装中，每个组件所需的防火墙连接：
 - en: '![](img/4073ac03-1ee4-4b75-bdf9-9b9f97394d6a.png)'
   id: totrans-147
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/4073ac03-1ee4-4b75-bdf9-9b9f97394d6a.png)'
 - en: These same ports remain true in an open source installation, although the node
     classifier API endpoint will not be available from the Puppet console.
   id: totrans-148
   prefs: []
   type: TYPE_NORMAL
+  zh: 在开源安装中，这些端口依然适用，尽管从Puppet控制台无法访问节点分类器API端点。
 - en: If a single data center grows so large that it needs multiple compile masters,
     or we want to centralize our compile masters for every data center, we'll instead
     need to focus on load balancing. Everything in this section still applies in a
@@ -1033,11 +1072,13 @@
   id: totrans-149
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果单个数据中心发展到需要多个编译主机，或者我们希望为每个数据中心集中管理编译主机，那么我们就需要关注负载均衡。在负载均衡的集群中，本节的所有内容仍然适用，但在负载均衡器后面有一些新要处理的内容。
 - en: Load balancing
   id: totrans-150
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 负载均衡
 - en: 'In very large environments, we may worry about having enough resources to serve
     all of our agents. We start building more compile masters and our agents need
     to connect to them. There are only a few key additional concerns when placing
@@ -1046,6 +1087,7 @@
   id: totrans-151
   prefs: []
   type: TYPE_NORMAL
+  zh: 在非常大的环境中，我们可能会担心是否有足够的资源为所有代理提供服务。我们开始构建更多的编译主机，代理需要连接到它们。当将编译主机放置在负载均衡器后时，只有几个关键的附加问题需要关注：证书管理和负载均衡策略。
 - en: 'Puppet builds trusted SSL connections between agents and masters at compile
     time using self-signed certificates. The FQDN of both the master and the agent
     are recorded in their respective certs by default. During each connection, the
@@ -1059,6 +1101,7 @@
   id: totrans-152
   prefs: []
   type: TYPE_NORMAL
+  zh: Puppet在编译时使用自签名证书在代理和主机之间建立受信任的SSL连接。默认情况下，主机和代理的FQDN会被记录在各自的证书中。在每次连接时，代理会检查证书以确保请求的域名包含在证书中。如果我们的代理通过DNS或负载均衡的VIP连接到`puppet.example.com`，但证书中没有明确包含该名称，代理将拒绝连接。我们需要为我们的编译主机池确定一个通用名称（通常只是一个短名称，例如`puppet`），并将其嵌入到证书中。我们可以在每个编译主机的`puppet.conf`文件的主配置部分中包含多个DNS备用名称：
 - en: '[PRE15]'
   id: totrans-153
   prefs: []
@@ -1077,6 +1120,11 @@
   id: totrans-154
   prefs: []
   type: TYPE_NORMAL
+  zh: 当我们第一次连接到Puppet Master时，这些`dns_alt_names`将被嵌入到我们的证书中。对于企业用户，这些证书不会出现在Puppet
+    Enterprise控制台中，以防止有人意外地通过GUI批准DNS备用名称。您需要登录到Puppet Master并运行`puppet cert sign
+    <name> --allow-dns-alt-names`来签署证书，并接受带有备用名称的证书。如果您已经构建了这个编译主机并需要重新生成证书，您可以在Master
+    of Masters上运行`puppet cert clean <name>`，并在重新运行代理之前，在编译主机上使用`sudo rm -r $(puppet
+    master --configprint ssldir)`删除SSL目录。
 - en: It is generally considered safe to remove the SSL directory on any agent, including
     compile masters. Running this on the Master of Masters, which acts as the centralized
     Certificate Authority, on the other hand, will cause all SSL connections and all
@@ -1085,6 +1133,7 @@
   id: totrans-155
   prefs: []
   type: TYPE_NORMAL
+  zh: 通常认为，在任何代理上，包括编译主机，删除SSL目录是安全的。然而，在作为集中式证书授权机构的主机上执行此操作，将会导致所有SSL连接和所有Puppet运行在环境中停止。如果这样做，您将需要在主机上重建证书授权。相关的操作说明可以参考：[https://docs.puppet.com/puppet/4.4/ssl_regenerate_certificates.html](https://docs.puppet.com/puppet/4.4/ssl_regenerate_certificates.html)。
 - en: 'Your agents should now be referring to all compile masters by their common
     DNS alt name. You''ll need to decide a load balancing strategy: using DNS round
     robin, DNS SRV records, or a dedicated load balancer. Major DNS providers provide
@@ -1099,6 +1148,10 @@
   id: totrans-156
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在你的代理应该通过它们的公共 DNS 替代名称引用所有编译主机。你需要决定负载均衡策略：使用 DNS 轮询、DNS SRV 记录，或使用专用的负载均衡器。主要的
+    DNS 提供商都提供了 DNS 轮询和 SRV 记录机制，你应该参考他们的文档。我们将通过一个示例，设置 HAProxy 作为我们的编译主机的软件负载均衡器，假设它们都在一个单独的池中。我们将使用`puppetlabs/haproxy`及其使用示例来为多个编译主机构建一个
+    HAProxy 实例。我们也可以使用从[第 9 章](036a4b96-b91a-4c72-83dc-e5505efc26cd.xhtml)中导出的资源示例，*导出的资源*，但是由于我们通常不会将
+    Puppet 主机添加到负载均衡器中，所以我们将使用一个简单的示例。
 - en: '[PRE16]'
   id: totrans-157
   prefs: []
@@ -1109,11 +1162,13 @@
   id: totrans-158
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用此配置，我们的 HAProxy 将能够为所有请求连接到编译主机的代理提供服务。
 - en: Certificate authority
   id: totrans-159
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 证书颁发机构
 - en: In a Puppet Enterprise installation, the certificate authority portion of compile
     masters is fairly easy to solve. Puppet Enterprise uses separate node groups for
     a CA and compile master. By adding additional compile masters to the PE Master
@@ -1122,6 +1177,8 @@
   id: totrans-160
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 Puppet Enterprise 安装中，编译主机的证书颁发机构部分相对容易解决。Puppet Enterprise 为 CA 和编译主机使用不同的节点组。通过将额外的编译主机添加到
+    PE 主分类组中，每个主机都配置为使用 Master of Masters 上的集中式证书颁发机构。
 - en: In Puppet open source, we'll need to disable the certificate authority on each
     of our compile masters using Trapperkeeper. You can simply open `/etc/puppetlabs/puppetserver/services.d/ca.cfg`
     and comment out the line `puppetlabs.services.ca.certificate-authority-service/certificate-authority-service`
@@ -1134,17 +1191,22 @@
   id: totrans-161
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 Puppet 开源版本中，我们需要在每个编译主机上禁用证书颁发机构（CA），可以通过 Trapperkeeper 来完成。你只需打开`/etc/puppetlabs/puppetserver/services.d/ca.cfg`文件，注释掉`puppetlabs.services.ca.certificate-authority-service/certificate-authority-service`这一行，并取消注释`#puppetlabs.services.ca.certificate-authority-disabled-service/certificate-authority-disabled-service`。最后，你需要在基础设施中的每个代理（包括编译主机）上，在`puppet.conf`的`[main]`部分中添加`ca_server`设置，指向
+    Master of Masters。请注意，这要求通过 CA 端口与 Master of Masters 建立网络连接，默认端口是`8140`，但可以通过`ca_port`设置进行调整。
 - en: The final goal of this setup is that each compile master has a DNS alt name,
     and every agent is connecting to the master via that DNS alt name, while using
     the Master of Master as the certificate authority for all nodes.
   id: totrans-162
   prefs: []
   type: TYPE_NORMAL
+  zh: 此配置的最终目标是每个编译主机都有一个 DNS 替代名称，并且每个代理都通过该 DNS 替代名称连接到主机，同时使用 Master of Masters
+    作为所有节点的证书颁发机构。
 - en: PuppetDB
   id: totrans-163
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: PuppetDB
 - en: 'Scaling PuppetDB is generally scaling PostgreSQL. A single PuppetDB can cover
     a large number of nodes and compile masters, but should you need to scale PuppetDB,
     consult PostgreSQL documentation and organizational database guidance. Known methodologies
@@ -1152,36 +1214,44 @@
   id: totrans-164
   prefs: []
   type: TYPE_NORMAL
+  zh: 扩展 PuppetDB 通常是扩展 PostgreSQL。一个单独的 PuppetDB 可以覆盖大量的节点和编译主机，但如果需要扩展 PuppetDB，请参考
+    PostgreSQL 文档和组织数据库指导。已知的扩展 PostgreSQL 方法，包括与 Puppet 配合使用的有：
 - en: High availability setups
   id: totrans-165
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 高可用性设置
 - en: Load balancing
   id: totrans-166
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 负载均衡
 - en: Database replication
   id: totrans-167
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 数据库复制
 - en: Database clustering
   id: totrans-168
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 数据库集群
 - en: Connection pooling
   id: totrans-169
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 连接池
 - en: Summary
   id: totrans-170
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 概述
 - en: In this chapter, we talked about scaling Puppet. We started by learning how
     to monitor the components inside Puppet and how to tune individual Puppet components.
     We then discussed horizontal scaling, adding more compile masters to serve more
@@ -1190,9 +1260,13 @@
   id: totrans-171
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们讨论了如何扩展 Puppet。我们首先学习了如何监控 Puppet 内部组件，并如何调整单个 Puppet 组件的性能。接着，我们讨论了横向扩展，增加更多的编译主机以服务更多的代理。我们还讨论了如何通过
+    HAProxy 对 Puppet 服务器进行负载均衡，并提到 PuppetDB 可以像任何 PostgreSQL 数据库一样进行扩展。
 - en: In our next chapter, we'll look at troubleshooting Puppet Enterprise. Learning
     to read and understand the errors you may see in Puppet will teach you to be a
     better practitioner, and allow you to really understand the Puppet system.
   id: totrans-172
   prefs: []
   type: TYPE_NORMAL
+  zh: 在下一章中，我们将探讨 Puppet Enterprise 的故障排除。学习如何阅读和理解 Puppet 中可能出现的错误，将帮助你成为更好的实践者，并让你真正理解
+    Puppet 系统。
