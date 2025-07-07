@@ -1,54 +1,80 @@
 - en: Chapter 7. Cinder – OpenStack Block Storage
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 第7章 Cinder – OpenStack 块存储
 - en: 'In this chapter, we will cover the following topics:'
+  id: totrans-1
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们将涵盖以下主题：
 - en: Configuring Cinder volume services
+  id: totrans-2
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 配置 Cinder 卷服务
 - en: Creating volumes
+  id: totrans-3
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 创建卷
 - en: Attaching volumes to an instance
+  id: totrans-4
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 将卷附加到实例
 - en: Detaching volumes from an instance
+  id: totrans-5
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 从实例中分离卷
 - en: Deleting volumes
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 删除卷
 - en: Working with volume snapshots
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用卷快照
 - en: Configuring volume types
+  id: totrans-8
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 配置卷类型
 - en: Enabling volume encryption
+  id: totrans-9
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 启用卷加密
 - en: Configuring volume Quality of Service (QoS)
+  id: totrans-10
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 配置卷的服务质量（QoS）
 - en: Resetting volume state
+  id: totrans-11
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 重置卷状态
 - en: Introduction
+  id: totrans-12
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 介绍
 - en: When a basic compute instance is launched, where the instance data resides on
     the compute host's disks for the duration of the running instance, the data written
     to it is not persistent after termination—meaning that any data saved on the disk
@@ -57,17 +83,24 @@
     to your running OpenStack Compute instances; the best analogy is that of a USB
     drive that you can attach to an instance. Like USB drives, you can only attach
     instances to one computer at a time.
+  id: totrans-13
   prefs: []
   type: TYPE_NORMAL
+  zh: 当一个基础计算实例被启动时，该实例的数据会存储在计算主机的磁盘上，直到实例运行结束，写入的数据在实例终止后并不持久——这意味着用户请求销毁该实例时，保存在磁盘上的任何数据都会丢失。OpenStack
+    提供了解决方案。**卷**是持久存储，可以附加到你正在运行的 OpenStack 计算实例上；最好的类比是你可以将 USB 驱动器连接到实例。像 USB 驱动器一样，你一次只能将实例附加到一台计算机上。
 - en: Tip
+  id: totrans-14
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 提示
 - en: There is currently an experimental feature that allows you to attach a volume
     to multiple instances. We do not cover it here nor recommend its usage at this
     time.
+  id: totrans-15
   prefs: []
   type: TYPE_NORMAL
+  zh: 目前有一个实验性功能，可以将一个卷附加到多个实例。我们在此不予涉及，也不建议目前使用该功能。
 - en: The OpenStack Block Storage project code name Cinder provides the interfaces
     and automation that allows the connection of storage volumes to OpenStack Compute
     instances. OpenStack Block Storage is very similar to Amazon **Elastic Block Storage**
@@ -84,128 +117,189 @@
     and the **Open Source Software** (**OSS**) community—for example, a very popular
     backend provider for Cinder (instead of having a single server run the `cinder-volume`
     service) is **Ceph**.
+  id: totrans-16
   prefs: []
   type: TYPE_NORMAL
+  zh: OpenStack 块存储项目的代号 Cinder 提供了接口和自动化功能，允许将存储卷连接到 OpenStack 计算实例。OpenStack 块存储与
+    Amazon **弹性块存储** (**EBS**) 非常相似——主要区别在于如何将卷呈现给正在运行的实例。在 OpenStack 计算中，一种方法是专门为此目的分配一台服务器，使得可以通过
+    iSCSI 暴露 LVM 卷组，特别命名为 `cinder-volumes`。然后通过一个名为 `cinder-volume` 的 OpenStack 服务，通过
+    iSCSI 将其呈现给实例。OpenStack 用户通过 Cinder API 与此服务交互。在我们的环境中，Cinder API 服务运行在三个控制节点上，通常这些服务会暴露在负载均衡器后面。本章中的配方使用了这种方法，通过
+    LVM 和 iSCSI 提供 Cinder 卷。然而，Cinder 支持由商业供应商和**开源软件** (**OSS**) 社区提供的各种第三方存储提供商——例如，Cinder
+    的一个非常流行的后端提供商（而不是单独一台服务器运行 `cinder-volume` 服务）是 **Ceph**。
 - en: Tip
+  id: totrans-17
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 提示
 - en: The terms OpenStack Block Storage and Cinder will be used interchangeably in
     this chapter.
+  id: totrans-18
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，“OpenStack 块存储”和“Cinder”这两个术语将交替使用。
 - en: Configuring Cinder volume services
+  id: totrans-19
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 配置 Cinder 卷服务
 - en: In this recipe, we will use Openstack-Ansible to deploy the Cinder service.
     We assume that your environment has been deployed using the recipes described
     in [Chapter 1](part0014_split_000.html#DB7S2-189e69df43a248268db97cde1b1a8e47
     "Chapter 1. Installing OpenStack with Ansible"), *Installing OpenStack with Ansible*.
+  id: totrans-20
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本配方中，我们将使用 Openstack-Ansible 部署 Cinder 服务。我们假设你的环境已经按照[第1章](part0014_split_000.html#DB7S2-189e69df43a248268db97cde1b1a8e47
+    "第1章 安装 OpenStack 使用 Ansible")，*使用 Ansible 安装 OpenStack*中描述的配方进行部署。
 - en: Getting ready
+  id: totrans-21
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: To use Cinder volumes with LVM and iSCSI, you will need a host (or hosts) running
     Ubuntu 16.04\. Additionally, you will need to ensure the volume hosts are manageable
     by your Openstack-Ansible deployment host.
+  id: totrans-22
   prefs: []
   type: TYPE_NORMAL
+  zh: 要使用LVM和iSCSI的Cinder卷，您需要一台（或多台）运行Ubuntu 16.04的主机。此外，您还需要确保卷主机可以由您的Openstack-Ansible部署主机进行管理。
 - en: 'The following is required:'
+  id: totrans-23
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下是所需的：
 - en: An `openrc` file with appropriate credentials for the environment
+  id: totrans-24
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个具有适当凭据的`openrc`文件
 - en: Access to the `openstack-ansible` deployment host
+  id: totrans-25
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 访问`openstack-ansible`部署主机
 - en: 'A dedicated server to provide Cinder volumes to instances:'
+  id: totrans-26
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个专用服务器，用于向实例提供Cinder卷：
 - en: An LVM volume group, specifically named `cinder-volumes`
+  id: totrans-27
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个名为`cinder-volumes`的LVM卷组
 - en: An IP address accessible from the deployment host
+  id: totrans-28
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个从部署主机可以访问的IP地址
 - en: 'If you are using the lab environment that accompanies this book, `cinder-volume`
     is deployed to a host with the following details:'
+  id: totrans-29
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果您使用的是本书附带的实验环境，`cinder-volume`已部署到具有以下详细信息的主机：
 - en: '`cinder-volume` API service host IP: `172.29.236.10`'
+  id: totrans-30
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`cinder-volume` API服务主机IP：`172.29.236.10`'
 - en: '`cinder-volume` service host IP: OpenStack management calls over `172.29.236.100`
     and storage traffic over `172.29.244.100`'
+  id: totrans-31
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`cinder-volume`服务主机IP：OpenStack管理调用通过`172.29.236.100`，存储流量通过`172.29.244.100`'
 - en: How to do it...
+  id: totrans-32
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 如何做...
 - en: To deploy the `cinder-volume` service, first we will create a YAML file to describe
     how to deploy Cinder. Then we will use `openstack-ansible` to deploy the appropriate
     services.
+  id: totrans-33
   prefs: []
   type: TYPE_NORMAL
+  zh: 要部署`cinder-volume`服务，首先我们将创建一个YAML文件来描述如何部署Cinder。然后我们将使用`openstack-ansible`来部署适当的服务。
 - en: 'To configure a Cinder LVM host that runs the `cinder-volume` service, perform
     the following steps on the deployment host:'
+  id: totrans-34
   prefs: []
   type: TYPE_NORMAL
+  zh: 要配置运行`cinder-volume`服务的Cinder LVM主机，请在部署主机上执行以下步骤：
 - en: 'First, edit the `/etc/openstack_deploy/openstack_user_config.yml` file to add
     the following lines, noting that we are using both the address of the API and
     storage networks:'
+  id: totrans-35
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 首先，编辑`/etc/openstack_deploy/openstack_user_config.yml`文件，添加以下行，注意我们同时使用了API和存储网络的地址：
 - en: '[PRE0]'
+  id: totrans-36
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: Tip
+  id: totrans-37
   prefs:
   - PREF_IND
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 提示
 - en: More nodes can be added to the `storage-infra_hosts` section to match your environment.
     Note that we refer to the `storage_hosts` and `storage-infra_hosts` IPs from the
     container network (`172.29.236`), and we will present the actual iSCSI volume
     to an instance over the storage network (`172.29.244`).
+  id: totrans-38
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 可以向`storage-infra_hosts`部分添加更多节点以匹配您的环境。请注意，我们引用了来自容器网络（`172.29.236`）的`storage_hosts`和`storage-infra_hosts`
+    IP，并且我们将在存储网络（`172.29.244`）上将实际的iSCSI卷呈现给实例。
 - en: 'Now edit the `/etc/openstack_deploy/user_variables.yml` file to contain the
     following lines. The defaults for an OpenStack-Ansible deployment are shown here;
     so edit to suit your environment if necessary:'
+  id: totrans-39
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在编辑`/etc/openstack_deploy/user_variables.yml`文件，添加以下行。此处显示的是OpenStack-Ansible部署的默认值；如有必要，请根据您的环境进行编辑：
 - en: '[PRE1]'
+  id: totrans-40
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: 'When using LVM, as we are here, we must tell OpenStack-Ansible to *not* deploy
     the service onto a container (by setting `is_metal: true`). Ensure that the `/etc/openstack_deploy/env.d/cinder.yml`
     file has the following contents:'
+  id: totrans-41
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: '使用LVM时，如我们所做的那样，我们必须告诉OpenStack-Ansible*不要*将服务部署到容器中（通过设置`is_metal: true`）。确保`/etc/openstack_deploy/env.d/cinder.yml`文件包含以下内容：'
 - en: '[PRE2]'
+  id: totrans-42
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: 'As we are specifically choosing to install Cinder with the `LVMVolumeDriver`
     service as part of this example, we must ensure that the host (or hosts) that
     has been set as running the `cinder-volume` service, has a **volume group** created,
@@ -213,241 +307,352 @@
     the following steps to create this important volume group. The following example
     simply assumes that there is an extra disk, at `/dev/sdb`, that we will use for
     this purpose:'
+  id: totrans-43
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 由于我们在本示例中专门选择使用`LVMVolumeDriver`服务安装Cinder，因此我们必须确保设置为运行`cinder-volume`服务的主机（或主机）在部署Cinder之前已创建了一个名为`cinder-volumes`的**卷组**。执行以下步骤以创建此重要的卷组。以下示例假设有一个额外的磁盘，在`/dev/sdb`，我们将用作此目的：
 - en: '[PRE3]'
+  id: totrans-44
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: 'This will bring back an output like the following:'
+  id: totrans-45
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 这将返回如下所示的输出：
 - en: '[PRE4]'
+  id: totrans-46
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: Tip
+  id: totrans-47
   prefs:
   - PREF_IND
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 提示
 - en: '**Tip**: The creation of a `cinder-volumes` logical **Volume Group** (**VG**)
     is only required to be created because we are choosing the `volume_driver` type
     of `cinder.volume.drivers.lvm.LVMVolumeDriver`. Other backends are available to
     Cinder that do not require this step to be performed.'
+  id: totrans-48
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: '**提示**：创建`cinder-volumes`逻辑**卷组**（**VG**）仅在我们选择`volume_driver`类型为`cinder.volume.drivers.lvm.LVMVolumeDriver`时才需要创建。Cinder还提供其他后端，这些后端不需要执行此步骤。'
 - en: 'We can now deploy our Cinder service with the `openstack-ansible` command:'
+  id: totrans-49
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们现在可以使用`openstack-ansible`命令部署Cinder服务：
 - en: '[PRE5]'
+  id: totrans-50
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: Note that the Ansible output has been omitted here. On success, Ansible will
     report that the installation has been successful or will present you information
     about which step failed.
+  id: totrans-51
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 请注意，Ansible的输出在此已被省略。如果成功，Ansible会报告安装成功，或者向您提供有关失败步骤的信息。
 - en: Tip
+  id: totrans-52
   prefs:
   - PREF_IND
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 提示
 - en: 'Did you use more than one `storage-infra_hosts`? These are the Cinder API servers.
     As these run behind a load balancer, ensure that you have updated your load balancer
     VIPs with the IP addresses of these new nodes. The Cinder service runs on port
     `8776`. If you are running HAProxy that was installed using OpenStack-Ansible,
     you must also run the following command:'
+  id: totrans-53
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 您是否使用了多个`storage-infra_hosts`？这些是Cinder API服务器。由于这些服务器位于负载均衡器后面，请确保您已将负载均衡器的VIP更新为这些新节点的IP地址。Cinder服务运行在端口`8776`。如果您使用的是通过OpenStack-Ansible安装的HAProxy，您还必须运行以下命令：
 - en: '[PRE6]'
+  id: totrans-54
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: 'Verify that the Cinder services are running with the following checks from
     an OpenStack client or one of the utility containers from one of the controller
     nodes, as shown here:'
+  id: totrans-55
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 通过以下检查从OpenStack客户端或控制节点上的任何一个实用容器中验证Cinder服务是否正在运行，如下所示：
 - en: '[PRE7]'
+  id: totrans-56
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: 'This will give back an output like the following:'
+  id: totrans-57
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 这将返回如下的输出：
 - en: '![How to do it...](img/00130.jpeg)'
+  id: totrans-58
   prefs:
   - PREF_IND
   type: TYPE_IMG
+  zh: '![如何操作...](img/00130.jpeg)'
 - en: How it works...
+  id: totrans-59
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 它是如何工作的...
 - en: In order for us to use a host as a `cinder-volume` server, we first needed to
     ensure that the logical volume group (LVM VG) named `cinder-volumes` has been
     created.
+  id: totrans-60
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了使用某个主机作为`cinder-volume`服务器，我们首先需要确保已创建名为`cinder-volumes`的逻辑卷组（LVM VG）。
 - en: Tip
+  id: totrans-61
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 提示
 - en: '**Tip**: You are able to rename the volume group to something other than `cinder-volumes`;
     however, there are very few reasons to do so. If you do require this, ensure that
     the `volume_group:` parameter in `/etc/openstack_deploy/openstack_user_config.yml`
     matches your LVM Volume Group name that you create.'
+  id: totrans-62
   prefs: []
   type: TYPE_NORMAL
+  zh: '**提示**：您可以将卷组重命名为除`cinder-volumes`之外的其他名称；然而，重命名的理由非常少。如果确实需要这么做，请确保`/etc/openstack_deploy/openstack_user_config.yml`中的`volume_group:`参数与您创建的LVM卷组名称匹配。'
 - en: Once that has been done, we will configure our OpenStack-Ansible deployment
     to specify our `cinder-volume` server (as denoted by the `storage_hosts` section)
     and the servers that run the API service (as denoted by the `storage-infra_hosts`
     section). We will then use `openstack-ansible` to deploy the packages onto the
     controller hosts and our nominated Cinder volume server.
+  id: totrans-63
   prefs: []
   type: TYPE_NORMAL
+  zh: 完成此步骤后，我们将配置我们的OpenStack-Ansible部署，指定我们的`cinder-volume`服务器（如`storage_hosts`部分所示）以及运行API服务的服务器（如`storage-infra_hosts`部分所示）。然后，我们将使用`openstack-ansible`将软件包部署到控制节点和我们指定的Cinder卷服务器上。
 - en: Note that if you are using multiple networks or VLAN segments, to configure
     your OpenStack-Ansible deployment accordingly. The storage network presented in
     this book should be used for this iSCSI traffic (that is to say, when a volume
     attaches to an instance), and it is separate from the container network that is
     reserved for API traffic and interservice traffic.
+  id: totrans-64
   prefs: []
   type: TYPE_NORMAL
+  zh: 请注意，如果您使用多个网络或VLAN段，请相应地配置您的OpenStack-Ansible部署。本书中介绍的存储网络应当用于iSCSI流量（也就是说，当一个卷附加到一个实例时），并且它与专用于API流量和服务间流量的容器网络是分开的。
 - en: In our example, `cinder-volume` uses iSCSI as the mechanism for attaching a
     volume to an instance; `openstack-ansible` then installs the packages that are
     required to run iSCSI targets.
+  id: totrans-65
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们的示例中，`cinder-volume`使用iSCSI作为将卷附加到实例的机制；然后，`openstack-ansible`会安装运行iSCSI目标所需的软件包。
 - en: OpenStack-Ansible provides the additional benefit of deploying any changes required
     to support Cinder. This includes creating the service within Keystone and configuring
     Nova to support volume backends.
+  id: totrans-66
   prefs: []
   type: TYPE_NORMAL
+  zh: OpenStack-Ansible提供了部署任何支持Cinder所需的更改的额外好处。这包括在Keystone中创建该服务并配置Nova以支持卷后端。
 - en: Creating volumes
+  id: totrans-67
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 创建卷
 - en: Now that we have created a Cinder volume service, we can now create volumes
     for use by our instances. We do this under our client environment using the Python-OpenStack
     client with the `python-cinderclient` library; so we are creating volumes specific
     to our project (tenant).
+  id: totrans-68
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们已经创建了Cinder卷服务，我们可以为我们的实例创建卷。我们将在客户端环境中使用Python-OpenStack客户端和`python-cinderclient`库来执行此操作；因此，我们正在为我们的项目（租户）创建特定的卷。
 - en: Tip
+  id: totrans-69
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 提示
 - en: Refer to [Chapter 2](part0024_split_000.html#MSDG1-189e69df43a248268db97cde1b1a8e47
     "Chapter 2. The OpenStack Client"), *The OpenStack Client*, for more information
     on installing and configuring the OpenStack client.
+  id: totrans-70
   prefs: []
   type: TYPE_NORMAL
+  zh: 请参考[第2章](part0024_split_000.html#MSDG1-189e69df43a248268db97cde1b1a8e47 "第2章.
+    OpenStack客户端")，*OpenStack客户端*，了解更多关于安装和配置OpenStack客户端的信息。
 - en: Getting ready
+  id: totrans-71
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: 'To create a volume, the following is required:'
+  id: totrans-72
   prefs: []
   type: TYPE_NORMAL
+  zh: 创建卷需要以下内容：
 - en: The `openstack` command line client
+  id: totrans-73
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`openstack` 命令行客户端'
 - en: An `openrc` file with appropriate credentials for the environment
+  id: totrans-74
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个包含适当凭证的 `openrc` 文件，适用于当前环境
 - en: The desired *name* for the volume
+  id: totrans-75
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 期望的卷名称
 - en: The desired *size* in GiB for the volume
+  id: totrans-76
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 期望的卷大小，以 GiB 为单位
 - en: 'For our example, these are the following:'
+  id: totrans-77
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于我们的示例，以下是这些信息：
 - en: 'Volume name: `cookbook.volume`'
+  id: totrans-78
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 卷名称：`cookbook.volume`
 - en: 'Size: 10 GiB'
+  id: totrans-79
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 大小：10 GiB
 - en: How to do it...
+  id: totrans-80
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 如何操作...
 - en: 'Carry out the following steps to create a volume:'
+  id: totrans-81
   prefs: []
   type: TYPE_NORMAL
+  zh: 执行以下步骤以创建卷：
 - en: 'We simply create the volume that we will attach to our instance with the following
     command:'
+  id: totrans-82
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们只需使用以下命令创建卷，然后将其附加到我们的实例：
 - en: '[PRE8]'
+  id: totrans-83
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: 'On completion, the command returns the following output:'
+  id: totrans-84
   prefs: []
   type: TYPE_NORMAL
+  zh: 完成后，命令会返回以下输出：
 - en: '![How to do it...](img/00131.jpeg)'
+  id: totrans-85
   prefs: []
   type: TYPE_IMG
+  zh: '![如何操作...](img/00131.jpeg)'
 - en: How it works...
+  id: totrans-86
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 它是如何工作的...
 - en: 'Creating volumes is very straightforward. Using the `openstack` client, we
     supply the `volume` context and the `create` action with the following syntax:'
+  id: totrans-87
   prefs: []
   type: TYPE_NORMAL
+  zh: 创建卷非常简单。使用 `openstack` 客户端，我们提供 `volume` 上下文和 `create` 操作，语法如下：
 - en: '[PRE9]'
+  id: totrans-88
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: Here, `volume_name` can be any arbitrary name with no spaces.
+  id: totrans-89
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这里，`volume_name` 可以是任何不包含空格的任意名称。
 - en: 'As we are using a server that runs the `cinder-volume` service, we can see
     the actual LVM volumes on `cinder-volumes`, using the usual LVM tools, as follows
     (ensure that you are logged in as `root` on the server we specified as storage
     host):'
+  id: totrans-90
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于我们使用的服务器运行 `cinder-volume` 服务，我们可以使用常规的 LVM 工具查看 `cinder-volumes` 上的实际 LVM
+    卷，如下所示（确保你以 `root` 用户身份登录到我们指定的存储主机服务器）：
 - en: '[PRE10]'
+  id: totrans-91
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: There's more…
+  id: totrans-92
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 还有更多...
 - en: 'By default, Cinder volumes operate like a physical disk, insofar as they can
     only be attached to one instance at a time. However, for workloads that require
     a disk be shared between instances, you can pass the `--multi-attach` flag when
     creating the volume to enable the volume to be attached to more than once instance:'
+  id: totrans-93
   prefs: []
   type: TYPE_NORMAL
+  zh: 默认情况下，Cinder 卷像物理磁盘一样工作，即它们一次只能附加到一个实例。然而，对于需要磁盘在多个实例之间共享的工作负载，您可以在创建卷时传递 `--multi-attach`
+    标志，使得该卷可以附加到多个实例：
 - en: '[PRE11]'
+  id: totrans-94
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE11]'
 - en: Tip
+  id: totrans-95
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 提示
 - en: '**A word of warning**'
+  id: totrans-96
   prefs: []
   type: TYPE_NORMAL
+  zh: '**提醒**'
 - en: This feature is quite new and considered experimental for production environments,
     and is not a replacement for a shared storage service such as NFS. NFS supports
     locking that allows multiple clients to read and write to the same mount point.
@@ -455,637 +660,941 @@
     could be a scenario where a master/slave service is employed and where the data
     should only be written to by only one instance at a time, but there is a benefit
     to having the data immediately available on failover.
+  id: totrans-97
   prefs: []
   type: TYPE_NORMAL
+  zh: 该功能相当新，并被视为生产环境中的实验性功能，它并不替代像 NFS 这样的共享存储服务。NFS 支持锁定，允许多个客户端读取和写入同一个挂载点。而多重附加块存储不支持锁定。因此，一个有效的使用场景可能是一个主/从服务的场景，其中数据应仅由一个实例在同一时间写入，但在故障转移时能立即访问数据是有益的。
 - en: Attaching volumes to an instance
+  id: totrans-98
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 将卷附加到实例
 - en: Now that we have a usable volume, we can attach it to any instance. We'll do
     this using the `openstack server volume add` command.
+  id: totrans-99
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们有了一个可用的磁盘卷，可以将其附加到任何实例。我们将使用 `openstack server volume add` 命令来执行此操作。
 - en: Getting ready
+  id: totrans-100
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 准备就绪
 - en: 'To attach a volume to an instance, you will need the following:'
+  id: totrans-101
   prefs: []
   type: TYPE_NORMAL
+  zh: 要将卷附加到实例，您将需要以下内容：
 - en: The `openstack` command-line client
+  id: totrans-102
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`openstack` 命令行客户端'
 - en: An `openrc` file with appropriate credentials for the environment
+  id: totrans-103
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个包含适当凭证的 `openrc` 文件，适用于当前环境
 - en: The *name* or *ID* of the *volume* to attach
+  id: totrans-104
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 要附加的卷的 *名称* 或 *ID*
 - en: The *name* or *ID* of the *instance* to attach the volume to
+  id: totrans-105
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 要附加卷的实例的 *名称* 或 *ID*
 - en: 'For our example, these values are as follows:'
+  id: totrans-106
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于我们的示例，这些值如下：
 - en: 'Volume: `cookbook.volume`'
+  id: totrans-107
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 卷：`cookbook.volume`
 - en: 'Instance: `cookbook.test`'
+  id: totrans-108
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 实例：`cookbook.test`
 - en: How to do it...
+  id: totrans-109
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 如何操作...
 - en: 'Carry out the following steps to attach a volume to an instance using the `openstack`
     client:'
+  id: totrans-110
   prefs: []
   type: TYPE_NORMAL
+  zh: 执行以下步骤，将卷附加到实例上，使用 `openstack` 客户端：
 - en: 'First, let''s list running instances to get the ID of our instance:'
+  id: totrans-111
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 首先，列出正在运行的实例，以获取我们实例的 ID：
 - en: '[PRE12]'
+  id: totrans-112
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE12]'
 - en: 'An example showing our running instance called `cookbook.test` is shown here:'
+  id: totrans-113
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 下面是一个示例，展示了我们正在运行的实例 `cookbook.test`：
 - en: '![How to do it...](img/00132.jpeg)'
+  id: totrans-114
   prefs:
   - PREF_IND
   type: TYPE_IMG
+  zh: '![如何操作...](img/00132.jpeg)'
 - en: 'Now list the available volumes to get the ID of our volume:'
+  id: totrans-115
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在列出可用卷，以获取我们卷的 ID：
 - en: '[PRE13]'
+  id: totrans-116
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE13]'
 - en: 'This shows the information we need about our volume:'
+  id: totrans-117
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 这展示了我们需要的卷信息：
 - en: '![How to do it...](img/00133.jpeg)'
+  id: totrans-118
   prefs:
   - PREF_IND
   type: TYPE_IMG
+  zh: '![如何操作...](img/00133.jpeg)'
 - en: 'Using the *instance* and *volume* name or IDs, we''ll attach the volume to
     the instance as follows:'
+  id: totrans-119
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 使用*实例*和*卷*的名称或ID，我们将按照以下方式将卷附加到实例：
 - en: '[PRE14]'
+  id: totrans-120
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE14]'
 - en: This command produces no output when successful.
+  id: totrans-121
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 当命令成功执行时，不会输出任何内容。
 - en: Note that the `--device` option is not always honored, depending on the operating
     system and image type. Always check which device the target instance operating
     system assigns to the new volume before performing any actions on it.
+  id: totrans-122
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 请注意，`--device`选项并非始终有效，具体取决于操作系统和镜像类型。执行任何操作之前，始终检查目标实例操作系统为新卷分配了哪个设备。
 - en: Tip
+  id: totrans-123
   prefs:
   - PREF_IND
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 提示
 - en: '**Tip**: Volume or server names do not have to be unique in OpenStack; where
     volume and server names are not unique, replace the names with the IDs assigned
     instead. In the preceding example, this would achieve the same goal:'
+  id: totrans-124
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: '**提示**：在OpenStack中，卷或服务器名称不需要唯一；如果卷和服务器名称不唯一，请使用分配的ID代替名称。在前面的示例中，这样也能实现相同的目标：'
 - en: '[PRE15]'
+  id: totrans-125
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE15]'
 - en: 'Now we will perform actions inside our running instance. Log in to the instance
     and verify that the volume is now attached:'
+  id: totrans-126
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在我们将在运行中的实例内执行操作。登录到实例并验证卷是否已附加：
 - en: '[PRE16]'
+  id: totrans-127
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE16]'
 - en: 'This will list the block devices available to our instance. Here we can see
     that our volume, attached as `/dev/vdb`, is available but not mounted:'
+  id: totrans-128
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 这将列出可供我们实例使用的块设备。在这里，我们可以看到我们的卷作为`/dev/vdb`已附加，但尚未挂载：
 - en: '[PRE17]'
+  id: totrans-129
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE17]'
 - en: 'We should see `10G` of space available for use by the running instance. As
     this is a new volume, this is like adding a fresh disk to a system. We need to
     format it for use and then mount it as part of your filesystem:'
+  id: totrans-130
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们应该看到`10G`的空间可供运行中的实例使用。由于这是一个新的卷，就像为系统添加一个全新的磁盘。我们需要先格式化它以供使用，然后将其挂载到文件系统中：
 - en: '[PRE18]'
+  id: totrans-131
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE18]'
 - en: Tip
+  id: totrans-132
   prefs:
   - PREF_IND
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 提示
 - en: '**Tip**: Volumes created with Cinder are persistent storage volumes; formatting
     the volume (disk) is only required once. Should you need to re-attach this data
     volume to another instance in the future, do not reformat this drive!'
+  id: totrans-133
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: '**提示**：使用Cinder创建的卷是持久存储卷；格式化卷（磁盘）只需要执行一次。如果将来需要将此数据卷重新附加到另一个实例，请不要重新格式化该磁盘！'
 - en: 'We should now see the newly attached disk available at `/mnt1`:'
+  id: totrans-134
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们现在应该看到新附加的磁盘可用在`/mnt1`：
 - en: '[PRE19]'
+  id: totrans-135
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE19]'
 - en: 'This will show output like the following:'
+  id: totrans-136
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 这将显示类似以下的输出：
 - en: '[PRE20]'
+  id: totrans-137
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE20]'
 - en: How it works...
+  id: totrans-138
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 它是如何工作的...
 - en: Attaching a *new* Cinder volume is very much like plugging in an unformatted
     USB stick into your own computer. When it needs to first be used, it must be formatted
     for use.
+  id: totrans-139
   prefs: []
   type: TYPE_NORMAL
+  zh: 附加一个*新*的Cinder卷就像将一个未格式化的USB闪存盘插入计算机。当它第一次需要使用时，必须先格式化才能使用。
 - en: Tip
+  id: totrans-140
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 提示
 - en: On subsequent uses of this disk (when connecting to other instances in the future),
     you wouldn't need to perform this formatting step.
+  id: totrans-141
   prefs: []
   type: TYPE_NORMAL
+  zh: 在后续使用此磁盘（将来连接到其他实例时），您无需执行此格式化步骤。
 - en: 'Under the `openstack` client, the `server add volume` option takes the following
     syntax:'
+  id: totrans-142
   prefs: []
   type: TYPE_NORMAL
+  zh: 在`openstack`客户端中，`server add volume`选项的语法如下：
 - en: '[PRE21]'
+  id: totrans-143
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE21]'
 - en: '`instance_ID` is the ID returned from `openstack server list` for the instance
     that we want to attach the volume to.'
+  id: totrans-144
   prefs: []
   type: TYPE_NORMAL
+  zh: '`instance_ID` 是通过`openstack server list`返回的，我们希望将卷附加到的实例ID。'
 - en: '`volume_ID` is the ID of the volume returned from `openstack volume list`.'
+  id: totrans-145
   prefs: []
   type: TYPE_NORMAL
+  zh: '`volume_ID` 是通过`openstack volume list`返回的卷ID。'
 - en: '`device_ID` is the device that will be created on our instance that we use
     to mount the volume. Remember that this parameter can sometimes be ignored; so,
     see this as a hint to pass to a running instance only.'
+  id: totrans-146
   prefs: []
   type: TYPE_NORMAL
+  zh: '`device_ID` 是在实例上创建的设备，用于挂载卷。请记住，这个参数有时可以忽略；因此，可以将其视为仅供传递给正在运行的实例的提示。'
 - en: Detaching volumes from an instance
+  id: totrans-147
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 从实例中卸载卷
 - en: Ordinarily, Cinder volumes can only be attached to one instance at a time. Thus,
     you need to detach it from one instance before attaching it to another. To detach
     a volume, we will use another OpenStack client command called `openstack server
     remove volume`.
+  id: totrans-148
   prefs: []
   type: TYPE_NORMAL
+  zh: 通常，Cinder卷一次只能附加到一个实例。因此，您需要先从一个实例卸载卷，再将其附加到另一个实例。要卸载卷，我们将使用另一个OpenStack客户端命令，叫做`openstack
+    server remove volume`。
 - en: Getting ready
+  id: totrans-149
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: 'To detach a volume from an instance, you will need the following:'
+  id: totrans-150
   prefs: []
   type: TYPE_NORMAL
+  zh: 要从实例中卸载卷，您需要以下内容：
 - en: The `openstack` command-line client
+  id: totrans-151
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`openstack`命令行客户端'
 - en: An `openrc` file with appropriate credentials for the environment
+  id: totrans-152
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 带有适当凭据的`openrc`文件
 - en: The name or ID of the *volume* to detach
+  id: totrans-153
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 要卸载的*卷*的名称或ID
 - en: The name or ID of the *instance* to detach the volume from
+  id: totrans-154
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 要从实例中卸载卷，需要指定*实例*的名称或ID
 - en: 'For our example, these values are as follows:'
+  id: totrans-155
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于我们的示例，值如下：
 - en: 'Volume: `cookbook.volume`'
+  id: totrans-156
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 卷：`cookbook.volume`
 - en: 'Instance: `cookbook.test`'
+  id: totrans-157
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 实例：`cookbook.test`
 - en: 'Mount point: `/mnt1`'
+  id: totrans-158
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 挂载点：`/mnt1`
 - en: How to do it...
+  id: totrans-159
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 如何操作...
 - en: 'Carry out the following steps to detach a volume to an instance using the `openstack`
     client:'
+  id: totrans-160
   prefs: []
   type: TYPE_NORMAL
+  zh: 执行以下步骤以使用 `openstack` 客户端将卷从实例中分离：
 - en: List running instances to get the ID of our instance:![How to do it...](img/00134.jpeg)
+  id: totrans-161
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 列出正在运行的实例，以获取我们实例的 ID：![如何操作...](img/00134.jpeg)
 - en: 'List the volumes that are available and `in-use` in our environment:'
+  id: totrans-162
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 列出我们环境中可用的和`in-use`的卷：
 - en: '[PRE22]'
+  id: totrans-163
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE22]'
 - en: 'This will bring back an output like the following. Note that the information
     provided shows you if a volume is in use and what instance it is attached to:'
+  id: totrans-164
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 这将返回类似以下的输出。请注意，提供的信息显示了卷是否正在使用以及它附加到哪个实例：
 - en: '![How to do it...](img/00135.jpeg)'
+  id: totrans-165
   prefs:
   - PREF_IND
   type: TYPE_IMG
+  zh: '![如何操作...](img/00135.jpeg)'
 - en: 'We now need to perform actions inside the running instance. Connect to this
     instance and verify that the volume is mounted:'
+  id: totrans-166
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在我们需要在运行中的实例内部执行操作。连接到此实例并验证该卷是否已挂载：
 - en: '[PRE23]'
+  id: totrans-167
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE23]'
 - en: 'This will show an output like the following:'
+  id: totrans-168
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 这将显示类似以下的输出：
 - en: '[PRE24]'
+  id: totrans-169
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE24]'
 - en: 'Now unmount the `/mnt1` volume:'
+  id: totrans-170
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在卸载`/mnt1`卷：
 - en: '[PRE25]'
+  id: totrans-171
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE25]'
 - en: (Verify that it has been unmounted by running `df -h` again).
+  id: totrans-172
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: （通过再次运行`df -h`来验证是否已卸载）。
 - en: 'Exit the guest, and back on our OpenStack client, detach the volume from the
     instance with the following command:'
+  id: totrans-173
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 退出访客系统后，在 OpenStack 客户端中，使用以下命令将卷从实例中分离：
 - en: '[PRE26]'
+  id: totrans-174
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE26]'
 - en: 'This command doesn''t produce any output on success, so view the volume list
     again to verify that the volume has been detached from the `cookbook.test` instance:'
+  id: totrans-175
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 此命令在成功时不会产生任何输出，因此请再次查看卷列表以验证该卷已从`cookbook.test`实例中分离：
 - en: '[PRE27]'
+  id: totrans-176
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE27]'
 - en: 'This shows the volume is available and not attached to any instance:'
+  id: totrans-177
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 这表明该卷可用且未附加到任何实例：
 - en: '![How to do it...](img/00136.jpeg)'
+  id: totrans-178
   prefs:
   - PREF_IND
   type: TYPE_IMG
+  zh: '![如何操作...](img/00136.jpeg)'
 - en: How it works…
+  id: totrans-179
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 它是如何工作的…
 - en: 'Detaching a Cinder volume from an instance is similar to the steps you would
     take when removing a USB stick from a computer. First, we need to unmount it from
     the instance so the operating system doesn''t complain about an unexpected removal
     of some storage. Next under the `openstack` client, the `server remove volume`
     option takes the following syntax:'
+  id: totrans-180
   prefs: []
   type: TYPE_NORMAL
+  zh: 从实例中分离 Cinder 卷的步骤类似于从计算机中拔出 USB 硬盘的步骤。首先，我们需要将其从实例中卸载，以便操作系统不会因存储的意外移除而报错。接下来，在`openstack`客户端中，`server
+    remove volume`选项使用以下语法：
 - en: '[PRE28]'
+  id: totrans-181
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE28]'
 - en: Deleting volumes
+  id: totrans-182
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 删除卷
 - en: At some point, you will no longer need the volumes you have created. To remove
     the volumes from the system permanently, so they are no longer available, we simply
     pull out another tool from the OpenStack client, the `volume delete` option.
+  id: totrans-183
   prefs: []
   type: TYPE_NORMAL
+  zh: 在某个时刻，您将不再需要您已创建的卷。为了永久将它们从系统中删除，使它们不再可用，我们只需从 OpenStack 客户端中调用另一个工具——`volume
+    delete`选项。
 - en: Getting ready
+  id: totrans-184
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: 'To delete a volume, you will need the following:'
+  id: totrans-185
   prefs: []
   type: TYPE_NORMAL
+  zh: 删除一个卷，您需要以下内容：
 - en: The `openstack` command-line client
+  id: totrans-186
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`openstack` 命令行客户端'
 - en: An `openrc` file with appropriate credentials for the environment
+  id: totrans-187
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个包含适当凭据的 `openrc` 文件，用于该环境
 - en: The name or ID of the *volume* to delete
+  id: totrans-188
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 要删除的*卷*的名称或 ID
 - en: 'For our example, these values are as follows:'
+  id: totrans-189
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于我们的示例，以下是这些值：
 - en: 'Volume: `cookbook.volume`'
+  id: totrans-190
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 卷：`cookbook.volume`
 - en: Tip
+  id: totrans-191
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 提示
 - en: '**Warning**: This will remove the volume and any data stored on it, so ensure
     that this is the correct action you want to perform before continuing.'
+  id: totrans-192
   prefs: []
   type: TYPE_NORMAL
+  zh: '**警告**：这将删除卷及其上存储的所有数据，请确保这是您希望执行的正确操作，然后再继续。'
 - en: You can only delete a volume that isn't currently attached to an instance.
+  id: totrans-193
   prefs: []
   type: TYPE_NORMAL
+  zh: 只能删除未附加到任何实例的卷。
 - en: How to do it…
+  id: totrans-194
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 它是如何工作的…
 - en: 'To delete a volume using the OpenStack client, carry out the following steps:'
+  id: totrans-195
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用 OpenStack 客户端删除一个卷，请执行以下步骤：
 - en: 'First, we list the volumes available to identify the volume we want to delete,
     with the following command:'
+  id: totrans-196
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 首先，我们列出可用的卷，以便识别要删除的卷，使用以下命令：
 - en: '[PRE29]'
+  id: totrans-197
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE29]'
 - en: 'This shows that the volume is available and not attached to any instance:'
+  id: totrans-198
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 这表明该卷可用且未附加到任何实例：
 - en: '![How to do it…](img/00137.jpeg)'
+  id: totrans-199
   prefs:
   - PREF_IND
   type: TYPE_IMG
+  zh: '![如何操作…](img/00137.jpeg)'
 - en: 'We will now use the volume name or ID to delete this from the system, with
     the following command:'
+  id: totrans-200
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们现在将使用卷的名称或 ID 删除该卷，使用以下命令：
 - en: '[PRE30]'
+  id: totrans-201
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE30]'
 - en: Tip
+  id: totrans-202
   prefs:
   - PREF_IND
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 提示
 - en: This command produces no output when successful.
+  id: totrans-203
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 此命令在成功时不会产生输出。
 - en: As with attaching and detaching volumes, an ID or name can be used. Best practice
     is to use the ID to avoid any discrepancies and delete the wrong volume.
+  id: totrans-204
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 与附加和分离卷类似，可以使用 ID 或名称。最佳实践是使用 ID 以避免出现差异并删除错误的卷。
 - en: How it works…
+  id: totrans-205
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 它是如何工作的…
 - en: How the actual volume is deleted depends largely on the Cinder volume driver.
     In the *Configuring Cinder volume services* recipe of this chapter, we used `cinder.volume.drivers.lvm.LVMVolumeDriver`.
     In this case, deleting images removes the LVM volume from use within our system.
+  id: totrans-206
   prefs: []
   type: TYPE_NORMAL
+  zh: 实际删除卷的方式在很大程度上取决于 Cinder 卷驱动程序。在本章的 *配置 Cinder 卷服务* 配方中，我们使用了 `cinder.volume.drivers.lvm.LVMVolumeDriver`。在这种情况下，删除镜像会将
+    LVM 卷从我们的系统中移除。
 - en: There's more…
+  id: totrans-207
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 还有更多…
 - en: 'OpenStack Cinder volumes can be snapshotted, in which case, the `openstack
     volume delete` command will produce an error message like the following:'
+  id: totrans-208
   prefs: []
   type: TYPE_NORMAL
+  zh: OpenStack Cinder 卷可以拍摄快照，在这种情况下，`openstack volume delete` 命令会产生如下错误消息：
 - en: '[PRE31]'
+  id: totrans-209
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE31]'
 - en: To delete a volume, and all of its snapshots, pass the `--purge` flag to the
     `openstack volume delete` command.
+  id: totrans-210
   prefs: []
   type: TYPE_NORMAL
+  zh: 要删除一个卷及其所有快照，请在 `openstack volume delete` 命令中传递 `--purge` 标志。
 - en: Tip
+  id: totrans-211
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 提示
 - en: Be careful with this. It is a one-way operation, and `openstack volume delete`
     does not prompt for confirmation. Additionally, the command produces no output
     when successful.
+  id: totrans-212
   prefs: []
   type: TYPE_NORMAL
+  zh: 小心操作。这是一个单向操作，并且 `openstack volume delete` 命令不会要求确认。此外，命令成功时不会产生任何输出。
 - en: Working with volume snapshots
+  id: totrans-213
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用卷快照
 - en: Cinder volume **snapshots** provide a way to nondisruptively copy a volume;
     allowing for in-situ volume backups to be taken. It also enables more advanced
     backup features and provides the ability to boot an instance from a given snapshot
     or from a point in time.
+  id: totrans-214
   prefs: []
   type: TYPE_NORMAL
+  zh: Cinder 卷 **快照** 提供了一种非破坏性地复制卷的方法；允许进行原位卷备份。它还启用了更高级的备份功能，并提供了从指定快照或某个时间点启动实例的能力。
 - en: In this section, we will show you how to create a snapshot, mount a volume based
     off a snapshot, refresh a snapshot, and delete a given snapshot.
+  id: totrans-215
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本节中，我们将展示如何创建快照、基于快照挂载卷、刷新快照以及删除指定的快照。
 - en: Getting ready
+  id: totrans-216
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: 'To work with Cinder volume snapshots, you will need the following:'
+  id: totrans-217
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用 Cinder 卷快照时，你将需要以下内容：
 - en: The `openstack` command-line client
+  id: totrans-218
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`openstack` 命令行客户端'
 - en: An `openrc` file with appropriate credentials for the environment
+  id: totrans-219
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个带有适当凭据的 `openrc` 文件，用于当前环境
 - en: The name or ID of the *volume* to delete
+  id: totrans-220
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 要删除的 *卷* 的名称或 ID
 - en: How to do it…
+  id: totrans-221
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 如何操作…
 - en: 'To create a snapshot, the volume must be first detached from an instance:'
+  id: totrans-222
   prefs: []
   type: TYPE_NORMAL
+  zh: 要创建快照，卷必须首先从实例中分离：
 - en: First, list your current volumes:![How to do it…](img/00138.jpeg)
+  id: totrans-223
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 首先，列出你当前的卷：![如何操作…](img/00138.jpeg)
 - en: Tip
+  id: totrans-224
   prefs:
   - PREF_IND
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 提示
 - en: If the volume you wish to snapshot has a status of `in-use`, you will need to
     detach it using the instructions in the *Detaching volumes from an instance* recipe
     earlier in this chapter.
+  id: totrans-225
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 如果你希望拍摄快照的卷状态为 `in-use`，你需要使用本章前面 *从实例中分离卷* 的配方中的说明将其分离。
 - en: 'As our volume is the correct state of `available`, we will proceed to create
     a snapshot of the volume using the `openstack volume snapshot create` command:'
+  id: totrans-226
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 由于我们的卷处于正确的 `available` 状态，我们将继续使用 `openstack volume snapshot create` 命令创建卷的快照：
 - en: '[PRE32]'
+  id: totrans-227
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE32]'
 - en: 'This will produce an output like the following, showing a state of `creating`:'
+  id: totrans-228
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 这将产生类似如下的输出，显示 `creating` 状态：
 - en: '![How to do it…](img/00139.jpeg)'
+  id: totrans-229
   prefs:
   - PREF_IND
   type: TYPE_IMG
+  zh: '![如何操作…](img/00139.jpeg)'
 - en: Once the snapshot is complete, you can reattach the original volume using the
     *Attaching volumes to an instance* recipe, in this chapter and continue operations.
+  id: totrans-230
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 快照完成后，你可以使用本章中的 *将卷附加到实例* 配方重新附加原始卷并继续操作。
 - en: 'If using snapshots as part of an ongoing test / validation process, or part
     of a backup scheme, you may want to update the snapshot with fresh data. To do
     this, we use the `cinder snapshot-reset-state`, which produces no output if successful:'
+  id: totrans-231
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 如果你将快照作为持续测试/验证过程的一部分，或作为备份方案的一部分，你可能希望使用最新数据更新快照。为此，我们使用 `cinder snapshot-reset-state`，如果成功，命令不会产生任何输出：
 - en: '[PRE33]'
+  id: totrans-232
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE33]'
 - en: Tip
+  id: totrans-233
   prefs:
   - PREF_IND
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 提示
 - en: Note the use of the `cinder` command-line tool, as opposed to `openstack`.
+  id: totrans-234
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 请注意使用 `cinder` 命令行工具，而不是 `openstack`。
 - en: 'You are unable to use a snapshot directly; to use a snapshot as a volume to
     attach to an instance, you first need to create a new volume based off this snapshot.
     To do this, carry out the following:'
+  id: totrans-235
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 你不能直接使用快照；要将快照作为卷挂载到实例上，首先需要基于该快照创建一个新的卷。为此，执行以下操作：
 - en: '[PRE34]'
+  id: totrans-236
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE34]'
 - en: 'This will produce the following output. Note `snapshot_id` that was used and
     the fact that we didn''t specify a size:'
+  id: totrans-237
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 这将产生如下输出。请注意所使用的 `snapshot_id` 和我们未指定大小这一事实：
 - en: '![How to do it…](img/00140.jpeg)'
+  id: totrans-238
   prefs:
   - PREF_IND
   type: TYPE_IMG
+  zh: '![如何操作…](img/00140.jpeg)'
 - en: 'We can confirm that our new cookbook volume, based off the snapshot, is now
     available by viewing the volume list again:'
+  id: totrans-239
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们可以通过再次查看卷列表来确认基于快照创建的新的食谱卷现在可用：
 - en: '[PRE35]'
+  id: totrans-240
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE35]'
 - en: 'This produces a list of our volumes and their state:'
+  id: totrans-241
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 这将生成我们卷及其状态的列表：
 - en: '![How to do it…](img/00141.jpeg)'
+  id: totrans-242
   prefs:
   - PREF_IND
   type: TYPE_IMG
+  zh: '![如何操作…](img/00141.jpeg)'
 - en: 'Finally, you will want to delete snapshots at some point. To do this, use the
     `openstack volume snapshot delete` command as follows:'
+  id: totrans-243
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 最后，你希望在某个时候删除快照。为此，请使用 `openstack volume snapshot delete` 命令，如下所示：
 - en: '[PRE36]'
+  id: totrans-244
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE36]'
 - en: Confirm with `openstack volume snapshot list` the list the remaining snapshots
     available.
+  id: totrans-245
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 使用 `openstack volume snapshot list` 确认剩余的可用快照列表。
 - en: How it works…
+  id: totrans-246
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 它是如何工作的…
 - en: Cinder volume snapshots provide a flexible way to clone volumes for snapshot
     type backups, attaching to other instances, and more. The `cinder snapshot` commands
     we used here, specifically `openstack volume snapshot create`, `openstack volume
@@ -1093,272 +1602,371 @@
     delete`, instruct `cinder` to work with the storage driver to perform snapshot
     specific actions—create, list, update, and delete, respectively. The specific
     implementation of snapshot depends on the underlying driver.
+  id: totrans-247
   prefs: []
   type: TYPE_NORMAL
+  zh: Cinder 卷快照提供了一种灵活的方式来克隆卷进行快照类型备份、附加到其他实例等。我们在这里使用的 `cinder snapshot` 命令，具体包括
+    `openstack volume snapshot create`、`openstack volume snapshot list`、`cinder snapshot-reset-state`
+    和 `openstack volume snapshot delete`，指示 `cinder` 与存储驱动程序一起执行特定的快照操作——创建、列出、更新和删除。快照的具体实现取决于底层驱动程序。
 - en: 'Also note that you cannot use a snapshot directly with an instance. You must
     first create a new volume based on the snapshot of your choice. This has the following
     syntax:'
+  id: totrans-248
   prefs: []
   type: TYPE_NORMAL
+  zh: 还要注意，你不能直接将快照与实例一起使用。你必须先根据选择的快照创建一个新卷。其语法如下：
 - en: '[PRE37]'
+  id: totrans-249
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE37]'
 - en: Configuring volume types
+  id: totrans-250
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 配置卷类型
 - en: Volume types in Cinder are a label or identifier that is selected during volume
     creation. Typically, volume types correspond with some attribute of the volumes,
     for example, `SSD`, `High IOPS`, and `Encrypted`. We will use this with the next
     recipe to define further features of our Cinder service.
+  id: totrans-251
   prefs: []
   type: TYPE_NORMAL
+  zh: Cinder 中的卷类型是一个标签或标识符，在创建卷时选择。通常，卷类型对应卷的某些属性，例如 `SSD`、`High IOPS` 和 `Encrypted`。我们将使用这个与下一个配方一起定义我们
+    Cinder 服务的更多功能。
 - en: Getting ready
+  id: totrans-252
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: 'To create a volume type, you will need the following:'
+  id: totrans-253
   prefs: []
   type: TYPE_NORMAL
+  zh: 要创建一个卷类型，你需要以下内容：
 - en: An `openrc` file with appropriate credentials for the environment (you must
     be an administrator)
+  id: totrans-254
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个具有适当凭证的 `openrc` 文件（你必须是管理员）
 - en: The `openstack` command-line client
+  id: totrans-255
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`openstack` 命令行客户端'
 - en: The name of the volume type to create. For our example, we will create the `"High
     IOPS"` volume type as a contrived example type that would refer to a block storage
     device dedicated to High IOPS.
+  id: totrans-256
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 要创建的卷类型名称。在我们的示例中，我们将创建 `"High IOPS"` 卷类型，作为一个虚构的示例类型，指的是专用于高 IOPS 的块存储设备。
 - en: How to do it…
+  id: totrans-257
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 如何操作…
 - en: 'We will use the `openstack volume type` command to operate on Cinder volume
     types. To create a volume type, use the following steps:'
+  id: totrans-258
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将使用 `openstack volume type` 命令来操作 Cinder 卷类型。要创建一个卷类型，请按照以下步骤操作：
 - en: 'First, list the existing volume types:'
+  id: totrans-259
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 首先，列出现有的卷类型：
 - en: '[PRE38]'
+  id: totrans-260
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE38]'
 - en: 'This will bring back an output like the following. Here we have the default
     set when we installed our LVM service:'
+  id: totrans-261
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 这将返回类似如下的输出。这里我们有安装 LVM 服务时设置的默认值：
 - en: '![How to do it…](img/00142.jpeg)'
+  id: totrans-262
   prefs:
   - PREF_IND
   type: TYPE_IMG
+  zh: '![如何操作…](img/00142.jpeg)'
 - en: 'Create the new volume type:'
+  id: totrans-263
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 创建新的卷类型：
 - en: '[PRE39]'
+  id: totrans-264
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE39]'
 - en: 'This will bring back an output like the following:'
+  id: totrans-265
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 这将返回类似如下的输出：
 - en: '![How to do it…](img/00143.jpeg)'
+  id: totrans-266
   prefs:
   - PREF_IND
   type: TYPE_IMG
+  zh: '![如何操作…](img/00143.jpeg)'
 - en: 'Confirm that the new volume type is available by displaying the list of volume
     types:'
+  id: totrans-267
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 通过显示卷类型列表，确认新卷类型是否可用：
 - en: '[PRE40]'
+  id: totrans-268
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE40]'
 - en: 'This will now bring back our additional volume type:'
+  id: totrans-269
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 这现在将返回我们额外的卷类型：
 - en: '![How to do it…](img/00144.jpeg)'
+  id: totrans-270
   prefs:
   - PREF_IND
   type: TYPE_IMG
+  zh: '![如何操作…](img/00144.jpeg)'
 - en: 'To use this new type when creating a volume, we will use the `--type` flag
     as follows:'
+  id: totrans-271
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在创建卷时使用这个新类型，我们将使用 `--type` 标志，如下所示：
 - en: '[PRE41]'
+  id: totrans-272
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE41]'
 - en: We will verify the type in the output:![How to do it…](img/00145.jpeg)
+  id: totrans-273
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们将在输出中验证类型：![如何操作…](img/00145.jpeg)
 - en: How it works…
+  id: totrans-274
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 它是如何工作的…
 - en: The `openstack volume type create` command has only one mandatory parameter,
     `name`. The `name` parameter allows users to define different volume types or
     identifiers. While typically based on some attribute of the storage, such as department,
     storage backend, or QOS level, as these are labels, as long as they're well understood,
     the name can be arbitrary.
+  id: totrans-275
   prefs: []
   type: TYPE_NORMAL
+  zh: '`openstack volume type create` 命令只有一个必填参数，`name`。`name` 参数允许用户定义不同的卷类型或标识符。虽然通常基于存储的某些属性，如部门、存储后端或
+    QOS 水平，但由于这些只是标签，只要它们易于理解，名称可以是任意的。'
 - en: Additionally, the `--description` flag can be used to provide more detail on
     the volume type. The `--private` flag allows you to restrict visibility from the
     public. The `--project` flag allows the selective sharing of a private volume
     type with other named projects.
+  id: totrans-276
   prefs: []
   type: TYPE_NORMAL
 - en: 'We will then take advantage of these types (with further configuration of Cinder
     to specify that a type of storage, which is associated with a particular volume
     type) by issuing the `--type` flag to the `volume create` command:'
+  id: totrans-277
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE42]'
+  id: totrans-278
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE42]'
 - en: Enabling volume encryption
+  id: totrans-279
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
 - en: Cinder can manage the **encryption** of volumes, and it happens transparent
     to the guest. Encryption is enabled on a *volume type* level.
+  id: totrans-280
   prefs: []
   type: TYPE_NORMAL
 - en: Getting ready
+  id: totrans-281
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
 - en: 'Encryption can be enabled either when creating a new volume type or added to
     an existing volume type that has no volumes in use. To enable volume encryption,
     you will need the following:'
+  id: totrans-282
   prefs: []
   type: TYPE_NORMAL
 - en: An `openrc` file with appropriate credentials for the environment
+  id: totrans-283
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The `openstack` command-line client
+  id: totrans-284
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The name of the *volume type*
+  id: totrans-285
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: Name of the *encryption provider*
+  id: totrans-286
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: Encryption control location
+  id: totrans-287
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: Encryption key size
+  id: totrans-288
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: Encryption cipher
+  id: totrans-289
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: 'For our example, these will be as follows:'
+  id: totrans-290
   prefs: []
   type: TYPE_NORMAL
 - en: 'Name: `Cookbook Encrypted Volumes`'
+  id: totrans-291
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: 'Encryption provider: `nova.volume.encryptors.luks.LuksEncryptor`'
+  id: totrans-292
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: 'Encryption control location: `front-end`'
+  id: totrans-293
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: 'Encryption key size: `256`'
+  id: totrans-294
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: 'Encryption cipher: `aes-xts-plain64`'
+  id: totrans-295
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: Note
+  id: totrans-296
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
 - en: The encryption-specific values you choose will be based on what is available
     in your particular environment. A detailed discussion of these values is beyond
     the scope of this book.
+  id: totrans-297
   prefs: []
   type: TYPE_NORMAL
 - en: How to do it…
+  id: totrans-298
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
 - en: 'To enable volume encryption as a new volume type, the following command is
     used:'
+  id: totrans-299
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE43]'
+  id: totrans-300
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE43]'
 - en: 'We would then use this `"Encrypted"` volume type when creating a volume as
     follows:'
+  id: totrans-301
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE44]'
+  id: totrans-302
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE44]'
 - en: How it works…
+  id: totrans-303
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
 - en: 'Volumes are configured as a volume type, and thus, additional parameters are
     passed to `openstack volume type create`:'
+  id: totrans-304
   prefs: []
   type: TYPE_NORMAL
 - en: The `--encryption-provider` flag let's Cinder know which provider will perform
     the encryption. As with storage backends, there are a number of providers available.
     Refer to the OpenStack documentation for a current list.
+  id: totrans-305
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The `--encryption-control-location` parameter tells Cinder where the encryption
     will be handled. In our case, `front-end` means that Nova will be handling the
     encryption.
+  id: totrans-306
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: Next, the `--encryption-key-size` parameter specifies the size of the key used.
     `256` was selected for the example as to not crush lab performance. The encryption
     provider and cipher you choose will provide specific recommendations.
+  id: totrans-307
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: Finally, `--encryption-cipher` specifies which cipher to use. You can use `cryptsetup
     benchmark` to get a list of available options and an idea as to how they will
     perform.
+  id: totrans-308
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: Configuring volume Quality of Service (QoS)
+  id: totrans-309
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -1366,154 +1974,195 @@
     of service for volumes. Like volume encryption, **Quality of Service** (**QoS**)
     in Cinder is configured by volume type. By default, you can define values for
     minimum, maximum, and burst IOPS.
+  id: totrans-310
   prefs: []
   type: TYPE_NORMAL
 - en: Getting ready
+  id: totrans-311
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
 - en: 'To configure volume QoS, you will need the following information:'
+  id: totrans-312
   prefs: []
   type: TYPE_NORMAL
 - en: An `openrc` file with appropriate credentials for the environment (you need
     to be an administrator)
+  id: totrans-313
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The `openstack` command-line client
+  id: totrans-314
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The name or ID of the *volume type*
+  id: totrans-315
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The *consumer* of the QoS policy
+  id: totrans-316
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: 'Values for the following:'
+  id: totrans-317
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: Minimum IOPS
+  id: totrans-318
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
 - en: Maximum IOPS
+  id: totrans-319
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
 - en: Burst IOPS
+  id: totrans-320
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
 - en: Note
+  id: totrans-321
   prefs:
   - PREF_IND
   - PREF_H3
   type: TYPE_NORMAL
 - en: Only one of the three (min, max, and burst) needs to be provided to define a
     minimal QoS policy.
+  id: totrans-322
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
 - en: 'For our example, these will be as follows:'
+  id: totrans-323
   prefs: []
   type: TYPE_NORMAL
 - en: 'Name: `High IOPS`'
+  id: totrans-324
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: 'Consumer: `both`'
+  id: totrans-325
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: 'Maximum IOPS: `500`'
+  id: totrans-326
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: How to do it…
+  id: totrans-327
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
 - en: 'For Cinder volumes to use QoS, an administrator needs to perform two steps:
     first, define the specification, and second, to associate the specification with
     a volume type.'
+  id: totrans-328
   prefs: []
   type: TYPE_NORMAL
 - en: 'To create and assign a QoS specification, use the following steps:'
+  id: totrans-329
   prefs: []
   type: TYPE_NORMAL
 - en: 'First, list the existing QoS specifications:'
+  id: totrans-330
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE45]'
+  id: totrans-331
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE45]'
 - en: 'We currently don''t have any QoS defined:'
+  id: totrans-332
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
 - en: '![How to do it…](img/00146.jpeg)'
+  id: totrans-333
   prefs:
   - PREF_IND
   type: TYPE_IMG
 - en: 'Define a new QoS specification with the following:'
+  id: totrans-334
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE46]'
+  id: totrans-335
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE46]'
 - en: 'This will bring back the following output:'
+  id: totrans-336
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
 - en: '![How to do it…](img/00147.jpeg)'
+  id: totrans-337
   prefs:
   - PREF_IND
   type: TYPE_IMG
 - en: 'Confirm our QoS specification was created by listing the QoS available:'
+  id: totrans-338
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE47]'
+  id: totrans-339
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE47]'
 - en: 'This will bring back the following output:'
+  id: totrans-340
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
 - en: '![How to do it…](img/00148.jpeg)'
+  id: totrans-341
   prefs:
   - PREF_IND
   type: TYPE_IMG
 - en: 'We now associate the policy to a volume type as follows:'
+  id: totrans-342
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE48]'
+  id: totrans-343
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE48]'
 - en: Note
+  id: totrans-344
   prefs:
   - PREF_IND
   - PREF_H3
   type: TYPE_NORMAL
 - en: This command produces no output when successful.
+  id: totrans-345
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
 - en: How it works…
+  id: totrans-346
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -1521,28 +2170,35 @@
     set of commands. When creating a QoS specification, you can specify where QoS
     is applied as well as the value to set it at. Currently, you can specify a static
     set of minimum, maximum, and burst IOPS, and a scaling set of IOPS.
+  id: totrans-347
   prefs: []
   type: TYPE_NORMAL
 - en: 'The static values break down as follows:'
+  id: totrans-348
   prefs: []
   type: TYPE_NORMAL
 - en: '**Minimum IOPS**: This is the number of IOPs *guaranteed* to a volume'
+  id: totrans-349
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '**Maximum**: This is the ceiling for IOPS on a volume'
+  id: totrans-350
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '**Burst IOPS**: This is the maximum IOPS over a short period'
+  id: totrans-351
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: Scaling IOPs then, define the amount to change the static values for each additional
     gigabyte of volume size.
+  id: totrans-352
   prefs: []
   type: TYPE_NORMAL
 - en: Resetting volume state
+  id: totrans-353
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -1551,58 +2207,74 @@
     the course of writing this chapter, the authors had a number of volumes getting
     stuck in the `attaching` status, after an instance failed to boot from them. This
     looks like the following:'
+  id: totrans-354
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE49]'
+  id: totrans-355
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE49]'
 - en: '![Resetting volume state](img/00149.jpeg)'
+  id: totrans-356
   prefs: []
   type: TYPE_IMG
 - en: Note
+  id: totrans-357
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
 - en: The cause of this was some fat-fingered typing while creating the boot from
     volume section!
+  id: totrans-358
   prefs: []
   type: TYPE_NORMAL
 - en: Getting ready
+  id: totrans-359
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
 - en: 'To reset the status on a Cinder volume, you will need the following:'
+  id: totrans-360
   prefs: []
   type: TYPE_NORMAL
 - en: An `openrc` file with appropriate credentials for the environment
+  id: totrans-361
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The `openstack` command-line client
+  id: totrans-362
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The `cinder` command-line client
+  id: totrans-363
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The *name* or *ID* of the volume
+  id: totrans-364
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: 'For the example that follows, we will be resetting the following volumes to
     available:'
+  id: totrans-365
   prefs: []
   type: TYPE_NORMAL
 - en: '`cookbook.boot.volume`'
+  id: totrans-366
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '`cookbook.volume.boot.test`'
+  id: totrans-367
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: How to do it…
+  id: totrans-368
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -1610,69 +2282,89 @@
     the `openstack` set of commands covers most operations you will commonly need
     to do, and the `cinder` command provides additional admin functionality, such
     as `reset-state`.
+  id: totrans-369
   prefs: []
   type: TYPE_NORMAL
 - en: Tip
+  id: totrans-370
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
 - en: As the `reset-state` command only manipulates the database without regard to
     the actual status, it should be used with care.
+  id: totrans-371
   prefs: []
   type: TYPE_NORMAL
 - en: 'To reset the status of a Cinder volume, carry out the following steps:'
+  id: totrans-372
   prefs: []
   type: TYPE_NORMAL
 - en: First, list your Cinder volumes and statuses
+  id: totrans-373
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE50]'
+  id: totrans-374
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE50]'
 - en: 'This will bring back a list of the volumes OpenStack knows about:'
+  id: totrans-375
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
 - en: '![How to do it…](img/00149.jpeg)'
+  id: totrans-376
   prefs:
   - PREF_IND
   type: TYPE_IMG
 - en: 'Use the `cinder` client to reset the state of the volumes:'
+  id: totrans-377
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE51]'
+  id: totrans-378
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE51]'
 - en: Note
+  id: totrans-379
   prefs:
   - PREF_IND
   - PREF_H3
   type: TYPE_NORMAL
 - en: When successful, this command produces no output.
+  id: totrans-380
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
 - en: 'Confirm the new status:'
+  id: totrans-381
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE52]'
+  id: totrans-382
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE52]'
 - en: 'This will show that the state has been reset to `available`:'
+  id: totrans-383
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
 - en: '![How to do it…](img/00150.jpeg)'
+  id: totrans-384
   prefs:
   - PREF_IND
   type: TYPE_IMG
 - en: How it works…
+  id: totrans-385
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -1681,14 +2373,18 @@
     us to change the status of a volume that might be stuck in a particular state.
     There are two additional flags that allow you to change the attachment status
     and migration status, respectively:'
+  id: totrans-386
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE53]'
+  id: totrans-387
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE53]'
 - en: This tool explicitly updates the entity state in the `cinder` database. Being
     a database change only, this has no impact on the true state of the entity and
     may not match the actual state. This can render an entity unusable in the case
     of changing to the `available` state.
+  id: totrans-388
   prefs: []
   type: TYPE_NORMAL
