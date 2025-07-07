@@ -1,0 +1,1162 @@
+- en: Exploring Functions as a Service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we will take a deep dive into Cloud Functions on Google Cloud.
+    We have covered a fair bit already; however, there is still so much more to know
+    and learn. Our primary focus so far has been to understand HTTP endpoints and
+    to build some simple applications in order to demonstrate their associated capabilities.
+    In addition to exciting HTTP event functionality, there are also background functions,
+    that is, those functions that do not require access to an external HTTP endpoint.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To increase our understanding of these types of functions, we will be building
+    several tools throughout this chapter to illustrate various concepts and techniques.
+    We will continue to utilize the Functions Framework to create our code, and start
+    to integrate the external system in order to showcase the ease of building a tool
+    that meets our requirements.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Later in this chapter, we will build a simple application based on creating
+    a `SignedURL` function by utilizing Google APIs, which provides a way to establish
+    a time-constrained URL. The source data for this will reside on Cloud Storage,
+    and we will extend our function to have a simple frontend. Finally, we will continue
+    to use the Functions Framework to enable us to work locally and to maintain compatibility
+    with Google Cloud Functions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will learn about the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Developing an HTTP endpoint application
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Exploring Cloud Functions and Google APIs
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Exploring Google Cloud Storage events
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Building an enhanced signed URL service
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To complete the exercises in this chapter, you will require a Google Cloud project
+    or a Qwiklabs account.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can find the code files of this chapter in the GitHub repository for the
+    book under the `ch05` subdirectory at [https://github.com/PacktPublishing/Hands-on-Serverless-Computing-with-Google-Cloud/tree/master/ch05](https://github.com/PacktPublishing/Hands-on-Serverless-Computing-with-Google-Cloud/tree/master/ch05).
+  prefs: []
+  type: TYPE_NORMAL
+- en: While you are going through code snippets in the book, you will notice that,
+    in a few instances, a few lines from the code/output have been removed and replaced
+    with dots (`...`). The use of ellipses is only to show relevant code/output. The
+    complete code is available on GitHub at the previously mentioned link.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Developing an HTTP endpoint application
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Working with Cloud Functions allows isolated and standalone components to create
+    extended functionality. These components or microservices offer an excellent way
+    to build your applications as decoupled architecture. In this example, we will
+    go back to basics and learn how to extend our knowledge to call Google Cloud APIs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Events provide the ability to react to system notifications associated with
+    a provider. As outlined in earlier chapters on Google Cloud, these providers present
+    multiple options in which to extend services through defined provider interfaces
+    such as Cloud Pub/Sub and Cloud Storage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We have already looked at the HTTP functions invoked using a URL. Utilizing
+    the same semantic notation (for example, GET/POST) and signature (for example,
+    request/response) for HTTP communications, these types of functions are well understood
+    and can build upon existing knowledge. Due to the abstraction of HTTP complexities
+    over time, the general understanding of the HTTP construct represents a well-understood
+    API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, not everything will support an HTTP endpoint; therefore, another approach
+    for integrating providers with existing services is required. Background (that
+    is, asynchronous) functions enhance the Cloud Functions model beyond parameters
+    to establish middleware interfaces that are capable of passing data between disparate
+    components. Examples of these types of providers include Cloud Pub/Sub and Cloud
+    Storage, which both offer a rich interface for messaging and event notifications.
+    In both instances, any data presented must conform to the standard supported schemas
+    to be capable of responding to the provider interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Additionally, a trigger needs to be defined in order to invoke background Cloud
+    Functions. However, the integration mechanism changes depending on the trigger
+    used. Over the following sections, we will focus our discussion on the different
+    types of triggers available on Google Cloud. For background functions, Cloud Pub/Sub
+    and Cloud Storage will be the primary areas of discussion; however, there many
+    other trigger types that are available for an application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Triggering Cloud Pub/Sub
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'A Cloud Pub/Sub trigger is based on a message queue in which information is
+    passed between the publisher and the subscriber:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The *publisher* is responsible for the schema associated with the message to
+    be propagated using a topic.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A *topic* indicates the available queue on which information consumption takes
+    place.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The *subscriber* (consumer) of the message queue can read the associated information
+    in the queue.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'It''s worth pointing out that, in general, subscriptions are either pull or
+    push subscriptions, as shown in the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e2ba5f99-3c56-45a0-bde9-1af1d96de893.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In the preceding diagram, you can see an overview of the pull and push subscription
+    types.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For scenarios that require high levels of throughput, a pull mechanism is currently
+    the most effective way to manage this type of requirement.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Having the publisher and subscriber together enables both sides of the message
+    queue deliver a payload from the origin to the destination. Cloud Pub/Sub uses
+    several scenarios in order to provide information to and from sources consistently.
+    As you might expect, there are many design patterns associated with Cloud Pub/Sub
+    that ensure the transmission of data occurs with a regularity scheduled for the
+    service that is required.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The distribution of messages uses a globally distributed message bus that enables
+    the exchange of information between systems. In this instance, an event system
+    for Cloud Pub/Sub uses a push mechanism with Cloud Functions to trigger messages.
+    A trigger type of `google.pubsub.topic.publish` is defined to manage events used
+    by Cloud Functions, allowing you to have complete control over the publishing
+    of events. For each message published, the notification of the event establishes
+    the message payload to be published.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Besides this, Cloud Pub/Sub supports different design patterns depending on
+    where you want to go. Subscribers will provide an acknowledgment for each message
+    that is processed for every subscription. If a subscriber cannot acknowledge a
+    message within the `ackDeadline` threshold, then the message payload is re-sent.
+    Based on your own use case, the following patterns are good examples to consider
+    when thinking about incorporating Cloud Pub/Sub into your design:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Pattern** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Straight-through processing | A simple queue mechanism—from topic to subscription.
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Multiple publishers | Multiple publishers of the same topic—this enables
+    the concurrent processing of a source message. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Multiple subscribers | Multiple subscribers to the same subscription—this
+    enables you to have different subscribers for the originating topic consumed through
+    subscription. |'
+  prefs: []
+  type: TYPE_TB
+- en: An event for Cloud Pub/Sub has the defined trigger value of `google.pubsub.topic.publish`.
+    The event notification is triggered when a payload message publishes to the event
+    type associated with a Cloud Function. Input data will take the message payload
+    that is passed and execute the named Cloud Function to establish data to any subscriber
+    set to receive information.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following example illustrates how you can use a background function with
+    Cloud Pub/Sub; the blueprint code that is shown represents the default function
+    used by Google:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, the signature relating to the background function definition
+    remains consistent. We define an `exports` function onto which the trigger establishes
+    a corresponding action. The service related to the event information to be used
+    requires parameters, that is, event payload data and event metadata. In the Cloud
+    Pub/Sub Cloud Functions example, the function will take the input to the message
+    queue and display the content as a log entry.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating an event type trigger of the Cloud Pub/Sub type requires a topic to
+    be created as part of the initiation of the function. Once created, testing the
+    service presents the same properties that we saw previously with the HTTP trigger,
+    for example, region, memory allocation, timeout, and last deployment. However,
+    here, the HTTP endpoint is replaced with the trigger type of Cloud Pub/Sub and
+    the associated defined topic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To test the function, an important thing to remember is that Cloud Pub/Sub
+    expects its data to be formatted as `base64`. Follow these two steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Transpose the data to `base64` to trigger an event from the Cloud Functions
+    testing page. Thankfully, you can do this from Google Cloud Shell by entering
+    the following on the command line:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output of the preceding command shows the `base64` equivalent of the text
+    entered:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/a87f23d7-5ef0-4081-a137-5ab284161809.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In the preceding example, we need to convert the information using `base64`
+    manually. If you were to use the Cloud Pub/Submenu item or the `gcloud pubsub
+    topics publish` command, both of these tools will automatically convert your text
+    message.
+  prefs: []
+  type: TYPE_NORMAL
+- en: From the preceding, you may discern the raw power of this event type, as it
+    can pass information between multiple services. For example, Stackdriver supports
+    Cloud Pub/Sub interfaces (a Stackdriver sink). Understanding this means that it
+    is possible to use Cloud Pub/Sub to invoke a coupling across services, such as
+    publishing information in Stackdriver and consuming this data in services such
+    as BigQuery or Cloud Storage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we know a bit more about the power and versatility of Cloud Pub/Sub,
+    we can turn our attention to Cloud Storage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Triggering Cloud Storage
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As indicated in earlier chapters, Cloud Storage is an object data store that
+    has an associated life cycle and event notification. More commonly referred to
+    as a bucket, Cloud Storage adds a highly functional notification mechanism to
+    your arsenal. Having the ability to incorporate intermediary storage into your
+    application opens up greater possibilities, and it provides the means to apply
+    stage gating as part of any processing via the associated event types that are
+    supported. The flexibility of this solution means that it is a useful service
+    to familiarize yourself with, as the storage can be adopted for multiple scenarios.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The typical use cases for storage is that of either temporary storage (that
+    is, where an application might need to store an intermediary file such as audio
+    or text output) or as a cheap form of storage for something like a static website.
+    Later in this chapter, we will present an example for building a simple website
+    that can be used to show information, based on a defined template.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Cloud storage can be used in a number of different ways; however, here, we will
+    primarily focus on using this as storage. Event types focus on the notification
+    of actions such as `finalize`, `delete`, `archive`, and `metadataUpdate`. It should
+    be noted that the notification mechanism for storage leverages Cloud Pub/Sub notifications
+    to ensure scalable and flexible messaging.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Over the course of this section, we will cover a few of the most common use
+    cases for Cloud Storage. In addition to this, the event type mentions that you
+    are still able to retain all the existing benefits, for example, life cycle access,
+    API access, support of different storage classes, and secure/durable storage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Google provides a wealth of APIs and learning how to access these APIs gives
+    you the opportunity to access different services. Due to the richness of the Cloud
+    Storage API, there are a number of event types that are supported. The most common,
+    perhaps, is the creation of an object within Cloud Storage:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the preceding example, a notification occurs when an *object creation* event
+    is generated from the bucket object. When setting up the function, an essential
+    requirement is to specify a storage bucket on which the action will respond.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Notably, there are several parameters supported that enable an application to
+    derive further information about the state of the calling object. If an event
+    has passed additional metadata, this high-level event metadata (of the type invocation
+    information) is also accessible. Additionally, background functions can utilize
+    other properties, such as data that contains the message to be processed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A notification emitting from the function has a similar pattern across each
+    of the notification types. This event structure is one that you should aim to
+    become familiar with, as the use of functions is very consistent, irrespective
+    of the kind of service used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The specific function referenced by the Google Cloud Storage event is captured
+    in the event parameter, which is passed to the Cloud Function when the service
+    is run. The blueprint code listed previously will log the event notification that
+    has been processed along with the name of the file residing within the bucket.
+    Outside, more essential services include additional triggers such as Firebase
+    Authentication. However, the patterns outlined follow for these functions, and
+    it should be a smooth and easy transition to be able to work with any of these
+    other function triggers as they become available:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Google Cloud Firestore
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Google Analytics for Firebase
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Firebase Authentication
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Firebase Realtime Database
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Firebase Remote Config
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: At this point, you will hopefully be thinking about how to incorporate some
+    of these trigger types into your application. When working with functions, it
+    is essential to remember that the services should be short-lived and built around
+    lightweight components. Clearly, there are many cases and examples that are both
+    innovative and useful that will show how to use the code in a real-world example.
+    The documentation for Cloud Functions is amazingly detailed and can provide answers
+    to many of the queries you may come across in your implementations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Later in this chapter, we will be looking at some use cases that utilize these
+    notification types. First, we will look at how to utilize the vast software library
+    of Google APIs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exploring Cloud Functions and Google APIs
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this example, we will build an application that will use Cloud Pub/Sub to
+    provide resilient access to a document. Earlier, we introduced our new friend,
+    Google Cloud Pub. Now we will get to see how we can utilize this feature as part
+    of a simple solution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Our application will create a time-constrained link to a text file, which can
+    only be accessed by an authenticated source. This type of functionality is actually
+    an everyday use case for transferring data securely across the internet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: General architecture
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create a signed URL, we will need an existing file that has been uploaded
+    to a storage bucket. For the sake of this example, we will take the following
+    approach in terms of the types of functions to be developed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/beb8344e-a02a-48dd-b13a-041c32c40204.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'From the preceding diagram, we are going to create two services in order to
+    create a signed URL:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Frontend service**: A straightforward service that will be based on an HTTP
+    endpoint and be made publically available.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Backend service**: A second service that will be used to perform the background
+    function of creating the signed URL.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Let's understand each service in more detail next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Frontend service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Our primary export function named `gcpSecureURL` accepts a request and response
+    parameters, indicating that this is an HTTP function. This signature is consistent
+    across all Cloud Functions and provides a common way to pass and receive information
+    in an application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: From the architecture diagram previously presented, it should be apparent that
+    our frontend service uses Cloud Pub/Sub. As described earlier in this chapter,
+    we can use Pub/Sub to provide information to our application. In this example,
+    we are using the initial request information and adding this to the message queue
+    of Cloud Pub/Sub.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To start, we need to initialize our environment once more:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Create a new directory called `ch05` and make this the current directory.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Create a new subdirectory called `frontend-service`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Create a second new subdirectory called `backend-service`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'At this point, you will have the following directory structure:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Make `frontend-service` the current directory.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Initialize the `npm` package for this directory, that is, `npm init --yes`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Then, add the `pubsub` package, that is, `npm install @google-cloud/pubsub`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'In order to process the information presented at the frontend, we need to create
+    a new application:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Create a new file called `index.js`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Add the following code to `index.js`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The entry point for the code is the `gcpSecureURL` function. Here is an overview
+    of this application''s activities:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: From here, we call the `gcpCreatePayload` function with an example filename,
+    for example, `google-cloud.png`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The `gcpCreatePayload` function performs a single task in order to establish
+    a new topic and publish the filename to it.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: After this action has been taken, the application will return a `200` HTTP response
+    code and output a message indicating that a secure URL has been created for the
+    filename.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'To deploy the function, we take the normal steps for an HTTP endpoint, that
+    is, the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As mentioned previously, we are going to use Cloud Pub/Sub; therefore, we need
+    to create a topic to enable communication to take place:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Congratulations! The frontend application has been successfully deployed and
+    is ready to serve filenames to Cloud Pub/Sub.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Backend service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Now that we have the frontend service created, what is left to do? Well, so
+    far we have essentially been creating a queue of files to be processed. In this
+    section, we will set about processing the filenames that have been added to the
+    message queue.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once again, we need to reinitialize our environment—this time, focusing our
+    efforts on the `backend-service` subdirectory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Move to the `backend-service` subdirectory created earlier.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Initialize the `npm` package for this directory, that is, `npm init --yes`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Add the `pubsub` package, that is, `npm install @google-cloud/pubsub`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Then, add the Cloud Storage package, that is, `npm install @google-cloud/storage`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'In order to process the information presented at the backend, we need to create
+    a new application:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Create a new file called `index.js`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Add the following code to `index.js`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the preceding code, we will take information from a message queue and convert
+    it from `base64`. The information presented should represent the example filename
+    passed. Using a console log message, we can confirm that it has been correctly
+    accessed. Deploy this initial revision of the code in order to check our assumption:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'At this point, we now have two Cloud Functions deployed on Google Cloud:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Name** | **Function type** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `gcpSecureURL` | HTTP endpoint function |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `gcpCreateSignedURL` | Background function |'
+  prefs: []
+  type: TYPE_TB
+- en: 'Testing the functions can be done via the Cloud Console using the `trigger`
+    commands. Go to the Cloud Functions option in Google Cloud and select the function
+    for accessing the required command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Select the trigger from the menu and choose the URL associated with `gcpSecureURL`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The function will display the message `Creating a secure URL for: google-cloud.png`.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Now select the second `gcpCreateSignedURL` function.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: From the invocation list, it can be seen that this function has been called.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Then, select the view logs options to see the associated log messages.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Observe the message, `gcpCreateSignedURL: google-cloud.png`, in the logs.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Congratulations! The `gcpCreateSignedURL` (backend) service has been successfully
+    deployed and is receiving messages from the `gcpSecureURL` (frontend) service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this point in the development, we are unapologetically using unauthenticated
+    invocations of our functions, as this makes the development process more straightforward.
+    In a production environment, this approach would be unacceptable. As there are
+    components for both the frontend and the backend, one approach would be to amend
+    the permissions so only the `gcpSecureURL` is able to call the `gcpCreateSignedURL`
+    service. Toward the end of the chapter, we will come to a different conclusion
+    on how to address this particular issue.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Our application is really progressing quite quickly. Now we need to add the
+    signed URL processing capability to our existing `gcpCreateSignedURL` backend
+    code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To process the information presented at the backend, we need to create a new
+    application:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Edit the `index.js` file.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Add the following code to the top of the existing `index.js` file:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the preceding code, we make some assumptions regarding the bucket and filename
+    for the purposes of brevity. As you can see, the function performs one task, which
+    is to create a signed URL. Again, we use the `console.log` function for debugging
+    purposes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Additionally, we also need to add some definitions to our code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Add the following code to the top of the existing `index.js` file:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the code extract, we need to ensure that the both variables' names `bucketName`
+    and `filename` exist in your project before running the application. In addition
+    to this, **make sure that the expiration date is set to a future date**, taking
+    note of the expected format. We will fix that in a later revision; however, for
+    now, just remember that these attributes are valid for your project.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, we want to reference our new `SignedURL` function within the subdirectory
+    `backend-service` :'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Edit the `index.js` file and amend the entry point function:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: Based on the preceding enhancements, we are now ready to deploy the updated
+    version of `gcpCreateSignedURL` (that is, the `backend-service`)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: To test the newly deployed `backend-service`, we replicate the process that
+    we followed earlier. Go to the Cloud Functions option in Google Cloud and invoke
+    the `frontend-service` by pressing the associated URL available in the Cloud Console.
+    Then, observe the logs for the `backend-service` as the information is processed
+    and logs messages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Congratulations! The logs contain a reference to the signed URL for the file
+    presented. We have covered a lot of important context in this section. Continue
+    to the next section to work on an example using Cloud Storage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exploring Google Cloud Storage events
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this example, we want to expand our understanding of background functions.
+    In particular, we will be integrating with Cloud Storage in order to automate
+    object life cycle management.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Taking advantage of existing functionality (for example, packages and libraries)
+    is an excellent way to build your application. In this example, we will leverage
+    Google Cloud Storage encrypted by default to develop a secure data solution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: General architecture
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The main difference from our Cloud Pub/Sub example will be the notifications
+    that we attach to Cloud Storage. In this example, we will want the storage bucket
+    to initiate the request to provide a `SignedURL` function, rather than having
+    to invoke our function manually. Remember, in the first version of our application,
+    there was no event notification between the storage bucket and the `frontend-service`—let''s
+    fix that:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/d57ad862-00c7-46c7-b0d9-db31cc9e75ce.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'From the diagram, we will introduce an additional service to react to storage
+    event notifications (that is, create/finalize):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Storage**: A file is uploaded to the storage bucket.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Stream Processing**: A notification is generated as well as a payload containing
+    the filename.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**SignedURL Frontend Service**: This maintains a subscription to a topic and
+    invokes its function on receipt of a new payload.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**SignedURL Backend Service**: This performs the background function of creating
+    the signed URL.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We need to make two changes to our existing code to enable this functionality.
+    First, we need to amend the frontend service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Frontend service**: Amend the code.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Storage service**: Set up a new notification.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Frontend service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'As you may have guessed, the signature for a Cloud Storage trigger is different
+    from an HTTP endpoint. Therefore, the code in `frontend-service` subdirectory
+    will require a small amendment to retain compatibility. We need to change our
+    application code so that we can process the information correctly:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the `frontend-service` subdirectory, edit the `index.js` file.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Remove the existing `gcpSecureURL` function as this relates to an HTTP endpoint.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Add the following code so that the Cloud Storage trigger can be processed:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note how the signature for `gcpSecureURL` is now using data and context as we
+    are now referencing information from Cloud Storage. Compare this to previous examples
+    that use request and response for HTTP based triggers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Congratulations! The `gcpSecureURL frontend-service` is now able to accept notifications
+    from Cloud Storage. Let's move on to establishing a suitable trigger for the storage
+    bucket used in our project.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Storage service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To enable the storage service, unlike the previous section, we need to let Google
+    Cloud Storage know that we want to receive notifications. Due to the richness
+    of the API associated with storage, there is also another command that we need
+    to use, `gsutil`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'From the command line, we need to tell our storage bucket which notification
+    event we want to monitor. Besides that, we also want it to inform us when something
+    has happened. [Chapter 4](9431bfa5-ef43-4043-9779-d5b6d3fef36c.xhtml), *Developing
+    Cloud Functions*, contains the Cloud Storage triggers that are supported. Specifically,
+    the one relevant to our task is `google.storage.object.finalize` (that is, the
+    `finalize`/`create` activities), which includes the events based on the creation
+    of an object within a bucket:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Delete the existing `gcpSecureURL` Cloud Function.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Deploy the `frontend` function with a trigger based on the bucket resource:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the above code my bucket is defined as `roselabs-signed-upload` which is
+    unique to my application. In your project, the bucket should be named appropriately
+    based on your Google Cloud project settings.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Upload a file to the bucket. This can be any file you have handy.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The `gcpSecureURL` will now be invoked through a Cloud Pub/Sub notification.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Congratulations, integrating notifications within an application is a huge time-saver.
+    In the next section, we will enhance the function in order to learn how to integrate
+    it with Google Cloud Services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building an enhanced signed URL service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the final revision of the application, we will fix some of the apparent issues
+    with the Cloud Function. The main thing that needs addressing is the hard coding
+    of the bucket reference, filename, and expiration date. One option would be to
+    provide a nice graphical frontend for the application. However—spoiler alert—we
+    won't be taking that approach here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To conclude the application, we need to correct three things to make the Cloud
+    Function super useful:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Filename
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Bucket reference
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Expiration date
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Small changes can have a substantive impact, and these three things will make
+    the application significantly better. To make the changes, we need to amend both
+    services and pass additional variables from one service to another. Remember,
+    we have previously implemented Cloud Pub/Sub to pass information between our services.
+    Now we need to expand this approach. But will this make the task more difficult?
+    By enhancing the components in turn and discussing the impact it has, we will
+    answer this question as we start our enhancement journey with the frontend service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Frontend service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In terms of the frontend service, the application currently sends the filename
+    as the payload. However, we are missing a trick here, as the Cloud Storage data
+    object actually includes some really useful information.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Cl****oud Storage context object**:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The following table contains the information associated with a context object.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Object** | **Field** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `Context` | `eventId` |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `Context` | `eventType` |'
+  prefs: []
+  type: TYPE_TB
+- en: '**Cloud Storage data object**:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The following table outlines the information associated with a data object.
+    As you can see there is some useful information available here that we can use
+    in our application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Object** | **Field** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `data` | `bucket` |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `data` | `name` |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `data` | `metageneration` |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `data` | `timeCreation` |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `data` | `updated` |'
+  prefs: []
+  type: TYPE_TB
+- en: 'Based on the preceding information, much of what we need is available in the
+    data object. In this case, we can pass this object to our message queue for further
+    processing by the backend:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Go to the `frontend-service` subdirectory.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Amend the `entrypoint` function, which is outlined as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, amend the `gcpCreatePayload` function as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: Congratulations! The `gcpSecureURL` function is now forwarding the data object
+    to Cloud Pub/Sub. Rather than creating additional potentially complex code, we
+    simply pass data between services utilizing Cloud Pub/Sub messaging.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Backend service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The backend service will not have a data object presented to the `entrypoint`
+    function. Instead of accessing a filename, we need to extract both the filename
+    and the bucket name from the data object:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Go to the `backend-service` subdirectory.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Amend the `gcpCreateSignedURL` function, which is as outlined as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Amend the `signedURL` function:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'While we are in the `backend-service` subdirectory, we can also fix the hard
+    coded expiration date. One simple way to correct the issue with expiration dates
+    is to add a standard duration for signed URLs. Adding a duration means that we
+    can automatically supply a future date on which the URLs supplied will automatically
+    expire:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Go to the `backend-service` subdirectory.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Add an expiry date function above the `gcpGenerateSignedURL` function:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Amend the `options` object in order to call the `gcpExpirationDate` function:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: Rather than adding complex code, we pass the current information provided by
+    Cloud Storage, and that enables our services to take advantage of a complete dataset.
+    Additionally, we now have a set duration for signed URLs, so the process is completely
+    automated from start to finish.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Go ahead and delete the existing Cloud Functions from your project, and delete
+    any content from the storage bucket. We will redeploy our functions one last time.
+    However, this time, when asked whether you want to allow unauthenticated invocations,
+    select **No**:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Deploy the updated frontend service:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Deploy the backend service:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: Once the Cloud Functions are deployed, upload a new file to the storage bucket.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Once the user uploads a document to the bucket, the automated process takes
+    over. Our functions still work, as they use the service account associated with
+    the project. The Cloud Functions are no longer externally accessible to unauthenticated
+    invocations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The data object for Cloud Storage provides all the information we need for
+    our service to be completely self-reliant (that is, a filename and a bucket name).
+    With the application now seamlessly passing information between services using
+    a service account, we no longer have to worry so much about the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The security of the Cloud Functions, as a service account manages them
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: User validation, as the information in the storage bucket is provided automatically
+    on file upload
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Scaling our function, as the data uses Cloud Storage and Cloud Pub/Sub
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Congratulations! The `backend-service` is now using the data object consumed
+    from Cloud Pub/Sub. Before we conclude this topic, please take a minute to consider
+    how flexible our solution has become. We started with a simple requirement, and
+    by making some small incremental changes, we now have a fully automated service.
+    Due to the inclusion of both Cloud Pub/Sub and Cloud Storage, we also have a solution
+    that will scale and has a level of resilience built-in. The architecture maintains
+    loose coupling between the functions, so we can continue to iterate our design
+    without fear of breaking links to components, thanks to the inclusion of Cloud
+    Pub/Sub messages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: At this point, you should have a reasonable understanding of the general architecture
+    and components provided by Cloud Functions. While the typical use case of Cloud
+    Functions is to use HTTP endpoints, it is also incredibly useful to have background
+    functions (for example, Cloud Pub/Sub and Cloud Storage) available to integrate
+    different services using a standardized interface. Our use of HTTP endpoints and
+    background functions has enabled us to prototype a simple service application
+    to create a `signedURL` function. Building on the knowledge we have gathered over
+    the previous chapters, we have been able to perform the majority of this work
+    from a local development environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Cloud Functions process of developing an application demonstrates how a
+    simple solution can be quick to build and extend. Cloud Pub/Sub requires a message
+    queue to be defined that provides the capability to integrate different services.
+    Being able to decouple the background processing of data allows solutions to be
+    loosely coupled and more open to integration with a broader range of technical
+    solutions. In many instances, Cloud Pub/Sub operates as the glue for Google Cloud,
+    delivering data exchanges between a variety of services. Cloud Storage offers
+    a simple, yet effective, means for users to upload data without needing to expose
+    portals or create complex life cycle management code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will create some general examples to build on the techniques
+    we have learned so far. Our focus will remain on Cloud Functions and building
+    components to whet our appetite for developing a more complete and challenging
+    application. The emphasis of this content will be to provide a more comprehensive
+    series of examples and also cover some of the elements necessary to incorporate
+    Cloud Functions within your portfolio.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What subscription types does Cloud Pub/Sub support?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Name three message design patterns for Cloud Pub/Sub?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What verbs are associated with HTTP?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: If I want to have user data accessible in the URL, should I use GET or POST?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What Cloud Storage property maintains information on the data content?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: If my code responds with an error code of 5xx, where should I expect the error
+    to be?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Does Google Cloud support OAuth v2?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: If a Cloud Pub/Sub message is not acknowledged before its deadline, is the message
+    lost?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '**Authentication Developers, Functions, and End Users**: [https://cloud.google.com/functions/docs/securing/authenticating](https://cloud.google.com/functions/docs/securing/authenticating)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Using OAuth 2.0 and Google Cloud Functions to access Google services**: [https://cloud.google.com/community/tutorials/cloud-functions-oauth-gmail](https://cloud.google.com/community/tutorials/cloud-functions-oauth-gmail)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Understanding OAuth2 and Deploying a Basic Authorization Service to Cloud
+    Functions**: [https://cloud.google.com/community/tutorials/understanding-oauth2-and-deploy-a-basic-auth-srv-to-cloud-functions](https://cloud.google.com/community/tutorials/understanding-oauth2-and-deploy-a-basic-auth-srv-to-cloud-functions)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Securing Google Cloud Functions**: [https://cloud.google.com/functions/docs/securing/](https://cloud.google.com/functions/docs/securing/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

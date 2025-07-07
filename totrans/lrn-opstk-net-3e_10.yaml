@@ -1,0 +1,1633 @@
+- en: Creating Standalone Routers with Neutron
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Neutron enables users to build routers that provide connectivity between networks
+    created by users and external networks. In a reference implementation, the Neutron
+    L3 agent provides IP routing and network address translation for virtual machine
+    instances within the cloud by utilizing network namespaces to provide isolated
+    routing instances. By creating networks and attaching them to routers, users can
+    expose connected virtual machine instances and their applications to the internet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Prior to the Juno release of OpenStack, users were limited to building standalone
+    routers that acted as single points of failure in the network stack. Since the
+    advent of distributed virtual routers in Juno and beyond, standalone routers are
+    now referred to as legacy routers. While the preference may be to provide resiliency
+    in the form of highly-available or distributed virtual routers, standalone routers
+    provide the simplest implementation of the three options.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In previous chapters, we discovered the difference between provider and self-service
+    project networks and demonstrated the process of booting an instance and connecting
+    it to the network. In this chapter, we will work through the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing and configuring the L3 agent
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating an external provider network
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating a standalone router in the CLI and Horizon dashboard
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Attaching a router to both external and tenant networks
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Booting instances
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Demonstrating instance and namespace connectivity using Linux bridges
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Demonstrating SNAT and DNAT functionality provided by floating IPs
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Routing traffic in the cloud
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In a reference implementation, virtual routers created in Neutron exist as
+    network namespaces that reside on nodes running the Neutron L3 agent service.
+    A virtual router is often connected to a single external provider network and
+    one or more project networks. The router interfaces connected to those networks
+    can be identified as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'qg: Gateway interface'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: qr:&amp;nbsp;Router interface
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Neutron routers are responsible for providing inbound and outbound connectivity
+    to and from project networks through the use of Network Address Translation, or
+    NAT. The following diagram shows how a router namespace may be connected to multiple
+    bridges in a Linux bridge-based implementation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/f2f18ced-a8ca-4e65-b5e1-9af3934b16df.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The preceding diagram demonstrates a Neutron router connected to multiple bridges
+    in a Linux bridge-based implementation. In an Open vSwitch-based implementation,
+    the router's interfaces are connected directly to the integration bridge. Traffic
+    from project networks is routed in through qr interfaces and out the qg interface
+    onto the external network. Routing tables within the namespace dictate how traffic
+    is routed, and iptables rules dictate how traffic is translated, if necessary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: More on creating and configuring standalone Neutron routers, along with examples
+    on how they are connected to the network and provide connectivity to instances,
+    can be found later on in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing and configuring the Neutron L3 agent
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To install the Neutron L3 agent, run the following command on the `controller01`
+    node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Neutron stores the L3 agent configuration in the `/etc/neutron/l3_agent.ini`
+    file. The most common configuration options will be covered in the following subsections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defining an interface driver
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The Neutron L3 agent must be configured to use an interface driver that corresponds
+    to the chosen mechanism driver. In a reference implementation, that can be either
+    the Linux bridge or Open vSwitch drivers. In this environment, the linux bridge
+    driver will be installed on `controller01`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the `controller01` node, update the Neutron L3 agent configuration file
+    at `/etc/neutron/l3_agent.ini` and specify the following Linux bridge interface
+    driver for this particular environment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For your reference, the following can be used when the `network` node hosting
+    routers is configured for Open vSwitch:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Enabling the metadata proxy
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When Neutron routers are used as the gateway for instances, requests for metadata
+    are proxied by the router rather than the DHCP server and are forwarded to the
+    Nova metadata service. This feature is enabled by default and can be disabled
+    by setting the `enable_metadata_proxy`&amp;nbsp;value to `False`&amp;nbsp;in the
+    `l3_agent.ini` configuration file and uncommenting the line. For this environment,
+    leave the setting at its default `True` value.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If the metadata proxy is disabled, users may only be able to obtain metadata
+    using config-drive.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting the agent mode
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: By default, the Neutron L3 agent works in legacy mode, which means that the
+    L3 agent is deployed on a centralized node responsible for networking services.
+    The default value for `agent_mode` is `legacy`, which shall remain unchanged for
+    the remainder of this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Enabling the router service plugin
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The router service plugin must be enabled before Neutron will accept API commands
+    related to Neutron routers. On the `controller01` node, update the Neutron API
+    server configuration file at `/etc/neutron/neutron.conf` and append&amp;nbsp;`router`
+    to the list of service plugins, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `service_plugins` configuration option may be disabled. Remove any leading
+    hash (#) to enable the option.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Enabling router management in the dashboard
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The Horizon dashboard can be used to manage routers, but the option must be
+    enabled first.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the `controller01` node, edit the OpenStack dashboard configuration file
+    at `/etc/openstack-dashboard/local_settings.py` and navigate to the `OPENSTACK_NEUTRON_NETWORK`
+    configuration option. Change the `enable_router` dictionary value from `False`
+    to `True`, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/b0000103-56b8-4b32-8475-2e88ac9529c2.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Close the file and proceed with the next section to restart services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Restarting services
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'After making changes to the configuration of the Neutron L3 agent and API service,
+    issue the following commands on the&amp;nbsp;`controller01` node to restart the
+    respective services:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Verify that the agent is running:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The service should return a similar output to the following and be in an active
+    (running) state:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/3b4553ad-b3e9-4991-928e-92d665c321d8.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: If the service remains stopped, troubleshoot any errors that may be indicated
+    in the `/var/log/neutron/l3-agent.log` log file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Router management in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Neutron offers a number of commands that can be used to create and manage routers.
+    The primary commands associated with router management include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Router Management Commands** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `router create` | Creates a router |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `router delete` | Deletes a router(s) |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `router set` | Sets a router gateway and other properties |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `router unset` | Unsets a router gateway and other properties |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `router show` | Displays router details |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `router list` | Lists routers |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `router add port` | Adds an interface to a router using an existing port
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `router add subnet` | Adds an interface to a router using an existing subnet
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `router remove port` | Removes an interface from a router using a corresponding
+    port ID |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `router remove subnet` | Removes an interface from a router using a corresponding
+    subnet ID |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `network agent list` | Lists all network agents |'
+  prefs: []
+  type: TYPE_TB
+- en: Creating routers in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Routers in Neutron are associated with projects and can only be managed by users
+    associated with the project. Unlike networks, routers cannot be shared among projects.
+    However, shared networks can be attached to routers and potentially route traffic
+    between different projects. Users with the admin role can associate routers with
+    other projects during the router creation process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To create a standalone router, use the `openstack router create`&amp;nbsp;command
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: The router will be created without any interfaces attached and will immediately
+    be scheduled to an L3 agent. A corresponding network namespace should be visible
+    on the node hosting the respective L3 agent and can be found using the `ip netnslist`
+    command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Listing routers in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To display a list of existing routers, use the `openstack router list` command
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: Filters based on name, project, admin state, scheduled agent, and tags can be
+    used to narrow returned results.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Users will only see routers associated with their project. When executed as
+    a user with the admin role, Neutron will return a listing of all routers across
+    all projects unless a project ID is specified.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Displaying router attributes in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To display the attributes of a router, use the `openstack router show` command
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: Among the output returned is the admin state, the external network, the SNAT
+    state, and project ID associated with the router. Two additional attributes, distributed
+    and HA, are used to identify the router as being distributed or highly-available.
+    For standalone routers, both attributes will be set to False.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Updating router attributes in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To update the attributes of a router, use the `openstack router set` or `openstack
+    router unset`&amp;nbsp;commands shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: Working with router interfaces in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Standalone Neutron routers have two types of interfaces: gateway and internal.
+    The gateway interface of a Neutron router is analogous to the WAN interface of
+    a physical router. It is the interface connected to an upstream device that provides
+    connectivity to external resources. The internal interfaces of Neutron routers
+    are analogous to the LAN interfaces of physical routers. Internal interfaces are
+    connected to project networks and often serve as the gateway or next hop for instances
+    in those networks.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Attaching internal interfaces to routers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create an internal router interface and attach it to a subnet, use the `openstack
+    router add subnet` command shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `subnet`&amp;nbsp;argument represents a subnet name or ID to be attached
+    to the router. Neutron will assign the gateway IP of the subnet to the router
+    when creating the `qr` interface and corresponding port.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To attach an existing port directly to the router, use the `openstack router
+    add port` command shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `port` keyword represents a port name or ID to be attached to the router.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A Neutron router can only have one interface in a given subnet, but can be attached
+    to multiple subnets simultaneously. The L3 agent is responsible for connecting
+    interfaces within the router namespace to the proper bridges on the host.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In Neutron, a network may contain multiple subnets. A router must be connected
+    to all subnets in a network to properly route traffic for that network. Be sure
+    not to attach an external network using this process, as traffic may be negatively
+    impacted!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Attaching a gateway interface to a router
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The external interface of a Neutron router is referred to as the gateway interface.
+    A router is limited to a single gateway interface. To be eligible for use as an
+    external network that can be used for router gateway interfaces, a provider network
+    must have its router's external attribute set to True&amp;nbsp;or External.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To attach a gateway interface to a router, use the `openstack router set` command
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `<network>`&amp;nbsp;argument represents a network name or ID to be attached
+    to the router as the gateway network. Neutron will assign an IP address from the
+    external network to the router. By default, Neutron routers perform source network
+    address translation, or SNAT, on all traffic from instances that lack floating
+    IPs. NAT and SNAT will be covered in more detail later in this chapter. To disable
+    this functionality, use the `--disable-snat`&amp;nbsp;argument when using the
+    `openstack router set`&amp;nbsp;command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Listing interfaces attached to routers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To list the interfaces attached to a router, use the `openstack port list`
+    command shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: The router&amp;nbsp;argument represents the router name or ID.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deleting internal interfaces
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To delete an internal interface from a router, use the `openstack router remove
+    port`&amp;nbsp;or&amp;nbsp;`openstack router remove subnet`&amp;nbsp;commands
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `<port>`&amp;nbsp;argument represents the name or ID of a particular port
+    to be removed from the router, while the `<subnet>`&amp;nbsp;argument represents
+    the name of ID of a subnet to be removed from the router. In either case, deleting
+    an interface based on port or subnet results in the respective Neutron port being
+    removed from the database.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Clearing the gateway interface
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Gateway interfaces cannot be removed from a router using the `openstack router
+    remove` commands. Instead, the `openstack router unset` command must be used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To clear the gateway of a router, use the `openstack router unset` command
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: Neutron performs checks that will prohibit the clearing of a gateway interface
+    in the event floating IPs are associated with the router.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deleting routers in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To delete a router, use the `openstack router delete`&amp;nbsp;command and
+    specify the name or ID of the router:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Multiple routers can also be deleted simultaneously, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: Neutron will successfully delete the routers as long as all connected ports
+    or subnets have been removed and all floating IPs have been disassociated or deleted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Network address translation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Network address translation, or NAT, is a networking concept that was developed
+    in the early 1990s in response to the rapid depletion of IP addresses throughout
+    the world. Prior to NAT, every host connected to the internet had a unique IP
+    address.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Standalone routers support two types of NAT:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: one-to-one
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: many-to-one
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A one-to-one NAT is a method in which one IP address is directly mapped to another.
+    Commonly referred to as a static NAT, a one-to-one NAT is often used to map a
+    unique public address to a privately addressed host. Floating IPs utilize one-to-one
+    NAT concepts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A many-to-one NAT is a method in which multiple addresses are mapped to a single
+    address. A many-to-one NAT employs the use of port address translation, or PAT.
+    Neutron uses PAT to provide external access to instances behind the router when
+    floating IPs are not assigned.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For more information on network address translation, please visit the following
+    Wikipedia page at&amp;nbsp;[http://en.wikipedia.org/wiki/Network_address_translation](http://en.wikipedia.org/wiki/Network_address_translation).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Floating IP addresses
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Self-service project networks, when attached to a Neutron router, often utilize
+    the router as their default gateway. By default, when a router receives traffic
+    from an instance and routes it upstream, the router performs a port address translation
+    and modifies the source address of the packet to appear as its own external interface
+    address. When the translation occurs, the ephemeral source port is mapped to the
+    original client address in a table that is referred to when the response packet
+    is received. This ensures that the packet can be routed upstream and returned
+    to the router, where the packet is modified and returned to the instance that
+    initiated the connection. Neutron refers to this type of behavior as source NAT.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When users require direct inbound access to instances, a floating IP address
+    can be utilized. A floating IP address in OpenStack is a one-to-one static NAT
+    that maps an external address from an external network to an internal address
+    in a project network. This method of NAT allows instances to be accessible from
+    remote networks such as the internet. Floating IP addresses are configured on
+    the external interface of the router that serves as the gateway for the instance,
+    which is then responsible for modifying both the source and destination address
+    of packets depending on their direction.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Floating IP management
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The OpenStack command-line client offers a number of commands that can be used
+    to create and manage floating IPs. The primary commands associated with floating
+    IPs include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Floating IP Commands** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `floating ip create` | Creates a floating IP |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `floating ip delete` | Deletes a floating IP&amp;nbsp; |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `floating ip list` | Lists floating IP&amp;nbsp; |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `floating ip show` | Displays floating IP details |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `floating ip set` | Sets floating IP properties |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `floating ipunset` | Unsets floating IP properties |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `floating ip pool list` | Lists pools of floating IP addresses |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `server add floating ip` | Adds a floating IP address to a server |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `server remove floating ip` | Removes a floating IP address from a server
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: Creating floating IPs in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: If you recall from previous chapters, IP addresses are not assigned directly
+    to instances. Instead, an IP address is associated with a Neutron port, and that
+    port is logically mapped to an instance or other network resource.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When a floating IP is created, it will not be functional until it is associated
+    with a Neutron port. To create a floating IP from within the CLI, use the `openstack
+    floating ip create` command shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: Floating IP addresses can only be used within the project in which they were
+    created. The&amp;nbsp;`--project`&amp;nbsp;argument can be used by an administrator
+    so that they are able to specify the project associated with the floating IP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--port` argument is optional and is used to specify the port to be associated
+    with the floating IP upon creation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Because a port can have multiple IP addresses associated with it, it may be
+    necessary to define a specific fixed IP to associate the floating IP with. Use
+    the `--fixed-ip-address`&amp;nbsp;argument to specify the fixed IP address that
+    should be associated with the floating IP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In previous releases of OpenStack, floating IPs were automatically assigned
+    from the allocation pool of the external network. This behavior made it difficult
+    for users who required particular addresses, especially when upstream NATs or
+    firewall rules were already in place that specified certain floating IP addresses.
+    Beginning with Kilo, it is possible to create a floating IP using a specified
+    address as long as it is available and not associated with another project. With
+    this feature, users can specify a particular floating IP address and avoid modifying
+    external systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Use the `--floating-ip-address`&amp;nbsp;argument to specify a particular address
+    from the external network for use as a floating IP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Associating floating IPs with ports in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Once a floating IP has been created, it is available for use by any user within
+    the project that created it. To associate a floating IP with an instance, it is
+    first necessary to determine the Neutron port that is associated with the fixed
+    IP of the instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The port ID associated with the fixed IP address of an instance can be determined
+    in a couple of different ways. The quickest way may be to use the `openstack port
+    list` command with a filter that can narrow down ports per instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For example, the ports of an instance whose ID is `3d577137-9658-4226-906e-88d3117e497e`
+    can be determined in the following way:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e3169655-d0d8-4559-8f07-bb3c29bedcba.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Once the port ID has been determined, use the `openstack floating ip set` command
+    to associate the floating IP with the port:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: Neutron uses the subnet ID of the specified port to determine the router in
+    which to configure the floating IP address and respective NAT rules. The logic
+    involved means that no more than one standalone router should be attached to a
+    project network at any given time when floating IPs are used, otherwise unexpected
+    results may occur.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Listing floating IPs in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To determine the association of floating IPs to Neutron ports and addresses,
+    use the `openstack floating ip list` command shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: The output returned includes the floating IP ID, fixed IP address, floating
+    IP address, and port ID associated with the floating IP. All arguments are optional
+    and help with filtering results.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Displaying floating IP attributes in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To display the attributes of a floating IP in the CLI, use the `openstack floating
+    ip show` command shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: The output returned includes the floating IP address and the associated external
+    network, fixed IP address, port, project, and router IDs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Disassociating floating IPs in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To disassociate a floating IP from a port, use the `openstack floating ip unset`
+    command shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: Disassociating a floating IP from a port makes the floating IP available for
+    use by other users within the project.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deleting floating IPs in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To delete a floating IP, use the `openstack floating ip delete`&amp;nbsp;command
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: Deleting a floating IP returns the IP address to the external network allocation
+    pool where it can be allocated to other projects and used by other network resources,
+    including routers and floating IPs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Demonstrating traffic flow from an instance to the internet
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This section is dedicated to a walkthrough that leverages fundamental Neutron
+    concepts that have been discussed in this book so far. I will demonstrate the
+    process of creating and connecting standalone Neutron routers to both project
+    and external provider networks to provide network connectivity to instances.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A VLAN-based provider network will be created and used as an external gateway
+    network for the Neutron router, while a VLAN-based project network will be created
+    and used by instances. A Neutron router will be created and used to route traffic
+    from instances in the project network to the internet, and floating IPs will be
+    created and used to provide direct connectivity to instances.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting the foundation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In this demonstration, a Cisco Adaptive Security Appliance (ASA) serves as
+    the physical network gateway device and is connected to the internet. The following
+    networks will be utilized:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **VLAN name** | **VLAN ID** | **Network** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| GATEWAY_NET | 30 | 10.30.0.0/24 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| PROJECT_NET | auto | 192.168.200.0/24 |'
+  prefs: []
+  type: TYPE_TB
+- en: An inside interface of the Cisco ASA has been configured with an IP address
+    of 10.30.0.1/24 on VLAN 30 and will serve as the gateway for the external provider
+    network created in the upcoming section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following diagram is the logical diagram of the network to be built as
+    part of this demonstration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/719b1715-d1e1-4683-a3f2-92d0545a774f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In the preceding diagram, a Cisco ASA serves as the external network device
+    in front of the OpenStack cloud.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating an external provider network
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In order to provide instances with external connectivity, a Neutron router must
+    be connected to a provider network eligible for use as an external network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using the `openstack network create` command, create a provider network in
+    the admin project with the following attributes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Name: GATEWAY_NET'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Type: VLAN'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Segmentation ID: 30'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Physical Network: physnet1'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'External: True'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following screenshot displays the resulting output of the `openstack network
+    create` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/3750f014-3494-44ff-ae74-daf6cea9fd3d.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Using the `openstack subnet create` command, create a subnet with the following
+    attributes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Name: GATEWAY_SUBNET'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Network: 10.30.0.0'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Subnet Mask: 255.255.255.0'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Gateway: 10.30.0.1'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'DHCP: Disabled'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Allocation Pool: 10.30.0.100 - 10.30.0.254'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following screenshot displays the resulting output of the `openstack subnet
+    create`&amp;nbsp;command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/24f68096-2db5-463f-9cbc-dd123b9b55db.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Creating a Neutron router
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Create a router using the `openstack router create` command with the following
+    attribute:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Name: MyLegacyRouter'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following screenshot displays the resulting output of the `openstack router
+    create` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/ea57d17e-9860-48ce-b619-acea2989156b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Attaching the router to an external network
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When attaching a Neutron router an external network, the respective network
+    must have its `router:external` attribute set to `True` to be eligible for use
+    as an external network. Otherwise, the command will fail. The `GATEWAY_NET`&amp;nbsp;network
+    created previously meets this requirement.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using the `openstack router set` command, attach the router `MyLegacyRouter`&amp;nbsp;to
+    the `GATEWAY_NET` network:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'No output will be returned upon successful completion of the command. Using
+    the `openstack port list` command, determine the external IP address of the router:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/c69f030c-aab8-44a3-81c0-ea7e53e7167b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In this example, the IP address assigned to the router's external interface
+    is `10.30.0.106`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Identifying the L3 agent and namespace
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Once the gateway interface has been added, the router will be scheduled to
+    an eligible L3 agent. Using the&amp;nbsp;`openstack network agent list` command,
+    you can determine which L3 agent the router was scheduled to:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/ed662f35-628f-4f82-b87e-de8b4a75593c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In this example, the router was scheduled to the `controller01` node. In an
+    environment running multiple `L3` agents, a standalone router can be scheduled
+    to any one of the agents, but will not be scheduled to more than one at any given
+    time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The L3 agent is responsible for creating a network namespace that acts as the
+    virtual router. For easy identification, the name of the namespace incorporates
+    the router''s ID. The `ip netns list` command can be used to list all network
+    namespaces on a node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e4cf9cef-1462-4656-a94a-ff32027d0100.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Inside the respective qrouter&amp;nbsp;namespace, you will find an interface
+    with a prefix of `qg`. The `qg` interface is the gateway, or external, interface
+    of the router. Neutron automatically provisions an IP address to the `qg` interface
+    from the allocation pool of the external network''s subnet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/5a2cbc65-e507-43f0-b42e-09fd807d591a.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In the preceding screenshot, the IP address 10.30.0.106 was automatically configured
+    on the external interface inside the namespace.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When using the Open vSwitch interface driver, the `qg`&amp;nbsp;interface is
+    connected directly to the integration bridge. When using the Linux bridge interface
+    driver, as in this example, the `qg` interface is one end of a veth pair whose
+    other end is connected to a Linux bridge on the host.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using ethtool, we can determine the peer index of the corresponding interface
+    on the host. This can be useful in troubleshooting connectivity issues in and
+    out of network namespaces:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/a3bf5931-c216-4526-8d9b-2c66f607e849.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Using ip link show on the host, the corresponding interface (peer index 16)
+    can be found by searching for the index on the controller:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/fd969c23-e745-409e-a51e-4ffb35c1af2c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The output conveniently reveals the corresponding network namespace using the
+    `link-netnsid` identifier. In this example, the peer interface resides in the
+    network namespace with an ID of 3, otherwise known as `qrouter-9ef2eeed-4a55-4f64-b8be-4b07a43ec373`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The link-netnsid ID from `ip link show` should correspond to a namespace provided
+    in the output of the `ip netns list`&amp;nbsp;command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When using the Linux bridge interface driver, the veth interface is connected
+    to a bridge that corresponds to the external network shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/04c24954-7c53-4d1c-8d78-8a76de8284e7.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: For easy identification, the bridge name includes the first ten characters of
+    the Neutron network ID. In addition, each end of the veth pair includes the first
+    ten characters of the port ID associated with the interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The namespace is able to communicate with other devices in the same subnet through
+    the bridge. The other interface in the bridge, `eth2.30`, tags traffic as `VLAN
+    30` as it exits the bridge and out physical interface `eth2`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Observe the route table within the namespace. The default gateway address corresponds
+    to the address defined in the external provider subnet''s `gateway_ip` attribute.
+    In this case, it''s `10.30.0.1`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/cf9e8d80-ded7-4ab1-b63b-bcebb5e8fa40.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In this example environment, `10.30.0.1` is configured on the Cisco ASA and
+    will serve as the next hop gateway for outbound traffic from the Neutron router.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Testing gateway connectivity
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To test external connectivity from the Neutron router, ping the edge gateway
+    device from within the router namespace:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/58ff5664-096c-414d-8904-e1172b3670f6.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Successful ping attempts from the router namespace to the physical gateway device
+    demonstrate proper external VLAN configuration on both physical and virtual networking
+    components.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating an internal network
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Within the admin&amp;nbsp;project, create an internal network for instances.
+    In this demonstration, a network will be created with the following attribute:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Name: PROJECT_NET'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following screenshot demonstrates the resulting output of the `openstack
+    network create` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/42bdb09b-b245-4de0-b86c-5ad12e4ad384.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Notice how Neutron automatically determined the network type, physical network,
+    and segmentation ID for the network. Because the `openstack network create` command
+    was executed without specific provider attributes, Neutron relied on the configuration
+    found in the plugin configuration file to determine what type of network to create.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following configuration options in the ML2 configuration file were used
+    to determine the network type, physical network, and segmentation ID:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: Remember, in this configuration, Neutron will consume all available VLAN segmentation
+    IDs as networks are created before moving on to VXLAN networks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using the `openstack subnet create`&amp;nbsp;command, create a subnet with
+    the following attributes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Name: PROJECT_SUBNET'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Network: 192.168.200.0'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Subnet Mask: 255.255.255.0'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Gateway: <auto>'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'DHCP Range: <auto>'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'DNS Nameserver: 8.8.8.8'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The output should resemble the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/cdc6e932-a834-4082-9d9a-61a00aa8c0b2.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Attaching the router to the internal network
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Using the `openstack router add subnet` command, attach the `PROJECT_SUBNET`
+    subnet to `MyLegacyRouter`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'No output is provided if the command is successful. Using the `openstack port
+    list` command, determine the internal IP of the router:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/05f697f4-92ad-4989-a7d7-fc0ddd0457f0.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In this example, the IP address assigned to the router's internal interface
+    is `192.168.200.1`. When a port ID or IP address is not specified when attaching
+    the router to a subnet, the IP address assigned to the router's internal interface
+    defaults to the address set as the `gateway_ip`&amp;nbsp;for the subnet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Inside the router namespace, a new interface has been added with a prefix of
+    `qr`. A `qr` interface is an internal interface of the router:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/218c7718-b0ce-4609-bfef-6ab25111541d.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'When using the Open vSwitch interface driver, the interface is connected directly
+    to the integration bridge. When using the Linux bridge interface driver, as in
+    this example, every `qr` interface is one end of a veth pair whose other end is
+    connected to a bridge on the host:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/53b9f95e-19fa-4c16-8cbc-ca3bfa517fa2.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: For easy identification, the bridge name includes the first ten characters of
+    the respective Neutron network ID. In addition, each end of the veth pair includes
+    the first ten characters of the Neutron port ID associated with the interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The router namespace is able to communicate with other devices in the same subnet
+    through the bridge. The&amp;nbsp;`eth2.43` interface&amp;nbsp;in the bridge tags
+    traffic as `VLAN 43` as it exits the bridge out to the parent interface&amp;nbsp;`eth2`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating instances
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Create two instances with the following characteristics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Name** | **Network** | **Image** | **Flavor** | **Host** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| MyInstance1 | PROJECT_NET | cirros-0.4.0 | tiny | compute01 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| MyInstance2 | PROJECT_NET | cirros-0.4.0 | tiny | compute02 |'
+  prefs: []
+  type: TYPE_TB
+- en: 'If necessary, use the `openstack image list` command to determine the ID of
+    the CirrOS image downloaded in [*Chapter 2*](1638cc46-d387-4ec0-9597-b25eee47618b.xhtml),
+    *Installing OpenStack*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Use the following `openstack server create` commands to boot two instances
+    across two `compute` nodes in the `PROJECT_NET` network:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `openstack server list`&amp;nbsp;command can be used to return a list of
+    instances and their IP addresses:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/6aafc47e-0fba-41ab-8ee7-15b86aee4dac.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'On `compute01`, a Linux bridge has been created that corresponds to the `PROJECT_NET`
+    network. When connected to the bridge, we can find a `VLAN` interface and the
+    tap interface that corresponds to `MyInstance1`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/3b704a1f-8dca-4d17-8f90-06cba9c8cd1d.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: When the Linux bridge agent is used, bridges correspond to individual networks,
+    and the names will have a prefix of brq.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On `compute02`, we can find the tap interface that corresponds to `MyInstance2`&amp;nbsp;is
+    connected to the Linux bridge dedicated to the respective port:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/d70c0703-c265-406d-9064-c2f77e4495a1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: When the Open vSwitch agent is used along with the `iptables_hybrid` firewall
+    driver, bridges correspond to individual ports, and the names will have a prefix
+    of `qbr`. These bridges are only used to overcome iptables limitations with Open
+    vSwitch virtual switches.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Verifying instance connectivity
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'When a network and subnet are created with DHCP enabled, a network namespace
+    is created by a DHCP agent that serves as a DHCP server for the network. On the
+    host running the Neutron DHCP agent service, the&amp;nbsp;`ip netns list`&amp;nbsp;command
+    can be used to reveal the namespace. For easy identification, the name of a DHCP
+    namespace corresponds to the ID of the network it is serving:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/c5a1e65c-5f12-4026-baee-2e871309e92b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Inside the namespace, an interface with a prefix of `ns` has been created and
+    assigned an address from the allocation pool of the subnet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/aeb6d3db-edbf-4621-8875-f302fd77fec7.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: When a DHCP agent is configured to use the Open vSwitch interface driver, the
+    `ns`&amp;nbsp;interface inside the namespace is connected directly to the integration
+    bridge. When a DHCP agent is configured to use the Linux bridge interface driver,
+    as in this example, the `ns` interface is one end of a veth pair whose other end
+    is connected to a bridge on the host. The namespace is able to communicate with
+    other devices in the same subnet through the respective bridge and VLAN.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As the instances come online, they send a DHCP request that is served by the
+    `dnsmasq` process in the DHCP namespace. A populated ARP table within the namespace
+    confirms instances are functioning in the VLAN at Layer 2:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e4951937-2fa3-4771-aa87-b53fe47ab3d4.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The L2 population driver is used to pre-populate ARP and forwarding tables to
+    reduce overhead on overlay networks and may not provide an accurate picture of
+    connectivity in those networks. If an entry is in a PERMANENT state, it has been
+    statically programmed and may not reflect actual reachability.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before you can connect to the instances, security group rules must be updated
+    to allow ICMP and SSH. *[Chapter 8](240902fd-5108-446e-afa5-8122de12f0af.xhtml),
+    Managing Security Groups*, focuses on the implementation and administration of
+    security group rules in more detail. To test connectivity, add ICMP and SSH access
+    to security group applied to the instances. Use the following command to determine
+    the security group for these particular instances:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output may resemble the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/3d3712e6-5d35-492f-8a74-9e22addba3b9.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Use the `openstack security group rule create` command to create rules within
+    the respective security group that allow inbound ICMP and SSH:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/f2390827-62b8-47cf-ad5d-492e17f195c8.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Using the SSH command, connect to the instance `MyInstance1` from either the
+    router or DHCP namespace. The CirrOS image has a built-in user named cirros&amp;nbsp;with
+    a password of `gocubsgo`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/46460293-9166-450c-8495-bad205050e30.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Observe the routing table inside the instance, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The default gateway of `192.168.200.1` is the Neutron router that we created
+    earlier in this chapter. Pinging an external resource from an instance should
+    prove successful, provided external connectivity from the Neutron router exists:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/d77ed185-fc20-4e4e-827e-da1009de1d51.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Observing default NAT behavior
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The default behavior of the Neutron router is to source NAT traffic from instances
+    that lack floating IPs when traffic egresses the external, or gateway, interface
+    of the router.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Performing a packet capture on the eth2.43&amp;nbsp;interface of the `controller`
+    node that corresponds with the `PROJECT_NET` network, we can observe ICMP traffic
+    from the instances sourcing from their real or fixed addresses as the traffic
+    heads towards the router. The reply also references the same fixed IP address:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/5e2383e7-cc9e-4508-8e42-da3a2bfe36b1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'From the eth2.30&amp;nbsp;interface on the `controller` node that corresponds
+    to the `GATEWAY_NET` network, we can observe ICMP traffic from the instances after
+    it has traversed the router sourcing as the router''s external address, `10.30.0.106`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/f5f2e7e2-5caf-4387-810e-dcb990be84a6.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'A look at the iptables chains within the router namespace reveals the NAT rules
+    responsible for this behavior:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/ae6cff3c-be15-49e9-8424-1f236b7a2046.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In this configuration, instances can communicate with outside resources through
+    the router as long as the instances initiate the connection. Outside resources
+    cannot initiate connections directly to instances via their fixed IP address.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Assigning floating IPs
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To initiate connections to instances behind Neutron routers from outside networks,
+    you must configure a floating IP address and associate it with the instance. In
+    OpenStack, a floating IP is associated with a Neutron port that corresponds to
+    an interface of the instance accepting connections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using the `openstack port list` command, determine the port ID of each instance
+    recently booted. The command allows results to be filtered by device or instance
+    ID, as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/db96d180-e739-4a03-b180-13af6da06049.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Using the `openstack floating ip create` command, create a single floating
+    IP address and associate it with the port of the instance known as `MyInstance1`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/df5d76e9-284b-4ffb-bccf-ee70879d42d9.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Upon creation, the floating IP may appear to be in a DOWN state. Once the changes
+    have been applied to the network, the status should reflect an ACTIVE state.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'From within the guest OS, verify that the instance can still communicate with
+    outside resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/3357c697-9ad1-461a-9b33-3865100135de.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Performing a packet capture on the&amp;nbsp;`eth2.30` interface on the `controller01`
+    node, we can observe ICMP traffic from the instance through the router having
+    a source IP that corresponds to the floating IP address `10.30.0.101`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/738ebe80-efc2-4a8a-8ed7-da7d9909500f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Within the router namespace, the floating IP has been configured as a secondary
+    address on the `qg` interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/40dc4dea-440b-43d5-97bd-aab19783d907.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: When the floating IP is configured as a secondary network address on the `qg`
+    interface, the router is able to respond to ARP requests to the floating IP from
+    the upstream gateway device and other Neutron routers or devices in the same external
+    network. This allows inbound connectivity to the instance via the floating IP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A look at the `iptables` chains within the router namespace show rules have
+    been added to perform the 1:1 NAT translation from the floating IP to the fixed
+    IP of `MyInstance1`, and vice versa:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/9a7cc48d-8602-46c3-8960-89601fa899d8.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Provided our client workstation can route to the external provider network,
+    traffic can be initiated directly to the instance via the floating IP:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/1d699426-90d4-4d21-ac62-f2d7642d0892.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Reassigning floating IPs
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Neutron provides the ability to quickly disassociate a floating IP from an
+    instance or other network resource and associate it with another. A list of floating
+    IPs shows the current association:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/0c9794c5-9b88-4eb5-b9bc-6e7115101816.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Using the `openstack floating ip unset`&amp;nbsp;and `openstack floating ip
+    set` commands, disassociate the floating IP from `MyInstance1` and associate it
+    with `MyInstance2`. The disassociation can be seen here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e0420e13-30e9-4d3f-b593-a72655df3670.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'No output will be returned if the command is successful. The `openstack floating
+    ip list` command shows that the floating IP is no longer associated with a port:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/09cb9ad6-3838-4805-ad7d-73e697cacd2b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The floating IP is still owned by the project that created it and cannot be
+    assigned to another project without first being deleted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using the `openstack floating ip set`&amp;nbsp;command, associate the floating
+    IP with the port of `MyInstance2`, as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/9057099a-bd42-48e0-919f-7b66082cf0c9.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'No output will be returned if the command is successful. Observe the iptables
+    rules within the router namespace. The NAT relationship has been modified, and
+    traffic from `MyInstance2` will now appear as the floating IP:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/eee6370d-a218-4e9a-970e-b735b23d359d.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'As a result of the new association, attempting an SSH connection to the floating
+    IP may result in the following message on the client machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/ffcbae62-1dda-4053-ad75-ee8caf3b385c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The warning message is a good indicator that traffic is being sent to a different
+    host. Clearing the offending key and logging into the instance reveals it to be
+    `MyInstance2`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/4cdb6df5-788d-41c2-9aac-7bc287678eb6.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: At this point, we have successfully deployed two instances behind a single virtual
+    router and have verified connectivity to and from the instances using floating
+    IPs. In the next section, we will explore how those same tasks can be accomplished
+    within the Horizon dashboard.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Router management in the dashboard
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'From the Horizon dashboard, routers can be created and managed within the Project
+    | Network | Routers pane:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/8ce1ed2c-ded0-4613-8ce7-f9e3eca2c5d0.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Routers available to the logged-in user can be seen on this page.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a router in the dashboard
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'From the Routers page, click Create Router in the upper right-hand corner to
+    create a router. A wizard will open that resembles the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/991fd875-a972-4461-80a5-0f3fcf68bf98.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Enter the name of the router, select its admin state, and choose the appropriate
+    external network. Click the blue Create Router button to complete the operation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Attaching internal interfaces in the dashboard
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To attach internal interfaces to routers in the dashboard, click the router
+    to reveal the Router Details page shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/2bdc5def-19e6-4718-a426-83603ff6117c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Click the Interfaces tab to reveal details of the router''s interfaces:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/83e7fdaf-9643-48d9-bd0c-492d7613cfb5.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Clicking the Add Interface button reveals a wizard that allows you to select
+    details of the interface to be added:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/90cbc4b7-1e80-420b-be6c-ecfc916f365e.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Select a subnet you wish to attach to the router from the Subnet&amp;nbsp;menu
+    and click the blue Submit button to attach the interface. The newly attached interface
+    will be revealed on the Interface pane shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/52af236d-6582-4273-8f0f-7c0853c80fbe.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: It is normal for an interface's status to be Down immediately after adding the
+    interface to the router. Neutron will not mark the interface as Active until the
+    agents have completed their tasks. Refreshing the dashboard will update the status
+    accordingly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Viewing the network topology in the dashboard
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: From within the dashboard, users can view a logical topology of the network
+    based on the network configuration managed by Neutron.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Click on Network Topology under the Project| Network&amp;nbsp;pane to find
+    a logical diagram based on the networks, router, and instances that we created
+    earlier:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/fd2345dc-7dec-4213-ad10-2f50c4d99709.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Hovering over the router icon reveals a popup displaying details about the
+    router such as connected ports, IPs, and port status:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/80fcd470-7eb1-4672-aa56-14935a672abe.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Associating floating IPs to instances in the dashboard
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Floating IPs in the dashboard are managed on the Instances page found within
+    the Project| Compute&amp;nbsp;pane. Click the menu under the Actions&amp;nbsp;column
+    next to the instance you wish to assign a floating IP to:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/d38bb4ca-e4ca-482b-9a24-f3c6462a59e1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'To assign a floating IP, click Associate Floating IP. A wizard will be revealed
+    that allows you to manage floating IP allocations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/597dfcef-071a-4ecf-b8db-c1111e2678d4.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: If there are no floating IP addresses available for allocation, click the plus
+    (+)&amp;nbsp;sign to create one. Click the Associate button to associate the floating
+    IP with the port.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Disassociating floating IPs in the dashboard
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To disassociate a floating IP from an instance in the dashboard, click the
+    menu under the Actions column that corresponds to the instance and select Disassociate
+    Floating IP:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/f2873c8d-ea5a-4fa0-8648-93ee518f3360.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'A message will appear that warns you of the pending action:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/5282f1f4-0c24-4095-9c2f-1ecbf5dca2d9.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Click the blue Disassociate Floating IP button to proceed with the action.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While the floating IP has been disassociated with the instance, it remains under
+    the ownership of the project and is not returned to the allocation pool until
+    it is deleted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Neutron routers are a core component of networking in OpenStack and provide
+    users the flexibility to design the network to best suit their application. The
+    use of floating IPs allows users to quickly and programmatically provide direct
+    connectivity to applications while preserving limited IPv4 address space through
+    the use of network address translation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Standalone routers are easy to implement but are a single point of failure in
+    any network design. In the event of an L3 agent failure, all routers scheduled
+    to the agent may become unavailable or unreliable. In the next chapter, we will
+    discuss how Neutron implements highly available routers using the Virtual Router
+    Redundancy Protocol, or VRRP, to solve many of the shortcomings of legacy standalone
+    routers.
+  prefs: []
+  type: TYPE_NORMAL

@@ -1,0 +1,662 @@
+- en: '14'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Containerize on Google Cloud – Building Solutions with GKE
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the previous chapter, we built and automated our solution on Google Cloud
+    by utilizing **Google Compute Engine** (**GCE**). We built **virtual machine**
+    (**VM**) images with Packer and provisioned our VM using Terraform. In this chapter,
+    we’ll follow a similar path, but instead of working with VMs, we’ll look at hosting
+    our application in containers within a Kubernetes cluster.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To achieve this, we’ll need to alter our approach by ditching Packer and replacing
+    it with Docker to create a deployable artifact for our application. Once again,
+    we’ll be using the `google` provider for Terraform and revisiting the `kubernetes`
+    provider for Terraform that we looked at when we took the same step while on our
+    journey with AWS and Azure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since the overwhelming majority of this remains the same when we move to Google
+    Cloud, we won’t revisit these topics at the same length in this chapter. However,
+    I would encourage you to bookmark [*Chapter 8*](B21183_08.xhtml#_idTextAnchor402)
+    and refer to it frequently.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This chapter covers the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Laying the foundation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Designing the solution
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Building the solution
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Automating the deployment
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Laying the foundation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Our story continues through the lens of Söze Enterprises, founded by the enigmatic
+    Turkish billionaire Keyser Söze. Our team has been hard at work building the next-generation
+    autonomous vehicle orchestration platform. Previously, we had hoped to leapfrog
+    the competition by leveraging Google Cloud’s rock-solid platform, leveraging our
+    team’s existing skills, and focusing on feature development. The team was just
+    getting into their groove when a curveball came out of nowhere.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Over the weekend, our elusive executive was influenced by a rendezvous with
+    Sundar Pichai, the CEO of Alphabet and Google’s parent company, in Singapore.
+    Keyser was seen gobbling down street food with Sundar on Satay Street. During
+    this brief but enjoyable encounter, Sundar extolled the virtues and prowess of
+    Kubernetes and Google’s unique position as the original developers of the open
+    source technology. Keyser was enchanted by the prospect of more efficient resource
+    utilization, leading to improved cost optimization and faster deployment and rollback
+    times, and he was hooked. His new autonomous vehicle platform needed to harness
+    the power of the cloud, and container-based architecture was the way to do it.
+    So, he decided to accelerate his plans to adopt cloud-native architecture!
+  prefs: []
+  type: TYPE_NORMAL
+- en: The news of transitioning to a container-based architecture means reevaluating
+    their approach, diving into new technologies, and possibly even reshuffling team
+    dynamics. For the team, containers were always the long-term plan, but now, things
+    need to be sped up, which will require a significant investment in time, resources,
+    and training.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As the team scrambles to adjust their plans, they can’t help but feel a mix
+    of excitement and apprehension. They know that they are part of something groundbreaking
+    under Keyser’s leadership. His vision for the future of autonomous vehicles is
+    bold and transformative. And while his methods may be unconventional, they have
+    learned that his instincts are often correct. In this chapter, we’ll explore this
+    transformation from VMs to containers using Google Cloud.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Designing the solution
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'As we saw in the previous chapter, where we built our solution using VMs on
+    Google Cloud, we had full control over the operating system configuration through
+    the VM images we provisioned with Packer. Just as we did when we went through
+    the same process on our journey with AWS and Azure in *Chapters 8* and *11*, we’ll
+    need to introduce a new tool to replace VM images with container images – **Docker**:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 14.1 – Logical architecture for the autonomous vehicle platform](img/B21183_14_1.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 14.1 – Logical architecture for the autonomous vehicle platform
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Our application architecture, comprising a frontend, a backend, and a database,
+    will remain the same, but we will need to provision different resources with Terraform
+    and harness new tools from Docker and Kubernetes to automate the deployment of
+    our solution to this new infrastructure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 14.2 – Source control structure of our repository](img/B21183_14_2.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 14.2 – Source control structure of our repository
+  prefs: []
+  type: TYPE_NORMAL
+- en: This solution will have seven parts. We still have the application code and
+    Dockerfiles (replacing the Packer-based VM images) for both the frontend and backend.
+    We also still have GitHub Actions to implement our CI/CD process, but we now have
+    two Terraform code bases – one for provisioning the underlying infrastructure
+    to Google Cloud and another for provisioning our application to the Kubernetes
+    cluster hosted on GKE. Then, we have the two code bases for our application’s
+    frontend and backend.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Cloud architecture
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '**Google Kubernetes Engine** (**GKE**) is a sophisticated offering that allows
+    you to provision a managed Kubernetes cluster in a multitude of ways, depending
+    on your objectives, whether that is to maximize simplicity of operations or highly
+    customized configurations.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Autopilot
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: One of the simplest ways of operating a Kubernetes cluster on Google Cloud is
+    using the Autopilot feature of GKE. Turning on the Autopilot feature abstracts
+    much of the complexity of operating a Kubernetes cluster. This option changes
+    the operating model radically, so much so that it is probably more akin to some
+    of the container-based serverless options on other clouds than it does the managed
+    Kubernetes offerings that we’ve delved into in previous chapters. As a result,
+    it is outside the scope of this book. However, if this approach appeals to you,
+    I suggest that you investigate further in Google’s documentation ([https://cloud.google.com/kubernetes-engine/docs/concepts/autopilot-overview](https://cloud.google.com/kubernetes-engine/docs/concepts/autopilot-overview)).
+    I’m pointing this out because, unlike AWS and Azure, which have separately branded
+    services that abstract away container orchestration, **Google Cloud Platform**
+    (**GCP**) has this capability coupled with its managed Kubernetes offering.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Regional versus zonal
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'GKE supports two primary cluster types: regional and zonal. The cluster type
+    affects how the cluster’s underlying physical infrastructure is provisioned across
+    GCP, which subsequently affects the resiliency of the Kubernetes cluster:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 14.3 – The GKE zonal cluster hosts the control plane and all nodes
+    within a single Availability Zone](img/B21183_14_3.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 14.3 – The GKE zonal cluster hosts the control plane and all nodes within
+    a single Availability Zone
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A zonal cluster is deployed within a single Availability Zone within a given
+    region. As we know, each region has a name, such as `us-west1`. To reference a
+    specific zone, we append the zone number to the end of the region name. For example,
+    to reference Availability Zone A in the West US 1 region, we can refer to it by
+    its name – that is, `us-west1-a`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 14.4 – The GKE regional cluster replicates the control plane and nodes
+    across all zones within the region](img/B21183_14_4.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 14.4 – The GKE regional cluster replicates the control plane and nodes
+    across all zones within the region
+  prefs: []
+  type: TYPE_NORMAL
+- en: A regional cluster is deployed across Availability Zones within a given region.
+    When you deploy a regional cluster, by default, your cluster is deployed across
+    three Availability Zones within that region. This approach results in higher availability
+    and resiliency in case of an Availability Zone outage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Virtual network
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: As we discussed in the previous chapter, when we set up our VM-based solution
+    on Google Cloud, we will need a virtual network to host our GKE cluster. This
+    will allow us to configure a private GKE cluster so that the Kubernetes control
+    plane and the node have private IP addresses and are not directly accessible from
+    the internet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the previous chapter, where we set up our VM-based solution, we set up two
+    subnets: one for the frontend and one for the backend. However, when using a Kubernetes
+    cluster to host our solution, both the frontend and backend will be hosted on
+    the same Kubernetes nodes.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: This straightforward approach, where multiple node pools share one subnet, can
+    suffice for less complex configurations. However, while this setup simplifies
+    network management, it can potentially limit the scalability of individual node
+    pools due to shared network resources and address space constraints.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For more scalable and flexible architectures, especially in larger or more dynamic
+    environments, it’s often advantageous to allocate separate subnets for different
+    node pools. This method allows each node pool to scale independently and optimizes
+    network organization, providing better resource allocation and isolation. This
+    kind of structured subnetting becomes increasingly important as the complexity
+    and scale of the Kubernetes deployments grow, making it a key consideration in
+    GKE network planning and configuration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Container registry
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Like the other cloud platforms we’ve been delving into in this book, Google
+    Cloud also offers a robust container registry service known as **Google Artifact
+    Registry**, which is a private registry for hosting and managing container images
+    and Helm charts. Artifact Registry supports many other formats besides container
+    images but we’ll only be using it in this capacity.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Google Artifact Registry is set up pretty similarly to other cloud providers.
+    It resembles **Azure Container Registry** a bit more though because it can host
+    multiple repositories, allowing you to host multiple container images in the same
+    Artifact Registry.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Load balancing
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: GKE has a very similar experience to other managed Kubernetes offerings that
+    we have looked at in this book. By default, when a Kubernetes service is provisioned
+    to a private cluster, GKE will automatically provision an internal load balancer
+    for this service. This will make the Kubernetes service available within the virtual
+    network but not to the outside world.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This works well for our backend REST API but doesn’t work for our public web
+    application, which is intended to be accessible from the public Internet. Like
+    on AWS and Azure, to make the frontend service accessible to the internet, we
+    need to configure an ingress controller on the cluster and a public load balancer
+    that has a public IP address and will route traffic to the ingress controller
+    on the GKE cluster:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 14.5 – The GKE cluster with an NGINX ingress controller automating
+    a Google Cloud load balancer](img/B21183_14_5.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 14.5 – The GKE cluster with an NGINX ingress controller automating a
+    Google Cloud load balancer
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we did in previous chapters, we’ll set up an NGINX ingress controller and
+    configure it to automatically provision the necessary external load balancer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Network security
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: When working with GKE, network security is managed in a manner akin to the practices
+    described in [*Chapter 13*](B21183_13.xhtml#_idTextAnchor569) for VMs, leveraging
+    similar concepts and tools within the Google Cloud ecosystem. GKE clusters are
+    typically deployed within a virtual network, allowing them to seamlessly integrate
+    with other Google Cloud services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Similar to the other managed Kubernetes offerings, the virtual network acts
+    as the primary boundary for network security, within which GKE has its internal
+    network where pods and services communicate. Google Cloud firewalls are used to
+    define security rules at the subnet level, controlling inbound and outbound traffic
+    similar to how they are employed with VMs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Additionally, GKE takes advantage of native Kubernetes network policies for
+    finer-grained control within the cluster, allowing administrators to define how
+    Pods communicate with each other and with other resources in the virtual network.
+    This dual-layered approach, combining the external security controls of the virtual
+    network with the internal mechanisms of GKE, creates a comprehensive and robust
+    network security environment for Kubernetes deployments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Workload identity
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: As we did with AWS and Azure in previous chapters, we’ll be setting up a workload
+    identity to allow our application’s pods to authenticate with other Google Cloud
+    services using a Google Cloud identity provider. This will allow us to use the
+    built-in role-based access control to grant access for Kubernetes service accounts
+    to other Google Cloud resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Secrets management
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: GKE does not have direct integration with Google Secrets Manager like other
+    cloud platforms. Instead, the options available to you are to leverage native
+    Kubernetes secrets or to access Google Secrets Manager from your application code
+    itself. This approach does have some security advantages but it is less ideal
+    as it tightly couples your application to GCP SDKs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kubernetes cluster
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Building a Kubernetes cluster using GKE involves a few key decisions that determine
+    the modality of your cluster. As we’ve discussed in this book, we will omit the
+    use of Autopilot to maintain congruency with the other managed Kubernetes offerings
+    from the other cloud platforms we’ve looked at in this book. So, we will focus
+    on building a private Kubernetes cluster with its own virtual network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Like other managed Kubernetes offerings, GKE provides flexibility to configure
+    node pools based on workload types, but unlike those offerings, you don’t need
+    to set up node pools for running core Kubernetes services. GKE handles all that
+    on your behalf! This abstraction greatly simplifies cluster design. Overall, GKE’s
+    simplicity and robust feature set allow us to build highly scalable Kubernetes
+    clusters with minimal effort.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deployment architecture
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: As we saw with the cloud architecture, there were many similarities between
+    our work in *Chapters 8* and *11* with AWS and Microsoft Azure. The deployment
+    architecture will mirror what we saw in those chapters as well. In the previous
+    chapter, we saw the differences in the Terraform provider when we configured the
+    `google` provider to provision our solution to VMs using GCE.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the context of container-based architecture, the only significant difference
+    from our deployment in the previous chapters with AWS and Azure will be the way
+    we authenticate with the container registry and the Kubernetes cluster. It’s important
+    to recall the deployment architectural approach outlined in the corresponding
+    section of [*Chapter 8*](B21183_08.xhtml#_idTextAnchor402). In the next section,
+    we’ll build the same solution on GCP, ensuring we don’t repeat the same information.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we reviewed the key changes in our architecture as we transitioned
+    from VM-based architecture to container-based architecture. We were careful not
+    to retread the ground we covered in [*Chapter 8*](B21183_08.xhtml#_idTextAnchor402),
+    where we first went through this transformation on the AWS platform. In the next
+    section, we’ll get tactical in building the solution, but again, we’ll be careful
+    to build on the foundations we built in the previous chapter when we first set
+    up our solution on GCP using VMs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building the solution
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we’ll be taking our theoretical knowledge and applying it to
+    a tangible, functioning solution while harnessing the power of Docker, Terraform,
+    and Kubernetes on GCP. Some parts of this process will require significant change,
+    such as when we provision our Google Cloud infrastructure using Terraform; other
+    parts will have minor changes, such as the Kubernetes configuration that we use
+    to deploy our application to our Kubernetes cluster, and some will have almost
+    no change whatsoever, such as when we build a push our Docker images to our container
+    registry.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Docker
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In this section, we’ll go into great detail on how we can implement our Dockerfile,
+    which installs our .NET application code and runs the service in a container.
+    If you skipped *Chapters 7* through *9* due to a lack of interest in AWS, I can’t
+    hold that against you – particularly if your primary interest in reading this
+    book is working on GCP. However, I would encourage you to review the corresponding
+    section within [*Chapter 8*](B21183_08.xhtml#_idTextAnchor402) to see how we can
+    use Docker to configure a container with our .NET application code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Infrastructure
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: As we know, Terraform is not a write-once, run-anywhere solution. It is a highly
+    extensible **Infrastructure as Code** (**IaC**) tool that uses a well-defined
+    strategy pattern to facilitate the management of multiple cloud platforms. This
+    yields very similar conceptually structured solutions but with significant variations
+    embedded within the differing implementation details and nomenclature of each
+    corresponding cloud platform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we discussed in the previous section, the virtual network configuration will
+    largely be identical and the load balancer will be automatically provisioned by
+    GKE via the NGINX ingress controller. Therefore, in this section, we will only
+    focus on the new resources that we need to replace our VMs with a Kubernetes cluster.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Container registry
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The first thing we need is a Google Cloud Artifact Registry that we can push
+    Docker images to. We’ll use this as part of our Docker build process later when
+    we build and push Docker images to be used by our GKE cluster:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Service account
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'To grant our applications and services the ability to implicitly authenticate
+    with Google Cloud and access other services and resources hosted therein, we need
+    to set up a service account that we can associate with the workloads running on
+    our cluster. This is similar to the IAM role and managed identity we specified
+    on AWS and Azure, respectively:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Kubernetes cluster
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'This Terraform code creates a GKE cluster with a customized name – that is,
+    Google Cloud Region. The `location` attribute is extremely critical as its value
+    can determine if the cluster is regional or zonal. Simply making a tiny change
+    from `us-west1` to `us-west1-a` has this effect:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: By default, GKE will automatically provision a default node pool. This is a
+    common practice that, unfortunately, prioritizes the graphical user experience
+    via the Google Cloud console over the IaC experience. This problem is not unique
+    to Google Cloud; both AWS and Azure have similar areas of friction where automation
+    is an afterthought. As a result, we are at least left with attributes that allow
+    us to circumvent this behavior. By setting `remove_default_node_pool` to `true`,
+    we can ensure that this default behavior is eliminated. Furthermore, setting `initial_node_count`
+    to `1` can further speed up this process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As we discussed previously, GKE abstracts the Kubernetes master services from
+    us so that we don’t need to worry about deploying a node pool for these Kubernetes
+    system components. Therefore, we are left with defining our node pools for our
+    applications and services to run on:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The basic configuration of a node pool resource connects it to the corresponding
+    cluster and specifies a `node_count` value. The `node_config` block is where we
+    configure more details for the nodes within the pool. The node pool configuration
+    should look similar to what we saw in *Chapters 8* and *11* when we configured
+    the managed Kubernetes offerings of AWS and Azure. Node pools have a count that
+    controls how many VMs we can spin up and a VM size that specifies how many CPU
+    cores and memory each node gets. We also need to specify the service account under
+    which the node pool will operate:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, `oauth_scopes` is used to specify what permissions the nodes should have
+    access to. To enable Google Cloud logging and monitoring, we need to add scopes
+    to allow the nodes to tap into these existing Google Cloud services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Workload identity
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'To enable a workload identity, we need to modify both our cluster and node
+    pool configuration. The cluster needs to have the `workload_identity_config` block
+    defined with `workload_pool` set with a specific magic string that will provision
+    the GKE metadata service within the cluster:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once the GKE metadata service is made available within the cluster, we need
+    to configure our node pools so that they integrate with it using the `workload_metadata_config`
+    block. We can do this by specifying `GKE_METADATA` as the mode:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Kubernetes
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In *Chapters 8* and *11*, we built out the Kubernetes deployments using the
+    Terraform provider for Kubernetes on AWS and Azure, respectively. We’ll follow
+    the same approach here, building on the infrastructure we provisioned in the previous
+    section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Provider setup
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: As we saw in [*Chapter 11*](B21183_11.xhtml#_idTextAnchor509), there is not
+    much that changes when executing Terraform using the Kubernetes provider to provision
+    resources to the Kubernetes control plane. We still authenticate against our target
+    cloud platform, follow Terraform’s core workflow, and pass in additional input
+    parameters for platform-specific resources that we need to reference. Most notably,
+    information about the cluster and other GCP services such as Secrets Manager and
+    other details that might need to be put into Kubernetes ConfigMaps can be used
+    by the pods to point them at the endpoint of their database.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As we saw in *Chapters 8* and *11*, when we accomplished the same task on AWS
+    and Azure, I am using a layered approach to provision the infrastructure first
+    and then provision to Kubernetes. As a result, we can reference the Kubernetes
+    cluster using the data source from the Terraform workspace that provisions the
+    Google Cloud infrastructure. This allows us to access important connectivity details
+    without exporting them outside of Terraform and passing them around during deployment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you can see, in the preceding code, when using the data source, we only
+    need to specify the cluster name and its target region. Using this data source,
+    we can then initialize the `kubernetes` provider:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: This configuration varies slightly from the provider initialization techniques
+    we used with AWS and Azure in previous chapters with the addition of `token`.
+    Similar to how we initialized the `helm` provider on other cloud platforms, we
+    can pass the same inputs to set up the Helm provider.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Workload identity
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'As we discussed in *Chapters 8* and *11*, where we implemented a workload identity
+    on both AWS and Azure, we need a way for our Kubernetes workloads to be able to
+    implicitly authenticate with Google Cloud services and resources. To do so, we
+    need an identity provisioned within Google Cloud, which we saw in the previous
+    section of this chapter, but we also need something provisioned within Kubernetes
+    that will connect our pod specifications to the Google Cloud service account:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding code will provision the Kubernetes service account that will complete
+    the linkage with the Google Cloud configuration that we provisioned in the previous
+    section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we’ve built out the three components of our architecture, in the next
+    section, we’ll move on to how we can automate the deployment using Docker so that
+    we can build and publish the container images. We’ll also look at doing this using
+    Terraform so that we can provision our infrastructure and deploy our solution
+    to Kubernetes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Automating the deployment
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we’ll look at how we can automate the deployment process for
+    container-based architectures. We’ll employ similar techniques we saw in [*Chapter
+    8*](B21183_08.xhtml#_idTextAnchor402) when we took this same journey down the
+    Amazon. As a result, we’ll focus on what changes we need to make when we want
+    to deploy to Microsoft Azure and the Azure Kubernetes Service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Docker
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In [*Chapter 8*](B21183_08.xhtml#_idTextAnchor402), we covered each step of
+    the GitHub Actions workflow that causes Docker to build, tag, and push our Docker
+    container images. Thanks to the nature of Docker’s cloud-agnostic architecture,
+    this overwhelmingly stays the same.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The only thing that changes is that Google Cloud encapsulates a service account’s
+    credentials into a JSON file that is downloaded from the Google Cloud console
+    rather than a secret string like on AWS or Azure. As a result, much of the Google
+    Cloud tooling is set up to look for this file at a specific path location.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Therefore, we need to use a special username `_json_key` and reference the
+    value of the JSON file stored in a GitHub Actions secret:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: The only thing that changes is the way we must configure Docker so that it targets
+    Google Artifact Registry.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Terraform
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In [*Chapter 13*](B21183_13.xhtml#_idTextAnchor569), we comprehensively covered
+    the process of creating a Terraform GitHub Action that authenticates with GCP
+    using a service account. Therefore, we won’t be delving into it any further. I
+    encourage you to refer back to [*Chapter 10*](B21183_10.xhtml#_idTextAnchor474)
+    to review the process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kubernetes
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When we automate Kubernetes with Terraform, we are just running `terraform apply`
+    again with a different root module. This time, the root module will configure
+    the `kubernetes` and `helm` providers in addition to the `google` provider. However,
+    we won’t ever create new resources with the `google` provider; we will only obtain
+    data sources to existing resources we provisioned in the previous `terraform apply`
+    command that provisioned the infrastructure to Google Cloud.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As a result, the GitHub Action that executes this process will look strikingly
+    similar to how we executed Terraform with Google Cloud. Some of the variables
+    might change to include things such as the container image details and cluster
+    information.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we designed, built, and automated the deployment of a complete
+    and end-to-end solution using container-based architecture. We built onto the
+    foundations from [*Chapter 13*](B21183_13.xhtml#_idTextAnchor569), where we worked
+    with the foundational infrastructure of Google Cloud networking but layered on
+    GKE to host our application in containers. In the next and final step in our GCP
+    journey, we’ll be looking at serverless architecture, thus moving beyond the underlying
+    infrastructure and letting the platform itself take our solution to new heights.
+  prefs: []
+  type: TYPE_NORMAL

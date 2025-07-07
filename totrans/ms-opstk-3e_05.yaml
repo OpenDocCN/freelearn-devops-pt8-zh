@@ -1,0 +1,1200 @@
+- en: '5'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: OpenStack Storage – Block, Object, and File Shares
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: “Perseverance, secret of all triumphs.”
+  prefs: []
+  type: TYPE_NORMAL
+- en: – Victor Hugo
+  prefs: []
+  type: TYPE_NORMAL
+- en: The wide adoption of OpenStack services has increased user demand and, in turn,
+    its array of capabilities, as demonstrated in the previous chapter with the compute
+    service. This feature variation has also extended the OpenStack storage offering.
+    Users running workloads on top of an OpenStack environment would require more
+    than one storage type in addition to a robust and reliable storage solution out
+    of the box. The spread of the **software-defined storage** ( **SDS** ) approach
+    has enabled the OpenStack community to adopt more storage projects in which data
+    storage is abstracted from physical storage. Storage systems can be built on top
+    of commodity hardware, but that would require a good understanding of each storage
+    project’s purpose and the architecture behind it before exposing the service to
+    cloud users so that they can run workloads.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, an overwhelming array of storage services in OpenStack will
+    be discussed and enabled in our existing OpenStack environment. Throughout this
+    chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reviewing the Cinder Block Storage service in OpenStack
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Expanding the Block Storage setup by configuring the three most used driver
+    backends, using Kolla-Ansible for LVM, NFS, and Ceph
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Uncovering the state of scheduling in Cinder and enabling a weighing mechanism
+    in the existing cluster
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Discussing the Swift Object Storage service in OpenStack
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Deploying an Object Storage cluster using kolla-ansible
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Exploring the latest updates on the file-sharing service, Manila
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Integrating the Manila service and deploying it using **kolla-ansible**
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Defining Block Storage – Cinder
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Cinder provides persistent storage for instances. The Block Storage service
+    has been extensively developed through each OpenStack release to support more
+    features and vendors’ backend drivers, allowing for a variety of storage devices
+    to be used. Most of the used storage backends include **logical volume management**
+    ( **LVM** ), IBM storage drivers, NetApp, and Dell storage. Within the latest
+    OpenStack releases, new backend drivers have been supported, such as Yadro, TOYOU,
+    and Pure Storage FlashArray.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The storage device is reached by Cinder via its management access API and grants
+    direct access to the instances to access and attach volumes. A volume attached
+    to an instance is shown as an additional hard drive can be partitioned and mounted
+    onto the filesystem of a virtual machine. The volumes are generally accessed by
+    the defined storage path, which could use iSCSI, NFS, and Fiber Channels to do
+    so. It is important to bear in mind that Block Storage is persistent, which means
+    it grants no data loss when an instance is terminated, unlike an ephemeral disk.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In our multi-node environment layout, the latest novelty of the Cinder service
+    can be illustrated as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.1 – Block Storage core architecture](img/B21716_05_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.1 – Block Storage core architecture
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The core Cinder components can be summarized as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**cinder-api** : Processes block storage REST API requests and responses'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**cinder-scheduler** : Like **nova-scheduler** in the Compute service, it redirects
+    after filtering step requests to the appropriate **cinder-volume** server that
+    will handle and provision the requested volume'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**cinder-volume** : Acts as a volume manager and runs in each storage node'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**cinder-backup** : Enables volume backups to different storage systems'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The default OpenStack deployment would come with a Block Storage backend based
+    on LVM. The other very common use case of the backend is the **Network File System**
+    ( **NFS** ), which leverages existing shared storage. Here, the only thing that
+    you need to do is configure the Cinder service so that it can use the NFS driver.
+    It is important to keep up to date with the latest supported backend drivers by
+    checking out the Cinder driver features matrix, available here: [https://docs.openstack.org/cinder/latest/reference/support-matrix.html](https://docs.openstack.org/cinder/latest/reference/support-matrix.html)
+    .'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The driver’s storage backends should support the minimum required volume functions,
+    such as volume attachment, detachment, creation, deletion, extension, migration,
+    and the creation of an image from a volume. The drivers should also provide snapshot
+    management features such as creation, deletion, and volume creation from a snapshot
+    or a cloned volume. A more extensive list of features can be considered optional
+    within the latest OpenStack releases, depending on each backend driver, such as
+    thin volume provisioning, live migration, multi-attach support, and **quality
+    of service** ( **QoS** ). Make sure you scan the existing storage backends and
+    reflect the features supported in the matrix before moving to a full-block storage
+    deployment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In addition to the aforementioned drivers’ capabilities, Cinder supports a variety
+    of configurable drivers for different storage vendors, such as NetApp, IBM, VMware,
+    Dell, and Synology. Bear in mind that not all backend products support all Cinder
+    driver features. On the other hand, the aforementioned Cinder operations are considered
+    *must-haves* when including a new driver storage backend in the Cinder code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Security in Block Storage has been also tweaked by elaborating more on encryption
+    in transit and at rest. The Antelope release supports most of the Cinder driver’s
+    TLS, which was a blocker in old releases for security teams when they dealt with
+    traffic initiated from different service endpoints, as well as end users. Encryption
+    at rest has also reached a milestone, allowing data in volumes to be encrypted
+    using the Cinder API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another recent Cinder addition is the Block Storage backup capability. It has
+    become easier to simply fire a command line and instruct Cinder to either make
+    a full backup of the volume or an incremental one if the backup exists.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Expanding storage with multiple backends
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Our initial deployment highlighted the usage of a dedicated node to deal with
+    storage and volume management in the OpenStack environment. In the next section,
+    we will expand the initial deployment highlighted in [*Chapter 2*](B21716_02.xhtml#_idTextAnchor089)
+    , *Kicking Off the OpenStack Setup – The Right Way (DevSecOps)* . Depending on
+    which storage backends will be used, additional nodes will be dedicated to hosting
+    Cinder volumes as part of the data plane. Cloud controller nodes host the Cinder
+    API and scheduling services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deploying with LVM
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: OpenStack’s default block storage backend is LVM. The **cinder-volume** service
+    uses the iSCSI target to operate and manage access to the logical volumes in the
+    storage node.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the storage nodes, we will create an LVM physical volume group. In this
+    example, we assume that **/dev/sdb** is an available block device on the target
+    storage node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Depending on the operating system, disk partitions might have different name
+    listings. You can check these out by using the **fdisk** command line.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, create a new volume group named **cinder-volumes** :'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the **kolla-ansible** code repository, add the new storage hostname to the
+    inventory file located under **/ansible/inventory** , named **multi_packtpub_prod**
+    . In this example, we will use the **storage02.os** storage node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Enable the LVM backend in the **/** **etc/kolla/globals.yml** file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once the LVM backend has been enabled, **kolla-ansible** activates the iSCSI
+    module that comes with the Ubuntu operating system and is configured by default
+    in the Cinder role, located in the **/kolla-ansible/ansible/roles/cinder/defaults/main.yml**
+    file. For CentOS distributions, make sure that the **LioAdm iSCSI** target helper
+    is installed beforehand.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Configure the name of the Cinder volume group created previously in the **/**
+    **etc/kolla/globals.yml** file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Run the job CI/CD pipeline in your staging environment before promoting the
+    additional node to the production one. Once deployed, a new kolla container running
+    **cinder-volume** should be running in the target storage node.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deploying with NFS
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: NFS is another commonly used storage backend. Within existing NFS storage, cloud
+    operators can smoothly manage volumes via the NFS protocol. Created shares will
+    be available and mounted by the **cinder-volume** service to compute nodes. The
+    Cinder NFS driver enables access to file images on the shared NFS server and takes
+    care of mapping the files to instances as block storage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the following example, an NFS server named **nfs-host-pp** with the **nfs-host-pp:/nfs/share/cinder**
+    share file path is available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create a share file in the target storage node by running the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Make sure the NFS client is installed in both the compute and storage nodes.
+    You can do this by using Ansible or the following command-line tool:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Enable **cinder-volume** in the Block Storage node to access the share file
+    by adjusting the file permissions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the NFS backend, make sure you specify the path of the share directory on
+    the storage node, the storage network, and the access modes, including share,
+    read-write, and non-root remote user access in the **/** **etc/exports** file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For custom NFS deployment settings, you can create a new configuration file
+    under **/etc/kolla/config** that will take precedence when running **kolla-ansible**
+    . The following example configuration file, named **nfs_shares** , will include
+    a target storage node, **storage02.os** , with custom NFS-mounted file shares:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Enable the NFS backend in the **/** **etc/kolla/globals.yml** file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Running the job CI/CD pipeline with a newly configured NFS share will restart
+    the **cinder-volume** service in the target storage node. Once deployed and running,
+    the new NFS share directory should be mounted and visible in the storage node.
+    On the storage node, run the following command line to validate the mapped NFS
+    mount:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Each NFS share uses a mount point under **/etc/cinder/nfs_share** with a hashed
+    directory, **223af296419e436d9142928374d8e57e** , that will host any newly created
+    volume. You can check this by running the following command line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The new volume should be located under the hashed directory of the NFS mount
+    point:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: NFS storage is quite a popular storage backend in OpenStack. Another type of
+    backend is based on SDS, which will be covered in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deploying with Ceph
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Ceph’s SDS system gained significant success since its early days. Ceph is designed
+    to scale massively to exabytes of storage pools that can run on commodity x86
+    hardware architecture. On top of that, Ceph interfaces support most storage types,
+    including object, block, and file shares.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The OpenStack Foundation has committed to ensuring the integration of Ceph,
+    and it can be incorporated and utilized within an existing OpenStack environment.
+    At its core is the **Reliable Autonomic Distributed Object Store** ( **RADOS**
+    ), which deals with the distribution, replication, and management of objects within
+    the Ceph storage cluster. Based on Ceph’s RADOS design, operators can define Ceph
+    storage pools to be used as block storage and provide volumes to OpenStack instances.
+    This can be achieved by another mature Cinder backend driver known as a **RADOS
+    Block** **Device** ( **RBD** ).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ceph’s official documentation provides a complete description of the Ceph cluster
+    setup using cephadm, available at [https://docs.ceph.com/en/latest/cephadm/install/](https://docs.ceph.com/en/latest/cephadm/install/)
+    .
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Ceph defines a set of core logical components:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Object Storage Devices** ( **OSDs** ): These correspond to the physical disks
+    within a filesystem, such as **XFS** or **Btrfs** .'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Monitor daemon server** ( **MON** ): Watches the state of data consistency
+    and other metrics in each OSD node.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Pool** : Provides mapping for stored objects in an OSD.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Placement groups** ( **PGs** ): Maps of each object stored and OSDs. Replicates
+    objects across multiple OSDs within a pool.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'If you have an existing Ceph cluster or are willing to deploy a new one, the
+    following walk-through will guide you through the required steps for a basic Ceph
+    integration in OpenStack. In the following example, a dedicated cluster of three
+    Ceph nodes runs **ceph-osd** . Optionally, **ceph-mon** will be running in the
+    Cloud Controller node, as shown in the following figure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.2 – Ceph storage integration in OpenStack](img/B21716_05_02.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.2 – Ceph storage integration in OpenStack
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Make sure you have the Ceph client and Python **rbd** library packages installed
+    on each controller, compute, and storage node. Run the following command line
+    if the Ceph client hasn’t been installed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On a Ceph node, create a storage pool to be used by Cinder:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Initialize the created pool using the **rbd** command-line interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Create a Ceph user and keyring for Cinder to access the created **cinder-volumes**
+    pool:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Copy the created keyring to the OpenStack deployer, storage, and compute nodes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Verify that the Cinder client can access the Ceph cluster by running the following
+    command line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Enable the Ceph backend in the **/** **etc/kolla/globals.yml** file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Additionally, make sure you specify the Ceph cinder user, the name of the pool,
+    and the keyring in the **globals.yml** file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Set the RBD Cinder UUID secret from the **/** **etc/kolla/passwords.yml** file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'From a Ceph node, copy the **ceph.conf** file to the custom **/etc/kolla/config/cinder**
+    directory. An example of a Ceph configuration extract is shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: Roll the new changes by running the job CI/CD pipeline. The **kolla-ansible**
+    playbook will restart the **cinder-volume** container with a new configuration.
+    The storage node should have a Ceph RBD driver enabled and working access to the
+    Ceph cluster. A new volume request should trigger **cinder-volume** to create
+    the volume in the **cinder-volume** Ceph pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: OpenStack operators could leverage the usage of multiple storage backends simultaneously.
+    To enable such a capability efficiently, Cinder supports a special scheduling
+    mechanism. We’ll explore this in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Storage filtering and scheduling
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'As demonstrated in the previous section, a variety of storage backends are
+    supported by Cinder. The block storage requests and their associated storage backend
+    types are handled by **cinder-scheduler** . Similar to the Compute scheduler service,
+    the Block Storage scheduler service takes care of assigning each volume to be
+    created to a specific backend available in the storage pool. The Cinder scheduler
+    uses filter policies to select the best backend fit for a new volume creation
+    request. A few filtering criteria will be evaluated based on the storage information
+    capabilities, such as the state, available space, and drive state. Afterward,
+    **cinder-scheduler** uses a weighing mechanism that assigns each filtered backend
+    a weight and sorts them out, as illustrated in the following figure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.3 – Cinder’s scheduling and filtering mechanism](img/B21716_05_03.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.3 – Cinder’s scheduling and filtering mechanism
+  prefs: []
+  type: TYPE_NORMAL
+- en: The scheduler periodically checks the state of the listed backends and continuously
+    updates the storage backend candidate list.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'By default, Cinder uses **CapacityFilter** and, for weighing, **CapacityWeigher**
+    , which filters the volume backends based on the storage size utilization. The
+    latest Cinder scheduler filters and weighers, at least up until the Bobcat release,
+    can be found at [https://docs.openstack.org/cinder/latest/configuration/block-storage/scheduler-filters.html](https://docs.openstack.org/cinder/latest/configuration/block-storage/scheduler-filters.html)
+    and [https://docs.openstack.org/cinder/latest/configuration/block-storage/scheduler-weights.html](https://docs.openstack.org/cinder/latest/configuration/block-storage/scheduler-weights.html)
+    , respectively. The following Cinder scheduler weighers list has changed over
+    OpenStack releases, which lists the most adopted weighers in large deployments:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**CapacityWeigher** : Storage backend(s) are assigned the highest weight based
+    on the most available and free storage capacity.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**VolumeNumberWeigher** : Balances the volume allocation between different
+    storage backends filtered by the scheduler. This is the best option to spread
+    multiple volume creation requests evenly across different backends that share
+    the same name.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**GoodnessWeigher** : A more fine-grained weigher that places volumes based
+    on specific storage properties. It uses a formula that evaluates a storage backend,
+    using a rating function, denoted as **goodness_function** , with the **"(property_rule
+    )?challengeVal1 : challengeVal2"** format. The attribution of weights varies between
+    **0** (the lowest) and **100** (the highest), based on the evaluation of **property_rule**
+    , as follows:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If **property_rule** returns **true** , then the storage backend is assigned
+    the weight of the **challengeVal1** value
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If **property_rule** returns **false** , then the storage backend is assigned
+    the weight of the **challengeVal2** value
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following step-by-step configuration will demonstrate the usage of Cinder
+    scheduling, by enabling default filters and using **GoodWeigher** to choose an
+    ideal storage backend for each volume request. In this setup, two of the storage
+    backends we configured in previous sections will be used for LVM and Ceph, respectively.
+    We can continue to add a custom scheduling configuration by creating a new file,
+    **/etc/kolla/config/cinder/cinder.conf** . Running **kolla-ansible** will merge
+    any configuration file under the **/etc/kolla/config/cinder** directory with the
+    one in the main template defined in the **/kolla-ansible/ansible/roles/cinder/templates/cinder.conf.j2**
+    file. The new file will be configured with the following settings:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Enable the list of schedulers in a new section:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Add **GoodnessWeigher** as a main weigher mechanism, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'For each backend section, add **goodness_function** to define a rating based
+    on the storage provider’s capability. The next simple configuration evaluates
+    the volume size and checks whether both backends’ utilization of **lvm-1** and
+    **rbd** is less than 50%. If so, **50** and **80** weights will be assigned, respectively.
+    In this case, **rbd** is the best candidate to place the volume. If the backend
+    utilization on **lvm-1** is greater than 50% and less than 50% for **rbd** , the
+    weigher will assign **80** to **rbd** and a weight of **30** to **lvm-1** . The
+    last case of weight logic is when both backends’ utilization is more than 50%
+    – in this case, **lvm-1** will be selected with **30** compared to **rbd** , which
+    is assigned a weight of **20** :'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Run the same job’s CI/CD pipeline, and make sure that **kolla-ansible** will
+    restart the **cinder-volume** container with a new configuration. The **cinder.conf**
+    file should have an extended configuration list of the configured schedulers and
+    weighers.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Cinder provides constructs to request volumes with a specific storage backend,
+    using volume types. The following example shows how to define two volume types
+    for LVM and Ceph, based on each backend name to be used when creating volumes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Users should be able to create volumes transparently based on storage types,
+    as defined in the preceding command lines. The storage pool offer can be classified
+    as large block storage with replication capabilities, defined as **rbd_large**
+    , and a second standard storage capability for general purposes, defined as **lvm_standard**
+    :'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this scenario, the Cinder scheduler will assign each volume request to the
+    designated backend storage – **lvm-1** and **rbd** , respectively. In other cases,
+    two or more storage backends can share the same volume backend name, **volume_backend_name**
+    – in this case, the scheduler will promote the storage backend type based on its
+    scheduling and weighing filters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With the integration of various storage solutions and advanced scheduling mechanisms,
+    cloud operators can take advantage of an array of features in each storage solution,
+    managed through a single Cinder interface. Besides the Block Storage option, OpenStack
+    offers another storage service focused on objects, code named Swift. We will cover
+    this in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Revisiting object storage – Swift
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '**Swift** is a service tailored to store large volumes of unstructured object
+    data, such as text or binary data. It enables OpenStack operators to build distributed
+    object storage systems by using commodity storage. The hallmark of the Swift service
+    is the way it is designed, which ensures data availability and durability. Several
+    workloads that can run in an OpenStack cloud environment, such as web applications,
+    can leverage object storage by enjoying the advantages of this simple service’s
+    usage and management, as well as its transparent data replication and horizontal
+    scaling.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Revisiting Swift
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Swift’s logical core components consist mainly of the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Account server** : Represents a namespace for a list of containers associated
+    with a Swift account.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Container server** : Refers to the user-defined storage area within a Swift
+    account where it stores a list of objects.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Object server** : Manages an actual object within a container. Object storage
+    defines where the actual data and its metadata are stored. Each object must belong
+    to a container.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Proxy server** : Handles different types of incoming object API or HTTP requests,
+    such as container creation, object uploads, and deletion.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Partition** : Manages the location of objects, containers, and account databases.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Zones** : Separate objects within physical zone isolation to prevent wider
+    data loss during a zonal failure in a cluster.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Rings** : Defines a logical mapping of objects, accounts, and containers
+    to a physical location in a Swift cluster. Swift uses a ring per storage construct.
+    It also uses **swift-ring-builder** to create an inventory of the cluster and
+    create partitions.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'As shown in the following figure, each partition will have three replicas that
+    reflect three copies of the same object, container, or account to maintain high
+    availability of data:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.4 – Swift rings and replication in a three-zone layout](img/B21716_05_04.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.4 – Swift rings and replication in a three-zone layout
+  prefs: []
+  type: TYPE_NORMAL
+- en: As well as the previous core components, Swift uses additional background daemons
+    to manage objects’ indexing, updates, and replications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building a Swift cluster
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'There are a variety of parameters that should be considered when preparing
+    an object storage cluster before integrating it with an existing OpenStack environment.
+    The focus should be on the hardware requirements to achieve a highly available,
+    standalone, and expandable cluster. The following is a starting point for deploying
+    a Swift cluster:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Object Storage capacity** : 100 TB'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Number of hard drive slots per** **chassis** : 50'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Hard drive storage capacity** : 3 TB'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Recommended cluster** **replicas** : 3'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Supported** **filesystem** : XFS'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: As we intend to keep three replicas, as recommended, the total storage capacity
+    should be three times the recommended size, giving us **3 * 100 =** **300 TB**
+    .
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The usage of XFS as a filesystem requires a metadata overhead in storage with
+    a factor of 1.0526. The rounded required storage space, in this case, will be
+    calculated as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**300 * 1.0526 =** **316 TB**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using the total space required will help you find the number of hard drives
+    required, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**316/3 =** **106 drives**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The number of storage nodes will be determined as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**106 / 50 =** **3 nodes**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Our initial cluster will be composed of three storage nodes that will host containers,
+    accounts, and objects. To manage the Swift requests, in our initial draft, we
+    have assigned the **swift-proxy** server to run on the controller node. One of
+    the caveats of keeping the **swift-proxy** role on the controller node is the
+    performance risk that could overload the cloud controller resources. As a cloud
+    operator, it is recommended to monitor the object API requests reaching the **swift-proxy**
+    service and start to move it to dedicated hardware when the storage cluster continues
+    to expand, in terms of size and usage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Another critical consideration when dealing with an extended Swift storage
+    system is the networking layout. In our initial design draft, a network interface
+    is dedicated to handling storage. As per the Swift architecture, more interfaces
+    can be assigned for different networking purposes. These are listed here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Storage interface** : A proxy server that interfaces the storage nodes running
+    the object, container, and account servers. The associated configuration in **kolla-ansible**
+    is defined in the **globals.yml** file as **swift_storage_interface** .'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Replication interface** : Optionally, an additional interface in each storage
+    node can be dedicated to handling Swift storage replication between the storage
+    nodes. The associated configuration in **kolla-ansible** is defined in the **globals.yml**
+    file as **swift_replication_interface** . This option is not considered in the
+    current setup and will use the storage interface to handle the replication traffic.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Internal API interface** : This can be defined to allow users access to the
+    proxy server internally. The same interface can be used by HAProxy to establish
+    load balancing between two or more swift-proxy services for high availability.
+    The associated configuration in **kolla-ansible** is defined in the **globals.yml**
+    file as **api_interface** . This option is not considered in the current setup.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**External API interface** : Optionally, Swift can be accessed externally when
+    workloads require public API access. The associated configuration in **kolla-ansible**
+    is defined in the **globals.yml** file as **kolla_external_vip_interface** . This
+    option is not considered in the current setup.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Swift can easily expand exponentially due to its common use cases; thus, cloud
+    operators should expect possible growth of the underlying infrastructure. A common
+    pain point is to get locked in a limited hardware configuration and not be prepared
+    for it beforehand. Having additional network interfaces will prove a big advantage
+    when operators realize there’s a degradation in network performance. Separating
+    the traffic types in a dedicated interface will avoid the burden of operational
+    overhead and firefighting.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running Swift
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Before deploying the Swift cluster using **kolla-ansible** , we will need to
+    prepare the storage node filesystem. The following shell script will create partitions
+    on each available disk – **sdc** , **sdd** , and **sde** – that should run in
+    each storage node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For each created partition, create an XFS file system using the following shell
+    script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The filesystem label is referred to as **KOLLA_SWIFT_DATA** , which should be
+    visible in the storage node. The name of the device should match the configuration
+    settings in the **globals** **.yml** file, defined by the **swift_devices_name**
+    setting.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, generate the rings to prepare mapping objects in the Swift cluster. At
+    the time of writing, the Object Storage playbook does not automate the ring generation
+    process. Start by generating the object ring, and then run the following script
+    from the deployer node. The first part of the script defines the cluster storage
+    IP addresses, the Swift Kolla image, and a new directory for a custom Swift Kolla
+    configuration path, respectively:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Swift uses the **swift-ring-builder** tool to generate an object ring. The
+    generic format of the ring builder command is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here, we have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**<builder_file>** : This can be one of **account.builder** , **container.builder**
+    , or **object.builder** .'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**<part_power>** : The number of partitions is approximated to the closest
+    power of 2 to get the part power of the cluster. For example, for 50 hard disks,
+    the recommended part power is 11, which gives us a value of 2,048 on average for
+    all partitions. It is recommended that the approximation is rounded up.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**<replicas>** : A choice of three replicas will be the recommended value.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**<min_part_hours>** : This determines the time in an hour during which only
+    one replica of a partition can be moved.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Rackspace Lab provides an online easy tool to calculate the swift ring. It can
+    be found at [https://rackerlabs.github.io/swift-ppc/](https://rackerlabs.github.io/swift-ppc/)
+    .
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next part of the script will build the ring for the objects and iterate
+    through each storage node by adding available devices to the ring on port **6000**
+    :'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The following section of the script will generate a ring file for the account
+    and add available devices to the ring for each storage node on port **6001** :'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The next part of the script generates a ring for the container and adds available
+    devices to the ring for each storage node on port **6002** :'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Optionally, to distribute the partitions within the available drives in the
+    ring, add the last section in the script by firing the rebalance option, using
+    the same **swift-ring-builder** **rebalance** command-line tool:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This will iterate through each generated ring file and ensure each ring is
+    balanced upon each partition move. After running the ring preparation script,
+    make sure no errors are generated and that all three ring files are located under
+    the **/etc/kolla/config/swift/** directory. The next step is to make sure the
+    object storage hostnames are added to the inventory file, located under **/ansible/inventory**
+    , as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We will keep the **swift-proxy** role on the cloud controller node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Edit the **globals.yml** file by enabling the Swift service, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If the storage partition label uses a different name than the default **KOLLA_SWIFT_DATA**
+    defined in the disk partition preparation previously, make sure you adjust it
+    accordingly by setting the following configuration line in the **globals.yml**
+    file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Triggering the pipeline job should run each target node in the Kolla Swift
+    containers. Create a container in one of the cluster nodes, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Create a simple object in the created container:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can show the container details, including the number of objects and the
+    associated account:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: As demonstrated in this section, the Swift architecture comes with a simple
+    API that makes it easy to store unstructured data in redundant clusters with less
+    operational burden. Swift is also often used for backup, archiving, and disaster
+    recovery purposes. The last facet of storage options in OpenStack is the file
+    share storage code known as Manila, which will be covered in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exploring file share services – Manila
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The next storage service in OpenStack is the file share code named Manila. The
+    service offers simultaneous access to a storage-based file share for a variety
+    of clients and storage backends. Multiple sharing protocols are supported by Manila,
+    at least until the Bobcat release, including NFS, GlusterFS, CephFS, CIFS, HDFS,
+    and, most recently, MapRFS. Note that the storage backends use drivers that must
+    support one of the previously listed protocols.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Manila under the hood
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'As illustrated in the following figure, the core components that orchestrate
+    file shares and manage their life cycle in Manila are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Manila share server** : A unit of storage that hosts the shares'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**API server** : Exposes a REST API interface for client request handling'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Scheduler** : Selects the best share server to suit a file share request'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Data service** : Handles data backups, recovery, and migration'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Manila interacts with a few OpenStack core services, including the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Nova** : To create instances that run the share servers'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Neutron** : To provide access to the file shares through the tenant instance
+    network'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Cinder** : To create file shares in a block storage pool as volumes:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![Figure 5.5 – File share service core architecture](img/B21716_05_05.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.5 – File share service core architecture
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: At the time of writing, Manila supports more than 25 share drivers’ backends,
+    including CephFS, GlusterFS, LVM, and other vendors, such as EMC and Hitachi NAS.
+    A fully updated list can be found at [https://docs.openstack.org/manila/latest/configuration/shared-file-systems/drivers.html](https://docs.openstack.org/manila/latest/configuration/shared-file-systems/drivers.html)
+    .
+  prefs: []
+  type: TYPE_NORMAL
+- en: The additional extended list of new features and drivers in Manila allows it
+    to use multiple storage backends and handle them simultaneously. Similar to the
+    Block Storage multi-backend setup, the latest versions of Manila introduced the
+    filtering and weighing mechanisms to select a shared backend, based on specific
+    properties. By default, **manila-scheduler** uses **DriverFilter** for filtering
+    and **GoodnessWeigher** as a weigher mechanism.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Filters and function weighers should be configured in the **manila.conf** file,
+    similar to Cinder’s filtering function syntax. The filter function defines capability
+    checks at both the share and host levels. The available share types of properties
+    can be listed by running **manila extra-specs-list** on the command line. A full
+    list of the latest properties supported by the filter function, up until the Antelope
+    and Bobcat releases, is available at [https://docs.openstack.org/manila/latest/contributor/driver_filter_goodness_weigher.html](https://docs.openstack.org/manila/latest/contributor/driver_filter_goodness_weigher.html)
+    .
+  prefs: []
+  type: TYPE_NORMAL
+- en: For the next deployment, the default scheduling configuration will be used,
+    which filters the best backend based on the free available capacity.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running Manila
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Deploying the Manila service in our existing OpenStack environment is straightforward.
+    In the following setup, we will use a generic backend that leverages Cinder to
+    create a share as a volume. The attached volume to the instance can live within
+    a Cinder pool storage backend that was configured in the *Expanding storage with
+    multiple backends* section for LVM or Ceph, respectively.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Enabling the Cinder service in the **kolla-ansible** code is a requirement
+    to run Manila with a generic storage backend. In the **globals.yml** file, enable
+    the Manila service, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The **globals.yml** file exposes another backend for Manila that includes NFS
+    in Ceph and HNAS. For the generic backend, bear in mind that NFS and CIFS shares
+    will be used. Proceed by enabling the generic share:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: At the time of writing, enabling the Manila service will automatically add the
+    Horizon panel for Manila to manage file shares through the dashboard. If the Manila
+    service is not visible in the dashboard after deployment, make sure the **enable_horizon_manila**
+    setting is set to **true** .
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'More Manila settings can be configured in the custom Manila configuration file,
+    which is not controlled directly via the **globals.yml** file. Create a new configuration
+    file, named **/etc/kolla/config/manila-share.conf** , to customize the Manila
+    share settings. One considerable setting is the size of the instance share required.
+    You can create the instance flavor in Nova in advance or use the default ones,
+    which can be listed using the following command line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For example, we can instruct the file share instance to use the **m1.medium**
+    flavor, referenced with an ID of **3** from the list:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Other settings can be customized, such as the Manila shared backend name if
+    you intend to have more than one backend. To reflect the name of the generic backend,
+    add the following configuration setting:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: As it’s a Nova instance, the file share server will need a Glance image. By
+    default, the Manila playbook uses **manila-service-image** as a reference name.
+    If you intend to change it, make sure it has the same name as the one configured
+    in the file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next part of preparing the Manila deployment is to make sure the Manila
+    services are assigned to the cluster roles. Set the hostname, and ensure the Manila
+    services are added to the inventory file located under **/ansible/inventory/multi_packtpub_prod**
+    , as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As highlighted in [*Chapter 3*](B21716_03.xhtml#_idTextAnchor108) , *OpenStack
+    Control Plane – Shared Services* , the **manila-share** service uses the Neutron
+    plugin to provide network access to the file share resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Launch the pipeline job so that you can deploy the Manila service in cross-target
+    nodes. Manila service containers should be running in the cloud controller and
+    network node. Make sure that the Manila tasks complete without failure, as shown
+    here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.6 – The kolla-ansible Manila deployment’s service output](img/B21716_05_06.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.6 – The kolla-ansible Manila deployment’s service output
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Verify the Manila services in the cloud controller node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output of the previous command line shows that the **manila-scheduler**
+    service has been enabled on the cloud controller host and that **manila-share**
+    is running as part of the network node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.7 – The OpenStack Manila services list](img/B21716_05_07.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.7 – The OpenStack Manila services list
+  prefs: []
+  type: TYPE_NORMAL
+- en: The file-sharing service has seen great improvements in the latest OpenStack
+    releases, including Bobcat, such as the introduction of file-share control access.
+    This way, file shares can be locked to protect them against accidental deletion.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Starting from the Antelope release, the Manila CLI is planned to be deprecated,
+    and it is highly recommended to use the OpenStack CLI to interact with the Manila
+    REST API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This chapter has explored the most trending OpenStack storage services. The
+    expansion of each storage service feature and capability, including Swift, Cinder,
+    and Manila, is almost *unstoppable* . This is confirmed by the vast array of supported
+    backend drivers, either with the open source world ones, such as Ceph, or with
+    a specific storage vendor. The latest OpenStack releases, including Antelope and
+    Bobcat, have also introduced more stable advanced features, mainly for Cinder
+    and Manila, through the scheduling and filtering mechanisms. Bear in mind that
+    understanding each storage use case and its respective architecture are the keys
+    to comfortably running a storage solution in an OpenStack environment, based on
+    your requirements. The challenge of picking the right option to satisfy specific
+    requirements is not limited to storage topics. It also applies to the networking
+    paradigm in OpenStack. Connecting the different elements of the compute and storage
+    services will be discussed in the next chapter of our OpenStack journey.
+  prefs: []
+  type: TYPE_NORMAL

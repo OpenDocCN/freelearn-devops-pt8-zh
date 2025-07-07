@@ -1,0 +1,593 @@
+- en: Attaching Instances to Networks
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In *[chapter 6](5a3df5cf-aebb-4c57-9f48-fa5419a5b2ae.xhtml), Building Networks
+    with Neutron*, we created multiple networks that can be utilized by projects in
+    the cloud. In this chapter, we will create instances that reside in those networks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'I will guide you through the following tasks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating and attaching instances to networks
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Adding additional interfaces to instances
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Demonstrating DHCP and metadata services
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Attaching instances to networks
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Using the OpenStack command-line client, instances can be attached to networks
+    in a couple of ways. When an instance is first created, it can be attached to
+    one or more networks using the `openstack server create` command. Running instances
+    can be attached to additional networks using the `openstack server add port` command.
+    Both methods are explained in the following sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you're following along, the networks we created in the previous chapters
+    have all been destroyed and recreated with similar names and segmentation IDs,
+    but with new ID numbers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Attaching instances to networks at creation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Instances are created using the `openstack server create` command, as you can
+    see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Nova attaches instances to virtual bridges and switches on the `compute` node
+    via their virtual interfaces, or VIFs. Each VIF has a corresponding Neutron port
+    in the database.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When using the Open vSwitch mechanism driver and Open vSwitch firewall driver,
+    each VIF plugs into the integration bridge on the respective `compute` node hosting
+    the instance. The virtual switch port is configured with a local VLAN ID that
+    corresponds to the network associated with the Neutron port and VIF. When the
+    `iptables_hybrid` firewall driver is used, the VIF is connected to a Linux bridge
+    where iptables rules are applied.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When using the Linux bridge mechanism driver, each VIF connects to a Linux bridge
+    that corresponds to the associated network. Every network has a corresponding
+    bridge that is used to segregate traffic at Layer 2.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For a refresher on these concepts, refer to [*Chapter 4*](05786c3c-b24e-40dc-82a7-ed6072eca14f.xhtml), *Virtual
+    Switching Infrastructure Using Linux Bridges,* and [*Chapter 5*](0763a131-4ab9-4b3e-8854-8646feae7937.xhtml),
+    *Building a Virtual Switching Infrastructure Using Open vSwitch*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Specifying a network
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `openstack server create` command provides a `--nic` argument that specifies
+    the network or port to be attached to the instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Users can specify a network identified by the network''s ID by using the `net-id`
+    key:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the preceding example, Nova interfaces with the Neutron API to create a
+    port using the network ID provided by the user. Neutron then returns details of
+    the port back to Nova for use by the instance. Users can request a specific unused
+    IPv4 or IPv6 address using the `v4-fixed-ip` and `v6-fixed-ip` keys, respectively,
+    as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Specifying a port
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Alternatively, users can specify a port that''s been identified by the port''s
+    ID using the `port-id` key, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this example, Neutron associates the existing port with the instance and
+    sets the port's `device_id` attribute accordingly. A port can later be detached
+    from an instance and associated with a new instance using this method. Possible
+    options include auto, none, or the ID of an existing port. The default is auto.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Attaching multiple interfaces
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: By passing the `--nic` argument multiple times, it is possible to attach multiple
+    interfaces to an instance. The interfaces within the instance may then be enumerated
+    as `eth0`, `eth1`, `eth2`, and so on, depending on the operating system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Attaching multiple network interfaces to an instance is referred to as **multihoming**.
+    When an instance is multihomed, neither Neutron nor the instance itself is aware
+    of which network takes precedence over another. When attached networks and subnets
+    have their own respective gateway addresses set, an instance's routing table can
+    be populated with multiple default routes. This scenario can wreak havoc on the
+    connectivity and routing behavior of an instance. This configuration is useful
+    when connecting instances to multiple networks directly, however, care should
+    be taken to avoid network issues in this type of design.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Para-virtualized devices, including network and storage devices that use the
+    virtio drivers, are PCI devices. Virtual machine instances under KVM are currently
+    limited to 32 total PCI devices. Some PCI devices are critical for operation,
+    including the host bridge, the ISA/USB bridge, the graphics card, and the memory
+    balloon device, leaving up to 28 PCI slots available for use. Every para-virtualized
+    network or block device uses one slot. This means that users may have issues attempting
+    to connect upwards of 20-25 networks to an instance depending on the characteristics
+    of that instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following `openstack server create` command demonstrates the basic procedure
+    of connecting an instance to multiple networks when creating the instance:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Inside the instance, the first attached NIC corresponds to `NETWORK1`, the second
+    NIC corresponds to `NETWORK2`, and so on. For many cloud-ready images, a single
+    interface within the instance is brought online automatically using DHCP. Modification
+    of the network interface file(s) or use of the `dhclient` command within the instance
+    may be required to activate and configure additional network interfaces once the
+    instance is active.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Attaching network interfaces to running instances
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Using the `openstack server add port` or `openstack server add fixed ip` commands,
+    you can attach an existing or new port to running instances.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `openstack server add port` command can be used as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: The port argument specifies the port to be attached to the given server. The
+    port must be one that is not currently associated with any other instance or resource.
+    Otherwise, the operation will fail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `openstack server add fixed ip` command can be used as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: The network argument specifies the network to be attached to the given server.
+    A new port that has a unique MAC address and an IP from the specified network
+    will be created automatically.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--fixed-ip-address` argument can be used to specify a particular IP address
+    in the given network rather than relying on an automatic assignment from Neutron.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While additional network interfaces may be added to running instances using
+    hot-plug technology, the interfaces themselves may need to be configured within
+    the operating system before they can be used. You may use the `dhclient` command
+    to configure the newly-connected interface using DHCP or configure the interface
+    file manually.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Detaching network interfaces
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To detach an interface from an instance, use the `openstack server remove port`
+    or `openstack server remove fixed ip` commands, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: Interfaces detached from instances are removed completely from the Neutron port
+    database.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Take caution when removing interfaces from running instances, as it may cause
+    unexpected behavior within the instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exploring how instances get their addresses
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When a network is created and DHCP is enabled on a subnet within the network,
+    the network is scheduled to one or more DHCP agents in the environment. In most
+    environments, DHCP agents are configured on `controllers` or dedicated `network`
+    nodes. In more advanced environments, such as those utilizing network segments
+    and leaf/spine topologies, DHCP agents may be needed on `compute` nodes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A DHCP agent is responsible for creating a local network namespace that corresponds
+    to each network that has been scheduled to that agent. An IP address is then configured
+    on a virtual interface inside the namespace, along with a `dnsmasq` process that
+    listens for DHCP requests on the network. If a `dnsmasq` process already exists
+    for the network and a new subnet is added, the existing process is updated to
+    support the additional subnet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When DHCP is not enabled on a subnet, a `dnsmasq` process is not spawned. An
+    IP address is still associated with the Neutron port that corresponds to the interface
+    within the instance, however. Without DHCP services, it is up to the user to manually
+    configure the IP address on the interface within the guest operating system through
+    a console connection.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Most instances rely on DHCP to obtain their associated IP address. DHCP follows
+    the following stages:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A DHCP client sends a `DHCPDISCOVER` broadcast packet that requests IP information
+    from a DHCP server.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A DHCP server responds to the request with a `DHCPOFFER` packet. The packet
+    contains the MAC address of the instance that makes the request, the IP address,
+    the subnet mask, lease duration, and the IP address of the DHCP server. A Neutron
+    network can be scheduled to multiple DHCP agents simultaneously, and each DHCP
+    server may respond with a `DHCPOFFER` packet. However, the client will only accept
+    the first one.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In response to the offer, the DHCP client sends a `DHCPREQUEST` packet back
+    to the DHCP server, requesting the offered address.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In response to the request, the DHCP server will issue a `DHCPACK` packet or
+    acknowledgement packet to the instance. At this point, the IP configuration is
+    complete. The DHCP server sends other DHCP options such as name servers, routes,
+    and so on to the instance.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Network namespaces associated with DHCP servers are prefixed with `qdhcp`, followed
+    by the entire network ID. DHCP namespaces will only reside on hosts running the
+    `neutron-dhcp-agent` service. Even then, the network must be scheduled to the
+    DHCP agent for the namespace to be created on that host. In this example, the
+    DHCP agent runs on the `controller01` node.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To view a list of namespaces on the `controller01` node, use the `ip netns list`
+    command that''s shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/df747da2-8aea-46e2-b625-346260a53d5d.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The two namespaces listed in the output directly correspond to two networks
+    for which a subnet exists and DHCP is enabled:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/4736f8c8-97d5-44f8-80ed-0a19c5af85b8.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'An interface exists within the qdhcp namespace for the network MyVLANNetwork,
+    which is used to connect the namespace to the virtual network infrastructure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/1c8aa000-409b-4c15-a105-dd10ad620a97.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The interface `ns-6c15d7b8-87` within the namespace is one end of a `veth` interface.
+    The IP address assigned to the `ns-6c15d7b8-87` interface, `192.168.206.2/24`,
+    has been automatically assigned by Neutron and was procured from the subnet's
+    allocation pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When using the Linux bridge driver, the other end of the interface, known as
+    the peer, is connected to a bridge that corresponds to the network and is represented
+    by the `tap6c15d7b8-87` interface, as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/adb87c6a-32ef-4b46-9fa7-0ed4058371ce.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In the preceding screenshot, the bridge labeled `brq7745a4a9-68` corresponds
+    to the network `MyFlatNetwork`, as evidenced by the `untagged` interface `eth2`
+    connected to the bridge. The interface `tapd1848f67-2e` is the other end of the
+    `veth` interface which is connected to the DHCP namespace for the network `MyFlatNetwork`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Watching the DHCP lease cycle
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In this example, an instance will be created with the following characteristics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Name: `TestInstance1`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Flavor: `tiny`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Image: `cirros-0.4.0`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Network: `MyVLANNetwork`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Compute Node: `compute01`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The command to create the instance is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: The tiny flavor may not exist in your environment, but can be created and defined
+    with 1 vCPU, 1 MB RAM, and 1 GB disk.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To observe the instance requesting a DHCP lease, start a packet capture within
+    the DHCP network namespace that corresponds to the instance''s network using the
+    following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As an instance starts up, it will send broadcast packets that will be answered
+    by the DHCP server within the namespace:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/1c2a1f42-9a1b-40a3-82e0-428e6e690cbf.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In the preceding screenshot, all four stages of the DHCP lease cycle can be
+    observed. A similar output can be observed by performing the capture on the tap
+    interface of the instance on the `compute` node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/af5967ce-8b85-44fe-bd49-3d46fde58c35.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Using the `dhcpdump` utility, we can observe more verbose output of the DHCP
+    lease cycle. To install `dhcpdump`, issue the following command on all nodes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Within the network namespace hosting the DHCP server for the `MyVLANNetwork`
+    network, run `dhcpdump`, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As the client makes its initial DHCP request, you will see a `DHCPDISCOVER`
+    broadcast packet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/7a817e4d-6fb2-41e6-b383-01adee525e0f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Then, the `DHCP` server will send a `DHCPOFFER` unicast packet directly to
+    the instance:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/09da7ac5-cf60-4cea-b5be-d98a3516876d.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Next, the client will send a `DHCPREQUEST` broadcast packet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/cad43158-4284-4f8f-a199-0f68c1037ad8.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Lastly, the DHCP server will acknowledge the request with a `DHCPACK` unicast
+    packet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/cbd6712f-7a93-475c-9240-29962f5a362e.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Troubleshooting DHCP
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: If an instance is unable to procure its address from DHCP, it may be helpful
+    to run a packet capture from various points in the network to see where the request
+    or reply is failing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using `tcpdump` or `dhcpdump`, one can capture DHCP request and response packets
+    on UDP ports `67` and `68` from the following locations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Within the DHCP namespace
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: On the physical interface of the `network` and/or `compute` nodes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: On the tap interface of the instance
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Within the guest operating system via the console
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Further investigation may be required once the node or interface responsible
+    for dropping traffic has been identified.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exploring how instances retrieve their metadata
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In [*Chapter 3*](bf508e37-ce8a-4116-89db-e8f8a6abf0f4.xhtml), *Installing Neutron*,
+    we briefly covered the process of instances accessing metadata over the network:
+    either through a proxy in the router namespace or the DHCP namespace. The latter
+    is described in the following section.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The DHCP namespace
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Instances access metadata at [http://169.254.169.254](http://169.254.169.254),
+    followed by a URI that corresponds to the version of metadata, which is usually
+    `/latest`. When an instance is connected to a network that does not utilize a
+    Neutron router as the gateway, the instance must learn how to reach the metadata
+    service. This can be accomplished in a few different ways, including the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting a route manually on the instance
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Allowing DHCP to provide a route
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'When `enable_isolated_metadata` is set to `True` in the DHCP configuration
+    file at `/etc/neutron/dhcp_agent.ini`, each DHCP namespace provides a proxy to
+    the metadata service running on the `controller` node(s). The proxy service listens
+    directly on port `80`, as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/c579967e-3cc1-47a4-9440-5b8eb585d3bd.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Using the `ps` command within the namespace, you can see the process associated
+    with this listener is the Neutron metadata proxy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/75dc329b-811f-4b21-8948-0c96cfc0a299.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Adding a manual route to 169.254.169.254
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before an instance can reach the metadata service in the DHCP namespace at `169.254.169.254`,
+    a route must be configured to use the DHCP namespace interface as the next hop
+    rather than at the default gateway of the instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Observe the IP addresses within the following DHCP namespace:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/43ee6750-ad7d-4551-8e30-433dad2e4893.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: '`169.254.169.254/16` has been automatically configured as a secondary address
+    on the interface inside the namespace. To reach `169.254.169.254` from an instance
+    in the `192.168.206.0/24` network, the following `ip route` command can be used
+    within the guest instance that sets `192.168.206.2` as the next hop:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: While this method works, the process of adding a route to each instance does
+    not scale well, especially when multiple DHCP agents exist in the environment.
+    A single network can be scheduled to multiple agents that, in turn, have their
+    own respective namespaces and IP addresses in the same subnet. Users will need
+    prior knowledge of the IP to use in their route statement, and the address is
+    subject to change. Allowing DHCP to inject the route automatically is the recommended
+    method that will be discussed in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using DHCP to inject the route
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When `enable_isolated_metadata` is set to `True` and the gateway for a subnet
+    is not set or is not a Neutron router, the DHCP service is capable of injecting
+    a route to the metadata service via the classless-static-route DHCP option, also
+    known as option 121.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Possible DHCP options, including those leveraged by Neutron for various tasks,
+    can be found on the IANA website at the following URL: [https://www.iana.org/assignments/bootp-dhcp-parameters/bootp-dhcp-parameters.xhtml](https://www.iana.org/assignments/bootp-dhcp-parameters/bootp-dhcp-parameters.xhtml).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once an instance connected to a subnet with the mentioned characteristics has
+    been created, observe the following routes passed to the instance via DHCP:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/0080bbae-451a-4b8a-bc45-9afcac7b1547.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The next hop address for the metadata route is the IP address of the DHCP server
+    that responded to the initial DHCP request from the client. If there were multiple
+    DHCP agents in the environment and the same network was scheduled to all of them,
+    it is possible that the next hop address would vary between instances, as any
+    of the DHCP servers could have responded to the request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, I demonstrated how to attach instances to networks and mapped
+    out the process of an instance obtaining its IP address from an OpenStack-managed
+    DHCP server. I also showed you how an instance reaches out to the metadata service
+    when connected to a VLAN provider network. The same examples in this chapter can
+    be applied to any recent OpenStack cloud and many different network topologies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For additional details on deployment scenarios based on provider networks,
+    refer to the following upstream documentation for the Pike release of OpenStack
+    at the following locations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Open vSwitch**: [https://docs.openstack.org/neutron/pike/admin/deploy-ovs-provider.html](https://docs.openstack.org/neutron/pike/admin/deploy-ovs-provider.html)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Linux bridge**:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://docs.openstack.org/neutron/pike/admin/deploy-lb-provider.html](https://docs.openstack.org/neutron/pike/admin/deploy-lb-provider.html)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will learn how to leverage Neutron security group functionality
+    to provide network-level security to instances.
+  prefs: []
+  type: TYPE_NORMAL

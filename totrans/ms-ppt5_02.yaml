@@ -1,0 +1,450 @@
+- en: Roles and Profiles
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The *roles and profiles pattern* became common knowledge in the Puppet community
+    following Craig Dunn's seminal blog post ([https://www.craigdunn.org/2012/05/239/](https://www.craigdunn.org/2012/05/239/)),
+    and has been rapidly taken up by the rest of the community. It's now a widely
+    adopted pattern or best practice. It's a reliable way to build reusable, configurable,
+    and refactorable site-wide configuration code, and it's an approach to dealing
+    with the interfaces of your infrastructure—using the software development paradigms
+    of *encapsulation* and *abstraction*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before the pattern developed, the Puppet language itself provided just two
+    levels of abstraction, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The component module ([https://puppet.com/docs/puppet/5.3/modules_fundamentals.html](https://puppet.com/docs/puppet/5.3/modules_fundamentals.html))
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The node definition ([https://puppet.com/docs/puppet/5.3/lang_node_definitions.html](https://puppet.com/docs/puppet/5.3/lang_node_definitions.html))
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: But it soon became clear that further intermediate abstraction was needed to
+    break up, restructure, and clarify these two.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s consider the overarching task: we want to assign classes (and their
+    corresponding business data) to nodes, and we want to do this in a way that encapsulates
+    and hides complexity away at each stage of this abstraction process: moving from
+    looking at the node in its context within the whole infrastructure, as a software
+    stack, and drilling down into the technology components and their configuration,
+    which comprise elements of that software stack.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: I've seen nodes being defined in the very long-hand way, using only these two
+    levels of abstraction. I've also seen other approaches, such as using a Hiera-based
+    micro **external node classifier** (**ENC**). I've helped to transition companies
+    to using the roles and profiles pattern, and I've used both the Puppet Enterprise
+    console and Foreman as ENC. I've defined nodes in Puppet code, using Hiera in
+    many ways to assist node classification, and I've even used the PE console API
+    for node classification, so I hope I've picked up a few best practices along the
+    way that I can now pass along to you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, let's look together at the roles and profiles pattern, and
+    how this can help you to manage your infrastructure professionally and achieve
+    our next milestone in *Mastering Puppet 5*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary of the pattern
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The roles and profiles pattern adds two additional layers of abstraction between
+    your *node classification* at the highest level and *component modules* at the
+    lowest, thus providing three levels of abstraction in your Puppet modules. The
+    following descriptions go from the most complex to the least:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Component modules**: These are modules for the management of software for
+    your business. There will no doubt be a bunch of these that you''ve downloaded
+    from the Forge (for example, puppetlabs/apache, puppetlabs/mysql, hunner/wordpress,
+    and so on), and no doubt also some that you have developed for your own business-specific
+    purposes.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We''ve discussed these already at length in [Chapter 1](e7bbbeb3-e406-46ea-aad3-20f4af34d014.xhtml),
+    *Authoring Modules*, so here''s the rub:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Profiles**: A set of encapsulated *technology-specific* classes that use
+    one or more component modules and corresponding business data to configure part
+    of a solution stack'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Roles**: A set of encapsulated *business-specific* classes that comprise
+    profiles to build a complete system configuration'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: These two additional layers of abstraction and improved interfaces make hierarchical
+    business data easier to integrate, system configurations easier to read for both
+    business people and technologists, and they make refactoring easier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following UML diagram shows the relationship between the elements in the
+    pattern more clearly:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/059198e1-6146-474c-ad76-035d3c44cca2.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'From the preceding diagram, we can see the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A Node has *exactly* one Role
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A Role comprises *one or more* Profiles
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Profile comprise *one or more* Component Modules and corresponding Hierarchical
+    Business Data
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Component Modules comprise *many* Resources
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Puppet resources should already be very familiar to you, and we've already covered
+    component modules in [Chapter 1](e7bbbeb3-e406-46ea-aad3-20f4af34d014.xhtml), *Authoring
+    Modules*, so in the following two sections, let's take a deep dive into the *profile*
+    and *role* part of the pattern.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Profiles
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: First, let's take a step back and consider what we want to achieve with profiles.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The overarching exercise is to produce usable chunks of technology that can
+    be fitted together, in a building-brick fashion, to compose what we call in the
+    industry these days *technology stacks* or *solution stacks*. The most well-known
+    example of a stack would be the LAMP stack (Linux, Apache, MySQL, PHP), and more
+    recently, Ruby or Python have sometimes superseded PHP as the primary scripting
+    language. Node.js is being rapidly adopted across the industry, too.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Considering the LAMP stack, what we want to do is create chunks of technology
+    for the Apache, MySQL, and PHP components. Profiles are, therefore, these smaller
+    chunks of technology that will eventually comprise these full solution stacks.
+    Profiles are the three *building bricks* that we piece together, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/8ad5d347-e50d-4b04-9573-0061a2121aa1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Let''s look at this LAMP stack with some fully functional Puppet **domain specific
+    language** (**DSL**) code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, in these classes, we are producing an *abstraction* for the
+    remaining, AMP section of the LAMP stack and *encapsulating* the functionality
+    of the underlying component modules. Linux is already installed, of course!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Profiles best practices summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Here are the best practices you should note in the development of your own
+    profiles, referring to the preceding LAMP stack as an example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Design for use of the `include` keyword
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Use subdirectories for sensible, readable profile class groups
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Hide complexity with parameters, defaults, and abstraction
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Decide how to set the parameters for component classes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Decide to use either automatic class parameter lookup or the `lookup` function
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Let's examine each of these best practices now in turn.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Designing for use of the include keyword
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The single interface of your profiles should be their adoption in the corresponding
+    roles part of the pattern using the Puppet `include` keyword. Bear this in mind
+    when writing your profiles. We would simply write the following in any role that
+    requires PHP to be installed on that node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With regard to the Puppet `include` keyword:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Multiple declarations are OK
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It relies on external data for parameters
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Syntax: Accepts a single class name (for example, `include apache`), or class
+    reference (for example, `include Class[''apache'']`)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using subdirectories for sensible, readable profile class groups
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We are using the component modules puppetlabs/apache, puppetlabs/mysql, and
+    mayflower/php, and encapsulating these into the profile `classes web::apache database::mysql`
+    and `programming::php`, respectively. You can see that I have used some sensible
+    subdirectories and class names to reflect their contribution to the stack, namely
+    `web`, `db`, and `programming` subdirectory locations for the Apache, MySQL, and
+    programming profiles, respectively.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hiding complexity with parameters, defaults, and abstraction
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You can see that, in the Apache profile, we have hidden the complexity of the
+    vhost-defined type quite considerably, so that you just need to provide the name
+    of the vhost as a string. Additionally, you can overwrite the value of the root
+    `internet` directory. I believe it's the same location on all Linux operating
+    systems. This reduction in the size of the interface really reduces complexity,
+    and provides a simple, neat abstraction, which is fine if you don't need multiple
+    Apache vhosts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deciding how to set the parameters for component classes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As the Puppet documentation on roles and profiles states ([https://puppet.com/docs/pe/2017.3/managing_nodes/roles_and_profiles_example.html#the-rules-for-profile-classes](https://puppet.com/docs/pe/2017.3/managing_nodes/roles_and_profiles_example.html)),
+    there is a trade-off regarding how to set the parameters provided to component
+    modules, and we should base our decision on *how readable the code is* versus *how
+    flexible the business data needs to be*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That is, if we always use the same value for a certain parameter, we can *hardcode
+    it* (highly readable), we can compute the value for a parameter based on, for
+    example, facts (quite readable and somewhat flexible), or we can look up the value
+    of a parameter in our business data hierarchy (highly flexible).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deciding to use either automatic class parameter lookup or the lookup function
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'For the third consideration in the previous best practice, there''s another
+    decision to make around how data arrives into the profile class from your business
+    data hierarchy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In these profiles, we have used the automatic class parameter lookup ([https://puppet.com/docs/puppet/5.3/hiera_automatic.html](https://puppet.com/docs/puppet/5.3/hiera_automatic.html))
+    to request data from our business data hierarchy. Using the interface of the profile's
+    parameters is a reliable and well-known way to look for the profile's configuration
+    settings, and allows better integration with external tools, such as Puppet Strings
+    ([https://github.com/puppetlabs/puppet-strings](https://github.com/puppetlabs/puppet-strings)),
+    the YARD-based ([https://yardoc.org](https://yardoc.org)) documentation extraction
+    and presentation tool.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'When we wrote the code for the `profile` class, we also could have omitted
+    all the parameters and instead used the `lookup` function:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This approach is an alternative if you aren''t comfortable with the automagic
+    nature of an automatic class parameter lookup. I have certainly found it more
+    comfortable to make an explicit data lookup, and then deal with the returned value
+    there and then in the more robust Puppet DSL. I found earlier versions of Hiera
+    notoriously cryptic when trying to track down bugs ([https://puppet.com/blog/debugging-hiera](https://puppet.com/blog/debugging-hiera)),
+    and this approach really helps. You can check data types and make further validations
+    directly. By having the full lookup key written out in the profile, we can globally
+    `grep` for it across our entire Puppet DSL codebase, and thus make a definitive
+    link between Puppet manifests and the business data servicing them:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can then use the new `Puppet lookup` ([https://puppet.com/docs/puppet/5.3/man/lookup.html](https://puppet.com/docs/puppet/5.3/man/lookup.html))
+    command (previously, the `hiera` command line invocation). Since it''s the CLI
+    equivalent of the `lookup` function, you can be sure during debugging that you
+    are getting *exactly* the business data value you require:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Actually, I also have certain issues with YAML as a language itself (see, for
+    example, [https://arp242.net/weblog/yaml_probably_not_so_great_after_all.html](https://arp242.net/weblog/yaml_probably_not_so_great_after_all.html)),
+    and being able to rely on the robustness of the more explicit Puppet DSL compensates
+    for what I feel are YAML's native weaknesses during debugging.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Take a close look at this blog post: [https://puppet.com/blog/debugging-hiera-redux](https://puppet.com/blog/debugging-hiera-redux),
+    which is an update to debugging Hiera with the latest commands, and of course
+    ensure you are at the very least using a YAML parser.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Also, bear in mind that Hiera really does have its limitations, especially for
+    larger and more diverse infrastructures ([https://www.craigdunn.org/2015/09/solving-real-world-problems-with-jerakia](https://www.craigdunn.org/2015/09/solving-real-world-problems-with-jerakia)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, moving on, let''s now look at the higher level of abstraction in the pattern:
+    *roles*.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Roles
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Let''s take another step back and consider what we want to achieve with the
+    roles part of the pattern. The overarching task is to piece together these *building-brick-like* profile
+    classes into full tech stacks, which we call *roles*, and are now the second part
+    of our full pattern:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/4d3448fc-c27c-4e1f-b40c-d1d927a6a65d.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Here you can see that we have taken the composite profiles from our previous
+    example, and stacked them one on top of the other, to produce a full tech stack.
+    We are also utilizing two additional shared profiles:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`profile::base` is included in all machines, including workstations. It manages
+    security baselines and so on, using conditional logic for OS-specific profiles;
+    for example, `profile:: base::ubuntu`, `profile::base::redhat`, and so on, as
+    needed.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`profile::server` is included in all machines that provide a service over the
+    network, and configures services such as NTP, firewalls, monitoring, logging,
+    and so on.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Let''s look again at the fully functional LAMP stack as an example in Puppet
+    DSL:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: Roles best practices summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Here are the best practices you should note in the development of your own
+    roles, referring to the preceding LAMP stack as an example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Construct roles only with the `include` keyword
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Name roles in your business's conversational name
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Decide on the granularity of roles for your nodes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Let's examine each of these best practices now in turn.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Constructing roles only with the include keyword
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As the Puppet documentation states regarding roles, in rules  ([https://puppet.com/docs/pe/2017.2/r_n_p_full_example.html#the-rules-for-role-classes](https://puppet.com/docs/pe/2017.2/r_n_p_full_example.html#the-rules-for-role-classes)),
+    the only thing roles should do is declare profile classes with the puppet `include`
+    keyword. That is, they don't themselves have any class parameters. Roles also
+    shouldn't declare any component classes or resources—that's the purpose of profiles.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Naming roles in your business's conversational name
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The name of a role should be based on your business's conversational name for
+    the type of node it manages. So, if you generally call the machine a *web server*,
+    you should prefer a name such as `role::web`, as opposed to naming it according
+    to any underlying profile technology such as `web::apache` or `web::nginx`. This
+    adds a layer of abstraction and hides the complexity of the profile code, again
+    utilizing good programming practices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Another advantage to this best practice is the benefit of communication within
+    your organization: testers, project managers, and even business people can understand
+    the simple language of roles, yet Puppet developers communicate more readily at
+    the deeper *profile* level of abstraction.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Profiles expose an appropriate interface to roles. Roles, correspondingly, also
+    expose a neat interface to your ENC, and this allows even fewer technical company
+    personnel to be responsible for node classification.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deciding on the granularity of roles for your nodes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You should start with roles that are entirely fine-grained, with every role
+    being just a simple list of the profiles it contains.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you have a lot of only slightly different nodes, you could begin to introduce
+    more complex roles that just contain one profile per line, for example, conditional
+    logic or even nested roles.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we have broadened our skills in writing Puppet modules to encompass
+    the roles and profiles pattern, with reference to two special cases which provide
+    a reliable way to build reusable, configurable, and refactorable site-wide configuration
+    code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, we stay in the development frame of mind, but look at how we can cover
+    some of those possible edge cases where we may need to extend Puppet beyond its
+    regular usage scenarios.
+  prefs: []
+  type: TYPE_NORMAL

@@ -1,0 +1,1426 @@
+- en: Building Networks with Neutron
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the *[Chapter 4](05786c3c-b24e-40dc-82a7-ed6072eca14f.xhtml), Virtual Network
+    Infrastructure Using Linux Bridges*, and *[Chapter 5](0763a131-4ab9-4b3e-8854-8646feae7937.xhtml),
+    Building a Virtual Switching Infrastructure Using Open vSwitch* , we laid down
+    a virtual switching infrastructure that would support the OpenStack Neutron networking
+    features that we have discussed in this book. In this chapter, we will build network
+    resources on top of that foundation. These will be able to be consumed by instances.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, I will guide you through the following tasks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Managing networks using the CLI and dashboard
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Managing IPv4 subnets using the CLI and dashboard
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Managing subnet pools
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating ports
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Networks, subnets, and ports are the core resources of the Neutron API, which
+    was introduced in *[Chapter 3](bf508e37-ce8a-4116-89db-e8f8a6abf0f4.xhtml)*, *Installing
+    Neutron*. The relationship between these core resources and instances and other
+    virtual network devices can be observed in the following sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Network management in OpenStack
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'OpenStack can be managed in a variety of ways, including through the Horizon
+    dashboard, the Neutron API, and the OpenStack CLI. A command-line client, provided
+    by the `python-openstackclient` package, gives users the ability to execute commands
+    from a shell that interfaces with the Neutron API. To enter the shell, type `openstack`
+    in a terminal connected to the `controller` node, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `openstack` shell features tab completion and a `help` command that lists
+    all of the available commands within the shell. Openstack-related commands can
+    also be executed straight from the Linux command line by using the `openstack`
+    client like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: The client provides a number of commands that assist with the creation, modification,
+    and deletion of networks, subnets, and ports.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `openstack` client is preferred over the `neutron` client moving forward,
+    but may not have complete command parity. The use of the `neutron` client should
+    be limited.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'All `openstack` client commands can be determined by using the `--help` flag.
+    The primary commands associated with network management that will be discussed
+    in this chapter are listed in the following table:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Network Commands** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `network create` | Creates a new network |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `network delete` | Deletes a network(s) |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `network show` | Shows network details |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `network list` | Lists networks |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `network set` | Sets network properties |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `network unset` | Unsets network properties |'
+  prefs: []
+  type: TYPE_TB
+- en: Whether you've chosen a Linux bridge or Open vSwitch-based virtual networking
+    infrastructure, the process to create, modify, and delete networks and subnets
+    is the same. Behind the scenes, however, the process of connecting instances and
+    other resources to the network differs greatly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Provider and tenant networks
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'There are two categories of networks that can provide connectivity to instances
+    and other network resources, including virtual routers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Provider networks
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Project or tenant networks, also known as self-service networks
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Every network created in Neutron, whether created by a regular user or a user
+    with an admin role, has provider attributes that describe that network. Attributes
+    that describe a network include the network's type, such as flat, VLAN, GRE, VXLAN,
+    or local, the physical network interface that the traffic will traverse, and the
+    segmentation ID of the network. The difference between a provider and project
+    or tenant network is in who or what sets those attributes and how they are managed
+    within OpenStack.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Provider networks can only be created and managed by an OpenStack administrator,
+    since they require knowledge and configuration of the physical network infrastructure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An OpenStack administrator refers to a user associated with the `admin` role
+    in Keystone.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When a provider network is created, the administrator must manually specify
+    the provider attributes for the network in question. The administrator is expected
+    to have some understanding of the physical network infrastructure and may be required
+    to configure switch ports for proper operation. Provider networks allow for either
+    virtual machine instances or virtual routers created by users to be connected
+    to them. When a provider network is configured to act as an external network for
+    Neutron routers, the provider network is known as an **external provider network**.
+    Provider networks are often configured as flat or vlan networks, and utilize an
+    external routing device to properly route traffic in and out of the cloud.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Self-service networks, unlike provider networks, are created by users and are
+    usually isolated from other networks in the cloud. The inability to configure
+    the physical infrastructure means that tenants will likely connect their networks
+    to Neutron routers when external connectivity is required. Tenants are unable
+    to specify provider attributes manually and are restricted to creating networks
+    whose attributes have been pre-defined by the administrator in the Neutron configuration
+    files. More information on the configuration and use of Neutron routers begins
+    in *[Chapter 10](371886b8-4c2a-49e9-90b8-8fe79217adb4.xhtml), Creating Standalone
+    Routers with Neutron.*
+  prefs: []
+  type: TYPE_NORMAL
+- en: Managing networks in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create networks using the OpenStack client, use the `network create` command
+    that''s shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/2159c79e-e080-496a-b397-ec03c8f8e684.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The `--share` and `--no-share` arguments are used to share the network with
+    all other projects, or limit the network to the owning project, respectively.
+    By default, networks are not shared and can only be used by the owning project.
+    Neutron's RBAC functionality can be used to share a network between a subset of
+    projects and will be discussed in [*Chapter 9*](b4632ba9-6a36-46da-b2ca-6e7f80a040bf.xhtml),
+    *Role-Based Access Control*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--enable` and `--disable`  arguments are used to enable or disable the
+    administrative state of the network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--availability-zone-hint`  argument is used to define the availability
+    zone in which the network should be created. By default, all networks are placed
+    in a single zone and all hosts within the environment are expected to have the
+    capability of servicing traffic for the network. Network availability zones are
+    an advanced networking topic that will be touched on in [*Chapter 14*](7d442e41-1f89-4339-9085-17ef6eace767.xhtml),
+    *Advanced Networking Topics*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--enable-port-security` and `--disable-port-security`  arguments are used
+    to enable or disable port security on any port that's created from a given network.
+    Port security refers to the use and support of security groups and MAC/ARP filtering
+    on Neutron ports, and will be discussed further in [*Chapter 8*](240902fd-5108-446e-afa5-8122de12f0af.xhtml),
+    *Managing Security Groups*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--qos-policy`  argument is used to set a QoS policy on any port created
+    in the network. The configuration and use of the Quality of Service extension
+    is an advanced topic that is outside the scope of this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--external` and `--internal` arguments are used to specify whether the
+    network is considered an external provider network that's eligible for use as
+    a gateway network or floating IP pool, or if it is only to be used internally
+    within the cloud. The default value for the `router:external` attribute of a network
+    is `false`, or `internal`. For more information on Neutron routers, refer to [*Chapter
+    10*](371886b8-4c2a-49e9-90b8-8fe79217adb4.xhtml), *Creating Standalone Routers
+    with Neutron*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--default` and `--no-default ` arguments are used to specify whether or
+    not a network should act as the default external network for the cloud and are
+    often used for the network auto-allocation feature that was introduced in Mitaka.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The network auto-allocation features of Neutron require the auto-allocated-topology,
+    router, subnet_allocation, and external-net extensions. Some of these are not
+    enabled by default. For more information on these features, please refer to the
+    upstream documentation that's available at [https://docs.openstack.org/neutron/pike/admin/config-auto-allocation.html](https://docs.openstack.org/neutron/pike/admin/config-auto-allocation.html).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--provider-network-type` argument defines the type of network being created.
+    Available options include flat, VLAN, local, GRE, geneve, and VXLAN. For a network
+    type to be functional, the corresponding type driver must be enabled in the ML2
+    configuration file and supported by the enabled mechanism driver.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--provider-physical-network` argument is used to specify the network interface
+    that will be used to forward traffic through the host. The value specified here
+    corresponds to the provider label defined by the `bridge_mappings` or `physical_interface_mappings`
+    options that are set in the Neutron agent configuration file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--provider-segment` argument is used to specify a unique ID for the network
+    that corresponds to the respective network type. If you are creating a VLAN-type
+    network, the value used will correspond to the 802.1q VLAN ID which is mapped
+    to the network and should be trunked to the host. If you are creating a GRE or
+    VXLAN network, the value should be arbitrary, but unique; the integer is not used
+    by any other network of the same type. This ID is used to provide network isolation
+    via the GRE key or VXLAN.
+  prefs: []
+  type: TYPE_NORMAL
+- en: VNI header fields for GRE and VXLAN networks, respectively. When the provider-segment parameter
+    is not specified, one is automatically allocated from the tenant range that's
+    specified in the plugin configuration file. Users have no visibility or option
+    to specify a segment ID when creating networks. When all available IDs in the
+    range that are available to projects are exhausted, users will no longer be able
+    to create networks of that type.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--tag` and `--no-tag` arguments are used to apply or remove a tag from
+    a network. Tags are label that are applied to a network resource which can be
+    used by a client for filtering purposes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By default, provider attributes can only be set by users with the admin role
+    in Keystone. Users without the admin role are beholden to values provided by Neutron
+    based on configurations set in the ML2 and agent configuration files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a flat network in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: If you recall from previous chapters, a flat network is a network in which no
+    802.1q tagging takes place.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The syntax to create a flat network can be seen here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The following is an example of using the OpenStack client to create a flat
+    network by the name of `MyFlatNetwork`. The network will utilize an interface
+    or bridge represented by the label `physnet1` and will be shared among all projects:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/ea1e8ada-d9d5-445a-af1a-b1505f048f70.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In the preceding output, the project ID corresponds to the admin project where
+    the user who executed the `network create` command was scoped. Since the network
+    is shared, all projects can create instances and network resources that utilize
+    the `MyFlatNetwork` network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Attempting to create an additional flat network using the same `provider-physical-network`
+    name of `physnet1` will result in an error, as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e841988c-0fa4-4960-b79f-de5abb68a17b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Because there is only one untagged or native VLAN available on the interface,
+    Neutron cannot create a second flat network and returns a `Conflict` error. Given
+    this limitation, flat networks are rarely utilized in favor of VLAN networks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a VLAN network in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'A VLAN network is one in which Neutron will tag traffic based on an 802.1q
+    segmentation ID. The syntax used to create a VLAN network can be seen here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: By default, only users with the admin role are allowed to specify provider attributes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Up to 4,096 VLANs can be defined on a single provider interface, though some
+    of those may be reserved by the physical switching platform for internal use.
+    The following is an example of using the OpenStack client to create a VLAN network
+    by the name of `MyVLANNetwork`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The network will utilize the bridge or interface represented by `physnet1`, and
+    the traffic will be tagged with a VLAN identifier of 300\. The resulting output
+    is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e79faf73-f62c-41a7-a510-e2807816354a.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'To create an additional VLAN network that utilizes the provider interface,
+    simply specify a different segmentation ID. In the following example, VLAN 301
+    is used for the new network, MyVLANNetwork2\. The resulting output is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/952a82b0-caf1-42ed-b162-3592c6569dd8.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: When using VLAN networks, don't forget to configure the physical switch port
+    interface as a trunk. This configuration will vary between platforms and is outside
+    the scope of this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a local network in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When an instance sends traffic on a local network,the traffic remains isolated
+    to the instance and other interfaces connected to the same bridge and/or segment.
+    Services such as DHCP and metadata might not be available to instances on local
+    networks, especially if they are located on different nodes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To create a local network, use the following syntax:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: When using the Linux bridge driver, a bridge is created for the local network
+    but no physical or tagged interface is added. Traffic is limited to any port connected
+    to the bridge and will not leave the host. When using the Open vSwitch driver,
+    instances are attached to the integration bridge and can only communicate with
+    other instances in the same local VLAN.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Listing networks in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To list networks known to Neutron, use the `openstack network list` command,
+    as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/97459ad8-b4a5-49ff-a427-3884f06895de.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The list output provides the network ID, network name, and any associated subnets.
+    An OpenStack user with the admin role can see all networks, while regular users
+    can see shared networks and networks within their respective projects.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If tags are utilized, the results may be filtered using the following parameters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`--tags <tag>`: Lists networks which have all given tag(s)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--any-tags <tag>`: Lists networks which have any given tag(s)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--not-tags <tag>`: Excludes networks which have all given tag(s)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--not-any-tags <tag>`: Excludes networks which have any given tag(s)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Showing network properties in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To show the properties of a network, use the `openstack network show` command,
+    as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output of the preceding command can be observed in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/37bb99a1-483c-4d58-9d74-33d5d1b8800f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Various properties of the network can be seen in the output, including the administrative
+    state, default MTU, sharing status, and more. Network provider attributes are
+    hidden from ordinary users and can only be seen by users with the admin role.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Updating network attributes in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'At times, it may be necessary to update the attributes of a network after it
+    has been created. To update a network, use the `openstack network set` and `openstack
+    network unset` commands as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `--name` arguments can be used to change the name of the network. The ID
+    will remain the same.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--enable` and `-disable` arguments are used to enable or disable the administrative
+    state of the network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--share` and `--no-share` arguments are used to share the network with
+    all other projects, or limit the network to the owning project, respectively.
+    Once other projects have created ports in a shared network, it is not possible
+    to revoke the shared state of the network until those ports have been deleted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--enable-port-security` and `--disable-port-security` arguments are used
+    to enable or disable port security on any port created from the given network.
+    Port security refers to the use and support of security groups and MAC/ARP filtering
+    on Neutron ports, and will be discussed further in [*Chapter 8*](240902fd-5108-446e-afa5-8122de12f0af.xhtml),
+    *Managing Security Groups*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--external` and `--internal` arguments are used to specify whether the
+    network is considered an an external provider network that's eligible for use
+    as a gateway network and floating IP pool, or if it is only to be used internally
+    within the cloud. The default value for the `router:external` attribute of a network
+    is false, or internal.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--default` and`--no-default` arguments are used to specify whether or not
+    a network should act as the default external network for the cloud.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--qos-policy` argument is used to set a QoS policy on any port created
+    in the network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--tag` argument, when used with the set command, will add the specified
+    tag to the network. When used with the unset command, the specified tag will be
+    removed from the network. Using `--all-tag` with the unset command will remove
+    all tags from the network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Provider attributes are among those that cannot be changed once a network has
+    been created. If a provider attribute such as `segmentation_id` must be changed
+    after the network has been created, you must delete and recreate the network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deleting networks in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To delete a network, use the `openstack network delete` command and specify
+    the ID or name of the network:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To delete a network named `MySampleNetwork`, you can enter the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Alternatively, you can use the network''s ID:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Multiple networks can also be deleted simultaneously, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Neutron will successfully delete the network as long as ports utilized by instances,
+    routers, floating IPs, load balancer virtual IPs, and other user-created ports
+    have been deleted. Any Neutron-created port, like those used for DHCP namespaces,
+    will be automatically deleted when the network is deleted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating networks in the dashboard
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Networks can be created in the Horizon dashboard, but the method of doing so
+    may vary based on the role of the user. Users with the admin role have the ability
+    to create networks on behalf of other projects and specify provider attributes,
+    while users without the admin role are limited to creating networks in their respective
+    projects and have the same capabilities that are available via the OpenStack client.
+    Both methods are described in the following sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Via the Project panel
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Users can create networks using a wizard located within the Project tab in
+    the dashboard. To create a network, login as the user in the demo project and
+    perform the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Navigate to Project | Network | Networks:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/e4bb11c7-f5c8-45fb-b466-1a6ee0f2e134.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In the preceding screenshot, notice that there are no actions available next
+    to the networks that are currently defined. Even though the networks are shared,
+    they are not modifiable by users and can only be modified by an administrator.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Click the Create Network button in the upper right-hand corner of the screen.
+    A window will appear that will allow you to specify network properties:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/9c1d240d-4664-4276-9ebc-23877ee86259.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'From the Network tab, you can define the Network Name and Admin State (on or
+    off). Users creating networks within the dashboard are not required to create
+    a subnet at the time the network is created. By unchecking the Create Subnet checkbox
+    in the Subnet tab, the network creation process can be completed:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/2d905e4d-e2ab-4e8f-bca7-34f3f5559999.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The process to create subnets within the dashboard will be explained later on
+    in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Via the Admin panel
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Users with the admin role will notice additional functionality available within
+    the dashboard. An Admin panel can be seen on the left-hand side of the dashboard,
+    which allows users with the admin role to manipulate networks outside of their
+    respective project. To create a network in the dashboard as a cloud administrator,
+    login as the admin user and perform the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Navigate to Admin | Network | Networks:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/a9aa41e9-14d7-45dd-a7b5-b20e481ccefc.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Click on Create Network in the upper right-hand corner of the screen. A wizard
+    will appear that will allow you to specify network properties:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/25a9c8ea-4714-4162-99e7-14d528e52260.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Various network attributes can be set from the wizard, including the network
+    type, interface, and segmentation ID, if applicable. Other options include associating
+    the network with a project, setting the administrative state, enabling sharing,
+    creating a subnet, and enabling the network to be used as an external network
+    for Neutron routers. When complete, click the Create Network button to create
+    the network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Subnet management in OpenStack
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A subnet in Neutron is a Layer 3 object and can be an IPv4 or IPv6 address block
+    defined using classless inter-domain routing (CIDR) notation. CIDR is a method
+    of allocating IP addresses using variable-length subnet masking, or VLSM. Subnets
+    have a direct relationship to networks and cannot exist without them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: More information on CIDR and VLSM can be found on Wikipedia at [http://en.wikipedia.org/wiki/Classless_Inter-Domain_Routing](http://en.wikipedia.org/wiki/Classless_Inter-Domain_Routing).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The primary commands associated with subnet management that will be discussed
+    in this chapter are listed in the following table:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Subnet Commands** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `subnet create` | Creates a subnet |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `subnet delete` | Deletes a subnet(s) |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `subnet show` | Displays subnet details |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `subnet list` | Lists subnets |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `subnet set` | Sets subnet properties |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `subnet unset` | Unsets subnet properties |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `subnet pool create` | Creates a subnet pool |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `subnet pool delete` | Deletes a subnet pool(s) |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `subnet pool list` | Lists subnet pools |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `subnet pool set` | Sets subnet pool properties |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `subnet pool show` | Displays subnet pool details |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `subnet pool unset` | Unsets subnet pool properties |'
+  prefs: []
+  type: TYPE_TB
+- en: Working with IPv4 addresses
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'A few examples of IPv4 addresses and subnets described using CIDR notation
+    are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`192.168.100.50/24` represents the IP address `192.168.100.50`, its associated
+    routing prefix `192.168.100.0`, and the subnet mask `255.255.255.0` (that is,
+    24 "1" bits). There are 256 total addresses in a /24, with 254 addresses available
+    for use.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`172.16.1.200/23` represents the IP address `172.16.0.200`, its associated
+    routing prefix `172.16.0.0`, and the subnet mask `255.255.254.0` (that is, 23
+    "1" bits). There are 512 total addresses in a /23, with 510 addresses available
+    for use.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`10.0.10.4/22` represents the IP address `10.0.10.4`, its associated routing
+    prefix `10.0.8.0`, and the subnet mask `255.255.252.0` (that is, 22 "1" bits).
+    There are 1,024 total addresses in a /22, with 1,022 addresses available for use.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Not every address in a subnet might be usable, as the first and last addresses
+    are usually reserved as the network and broadcast addresses, respectively. As
+    a result, Neutron will not assign the first or last address of a subnet to network
+    resources, including instances. Use the following formula to determine the total
+    number of usable addresses in a subnet when sizing your network. The *x* variable
+    represents the number of host bits available in the subnet mask:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: Keep in mind that when creating a subnet, it is important to plan ahead as the
+    subnet mask, or CIDR, is currently not an updatable attribute. When instances
+    and other resources consume all of the available IP addresses in a subnet, devices
+    can no longer be added to the network. To resolve this, a new subnet will need
+    to be created and added to the existing network, or an entirely new network and
+    subnet will need to be created. Depending on your network infrastructure, this
+    might not be an easy change to implement.
+  prefs: []
+  type: TYPE_NORMAL
+- en: VLSM and CIDR, to an extent, are important when designing networks for use within
+    an OpenStack cloud and will play an even more important role when we discuss the
+    use of subnet pools later on in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Working with IPv6 addresses
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: IPv6 is a first-class citizen in OpenStack Networking, but is an advanced topic
+    that will not be discussed in this chapter. All of the subnet-related commands
+    described here will behave similarly when defining IPv6 subnets, but additional
+    parameters may be required.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For more information on IPv6 in Pike, please refer to the upstream documentation
+    available at [https://docs.openstack.org/neutron/pike/admin/config-ipv6.html](https://docs.openstack.org/neutron/pike/admin/config-ipv6.html).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating subnets in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create a subnet using the OpenStack client, use the `subnet create` command,
+    as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e4074f34-fdcd-43df-ba57-71d5fad14208.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The `--project` argument specifies the ID of the project that the subnet should
+    be associated with and is only available to users with the admin role. This should
+    be the same project associated with the parent network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--project-domain`  argument specifies the ID of the project domain that
+    the subnet should be associated with and is only available to users with the admin
+    role (this is not commonly used).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--subnet-pool` argument specifies the pool from which the subnet will obtain
+    a CIDR.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--use-default-subnet-pool` argument instructs Neutron to choose the default
+    subnet pool to obtain a CIDR. Using this parameter first requires the creation
+    of at least one subnet pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--prefix-length`  argument specifies the prefix length for subnet allocation
+    from the subnet pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--subnet-range` argument specifies the CIDR notation of the subnet being
+    created. This option is required unless the subnet is associated with a subnet
+    pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--dhcp` and `--no-dhcp` argument enable or disable DHCP services for the
+    subnet, respectively. DHCP is enabled by default.
+  prefs: []
+  type: TYPE_NORMAL
+- en: DHCP is not required for network operation. Disabling DHCP simply means that
+    instances attached to the subnet will not utilize DHCP for dynamic interface configuration.
+    Instead, interfaces will need to be configured manually or by using scripts or
+    other methods within the instance itself. Instances are still allocated IP addresses
+    within the allocation pool range whether DHCP is disabled or enabled.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--gateway` argument defines the gateway address for the subnet. The three
+    possible options include auto, none, or an IP address of the user's choosing.
+    When the subnet is attached to the instance side of a Neutron router, the router's
+    interface will be configured with the address specified here. The address is then
+    used as the default gateway for instances in the subnet. If the subnet is attached
+    to the external side of a Neutron router, the address is used as the default gateway
+    for the router itself. To see this behavior in action, refer to [*Chapter 10*](371886b8-4c2a-49e9-90b8-8fe79217adb4.xhtml)*,
+    *Creatin*g Standalone Routers with Neutron*. If a gateway is not specified, Neutron
+    defaults to auto and uses the first available address in the subnet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--ip-version` argument specifies the version of the IP protocol represented
+    by the subnet. Possible options are 4 for IPv4 and 6 for IPv6\. The default is
+    4.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--ipv6-ra-mode` argument defines the router advertisement mode for the
+    subnet when IPv6 is used. Possible options include `dhcpv6-stateful`, `dhcpv6-stateless`,
+    and `slaac`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--ipv6-address-mode` argument defines the address mode for the subnet when
+    IPv6 is used. Possible options include `dhcpv6-stateful`, `dhcpv6-stateless`,
+    and `slaac`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Not all combinations of the `ipv6-ra-mode` and `ipv6-address-mode` arguments
+    are valid. To review both valid and invalid use cases, please refer to the API
+    guide at  [https://docs.openstack.org/neutron/pike/admin/config-ipv6.html](https://docs.openstack.org/neutron/pike/admin/config-ipv6.html). More
+    information on IPv6 can be found in the appendix.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--network-segment` argument specifies the network segment to associate
+    with the subnet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--network` argument specifies the network the subnet should be associated
+    with. Multiple subnets can be associated with a single network as long as the
+    subnet range does not overlap with another subnet in the same network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `--allocation-pool ` argument specifies the range of IP addresses within
+    the subnet that can be assigned to ports. IP addresses cannot be excluded from
+    a single range. However, multiple allocation pools can be defined that exclude
+    addresses. For example, to exclude `192.168.1.50-55` from `192.168.1.0/24`, the
+    following syntax would be needed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: Depending on the type of network in use, it is possible for devices outside
+    of OpenStack to coexist with instances in the same network and subnet. The allocation
+    pool(s) should be defined so that addresses allocated to instances do not overlap
+    with devices outside of the OpenStack cloud.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--dns-nameserver` argument specifies a DNS name server for the subnet.
+    This option can be repeated to set multiple name servers. However, the default
+    maximum number of name servers is five per subnet and can be modified by updating
+    the `max_dns_nameservers` configuration option in the `/etc/neutron/neutron.conf`
+    file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--host-route` argument specifies one or more static routes defined as destinations and
+    next hop pairs to be injected into an instance's routing table via DHCP. This
+    option can be used multiple times to specify multiple routes. The default maximum
+    number of routes per subnet is 20 and can be modified by updating the `max_subnet_host_routes`
+    configuration option in the `/etc/neutron/neutron.conf` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--tag` and `--no-tag` argument are used to apply or remove a tag from a
+    subnet. Tags are labels that are applied to a network resource, which can be used
+    by a client for filtering purposes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The name argument specifies the name of the subnet. While you can create multiple
+    subnets with the same name, it is recommended that subnet names remain unique
+    for easy identification.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a subnet in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To demonstrate this command in action, create a subnet within the `MyFlatNetwork`
+    network with the following characteristics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Name: `MyFlatSubnet`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Internet Protocol: `IPv4`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Subnet: `192.168.100.0/24`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Subnet mask: `255.255.255.0`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'External gateway: `192.168.100.1`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'DNS servers: `8.8.8.8, 8.8.4.4`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'To create the subnet and associate it with `MyFlatNetwork`, refer to the following
+    screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/f9888dff-06fa-4f57-bdc6-88c89ab75d1d.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Listing subnets in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To list existing subnets, use the `openstack subnet list` command, as shown
+    in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/03f9ecdc-4b9d-4424-a18c-63b2c7c1bb24.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: By default, the command output provides the ID, name, CIDR notation, and associated
+    networks of each subnet that are available to the user. Users with the admin role
+    may see all subnets, while ordinary users are restricted to subnets within their
+    project or subnets associated with shared networks. The `openstack subnet list`
+    command also accepts filters that narrow down returned results.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If tags are utilized, the results may be filtered using the following parameters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`--tags <tag>`: Lists subnets which have all given tag(s)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--any-tags <tag>`: Lists subnets which have any given tag(s)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--not-tags <tag>`: Excludes subnets which have all given tag(s)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--not-any-tags <tag>`: Excludes subnets which have any given tag(s)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Additional details can be found by using the `-h` or `--help` options.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Showing subnet properties in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To show the properties of a subnet, use the `openstack subnet show` command,
+    as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output of the preceding command can be observed in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/6bd064cb-14b9-43bc-9919-e546445da49d.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Updating a subnet in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To update a subnet in the CLI, use the `openstack subnet set` and `openstack
+    subnet unset` commands as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `--name` argument specifies the updated name of the subnet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--dhcp` and `--no-dhcp` arguments enable or disable DHCP services for the
+    subnet, respectively.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Instances that rely on DHCP to procure or renew an IP address lease might lose
+    network connectivity over time if DHCP is disabled.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--gateway`  argument defines the gateway address for the subnet. The two
+    possible options when updating a subnet includes none or an IP address of the
+    user's choosing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--tag` argument, when used with the `set` command, will add the specified
+    tag to the subnet. When used with the `unset` command, the specified tag will
+    be removed from the subnet. Using the `--all-tag` with the `unset` command will
+    remove all tags from the subnet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--allocation-pool` argument, when used with the `set` command, adds the
+    specified pool to the subnet. When used with the `unset` command, the specified
+    pool will be removed from the subnet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The`--dns-nameserver` argument, when used with the `set` command, adds the specified
+    DNS name server to the subnet. When used with the `unset` command, the specified
+    DNS name server is removed from the subnet. Using `--no-name-servers` will remove
+    all DNS name servers from the subnet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--host-route` argument, when used with the `set` command, adds the specified
+    static route defined using destination and next hop pairs. When used with the
+    `unset` command, the specified route is removed. Using `--no-host-route` with
+    the `set` command will remove all host routes from the subnet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `subnet` argument specifies the name of the subnet being modified.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating subnets in the dashboard
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Subnets can be created in the Horizon dashboard, but the method of doing so
+    may vary depending on the role of the user. Users with the admin role have the
+    ability to create subnets on behalf of other projects and specify other attributes
+    that may not be available to ordinary users. Users without the admin role are
+    limited to creating subnets in their respective projects and have the same capabilities
+    that are available via the OpenStack client. Both methods are described in the
+    following sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Via the Project tab
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Users can create subnets at the time of network creation using a wizard located
+    within the Project tab in the dashboard. They can also add new subnets to existing
+    networks. To create a network and subnet, login as the user in the demo project
+    and perform the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Navigate to Project | Network | Networks and click on the Create Network button:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/ef31bb1d-af00-41e2-b8c6-90552fc7a9b5.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Clicking on Create Network will open a window where you can specify the network
+    and subnet details:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/207b02e5-b874-41e2-a3f0-b37dee817dae.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Clicking on the Subnet tab or the Next button will navigate you to a panel
+    where subnet details are defined, including the name, network address, and gateway
+    information:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/3abec4c5-fcfb-4ac8-bd6c-9abd4a3731f7.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Finally, clicking on Subnet Details or Next will navigate you to a panel where
+    additional subnet details are defined, including Allocation pools, DNS Name Servers,
+    and Host Routes. Enter the details shown here and click on the blue Create button
+    to complete the creation of the network and subnet:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/f5db4e1d-456e-42f2-82c3-c676520ce231.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The ability to add additional subnets or delete a network entirely is provided
+    within the menu located under the Actions column, as pictured in the following
+    screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e1adfda7-5736-44a0-b53f-47e61e9add76.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Via the Admin tab
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Users with the admin role will notice additional functionality available within
+    the dashboard. An Admin panel can be seen on the left-hand side of the dashboard,
+    which allows users with the admin role to manipulate subnets outside of their
+    respective project.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To create a subnet in the dashboard as a cloud administrator, login as the
+    admin user and perform the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Navigate to Admin | Network | Networks, and click on the name of the network
+    you wish to add a subnet to:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/cb8cfcfb-71b9-4390-b938-07868dcac066.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Clicking on MyVLANNetwork provides a list of details of the network, including
+    the associated subnets and ports in their respective panels:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/c22b7656-5cab-4394-a5bc-92faaebb91e9.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'To add a subnet to the network, click on the Subnet tab and click on the Create
+    Subnet button on the right-hand side:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/9e9a9fba-7ba9-44ce-8746-900d2f23d54c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'A wizard will appear that allows you to define the properties of the new subnet:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/49fa9466-d27a-42e4-859a-597cfe99f56a.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Clicking Next reveals additional configuration options:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/26c7963e-35d8-4ef6-a808-8a751dd65436.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Click on the blue Create button to complete the creation of the subnet. The
+    Subnets panel will be updated accordingly:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/e3e63e8c-d1ab-4d4c-a7e9-82de1b653c94.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Managing subnet pools
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Subnet pools were introduced in the Kilo release of OpenStack and allow Neutron
+    to control the assignment of IP address space upon subnet creation. Users can
+    create subnet pools for use within their respective project only, or an administrator
+    can create a subnet pool that is shared between projects. The use of subnet pools
+    helps ensure that there is no IP address overlap between subnets and makes the
+    creation of subnets easier for users. Subnet pools work best for self-service
+    networks that are expected to be connected to Neutron routers and are ideal for
+    cases where address scopes and Neutron's BGP Speaker functionality has been implemented.
+  prefs: []
+  type: TYPE_NORMAL
+- en: BGP stands for Border Gateway Protocol and is a dynamic routing protocol used
+    to route traffic over the internet or within autonomous systems. For more information
+    on BGP Speaker functionality in Neutron, please refer to the upstream documentation
+    available at [https://docs.openstack.org/neutron/pike/admin/config-bgp-dynamic-routing.html](https://docs.openstack.org/neutron/pike/admin/config-bgp-dynamic-routing.html).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a subnet pool
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create a subnet pool, you will need the following information at a minimum:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Subnet pool prefix in CIDR notation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Subnet pool name
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Additional information can be provided based on your environment and can be
+    determined using the `openstack subnet pool create -h` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To demonstrate this command in action, create a subnet pool with the following
+    characteristics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Name: `MySubnetPool`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Subnet Pool CIDR: `172.31.0.0/16`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'To create the subnet pool, refer to the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/7c14b01a-ef6c-4300-aee2-3a6c13b9042b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The subnet pool `MySubnetPool` is now available for use, but only by the project
+    that created it, as shared is `False`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The default prefix length is 8, which is not ideal and will cause issues if
+    users do not specify a prefix length when creating a subnet. Setting a default
+    prefix length when creating the subnet pool is highly recommended.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a subnet from a pool
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create a subnet from the subnet pool `MySubnetPool`, use the `openstack
+    subnet create` command with the `--subnet-pool` argument. To demonstrate this
+    command in action, create a subnet with the following characteristics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Name: `MySubnetFromPool`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Network: `MyVLANNetwork2`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Prefix Length: `28`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'To create the subnet, refer to the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/28de2501-cbf5-4752-8a87-e82353a315ea.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: As shown in the preceding screenshot, the subnet's CIDR was carved from the
+    provided subnet pool, and all other attributes were automatically determined by
+    Neutron.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At the time of writing this book, the following bug may restrict the use of
+    the OpenStack client when providing a prefix length when creating subnets: [https://bugs.launchpad.net/python-openstacksdk/+bug/1754062](https://bugs.launchpad.net/python-openstacksdk/+bug/1754062). If
+    an error occurs, try the Neutron client instead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deleting a subnet pool
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To delete a subnet pool, use the `openstack subnet pool delete` command, as
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: Multiple subnet pools can be deleted simultaneously. Existing subnets that reference
+    a subnet pool must be deleted before the subnet pool can be deleted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Assigning a default subnet pool
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A default subnet pool can be defined that allows users to create subnets without
+    specifying a prefix or a subnet pool. At subnet creation, use both the `--default-prefix-length`
+    and `--default` arguments to make the subnet pool the default pool for a particular
+    network. A subnet pool can also be updated to become the default subnet pool by
+    using the same argument.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following command demonstrates setting `MySubnetPool` as the default subnet
+    pool:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: No output is returned upon successful completion of the preceding command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following screenshot demonstrates the creation of a new subnet using the
+    default subnet pool:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/9ca8f759-e36a-4d72-a1d3-75554780b5ec.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: As you can see, Neutron automatically carved out a /28 subnet from the default
+    subnet pool and set basic attributes without user interaction. The subnet can
+    now be attached to a Neutron router for use by instances.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Managing network ports in OpenStack
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A port in Neutron is a logical connection of a virtual network interface to
+    a subnet and network. Ports can be associated with virtual machine instances,
+    DHCP servers, routers, firewalls, load balancers, and more. Ports can even be
+    created simply to reserve IP addresses from a subnet. Neutron stores port relationships
+    in the Neutron database and uses that information to build switching connections
+    at the physical or virtual switch layer through the networking plugin and agent.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The primary commands associated with port management are listed in the following
+    table:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Port Commands** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `port create` | Creates a new port |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `port delete` | Deletes a port(s) |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `port list` | Lists ports |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `port set` | Sets port properties |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `port show` | Displays port details |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `port unset` | Unsets port properties |'
+  prefs: []
+  type: TYPE_TB
+- en: When a port is created in OpenStack and associated with an instance or other
+    virtual network device, it is bound to a Neutron agent on the respective node
+    hosting the instance or device. Using details provided by the port, OpenStack
+    services may construct a virtual machine interface (vif) or virtual ethernet interface
+    (veth) on the host for use with a virtual machine, network namespace, or more
+    depending on the application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To retrieve a list of all Neutron ports, use the `openstack port list` command,
+    as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/a7533f21-6476-4354-87b3-3a2744895e73.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Users with the admin role will see all ports known to Neutron, while ordinary
+    users will only see ports associated with their respective project.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If tags are utilized, the results may be filtered using the following parameters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`--tags <tag>`: Lists ports which have all given tag(s)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--any-tags <tag>`: Lists ports which have any given tag(s)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--not-tags <tag>`: Excludes ports which have all given tag(s)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--not-any-tags <tag>`: Excludes ports which have any given tag(s)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Use the `openstack port show` command to see the details of a particular port:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/a2b7feb7-867a-4fe6-84bd-0308636ae703.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The port pictured in the preceding screenshot is owned by an interface that's
+    used within a DHCP namespace, as represented by a `device_owner` of `network:dhcp`.
+    The `network_id` field reveals the network to be `d51943ef-8061-4bdb-b684-8a7d2b7ce73b`,
+    which is the `MyFlatNetwork` network that we created earlier on in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can use the `ip netns exec` command to execute commands within the DHCP
+    namespace. If you recall, the DHCP namespace can be identified with the prefix
+    `qdhcp-` and a suffix of the respective network ID. On the `controller01` node,
+    run the `ip addr` command within the namespace to list its interfaces and their
+    details:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e93612ff-489b-4481-b8be-451039221515.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In the DHCP namespace, the interface''s MAC address corresponds to the port''s
+    `mac_address` field, while the name of the interface corresponds to the first
+    10 characters of the Neutron port `UUID`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/160b0c62-f3a5-4e23-8790-6a2ed6d6bc1e.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Creating a port
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: By creating a Neutron port manually, users have the ability to specify a particular
+    fixed IP address, MAC address, security group, and more.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To create a port, use the `openstack port create` command, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: Once created, the port can then be associated with a virtual machine instance
+    or other virtual network device. It can also be used to reserve an IP address
+    in a subnet. In the next chapter, we will look at creating ports and associating
+    them with instances in multiple ways.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This chapter laid the foundation for creating networks and subnets that can
+    be utilized by instances and other virtual and physical devices. Both the Horizon
+    dashboard and the OpenStack command-line client can be used to manage networks,
+    subnets, and ports, though the latter is recommended for most administrative tasks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For more information on network, subnet, and port attributes, as well as for
+    guidance on how to use the Neutron API, refer to the OpenStack wiki at [https://developer.openstack.org/api-ref/network/v2/index.html](https://developer.openstack.org/api-ref/network/v2/index.html).
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will learn the basics of creating instances and attaching
+    them to networks. Some of the networks built in this chapter will be used to demonstrate
+    the creation of ports that can be attached to instances with the end goal of end-to-end
+    connectivity.
+  prefs: []
+  type: TYPE_NORMAL

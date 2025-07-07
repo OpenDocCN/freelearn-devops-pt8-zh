@@ -1,0 +1,635 @@
+- en: Using an Application Load Balancer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: While some Docker containers accept TCP client requests, other Docker containers
+    accept client requests on an HTTP path. As demonstrated in [Chapter 2](20fbdcad-0dd7-4066-aafb-1bc74b268b33.xhtml), *Networking,*
+    an HTTP request to a Hello World application task could be made on the public
+    IP address exposed by the Hello World task. An ECS service includes built-in internal
+    load balancing to distribute client traffic between the tasks in a service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Problem :** Each task in an ECS service with Fargate launch is associated
+    with an ENI and a public IP. When an application is scaled up to run multiple
+    tasks, multiple ENIs are created, and each task must be accessed on its public
+    IP address.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Although internal load balancing is provided, no provision is included to balance
+    client traffic externally between the different tasks' IP addresses. A single
+    task could receive an inordinate number of client requests, while another task
+    could receive relatively fewer client requests, or even none, which would result
+    in an imbalance in the routing of the external client load, as illustrated in
+    the following diagram. If the task (or tasks) to which the client load is directed
+    fails, the application fails to serve any client requests. High availability of
+    an ECS hosted application is not provided. Exposing containers directly to the
+    public is not the best security practice.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is always recommended to put them behind an ELB to allow network traffic
+    control in terms of security.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/d390093f-da0e-47f4-b1be-69b68b5641a9.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: '**Solution:** With an HTTP protocol application such as the Hello World application,
+    an EC2 Application Load Balancer may be used to route HTTP client requests to
+    the different tasks in an ECS service. An Application Load Balancer is an external
+    load balancer that exposes a public DNS, and all client requests are directed
+    to the single public DNS. The Application Load Balancer balances the client load
+    between the application''s tasks, providing the high availability of an ECS-hosted
+    application as a result, as illustrated in the following diagram. Even if one
+    of the tasks were to fail, the Application Load Balancer would direct the client
+    traffic to tasks that are still available:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/44b40f99-41d3-4b35-ac05-a4fca0aa5c55.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In this chapter, we will learn about the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating an application load balancer
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating a task definition
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating a service
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Configuring an application load balancer
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Invoking the Hello World application
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Stopping tasks and deleting a load balancer
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The only prerequisite is having an AWS account.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating an application load balancer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The following procedure is used to configure a Fargate ECS service with an
+    application load Balancer:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Create an application load balancer
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Create a task definition
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Create a service
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Configure the application load balancer with the service
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Invoke the service
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'First, we shall create an application load balancer:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Open the EC2 Console in a browser by going to [https://console.aws.amazon.com/ec2](https://console.aws.amazon.com/ec2),
+    and select Load Balancing | Load Balancers.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Click on Create Load Balancer, as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/973a9144-42bb-40de-a7e6-90c0ab1fa7f2.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In Select load balancer type, click on Create for the Application Load Balancer, as
+    shown in the following screenshot. An application load balancer is used for HTTP/HTTPS
+    request protocols.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/dff068e8-3c1a-4a32-9d07-ff5f59408871.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In Configure Load Balancer, specify a load balancer name (`hello-world-lb`)
+    in the Basic Configuration, as shown in the following screenshot, and select internet-facing as
+    the Scheme. Only a-z, A-Z, 0-9, and hyphens may be used in the load balancer name.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Select ipv4 as the IP address type.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'In the Listeners section, a listener is configured with HTTP as the Load Balancer
+    Protocol, and `80` as the Load Balancer Port:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/16cc7e74-e9c7-4bb8-ad43-35eb69fc2f5b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Scroll down and choose a VPC. Select at least the availability zones to which
+    the load balancer is going to route traffic. Click on Next.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The Configure Security Settings page will then be displayed for an HTTPS listener.
+    If the load balancer should use an HTTPS protocol listener, that should be configured
+    on the previous screen in the Listeners section, and the security settings should
+    be configured on the Configure Security Settings page. Because we are only using
+    an HTTP listener, we don’t need to configure any security settings. Click on Next.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Configure Security Groups for the load balancer. Select Create a new security
+    group and select the default Security group name, which is also shown in the following
+    screenshot.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Select All traffic as the Type, a Protocol of All, Port Range of 0-65535, and Custom as
+    the Source, with CIDR as default routes for IPv4 and IPv6 (0.0.0.0/0, ::/0). Click
+    on Next:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/0c0ee9c3-2793-4c63-b7ba-deea06c3c1f3.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In Configure Routing, configure a target group to which the load balancer will
+    route requests. The load balancer routes requests only to targets in the configured
+    target group. Select the New Target group option in Target group, and specify
+    a Name (`hello-world-tg`), as shown in the following screenshot.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Select HTTP as the Protocol and `80` as the Port.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Select ip as the Target type and click on Next:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/f886e62e-f72b-41f3-89a5-45965be7951b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: With a Target type of ip, targets in the following CIDR blocks may be added: 10.0.0.0/8,
+    100.64.0.0/10, 172.16.0.0/12, and 192.168.0.0/16.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'On the Register Targets screen (shown in the following screenshot), we won’t
+    register targets, as Fargate does that automatically when an ECS service using
+    the application load balancer is created. Click on Next:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/46bd842b-c8eb-4662-b17e-0656e85e449f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Review the configuration for the application load balancer. Click on Create,
+    as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/0a5d5b6c-e3f4-40cf-a1cb-cbb25a9d54c7.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The application load balancer gets created, as indicated by the Load Balancer
+    Creation Status dialog. Click on Close.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The `hello-world-lb` load balancer is listed in the load balancer table, as
+    shown in the following screenshot. Initially, the status (State) is provisioning.
+    Click on Refresh to refresh the State:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/c9c94960-3f2c-4fe4-bb3a-331f2e0585f7.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'When the load balancer becomes available, its State becomes active, as shown
+    in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/d2507718-ee31-4573-94a0-6274ae68a60f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'A target group, `hello-world-tg`, gets created, also shown in the following
+    screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/62374b77-d17a-47bd-8840-b781e61dbbde.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Select the Targets tab and no targets should initially be listed, as none have
+    been configured yet.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Creating a task definition
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we will create a task definition for a `hello-world` application
+    using the `tutum/hello-world` Docker image. Another Docker image that exposes
+    a HTTP port may also be used, but not all Docker images may be used. As an unsuitable
+    example, the MySQL database Docker image, `mysql`, cannot be used with an application
+    load balancer, as it exposes a TCP port, `3306`. For an ECS task that exposes
+    a TCP port, a network load balancer should be used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To create a new task definition, select Task Definitions in the ECS console,
+    as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/d52a3938-dd14-4ff1-bc16-15b9b0bb775e.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In Task Definitions, click on Create new Task Definition, as shown in the following
+    screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/5e717e88-aab8-4fd7-9a5d-3e88c7ae3378.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In Create new Task Definition, select Fargate as the launch type compatibility,
+    as shown in the following screenshot. Scroll down and click on Next step:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/552c212a-a053-401f-80c8-8854e51ef641.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In Configure task and container definitions, specify a Task Definition Name
+    (hello-world-task-definition) and select ecsTaskExecutionRole as the Task Role,
+    as shown in the following screenshot.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The Network Mode is awsvpc for Fargate, and cannot be modified as it is the
+    only one supported, as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/73812fd6-33b0-4a51-ba43-6f4ddf1cce7b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Select excsTaskExecutionRole as the Task execution IAM role, as shown in the
+    following screenshot. This role is required to send container logs to CloudWatch:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/c26ff6df-44b3-4674-ba80-d86b030fe13d.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In Task size, select 0.5GB as the Task memory, as shown in the following screenshot.
+    Select 0.25 vCPU as the Task CPU:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/71b18a7c-9d9d-4c98-9cd1-44f49bf8bd21.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'To add a container definition, click on Add container in Container Definitions,
+    as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/52412e0f-de6c-4c84-8fd6-c0a455247cb1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In Add container, specify Container name (`hello-world`), Image (`tutum/hello-world`),
+    and Memory Limits, as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/45081d75-9012-4b03-8811-aa761cd2ed71.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Set Container port to `80` in Port mappings, as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/6a32f944-dbae-4a11-ae59-9e7152e5d223.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In Advanced container configuration | ENVIRONMENT, set CPU units to `10` and
+    check the Essential checkbox, as shown in the following screenshot, as one container
+    in a task must be essential to the running of a task and the `hello-world` container
+    is the only container, it must be configured as Essential:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/f298811a-e618-42aa-a37d-eefe1fb65ba9.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: After configuring all the container definition settings, click on Add in Add
+    container. A container definition gets added, as shown in the following screenshot.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Click on Create to create the task definition, which includes the container
+    definition:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/dff11224-b81b-433d-8379-5c1f21071fd1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The task definition gets created, as shown in the Launch Status dialog. Click
+    on View task definition, as shown in in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/d944c2b3-20ed-4dd3-808a-a267f8c0d301.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'A new task definition Builder and detailed JSON information gets displayed,
+    as shown in the following screenshot. Requires compatibilities must be set to FARGATE,
+    as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/2d5dbc04-8860-47b6-9496-6a7ba6e5c127.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Select Task Definitions from the margin navigation. The task definition gets
+    listed in the Task Definitions table, as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/1d533462-0edd-428a-9e08-71aa2d2f37fb.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Creating a service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A service is an implementation of a task definition, and runs tasks. To create
+    a service, a cluster must be selected.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Click on the default cluster link, as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/3dba1ff5-bba8-414c-aaf1-40db8dd0eaf2.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Select the Services tab and click on Create, as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/12e091a2-7447-4cb2-b94e-147b3779afc6.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In Configure service, select FARGATE as the Launch type and select the Task
+    definition created earlier.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Select LATEST as the Platform version. The default cluster should be listed
+    as selected, because we selected default to start with.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Specify a Service name (`hello-world-service`) and set Number of tasks to 3,
+    as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/25179249-5a50-4793-ba3a-7bf607cfffc7.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Leaving the other settings as their defaults, click on Next step.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Configuring an application load balancer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we shall configure the application load balancer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, select a Cluster VPC and two Subnets, as shown in the following screenshot.
+    The VPC should be the same one that the application load balancer was created
+    in. The Security group that gets created is listed. Auto-assign public IP must
+    be set to ENABLED:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/811daffa-1ddc-4e1a-b1c7-154c0ba5ed69.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In the Load balancing section, select Application Load Balancer as the Load
+    balancer type, as shown in the following screenshot. Select the Load balancer
+    name (`hello-world-lb`) created earlier:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/d6ecf0f3-c4e7-46e7-96a2-19dd509ad2e2.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In Container to load balance, click on Add to load balancer for the Container
+    name:port to be created as `hello-world:80:80`, as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/40ee216a-07c6-4b6d-9d17-ea1f8ee876a4.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Additional fields get displayed to configure the container to load balance.
+    Select 80:HTTP as the Listener port, as shown in the following screenshot.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Select Target group name as hello-world-tg, which is the target group created
+    when the load balancer was created, as shown in the following screenshot.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: In Service discovery, deselect the checkbox Enable service discovery integration.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Keep the default settings for the other fields and click on Next step:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/321d4522-4250-4d88-ae9e-72ba2519cf62.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In Set Auto Scaling (shown in the following screenshot), auto scaling may optionally
+    be configured, but is not required. Click on Next step with the default setting
+    of Do not adjust the service’s desired count:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/445ec4f2-f2d3-47fe-9ad3-a50d89acf62a.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In Review, click on Create Service, as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/fb4c2981-6cf0-4e5c-8619-b1b16e199cad.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'As the Launch Status dialog shown in the following screenshot indicates, a
+    service gets created:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/3f53d116-bebe-4180-abbc-96bc48507991.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Initially, some of the tasks could have a status of PENDING. Click on the refresh
+    button to refresh the status. After a while, all the tasks should have a status
+    of RUNNING, as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/064dd117-41b4-42eb-9a6f-a5a4a4b17ed0.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The service Details tab lists the configuration of load balancing, including
+    the Target Group Name, Container Name, and Container Port, as shown in the following
+    screenshot. The service summary lists a deployment with a Running count of 3 for
+    a Desired count of 3:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/1daf227c-4164-4489-81aa-113900bd12e6.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Events indicates that the service registered 1 target in the target group,
+    as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/09290fb4-f838-4917-9000-41aee8b0d41a.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Invoking the Hello World application
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To invoke the `hello-world` service in a browser, we will use the public DNS
+    of the application load balancer registered with the service. In the EC2 dashboard,
+    select the Target Groups | hello-world-tg target group, and then select Targets.
+    Initially, when the target group was created, the Targets tab did not list any
+    targets. But after creating and configuring the service with the load balancer,
+    the Targets tab lists the three IP addresses for the three tasks in the hello-world-tg
+    service, as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/8996a1da-84b3-4df5-ba54-cac1f364ec6f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Two of the tasks are in one availability zone and the third is in another availability
+    zone, as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/a01b1195-e374-4f23-b59d-36570c27e267.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Obtain the DNS name for the application load balancer from the Load Balancers
+    console, as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/8684514b-088e-462a-a726-c1af151e71a3.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Open the DNS name in a browser to invoke the Hello World application, as shown
+    in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/8e07a3f8-62b5-4c0f-bf10-8e5444b22577.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Invoking the DNS name for the load balancer forwards the request to the target
+    group hello-world-tg, as indicated in the Listeners tab of the load balancer,
+    as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/da5ac189-530d-4bf6-8d11-f2d199b86d70.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Stopping tasks and deleting a load balancer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The procedure used to stop tasks and delete ECS resources is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Update the service to set Desired count for tasks to 0
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Stop the tasks
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Delete the service
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: De-register the task definition revisions
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'To delete the application load balancer, select the application load balancer
+    in the Load Balancers table and select Actions | Delete, as shown in the following
+    screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/06028074-4b78-45a3-9b23-f2abcdef9f37.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In the Delete Load Balancer confirmation dialog, click on Yes, Delete. The
+    application load balancer gets deleted as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/de3fd298-450b-4d67-8602-7c7bf9b45272.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we discussed configuring an ECS service with a Fargate launch
+    type with an application load balancer to balance the HTTP requests for a Hello
+    World service. The application load balancer is designed for HTTP/HTTPS protocol,
+    and cannot be used with TCP protocol. In the next chapter, we will discuss using
+    the Amazon ECS Command Line Interface (CLI).
+  prefs: []
+  type: TYPE_NORMAL

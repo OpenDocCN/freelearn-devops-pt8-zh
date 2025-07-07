@@ -1,0 +1,1694 @@
+- en: Chapter 7. Cinder – OpenStack Block Storage
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring Cinder volume services
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating volumes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Attaching volumes to an instance
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Detaching volumes from an instance
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Deleting volumes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Working with volume snapshots
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Configuring volume types
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Enabling volume encryption
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Configuring volume Quality of Service (QoS)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Resetting volume state
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Introduction
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When a basic compute instance is launched, where the instance data resides on
+    the compute host's disks for the duration of the running instance, the data written
+    to it is not persistent after termination—meaning that any data saved on the disk
+    will be lost when a user requests to destroy that instance. There is a solution
+    for this in OpenStack. **Volumes** are persistent storage that you can attach
+    to your running OpenStack Compute instances; the best analogy is that of a USB
+    drive that you can attach to an instance. Like USB drives, you can only attach
+    instances to one computer at a time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: There is currently an experimental feature that allows you to attach a volume
+    to multiple instances. We do not cover it here nor recommend its usage at this
+    time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The OpenStack Block Storage project code name Cinder provides the interfaces
+    and automation that allows the connection of storage volumes to OpenStack Compute
+    instances. OpenStack Block Storage is very similar to Amazon **Elastic Block Storage**
+    (**EBS**)—the primary difference is in how volumes are presented to the running
+    instances. Under OpenStack Compute, one method is to dedicate a server to this
+    purpose so that volumes that can easily be managed using an iSCSI exposes the
+    LVM volume group, specifically named `cinder-volumes`. This is then presented
+    over iSCSI through an OpenStack service called `cinder-volume`. The users of OpenStack
+    interact with this service through the Cinder API. In our environment, the Cinder
+    API service runs on the three controller servers that are then usually exposed
+    behind a load balancer. The recipes in this chapter are shown using this same
+    method, whereby Cinder volumes are provided by LVM and iSCSI. However, Cinder
+    supports a wide variety of third-party storage providers by both commercial vendors
+    and the **Open Source Software** (**OSS**) community—for example, a very popular
+    backend provider for Cinder (instead of having a single server run the `cinder-volume`
+    service) is **Ceph**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The terms OpenStack Block Storage and Cinder will be used interchangeably in
+    this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring Cinder volume services
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this recipe, we will use Openstack-Ansible to deploy the Cinder service.
+    We assume that your environment has been deployed using the recipes described
+    in [Chapter 1](part0014_split_000.html#DB7S2-189e69df43a248268db97cde1b1a8e47
+    "Chapter 1. Installing OpenStack with Ansible"), *Installing OpenStack with Ansible*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: To use Cinder volumes with LVM and iSCSI, you will need a host (or hosts) running
+    Ubuntu 16.04\. Additionally, you will need to ensure the volume hosts are manageable
+    by your Openstack-Ansible deployment host.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following is required:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: An `openrc` file with appropriate credentials for the environment
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Access to the `openstack-ansible` deployment host
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'A dedicated server to provide Cinder volumes to instances:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An LVM volume group, specifically named `cinder-volumes`
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An IP address accessible from the deployment host
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'If you are using the lab environment that accompanies this book, `cinder-volume`
+    is deployed to a host with the following details:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`cinder-volume` API service host IP: `172.29.236.10`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`cinder-volume` service host IP: OpenStack management calls over `172.29.236.100`
+    and storage traffic over `172.29.244.100`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: To deploy the `cinder-volume` service, first we will create a YAML file to describe
+    how to deploy Cinder. Then we will use `openstack-ansible` to deploy the appropriate
+    services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To configure a Cinder LVM host that runs the `cinder-volume` service, perform
+    the following steps on the deployment host:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, edit the `/etc/openstack_deploy/openstack_user_config.yml` file to add
+    the following lines, noting that we are using both the address of the API and
+    storage networks:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: More nodes can be added to the `storage-infra_hosts` section to match your environment.
+    Note that we refer to the `storage_hosts` and `storage-infra_hosts` IPs from the
+    container network (`172.29.236`), and we will present the actual iSCSI volume
+    to an instance over the storage network (`172.29.244`).
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'Now edit the `/etc/openstack_deploy/user_variables.yml` file to contain the
+    following lines. The defaults for an OpenStack-Ansible deployment are shown here;
+    so edit to suit your environment if necessary:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'When using LVM, as we are here, we must tell OpenStack-Ansible to *not* deploy
+    the service onto a container (by setting `is_metal: true`). Ensure that the `/etc/openstack_deploy/env.d/cinder.yml`
+    file has the following contents:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'As we are specifically choosing to install Cinder with the `LVMVolumeDriver`
+    service as part of this example, we must ensure that the host (or hosts) that
+    has been set as running the `cinder-volume` service, has a **volume group** created,
+    named very specifically `cinder-volumes`, *before* we deploy Cinder. Carry out
+    the following steps to create this important volume group. The following example
+    simply assumes that there is an extra disk, at `/dev/sdb`, that we will use for
+    this purpose:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will bring back an output like the following:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '**Tip**: The creation of a `cinder-volumes` logical **Volume Group** (**VG**)
+    is only required to be created because we are choosing the `volume_driver` type
+    of `cinder.volume.drivers.lvm.LVMVolumeDriver`. Other backends are available to
+    Cinder that do not require this step to be performed.'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'We can now deploy our Cinder service with the `openstack-ansible` command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Note that the Ansible output has been omitted here. On success, Ansible will
+    report that the installation has been successful or will present you information
+    about which step failed.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Did you use more than one `storage-infra_hosts`? These are the Cinder API servers.
+    As these run behind a load balancer, ensure that you have updated your load balancer
+    VIPs with the IP addresses of these new nodes. The Cinder service runs on port
+    `8776`. If you are running HAProxy that was installed using OpenStack-Ansible,
+    you must also run the following command:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Verify that the Cinder services are running with the following checks from
+    an OpenStack client or one of the utility containers from one of the controller
+    nodes, as shown here:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will give back an output like the following:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00130.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In order for us to use a host as a `cinder-volume` server, we first needed to
+    ensure that the logical volume group (LVM VG) named `cinder-volumes` has been
+    created.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '**Tip**: You are able to rename the volume group to something other than `cinder-volumes`;
+    however, there are very few reasons to do so. If you do require this, ensure that
+    the `volume_group:` parameter in `/etc/openstack_deploy/openstack_user_config.yml`
+    matches your LVM Volume Group name that you create.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once that has been done, we will configure our OpenStack-Ansible deployment
+    to specify our `cinder-volume` server (as denoted by the `storage_hosts` section)
+    and the servers that run the API service (as denoted by the `storage-infra_hosts`
+    section). We will then use `openstack-ansible` to deploy the packages onto the
+    controller hosts and our nominated Cinder volume server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that if you are using multiple networks or VLAN segments, to configure
+    your OpenStack-Ansible deployment accordingly. The storage network presented in
+    this book should be used for this iSCSI traffic (that is to say, when a volume
+    attaches to an instance), and it is separate from the container network that is
+    reserved for API traffic and interservice traffic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In our example, `cinder-volume` uses iSCSI as the mechanism for attaching a
+    volume to an instance; `openstack-ansible` then installs the packages that are
+    required to run iSCSI targets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: OpenStack-Ansible provides the additional benefit of deploying any changes required
+    to support Cinder. This includes creating the service within Keystone and configuring
+    Nova to support volume backends.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating volumes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Now that we have created a Cinder volume service, we can now create volumes
+    for use by our instances. We do this under our client environment using the Python-OpenStack
+    client with the `python-cinderclient` library; so we are creating volumes specific
+    to our project (tenant).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Refer to [Chapter 2](part0024_split_000.html#MSDG1-189e69df43a248268db97cde1b1a8e47
+    "Chapter 2. The OpenStack Client"), *The OpenStack Client*, for more information
+    on installing and configuring the OpenStack client.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To create a volume, the following is required:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `openstack` command line client
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An `openrc` file with appropriate credentials for the environment
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The desired *name* for the volume
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The desired *size* in GiB for the volume
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For our example, these are the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Volume name: `cookbook.volume`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Size: 10 GiB'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Carry out the following steps to create a volume:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We simply create the volume that we will attach to our instance with the following
+    command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On completion, the command returns the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00131.jpeg)'
+  prefs: []
+  type: TYPE_IMG
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Creating volumes is very straightforward. Using the `openstack` client, we
+    supply the `volume` context and the `create` action with the following syntax:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, `volume_name` can be any arbitrary name with no spaces.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As we are using a server that runs the `cinder-volume` service, we can see
+    the actual LVM volumes on `cinder-volumes`, using the usual LVM tools, as follows
+    (ensure that you are logged in as `root` on the server we specified as storage
+    host):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: There's more…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'By default, Cinder volumes operate like a physical disk, insofar as they can
+    only be attached to one instance at a time. However, for workloads that require
+    a disk be shared between instances, you can pass the `--multi-attach` flag when
+    creating the volume to enable the volume to be attached to more than once instance:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '**A word of warning**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: This feature is quite new and considered experimental for production environments,
+    and is not a replacement for a shared storage service such as NFS. NFS supports
+    locking that allows multiple clients to read and write to the same mount point.
+    Multi-attach block storage does not support locking. Therefore, a valid use case
+    could be a scenario where a master/slave service is employed and where the data
+    should only be written to by only one instance at a time, but there is a benefit
+    to having the data immediately available on failover.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Attaching volumes to an instance
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Now that we have a usable volume, we can attach it to any instance. We'll do
+    this using the `openstack server volume add` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To attach a volume to an instance, you will need the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `openstack` command-line client
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An `openrc` file with appropriate credentials for the environment
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The *name* or *ID* of the *volume* to attach
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The *name* or *ID* of the *instance* to attach the volume to
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For our example, these values are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Volume: `cookbook.volume`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Instance: `cookbook.test`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Carry out the following steps to attach a volume to an instance using the `openstack`
+    client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, let''s list running instances to get the ID of our instance:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'An example showing our running instance called `cookbook.test` is shown here:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00132.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'Now list the available volumes to get the ID of our volume:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This shows the information we need about our volume:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00133.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'Using the *instance* and *volume* name or IDs, we''ll attach the volume to
+    the instance as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This command produces no output when successful.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Note that the `--device` option is not always honored, depending on the operating
+    system and image type. Always check which device the target instance operating
+    system assigns to the new volume before performing any actions on it.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '**Tip**: Volume or server names do not have to be unique in OpenStack; where
+    volume and server names are not unique, replace the names with the IDs assigned
+    instead. In the preceding example, this would achieve the same goal:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Now we will perform actions inside our running instance. Log in to the instance
+    and verify that the volume is now attached:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will list the block devices available to our instance. Here we can see
+    that our volume, attached as `/dev/vdb`, is available but not mounted:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We should see `10G` of space available for use by the running instance. As
+    this is a new volume, this is like adding a fresh disk to a system. We need to
+    format it for use and then mount it as part of your filesystem:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '**Tip**: Volumes created with Cinder are persistent storage volumes; formatting
+    the volume (disk) is only required once. Should you need to re-attach this data
+    volume to another instance in the future, do not reformat this drive!'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'We should now see the newly attached disk available at `/mnt1`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will show output like the following:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Attaching a *new* Cinder volume is very much like plugging in an unformatted
+    USB stick into your own computer. When it needs to first be used, it must be formatted
+    for use.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: On subsequent uses of this disk (when connecting to other instances in the future),
+    you wouldn't need to perform this formatting step.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Under the `openstack` client, the `server add volume` option takes the following
+    syntax:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`instance_ID` is the ID returned from `openstack server list` for the instance
+    that we want to attach the volume to.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`volume_ID` is the ID of the volume returned from `openstack volume list`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`device_ID` is the device that will be created on our instance that we use
+    to mount the volume. Remember that this parameter can sometimes be ignored; so,
+    see this as a hint to pass to a running instance only.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Detaching volumes from an instance
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Ordinarily, Cinder volumes can only be attached to one instance at a time. Thus,
+    you need to detach it from one instance before attaching it to another. To detach
+    a volume, we will use another OpenStack client command called `openstack server
+    remove volume`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To detach a volume from an instance, you will need the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `openstack` command-line client
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An `openrc` file with appropriate credentials for the environment
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The name or ID of the *volume* to detach
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The name or ID of the *instance* to detach the volume from
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For our example, these values are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Volume: `cookbook.volume`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Instance: `cookbook.test`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Mount point: `/mnt1`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Carry out the following steps to detach a volume to an instance using the `openstack`
+    client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: List running instances to get the ID of our instance:![How to do it...](img/00134.jpeg)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'List the volumes that are available and `in-use` in our environment:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will bring back an output like the following. Note that the information
+    provided shows you if a volume is in use and what instance it is attached to:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00135.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'We now need to perform actions inside the running instance. Connect to this
+    instance and verify that the volume is mounted:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will show an output like the following:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Now unmount the `/mnt1` volume:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: (Verify that it has been unmounted by running `df -h` again).
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'Exit the guest, and back on our OpenStack client, detach the volume from the
+    instance with the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This command doesn''t produce any output on success, so view the volume list
+    again to verify that the volume has been detached from the `cookbook.test` instance:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This shows the volume is available and not attached to any instance:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00136.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Detaching a Cinder volume from an instance is similar to the steps you would
+    take when removing a USB stick from a computer. First, we need to unmount it from
+    the instance so the operating system doesn''t complain about an unexpected removal
+    of some storage. Next under the `openstack` client, the `server remove volume`
+    option takes the following syntax:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: Deleting volumes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: At some point, you will no longer need the volumes you have created. To remove
+    the volumes from the system permanently, so they are no longer available, we simply
+    pull out another tool from the OpenStack client, the `volume delete` option.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To delete a volume, you will need the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `openstack` command-line client
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An `openrc` file with appropriate credentials for the environment
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The name or ID of the *volume* to delete
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For our example, these values are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Volume: `cookbook.volume`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '**Warning**: This will remove the volume and any data stored on it, so ensure
+    that this is the correct action you want to perform before continuing.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can only delete a volume that isn't currently attached to an instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To delete a volume using the OpenStack client, carry out the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, we list the volumes available to identify the volume we want to delete,
+    with the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This shows that the volume is available and not attached to any instance:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it…](img/00137.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'We will now use the volume name or ID to delete this from the system, with
+    the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: This command produces no output when successful.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: As with attaching and detaching volumes, an ID or name can be used. Best practice
+    is to use the ID to avoid any discrepancies and delete the wrong volume.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: How the actual volume is deleted depends largely on the Cinder volume driver.
+    In the *Configuring Cinder volume services* recipe of this chapter, we used `cinder.volume.drivers.lvm.LVMVolumeDriver`.
+    In this case, deleting images removes the LVM volume from use within our system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There's more…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'OpenStack Cinder volumes can be snapshotted, in which case, the `openstack
+    volume delete` command will produce an error message like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: To delete a volume, and all of its snapshots, pass the `--purge` flag to the
+    `openstack volume delete` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Be careful with this. It is a one-way operation, and `openstack volume delete`
+    does not prompt for confirmation. Additionally, the command produces no output
+    when successful.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Working with volume snapshots
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Cinder volume **snapshots** provide a way to nondisruptively copy a volume;
+    allowing for in-situ volume backups to be taken. It also enables more advanced
+    backup features and provides the ability to boot an instance from a given snapshot
+    or from a point in time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we will show you how to create a snapshot, mount a volume based
+    off a snapshot, refresh a snapshot, and delete a given snapshot.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To work with Cinder volume snapshots, you will need the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `openstack` command-line client
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An `openrc` file with appropriate credentials for the environment
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The name or ID of the *volume* to delete
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How to do it…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To create a snapshot, the volume must be first detached from an instance:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, list your current volumes:![How to do it…](img/00138.jpeg)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: If the volume you wish to snapshot has a status of `in-use`, you will need to
+    detach it using the instructions in the *Detaching volumes from an instance* recipe
+    earlier in this chapter.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'As our volume is the correct state of `available`, we will proceed to create
+    a snapshot of the volume using the `openstack volume snapshot create` command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will produce an output like the following, showing a state of `creating`:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it…](img/00139.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: Once the snapshot is complete, you can reattach the original volume using the
+    *Attaching volumes to an instance* recipe, in this chapter and continue operations.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'If using snapshots as part of an ongoing test / validation process, or part
+    of a backup scheme, you may want to update the snapshot with fresh data. To do
+    this, we use the `cinder snapshot-reset-state`, which produces no output if successful:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Note the use of the `cinder` command-line tool, as opposed to `openstack`.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'You are unable to use a snapshot directly; to use a snapshot as a volume to
+    attach to an instance, you first need to create a new volume based off this snapshot.
+    To do this, carry out the following:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will produce the following output. Note `snapshot_id` that was used and
+    the fact that we didn''t specify a size:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it…](img/00140.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'We can confirm that our new cookbook volume, based off the snapshot, is now
+    available by viewing the volume list again:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This produces a list of our volumes and their state:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it…](img/00141.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'Finally, you will want to delete snapshots at some point. To do this, use the
+    `openstack volume snapshot delete` command as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Confirm with `openstack volume snapshot list` the list the remaining snapshots
+    available.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Cinder volume snapshots provide a flexible way to clone volumes for snapshot
+    type backups, attaching to other instances, and more. The `cinder snapshot` commands
+    we used here, specifically `openstack volume snapshot create`, `openstack volume
+    snapshot list`, `cinder snapshot-reset-state`, and `openstack volume snapshot
+    delete`, instruct `cinder` to work with the storage driver to perform snapshot
+    specific actions—create, list, update, and delete, respectively. The specific
+    implementation of snapshot depends on the underlying driver.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Also note that you cannot use a snapshot directly with an instance. You must
+    first create a new volume based on the snapshot of your choice. This has the following
+    syntax:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: Configuring volume types
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Volume types in Cinder are a label or identifier that is selected during volume
+    creation. Typically, volume types correspond with some attribute of the volumes,
+    for example, `SSD`, `High IOPS`, and `Encrypted`. We will use this with the next
+    recipe to define further features of our Cinder service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To create a volume type, you will need the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: An `openrc` file with appropriate credentials for the environment (you must
+    be an administrator)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `openstack` command-line client
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The name of the volume type to create. For our example, we will create the `"High
+    IOPS"` volume type as a contrived example type that would refer to a block storage
+    device dedicated to High IOPS.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How to do it…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'We will use the `openstack volume type` command to operate on Cinder volume
+    types. To create a volume type, use the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, list the existing volume types:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will bring back an output like the following. Here we have the default
+    set when we installed our LVM service:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it…](img/00142.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'Create the new volume type:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will bring back an output like the following:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it…](img/00143.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'Confirm that the new volume type is available by displaying the list of volume
+    types:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will now bring back our additional volume type:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it…](img/00144.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'To use this new type when creating a volume, we will use the `--type` flag
+    as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: We will verify the type in the output:![How to do it…](img/00145.jpeg)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `openstack volume type create` command has only one mandatory parameter,
+    `name`. The `name` parameter allows users to define different volume types or
+    identifiers. While typically based on some attribute of the storage, such as department,
+    storage backend, or QOS level, as these are labels, as long as they're well understood,
+    the name can be arbitrary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Additionally, the `--description` flag can be used to provide more detail on
+    the volume type. The `--private` flag allows you to restrict visibility from the
+    public. The `--project` flag allows the selective sharing of a private volume
+    type with other named projects.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will then take advantage of these types (with further configuration of Cinder
+    to specify that a type of storage, which is associated with a particular volume
+    type) by issuing the `--type` flag to the `volume create` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: Enabling volume encryption
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Cinder can manage the **encryption** of volumes, and it happens transparent
+    to the guest. Encryption is enabled on a *volume type* level.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Encryption can be enabled either when creating a new volume type or added to
+    an existing volume type that has no volumes in use. To enable volume encryption,
+    you will need the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: An `openrc` file with appropriate credentials for the environment
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `openstack` command-line client
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The name of the *volume type*
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Name of the *encryption provider*
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Encryption control location
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Encryption key size
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Encryption cipher
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For our example, these will be as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Name: `Cookbook Encrypted Volumes`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Encryption provider: `nova.volume.encryptors.luks.LuksEncryptor`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Encryption control location: `front-end`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Encryption key size: `256`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Encryption cipher: `aes-xts-plain64`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The encryption-specific values you choose will be based on what is available
+    in your particular environment. A detailed discussion of these values is beyond
+    the scope of this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To enable volume encryption as a new volume type, the following command is
+    used:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We would then use this `"Encrypted"` volume type when creating a volume as
+    follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Volumes are configured as a volume type, and thus, additional parameters are
+    passed to `openstack volume type create`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--encryption-provider` flag let's Cinder know which provider will perform
+    the encryption. As with storage backends, there are a number of providers available.
+    Refer to the OpenStack documentation for a current list.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `--encryption-control-location` parameter tells Cinder where the encryption
+    will be handled. In our case, `front-end` means that Nova will be handling the
+    encryption.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Next, the `--encryption-key-size` parameter specifies the size of the key used.
+    `256` was selected for the example as to not crush lab performance. The encryption
+    provider and cipher you choose will provide specific recommendations.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Finally, `--encryption-cipher` specifies which cipher to use. You can use `cryptsetup
+    benchmark` to get a list of available options and an idea as to how they will
+    perform.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Configuring volume Quality of Service (QoS)
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Another feature provided by Cinder is the ability to define and manage classes
+    of service for volumes. Like volume encryption, **Quality of Service** (**QoS**)
+    in Cinder is configured by volume type. By default, you can define values for
+    minimum, maximum, and burst IOPS.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To configure volume QoS, you will need the following information:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: An `openrc` file with appropriate credentials for the environment (you need
+    to be an administrator)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `openstack` command-line client
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The name or ID of the *volume type*
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The *consumer* of the QoS policy
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Values for the following:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Minimum IOPS
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Maximum IOPS
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Burst IOPS
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Only one of the three (min, max, and burst) needs to be provided to define a
+    minimal QoS policy.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'For our example, these will be as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Name: `High IOPS`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Consumer: `both`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Maximum IOPS: `500`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How to do it…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'For Cinder volumes to use QoS, an administrator needs to perform two steps:
+    first, define the specification, and second, to associate the specification with
+    a volume type.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To create and assign a QoS specification, use the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, list the existing QoS specifications:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We currently don''t have any QoS defined:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it…](img/00146.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'Define a new QoS specification with the following:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will bring back the following output:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it…](img/00147.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'Confirm our QoS specification was created by listing the QoS available:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will bring back the following output:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it…](img/00148.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'We now associate the policy to a volume type as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Note
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: This command produces no output when successful.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: QoS specifications are defined within Cinder using the `openstack volume qos`
+    set of commands. When creating a QoS specification, you can specify where QoS
+    is applied as well as the value to set it at. Currently, you can specify a static
+    set of minimum, maximum, and burst IOPS, and a scaling set of IOPS.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The static values break down as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Minimum IOPS**: This is the number of IOPs *guaranteed* to a volume'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Maximum**: This is the ceiling for IOPS on a volume'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Burst IOPS**: This is the maximum IOPS over a short period'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Scaling IOPs then, define the amount to change the static values for each additional
+    gigabyte of volume size.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Resetting volume state
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'During the ongoing operation of your OpenStack cloud, you will occasionally
+    encounter trouble where a Cinder volume will get stuck in an odd state. During
+    the course of writing this chapter, the authors had a number of volumes getting
+    stuck in the `attaching` status, after an instance failed to boot from them. This
+    looks like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: '![Resetting volume state](img/00149.jpeg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Note
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The cause of this was some fat-fingered typing while creating the boot from
+    volume section!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To reset the status on a Cinder volume, you will need the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: An `openrc` file with appropriate credentials for the environment
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `openstack` command-line client
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `cinder` command-line client
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The *name* or *ID* of the volume
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For the example that follows, we will be resetting the following volumes to
+    available:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`cookbook.boot.volume`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`cookbook.volume.boot.test`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How to do it…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Resetting the status of a Cinder volume is done with the `cinder` command. Here
+    the `openstack` set of commands covers most operations you will commonly need
+    to do, and the `cinder` command provides additional admin functionality, such
+    as `reset-state`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: As the `reset-state` command only manipulates the database without regard to
+    the actual status, it should be used with care.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To reset the status of a Cinder volume, carry out the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, list your Cinder volumes and statuses
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will bring back a list of the volumes OpenStack knows about:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it…](img/00149.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'Use the `cinder` client to reset the state of the volumes:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Note
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: When successful, this command produces no output.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'Confirm the new status:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will show that the state has been reset to `available`:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it…](img/00150.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The `cinder reset-state` command operates directly on the `cinder` database,
+    regardless of the actual status of the volume. The `--state` flag we used allows
+    us to change the status of a volume that might be stuck in a particular state.
+    There are two additional flags that allow you to change the attachment status
+    and migration status, respectively:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs: []
+  type: TYPE_PRE
+- en: This tool explicitly updates the entity state in the `cinder` database. Being
+    a database change only, this has no impact on the true state of the entity and
+    may not match the actual state. This can render an entity unusable in the case
+    of changing to the `available` state.
+  prefs: []
+  type: TYPE_NORMAL

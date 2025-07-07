@@ -1,0 +1,818 @@
+- en: Extending Puppet
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The Puppet ecosystem, which is over 10 years old now, was originally written
+    in Ruby.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There has been a lot of progress made toward moving the main code base to the
+    Clojure language (especially the main Puppet Server and PuppetDB components);
+    however, there are still several parts of the ecosystem that can still be accessed
+    at the Ruby level for the purposes of extending Puppet to suit more advanced use
+    cases, namely the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Custom facts
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Custom functions
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Types and providers
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Let's consider each of these in turn, and see how we can extend Puppet on both
+    the client and server side using firstly some rudimentary and then later some
+    more advanced understanding of Ruby code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Custom facts
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Custom facts are a client-side technology for extracting arbitrary information
+    from the node during the execution of the agent run, and they may be utilized
+    in Puppet manifests or templates, along with any other distributed facts. Facts
+    are executed on the Puppet agent.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The best way to create and distribute a new custom fact is to place it in a
+    module, in the `facter` subdirectory of the `lib` directory, and it will then
+    be distributed to the agent machine via `pluginsync`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This documentation page at [https://puppet.com/docs/puppet/5.3/plugins_in_modules.html#adding-plug-ins-to-a-module](https://puppet.com/docs/puppet/5.3/plugins_in_modules.html#adding-plug-ins-to-a-module) shows
+    you exactly where in a module to place your code, and the section at [https://puppet.com/docs/puppet/5.3/plugins_in_modules.html#installing-plug-ins](https://puppet.com/docs/puppet/5.3/plugins_in_modules.html#installing-plug-ins),
+    in the same documentation, shows the technical details for `pluginsync`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following diagram illustrates the `pluginsync` process that precedes a
+    normal catalog request. Usually, a `GET` method is called on the Puppet server
+    using the FQDN, which then initiates the `pluginsync` process, and the appropriate
+    facts, types, and providers are distributed back to the agent:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/d31e01c4-ec1c-4801-a206-e03360fb7f18.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: You can review the exact details for all the HTTPS communication between the
+    Puppet agent and Puppet Server at [https://puppet.com/docs/puppet/5.3/subsystem_agent_master_comm.html](https://puppet.com/docs/puppet/5.3/subsystem_agent_master_comm.html).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Most of the time, I have found that a fact is generally just an execution of
+    an arbitrary command-line expression, and that is a good way to think generally
+    about facts: they effectively consist of a Ruby wrapper, usually around a command-line
+    expression that makes itself available to the Puppet ecosystem via Facter.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following code would be a good snippet to use as a template for further
+    development:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Do make sure that you `confine` your fact appropriately. There's nothing worse
+    than when you introduce a new operating system to your infrastructure only to
+    find that you are now executing failing facts because they don't use a certain
+    command syntax. Or, what if we suddenly introduce a handful of Windows nodes,
+    only to find that Windows doesn't, of course, understand most Linux commands?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Bear this in mind during your authoring of custom facts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Debugging facts
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'You can debug Facter by using a `facter.debug` statement anywhere in your custom
+    fact''s Ruby code, as shown in the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'During debugging, running Facter by itself won''t pick up your new custom fact
+    since it would usually require the `pluginsync` process to distribute it. You
+    must set the `FACTERLIB` environment variable to shortcut this process when you
+    are developing and debugging the new code on your development node. Let''s say
+    you have the `some_facts` and `some_other_facts` subdirectories in your personal
+    working directory, where you are editing the Ruby code for a new fact you are
+    developing. You would set the code up as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Custom functions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This is where custom facts allow us to run arbitrary code on the client side.
+    Custom functions are a *server-side* technology that assist you in the compilation
+    of a catalog. Functions are executed on the Puppet server. Puppet already includes
+    several functions that are built-in, and additional ones are contained in Puppet
+    Forge modules, particularly the `stdlib` module (see [https://forge.puppet.com/puppetlabs/stdlib](https://forge.puppet.com/puppetlabs/stdlib)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are, in fact, three possible ways to create custom functions, although
+    you are unlikely to use the first two, so I will just leave you with some links
+    to the Puppet documentation for those options:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: You could write the function in Puppet DSL (see [https://puppet.com/docs/puppet/5.3/lang_write_functions_in_puppet.html](https://puppet.com/docs/puppet/5.3/lang_write_functions_in_puppet.html)),
+    although you'll be unable to take advantage of the more powerful Ruby API.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You could write the function in the legacy Ruby functions API (see [https://puppet.com/docs/puppet/5.3/functions_legacy.html](https://puppet.com/docs/puppet/5.3/functions_legacy.html)),
+    although this is to be avoided unless you must specifically support Puppet 3.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You could write the function in the modern Ruby function API. This is what we'll
+    concentrate on for the remainder of this section.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The best way to create and distribute a new custom function is to place it
+    in a module, in the `puppet/functions/<modulename>` subdirectory of the `lib`
+    directory, and it will then be distributed via `pluginsync`, as shown in the following
+    code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Types and providers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Puppet already has a very rich lexicon of built-in resource types (see [https://puppet.com/docs/puppet/5.3/type.html](https://puppet.com/docs/puppet/5.3/type.html)),
+    and these have also been extended with additional modules. Windows-specific resource
+    types would be a very good example of where Puppet has had its resource types
+    successfully extended (see [https://puppet.com/docs/puppet/5.3/resources_windows_optional.html](https://puppet.com/docs/puppet/5.3/resources_windows_optional.html)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following are some indications that you may want to consider writing a
+    type and provider as an alternative to regular modules and manifests in Puppet
+    DSL:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: You have several `exec` statements in your Puppet DSL with convoluted `onlyif`
+    and `unless` conditional properties
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Puppet doesn''t handle situation very well where:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Your Puppet DSL is not a powerful-enough API, and you need access to pure Ruby
+    to manipulate data
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Your Puppet DSL code has significant and quite convoluted conditional logic
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Types
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Go through the following steps to create your type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Create and distribute the type
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Add the `namevar` special attribute
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Add additional type properties
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Add the optional `ensure` property
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Add type parameters
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Set the property and parameter defaults
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Check the input value with a validate block
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Check the input value against a `newvalues` array
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Check datatype compatibility with `munge`
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Use `AutoRequire` for implicit relationships
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Use `Arrays`to list the values of an attribute
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Use the `desc` method to add inline documentation
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Check out the official documentation page on Puppet types at [https://puppet.com/docs/puppet/5.3/custom_types.html](https://puppet.com/docs/puppet/5.3/custom_types.html). Gary
+    Larizza's blog also offers an alternative set of useful examples of types at [http://garylarizza.com/blog/2013/11/25/fun-with-providers/](http://garylarizza.com/blog/2013/11/25/fun-with-providers/).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's now go through each of these steps to create your new type in more detail
+    in the following sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating and distributing the type
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The best way to create and distribute a new custom type is to place it into
+    a module, in the `puppet/type` subdirectory of the `lib` directory, and it will
+    then be distributed to the agent machine via `pluginsync`, as we already saw with
+    custom facts in the previous section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The filename should match the name of the type under development, as shown
+    in the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Adding the namevar special attribute
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'After we make use of the special attribute of the type, that is its `namevar`,
+    we can then actually use a declaration of our resource using the Puppet DSL. The
+    `namevar` should identify the resource uniquely within the underlying operating
+    system, and must be something that can be prespecified, as shown in the following
+    code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, we can declare our resource in the Puppet DSL. In this case, the `namevar`
+    defaults to the resource title, as shown in the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The resource title is used to make a reference to the resource uniquely inside
+    the Puppet catalog. Hence, the `namevar` indicates the underlying system''s name
+    for that resource, as shown in the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, run the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: Adding additional type properties
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Type properties are attributes that reflect the current state of that resource
+    on the underlying operating system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'During the Puppet run, these values are actively enforced, so they should be
+    both *discoverable* and *updatable*. If the attribute can''t be updated, it could
+    be implemented as a read-only property. In the following code, we are extending
+    our example type''s interface to define a version property:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now we start to use that property in the Puppet DSL, as shown in the following
+    code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'But it won''t allow the catalog to compile yet, since there''s no implementation
+    for that property in any corresponding provider, as shown in the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: Adding the optional ensure property
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Although optional, most native Puppet resource types do have an `ensure` property,
+    although there are exceptions—for example, `. exec` and `notify`. You simply give
+    the resource type the `ensure` property by immediately calling `ensurable`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: The corresponding providers for this type would then implement the `ensure`
+    property through the use of `create`, `exists?`, and `destroy` methods.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In Puppet DSL, the `ensure` property should be the first attribute in the resource
+    (according to the Puppet style guidelines), and it supports the `present` and
+    `absent` keywords (`present` being the default, so it may be omitted for the sake
+    of brevity), as shown in the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: Adding type parameters
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '`Type` parameters differ from properties in that they don''t directly relate
+    to actual discoverable and updatable resources on the underlying system. Rather,
+    they do one of the two following things:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Allow you to specify additional informational context for interacting with properties
+    and resources on the underlying system
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Provide a layer of abstraction allowing you to override the expected behavior
+    on the underlying system
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Let''s add a `source` parameter to our new type using the `newparam` method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: Setting property and parameter defaults
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Let''s say we wanted to add an additional `override` parameter, which we wanted
+    to configure with a default value of `false`. Here''s the Ruby code to express
+    that:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: Checking the input value with a validate block
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'We can validate the provided value of a new property called `version` with
+    a `validate` block and, for example, a `regex` expression, as shown in the following
+    code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: Checking the input value against a newvalues array
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'We can also validate the provided value of the property with an array of values
+    using the `newvalues` method, as shown in the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: Checking datatype compatibility with munge
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To decide whether an underlying provider property should be updated, a simple
+    equality comparison is made between the provided value and the value retrieved
+    using the provider.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `munge` method can ensure that the data supplied by the user has a consistent
+    datatype with that expected to be returned from the provider. For example, we
+    could call the `munge` method to make sure that the user-supplied datatype of
+    `integer` or `numeric string` is compatible with the `integer` required by the
+    provider, as shown in the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: Using autorequire for implicit relationships
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To make it easier for users of your type, you can use `autorequire`  to avoid
+    tediously specifying a lot of explicit relationships in longhand between resources.
+    The `autorequire` method establishes implicit ordering between resources in the
+    catalog. A typical example of this would be filing resources depending on their
+    parent directories.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For example, in our type, if the `source` parameter is a file path, then we
+    should ensure the corresponding `file` resource is managed first, as shown in
+    the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: Manually specified dependencies in the Puppet DSL have a higher precedence for
+    the compiler than the implicit dependencies that are put in place by virtue of
+    the `autorequire` method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using arrays to assign a list of values to an attribute
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'When the expected value of an attribute is an array, the `array_matching` option
+    should be included in the call to `newproperty` with a value of `all`. All values
+    of the array are then used for that attribute, as shown in the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: Using the desc method to add inline documentation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Users of your new type can use the `puppet describe` and `puppet doc` commands
+    to fetch the inline documentation you''ve configured. For a full description of
+    all the types currently configured in your environment, including custom resources,
+    run the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s finish our type example now by adding some inline documentation using
+    the `desc` method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: Providers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Providers are the implementation of the resources on a system. Types express
+    the interface used in describing the resources, whereas providers provide the
+    implementation about how the resources interact with the underlying system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The separation between the interface and its implementation allows multiple
+    providers to be developed for a type.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `package` type provided as part of a Puppet installation, for example, has
+    many separate providers that interact with systems, including `rpm`, `apt`, `yum`,
+    `zipper`, `chocolatey`, and so on. All that's needed for a new provider to be
+    developed is for it to adhere to the interface defined in its type.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can check out the official documentation pages on Puppet providers at [https://puppet.com/docs/puppet/5.3/custom_types.html#providers](https://puppet.com/docs/puppet/5.3/custom_types.html#providers)
+    and [https://puppet.com/docs/puppet/5.3/provider_development.html](https://puppet.com/docs/puppet/5.3/provider_development.html). Gary
+    Larizza's blog also offers an alternative set of useful examples on providers
+    at [http://garylarizza.com/blog/2013/11/26/fun-with-providers-part-2/](http://garylarizza.com/blog/2013/11/26/fun-with-providers-part-2/).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Go through the following steps to create a new provider for your type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Create and distribute your provider
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Indicate the suitability of the provider to the type in the following ways:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Using the `confine` method
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using the `defaultfor` method
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using the `commands` method
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Implement the `ensure` property
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Using the `exists?` method
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using the `create` and `destroy` methods
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Use the `GET` and `SET` methods to manage type properties
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Implement the `self.instances` method
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Let's now go into more detail for each of these steps for creating your new
+    provider in the following sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating and distributing the provider
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The best way to create and distribute a new provider for your type is to place
+    it into the same module, in the `puppet/provider/<typename>` subdirectory of the
+    `lib` directory, and it will then be distributed to the agent machine via `pluginsync`.
+    Note that the filename should match the name of the provider, as shown in the
+    following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: Indicating the suitability of the provider to the type
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `confine` and `commands` methods are used to ascertain which providers are
+    valid for the type, and the `defaultfor` method is used to indicate the default
+    provider where there are multiple providers. Let's take a look at each of these
+    methods.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using the confine method
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The `confine` method can be used with a fact, as shown in the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `confine` method could also use `exisits` to base its conditions on whether
+    a certain file is present on the system under management. The following example
+    demonstrates how the provider is restricted to only those systems where Puppet''s
+    `.config` file exists:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Another possibility is to base the conditions of the `confine` method on certain
+    Puppet features (they are all listed in the source code directory at [https://github.com/puppetlabs/puppet/tree/master/lib/puppet/feature](https://github.com/puppetlabs/puppet/tree/master/lib/puppet/feature)),
+    as shown in the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, `confine` can accept a Boolean expression to restrict your provider,
+    as shown in the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: Using the defaultfor method
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `confine` method is fine, but its usage may still result in multiple valid
+    providers for a particular resource type. In this circumstance, the type should
+    specify its preferred provider using the `defaultfor` method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `defaultfor` method uses a fact name and value as its arguments, which are
+    then used to determine the default provider for certain types of underlying system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For example, on Red Hat systems, both `yum` and `rpm` would be valid as providers
+    to the package resource type, but the `defaultfor` method would be used to indicate
+    that for Red Hat systems, `yum` is in fact the default provider, as shown in the
+    following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: Using the commands method
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Confining providers may also be based on the availability of certain commands
+    from the system path using the `commands` method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'More importantly, by using the special methods generated by `commands`, we
+    can also inform Puppet of the correct commands for interacting with the underlying
+    system. This is preferable over Ruby''s own methods for command execution, such
+    as `%x{cmd}` or `cmd` for the following reasons:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Puppet displays commands invoked this way when the `--debug` flag is set
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: They are documented as a requirement for the provider
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Exceptions are handled consistently by raising a `Puppet::ExecutionFalure`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'This is shown in the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: Implementing the ensure property
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In order to implement the `ensure` property, the providers need to be able to
+    ascertain whether the resource exists, create the resource where it doesn't exist,
+    and destroy resources that exist. This is implemented by virtue of the `exists?`,
+    `create`, and `destroy` methods, which we will look at in the following sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using the exists? method
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The `exists?` method retrieves the `ensure` state of the resource. A Boolean
+    is returned, as shown in the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: Using the create and destroy methods
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The existence state of a resource is modified with reference to the declaration
+    of the resource with the `ensure` property by the user in the Puppet DSL by using
+    the `create` and `destroy` methods.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `create` method is called when both of the following criteria have been
+    met:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `ensure` property has been set to `present` in the resource declaration
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `false` value is returned by the `exists?` method (to indicate that the
+    resource doesn't already exist)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The `destroy` method is called when both of the following criteria have been
+    met:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `ensure` property has been set as `absent` in the resource declaration
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `true` value is returned by the `exists?` method (to indicate that the resource
+    already exists)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following code shows how you can use these methods:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: Using the GET and SET methods to manage type properties
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Each property defined in the type should implement a `GET` and `SET` method
+    in the provider.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Puppet will then invoke these methods during a Puppet run to manage the property
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `GET` method is called initially to retrieve the current value
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: This is subsequently compared against the value declared by the user in the
+    Puppet DSL
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: If the values are different, then the `SET` method is invoked to update that
+    value if necessary.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'This is shown in the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: Implementing the self.instances method
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Puppet provides an additional mode of operation, that being the discovery of
+    resources using the `puppet resource` command. The `self.instances` method should
+    implement the return of any instances of a particular resource type that the provider
+    is able to find on the underlying system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following example illustrates the use of the `rpm -qa` command to query
+    for all packages installed on the underlying Red Hat system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Each resource returned by `self.instances` stores the attributes in the `@property_hash` instance
+    variable. All the other methods in the provider have access to the property hash,
+    so we could implement the `exists?` and `version` methods in our provider in a
+    much simpler way, as shown in the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we looked at extending Puppet with client-side facts, server-side
+    custom functions, and custom types and providers. You can see that with some Ruby
+    know-how, you can easily extend the Puppet ecosystem to cover some of your own
+    unique requirements.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we'll be taking a look at Hiera 5, which we'll use to create
+    a separation between code and business data.
+  prefs: []
+  type: TYPE_NORMAL

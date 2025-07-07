@@ -1,0 +1,1984 @@
+- en: Chapter 1. Installing OpenStack with Ansible
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introduction – the OpenStack architecture
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Host network configuration
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Root SSH keys configuration
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Installing Ansible, playbooks, and dependencies
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Configuring the installation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Running the OpenStack-Ansible playbooks
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Troubleshooting the installation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Manually testing the installation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Modifying the OpenStack configuration
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Virtual lab - vagrant up!
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Introduction – the OpenStack architecture
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: OpenStack is a suite of projects that combine into a software-defined environment
+    to be consumed using cloud friendly tools and techniques. The popular open source
+    software allows users to easily consume compute, network, and storage resources
+    that have been traditionally controlled by disparate methods and tools by various
+    teams in IT departments, big and small. While consistency of APIs can be achieved
+    between versions of OpenStack, an administrator is free to choose which features
+    of OpenStack to install, and as such there is no single method or architecture
+    to install the software. This flexibility can lead to confusion when choosing
+    how to deploy OpenStack. That said, it is universally agreed that the services
+    that the end users interact with—the OpenStack services, supporting software (such
+    as the databases), and APIs—must be highly available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A very popular method for installing OpenStack is the OpenStack-Ansible project
+    ([https://github.com/openstack/openstack-ansible](https://github.com/openstack/openstack-ansible)).
+    This method of installation allows an administrator to define highly available
+    controllers together with arrays of compute and storage, and through the use of
+    Ansible, deploy OpenStack in a very consistent way with a small amount of dependencies.
+    Ansible is a tool that allows for system configuration and management that operates
+    over standard SSH connections. Ansible itself has very few dependencies, and as
+    it uses SSH to communicate, most Linux distributions and networks are well-catered
+    for when it comes to using this tool. It is also very popular with many system
+    administrators around the globe, so installing OpenStack on top of what they already
+    know lowers the barrier to entry for setting up a cloud environment for their
+    enterprise users.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'OpenStack can be architected in any number of ways; OpenStack-Ansible doesn''t
+    address the architecture problem directly: users are free to define any number
+    of controller services (such as Horizon, Neutron Server, Nova Server, and MySQL).
+    Through experience at Rackspace and feedback from users, a popular architecture
+    is defined, which is shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Introduction – the OpenStack architecture](img/00002.jpeg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 1: Recommended OpenStack architecture used in this book'
+  prefs: []
+  type: TYPE_NORMAL
+- en: As shown in the preceding diagram (*Figure 1*), there are a few concepts to
+    first understand. These are described as follows.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Controllers
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The *controllers* (also referred to as *infrastructure or infra nodes*) run
+    the heart of the OpenStack services and are the only servers exposed (via load
+    balanced pools) to your end users. The *controllers* run the API services, such
+    as Nova API, Keystone API, and Neutron API, as well as the core supporting services
+    such as **MariaDB** for the database required to run OpenStack, and RabbitMQ for
+    messaging. It is this reason why, in a production setting, these servers are set
+    up as highly available as required. This means that these are deployed as clusters
+    behind (highly available) load balancers, starting with a minimum of 3 in the
+    cluster. Using odd numbers starting from 3 allows clusters to lose a single server
+    without and affecting service and still remain with quorum (minimum numbers of
+    votes needed). This means that when the unhealthy server comes back online, the
+    data can be replicated from the remaining 2 servers (which are, between them,
+    consistent), thus ensuring data consistency.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Networking is recommended to be highly resilient, so ensure that Linux has been
+    configured to bond or aggregate the network interfaces so that in the event of
+    a faulty switch port, or broken cable, your services remain available. An example
+    networking configuration for Ubuntu can be found in *Appendix A*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Computes
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: These are the servers that run the hypervisor or container service that OpenStack
+    schedules workloads to when a user requests a Nova resource (such as a virtual
+    machine). These are not too dissimilar to hosts running a hypervisor, such as
+    ESXi or Hyper-V, and OpenStack Compute servers can be configured in a very similar
+    way, optionally using shared storage. However, most installations of OpenStack
+    forgo the need for the use of shared storage in the architecture. This small detail
+    of not using shared storage, which implies the virtual machines run from the hard
+    disks of the compute host itself, can have a large impact on the users of your
+    OpenStack environment when it comes to discussing the resiliency of the applications
+    in that environment. An environment set up like this pushes most of the responsibility
+    for application uptime to developers, which gives the greatest flexibility of
+    a long-term cloud strategy. When an application relies on the underlying infrastructure
+    to be 100% available, the gravity imposed by the infrastructure ties applications
+    to specific data center technology to keep it running. However, OpenStack can
+    be configured to introduce shared storage such as Ceph ([http://ceph.com/](http://ceph.com/))
+    to allow for operational features such as live-migration (the ability to move
+    running instances from one hypervisor to another with no downtime), allowing enterprise
+    users move their applications to a cloud environment in a very safe way. These
+    concepts will be discussed in more detail in later chapters on compute and storage.
+    As such, the reference architecture for a compute node is to expect virtual machines
+    to run locally on the hard drives in the server itself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With regard to networking, like the *controllers*, the network must also be
+    configured to be highly available. A compute node that has no network available
+    might be very secure, but it would be equally useless to a cloud environment!
+    Configure bonded interfaces in the same way as the controllers. Further information
+    for configuring bonded interfaces under Ubuntu can be found in *Appendix A*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Storage
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Storage in OpenStack refers to block storage and object storage. Block storage
+    (providing LUNs or *hard drives* to virtual machines) is provided by the Cinder
+    service, while object storage (API driven object or blobs of storage) is provided
+    by Swift or Ceph. Swift and Ceph manage each individual drive in a server designated
+    as an object storage node, very much like a RAID card manages individual drives
+    in a typical server. Each drive is an independent entity that Swift or Ceph uses
+    to write data to. For example, if a storage node has 24 x 2.5in SAS disks in,
+    Swift or Ceph will be configured to write to any one of those 24 disks. Cinder,
+    however, can use a multitude of backends to store data. For example, Cinder can
+    be configured to communicate with third-party vendors such as NetApp or Solidfire
+    arrays, or it can be configured to talk to Sheepdog or Ceph, as well as the simplest
+    of services such as LVM. In fact, OpenStack can be configured in such a way that
+    Cinder uses multiple backends so that a user is able to choose the storage applicable
+    to the service they require. This gives great flexibility to both end users and
+    operators as it means workloads can be targeted at specific backends suitable
+    for that workload or storage requirement.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This book briefly covers Ceph as the backend storage engine for Cinder. Ceph
+    is a very popular, highly available open source storage service. Ceph has its
+    own disk requirements to give the best performance. Each of the Ceph storage nodes
+    in the preceding diagram are referred to as **Ceph OSDs** (**Ceph Object Storage
+    Daemons**). We recommend starting with 5 of these nodes, although this is not
+    a hard and fast rule. Performance tuning of Ceph is beyond the scope of this book,
+    but at a minimum, we would highly recommend having SSDs for Ceph journaling and
+    either SSD or SAS drives for the OSDs (the physical storage units).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The differences between a Swift node and a Ceph node in this architecture are
+    very minimal. Both require an interface (bonded for resilience) for replication
+    of data in the storage cluster, as well as an interface (bonded for resilience)
+    used for data reads and writes from the client or service consuming the storage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The primary difference is the recommendation to use SSDs (or NVMe) as the journaling
+    disks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Load balancing
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The end users of the OpenStack environment expect services to be highly available,
+    and OpenStack provides REST API services to all of its features. This makes the
+    REST API services very suitable for placing behind a load balancer. In most deployments,
+    load balancers would usually be highly available hardware appliances such as F5\.
+    For the purpose of this book, we will be using HAProxy. The premise behind this
+    is the same though—to ensure that the services are available so your end users
+    can continue working in the event of a failed *controller* node.
+  prefs: []
+  type: TYPE_NORMAL
+- en: OpenStack-Ansible installation requirements
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Operating installing System: Ubuntu 16.04 x86_64'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Minimal data center deployment requirements
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'For a physical installation, the following will be needed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Controller servers (also known as infrastructure nodes)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: At least 64 GB RAM
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: At least 300 GB disk (RAID)
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '4 Network Interface Cards (for creating two sets of bonded interfaces; one
+    would be used for infrastructure and all API communication, including client,
+    and the other would be dedicated to OpenStack networking: Neutron)'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Shared storage, or object storage service, to provide backend storage for the
+    base OS images used
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Compute servers
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: At least 64 GB RAM
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: At least 600 GB disk (RAID)
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 4 Network Interface Cards (for creating two sets of bonded interfaces, used
+    in the same way as the controller servers)
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Optional (if using Ceph for Cinder) 5 Ceph Servers (Ceph OSD nodes)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: At least 64 GB RAM
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 2 x SSD (RAID1) 400 GB for journaling
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 8 x SAS or SSD 300 GB (No RAID) for OSD (size up requirements and adjust accordingly)
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 4 Network Interface Cards (for creating two sets of bonded interfaces; one for
+    replication and the other for data transfer in and out of Ceph)
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Optional (if using Swift) 5 Swift Servers
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: At least 64 GB RAM
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 8 x SAS 300 GB (No RAID) (size up requirements and adjust accordingly)
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 4 Network Interface Cards (for creating two sets of bonded interfaces; one for
+    replication and the other for data transfer in and out of Swift)
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Load balancers
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 2 physical load balancers configured as a pair
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Or 2 servers running HAProxy with a Keepalived VIP to provide as the API endpoint
+    IP address:'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: At least 16 GB RAM
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: HAProxy + Keepalived
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 2 Network Interface Cards (bonded)
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '**Tip**: Setting up a physical home lab? Ensure you have a managed switch so
+    that interfaces can have VLANs tagged.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Host network configuration
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Installation of OpenStack using an orchestration and configuration tool such
+    as Ansible performs a lot of tasks that would otherwise have to be undertaken
+    manually. However, we can only use an orchestration tool if the servers we are
+    deploying to are configured in a consistent way and described to Ansible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The following section will describe a typical server setup that uses two sets
+    of active/passive bonded interfaces for use by OpenStack. Ensure that these are
+    cabled appropriately.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We assume that the following physical network cards are installed in each of
+    the servers; adjust them to suit your environment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`p2p1` and `p2p2`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`p4p1` and `p4p2`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We assume that the *host* network is currently using `p2p1`. The *host* network
+    is the basic network that each of the servers currently resides on, and it allows
+    you to access each one over SSH. It is assumed that this network also has a default
+    gateway configured, and allows internet access. There should be no other networks
+    required at this point as the servers are currently unconfigured and are not running
+    OpenStack services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'At the end of this section, we will have created the following bonded interfaces:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`bond0`: This consists of the physical interfaces `p2p1` and `p4p1`. The `bond0`
+    interface will be used for host, OpenStack management, and storage traffic.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bond1`: This consists of the physical interfaces `p2p2` and `p4p2`. The `bond1`
+    interface will be used for Neutron networking within OpenStack.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We will have created the following VLAN tagged interfaces:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`bond0.236`: This will be used for the *container network*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bond0.244`: This will be used for the *storage network*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bond1.240`: This will be used for the *VXLAN tunnel network*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'And the following bridges:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`br-mgmt`: This will use the `bond0.236` VLAN interface, and will be configured
+    with an IP address from the `172.29.236.0/24` range.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`br-storage`: This will use the `bond0.244` VLAN interface, and will be configured
+    with an IP address from the `172.29.244.0/24` range.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`br-vxlan`: This will use the `bond1.240 VLAN` interface, and will be configured
+    with an IP address from the `172.29.240.0/24` range.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`br-vlan`: This will use the untagged `bond1` interface, and will not have
+    an IP address configured.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '**Tip**: Ensure that your subnets are large enough to support your current
+    requirements as well as future growth!'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following diagram shows the networks, interfaces, and bridges set up before
+    we begin our installation of OpenStack:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Host network configuration](img/00003.jpeg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: We assume that each server has Ubuntu 16.04 installed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Log in, as root, onto each server that will have OpenStack installed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Configuration of the host's networking, on a Ubuntu system, is performed by
+    editing the `/etc/network/interfaces` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First of all, ensure that we have the right network packages installed on each
+    server. As we are using VLANs and Bridges, the following packages must be installed:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Now edit the `/etc/network/interfaces` file on the first server using your
+    preferred editor:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We will first configure the bonded interfaces. The first part of the file will
+    describe this. Edit this file so that it looks like the following to begin with:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Now we will configure the VLAN interfaces that are tagged against these bonds.
+    Continue editing the file to add in the following tagged interfaces. Note that
+    we are not assigning IP addresses to the OpenStack bonds just yet:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '**Tip**: Use appropriate VLANs as required in your own environment. The VLAN
+    tags used here are for reference only.'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Ensure that the correct VLAN tag is configured against the correct bonded interface.
+    `bond0` is for host-type traffic, `bond1` is predominantly for Neutron-based traffic,
+    except for storage nodes, where it is then used for storage replication.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'We will now create the bridges, and place IP addresses on here as necessary
+    (note that `br-vlan` does not have an IP address assigned). Continue editing the
+    same file and add in the following lines:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: These bridge names are referenced in the OpenStack-Ansible configuration file,
+    so ensure you name them correctly.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Be careful in ensuring that the correct bridge is assigned to the correct bonded
+    interface.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'Save and exit the file, then issue the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'As we are configuring our OpenStack environment to be as highly available as
+    possible, it is suggested that you also reboot your server at this point to ensure
+    the basic server, with redundant networking in place, comes back up as expected:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Now repeat this for each server on your network.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Once all the servers are done, ensure that your servers can communicate with
+    each other over these newly created interfaces and subnets. A test like the following
+    might be convenient:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '**Tip**: We also recommend that you perform a network cable unplugging exercise
+    to ensure that the failover from one active interface to another is working as
+    expected.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: We have configured the physical networking of our hosts to ensure a good known
+    state and configuration for running OpenStack. Each of the interfaces configured
+    here is specific to OpenStack—either directly managed by OpenStack (for example,
+    `br-vlan`) or used for inter-service communication (for example, `br-mgmt`). In
+    the former case, OpenStack utilizes the `br-vlan` bridge and configures tagged
+    interfaces on `bond1` directly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that the convention used here, of VLAN tag ID using a portion of the subnet,
+    is only to highlight a separation of VLANs to specific subnets (for example, `bond0.236`
+    is used by the `172.29.236.0/24` subnet). This VLAN tag ID is arbitrary, but must
+    be set up in accordance with your specific networking requirements.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, we performed a fairly rudimentary test of the network. This gives you
+    the confidence that the network configuration that will be used throughout the
+    life of your OpenStack cloud is fit for purpose and gives assurances in the event
+    of a failure of a cable or network card.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Root SSH keys configuration
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Ansible is designed to help system administrators drive greater efficiency in
+    the datacenter by being able to configure and operate many servers using orchestration
+    playbooks. In order for Ansible to be able to fulfill its duties, it needs an
+    SSH connection on the Linux systems it is managing. Furthermore, in order to have
+    a greater degree of freedom and flexibility, a hands-off approach using SSH public
+    private key pairs is required.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As the installation of OpenStack is expected to run as root, this stage expects
+    the deployment host's root public key to be propagated across all servers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Ensure that you are `root` on the deployment host. In most cases, this is the
+    first infrastructure *controller* node that we have named for the purposes of
+    this book to be called `infra01`. We will be assuming that all Ansible commands
+    will be run from this host, and that it expects to be able to connect to the rest
+    of the servers on this network over the host network via SSH.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In order to allow a hands-free, orchestrated OpenStack-Ansible deployment,
+    follow these steps to create and propagate root SSH public key of `infra01` across
+    all servers required of the installation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As root, execute the following command to create an SSH key pair:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'The output should look similar to this:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This has created two files in `/root/.ssh`, called `id_rsa` and `id_rsa.pub`.
+    The file, `id_rsa` is the private key, and must not be copied across the network.
+    It is not required to be anywhere other than on this server. The file, `id_rsa.pub`,
+    is the public key and can be shared to other servers on the network. If you have
+    other nodes (for example, named infra02), use the following to copy this key to
+    that node in your environment:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '**Tip**: Ensure that you can resolve `infra02` and the other servers, else
+    amend the preceding command to use its host IP address instead.'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Now repeat step 2 for all servers on your network.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Important: finally, ensure that you execute the following command to be able
+    to SSH to itself:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Test that you can `ssh`, as the root user, from `infra01` to other servers on
+    your network. You should be presented with a Terminal ready to accept commands
+    if successful, without being prompted for a passphrase. Consult `/var/log/auth.log`
+    on the remote server if this behavior is incorrect.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: We first generated a key pair file for use by SSH. The `-t` option specified
+    the `rsa` type encryption, `-f` specified the output of the private key, where
+    the public portion will get .`pub` appended to its name, and `-N ""` specified
+    that no passphrase is to be used on this key. Consult your own security standards
+    if the presented options differ from your company's requirements.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing Ansible, playbooks, and dependencies
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In order for us to successfully install OpenStack using Ansible, we need to
+    ensure that Ansible and any expected dependencies are installed on the deployment
+    host. The OpenStack-Ansible project provides a handy script to do this for us,
+    which is part of the version of OpenStack-Ansible we will be deploying.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Ensure that you are `root` on the deployment host. In most cases, this is the
+    first infrastructure controller node, `infra01`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this point, we will be checking out the version of OpenStack-Ansible from
+    GitHub.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To set up Ansible and its dependencies, follow these steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We first need to use `git` to check out the OpenStack-Ansible code from GitHub,
+    so ensure that the following packages are installed (among other needed dependencies):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We then need to grab the OpenStack-Ansible code from GitHub. At the time of
+    writing, the Pike release branch (16.X) is described as follows, but the steps
+    remain the same for the foreseeable future. It is recommended that you use the
+    latest stable tag by visiting [https://github.com/openstack/openstack-ansible/tags](https://github.com/openstack/openstack-ansible/tags).
+    Here we''re using the latest 16 (Pike) tag denoted by `16.0.5`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '**Tip**: To use a branch of the Queens release, use the following: `-b 17.0.0`.
+    When the Rocky release is available, use `-b 18.0.0`.'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Ansible and the needed dependencies to successfully install OpenStack can be
+    found in the `/opt/openstack-ansible/scripts` directory. Issue the following command
+    to bootstrap the environment:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The OpenStack-Ansible project provides a handy script to ensure that Ansible
+    and the right dependencies are installed on the deployment host. This script (`bootstrap-ansible.sh`)
+    lives in the `scripts/` directory of the checked out OpenStack-Ansible code, so
+    at this stage we need to grab the version we want to deploy using Git. Once we
+    have the code, we can execute the script and wait for it to complete.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There's more…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Visit [https://docs.openstack.org/project-deploy-guide/openstack-ansible/latest](https://docs.openstack.org/project-deploy-guide/openstack-ansible/latest)
+    for more information.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring the installation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: OpenStack-Ansible is a set of official Ansible playbooks and roles that lay
+    down OpenStack with minimal prerequisites. Like any orchestration tool, most effort
+    is done up front with configuration, followed by a hands-free experience when
+    the playbooks are running. The result is a tried and tested OpenStack installation
+    suitable for any size environment, from testing to production environments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When we use OpenStack-Ansible, we are basically downloading the playbooks from
+    GitHub onto a nominated *deployment server*. A deployment server is the host that
+    has access to all the machines in the environment via SSH (and for convenience,
+    and for the most seamless experience without hiccups, via keys). This deployment
+    server can be one of the machines you've nominated as a part of your OpenStack
+    environment as Ansible isn't anything that takes up any ongoing resources once
+    run.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '**Tip**: Remember to back up the relevant configuration directories related
+    to OpenStack-Ansible before you rekick an install of Ubuntu on this server!'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Ensure that you are `root` on the *deployment host*. In most cases, this is
+    the first infrastructure controller node, `infra01`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Let's assume that you're using the first infrastructure node, `infra01`, as
+    the deployment server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you have not followed the preceding *Installing Ansible, playbooks, and
+    dependencies* recipe review, then as `root`, carry out the following if necessary:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: This downloads the OpenStack-Ansible playbooks to the `/opt/openstack-ansible`
+    directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To configure our OpenStack deployment, carry out the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We first copy the `etc/openstack_deploy` folder out of the downloaded repository
+    to `/etc`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We now have to tell Ansible which servers will do which OpenStack function,
+    by editing the `/etc/openstack_deploy/openstack_user_config.yml` file, as shown
+    here:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'The first section, `cidr_networks`, describes the subnets used by OpenStack
+    in this installation. Here we describe the *container* network (each of the OpenStack
+    services are run inside a container, and this has its own network so that each
+    service can communicate with each other). We describe the tunnel network (when
+    a user creates a tenant network in this installation of OpenStack, this will create
+    a segregated VXLAN network over this physical network). Finally, we describe the
+    storage network subnet. Edit this file so that it looks like the following:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Continue editing the file to include any IP addresses that are already used
+    by existing physical hosts in the environment where OpenStack will be deployed
+    (and ensuring that you''ve included any reserved IP addresses for physical growth
+    too). Include the addresses we have already configured leading up to this section.
+    Single IP addresses or ranges (start and end placed either side of a '','') can
+    be placed here. Edit this section to look like the following, adjust as per your
+    environment and any reserved IPs:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'The `global_overrides` section describes the bridges and other specific details
+    of the interfaces used environment—particularly pertaining to how the container
+    network attaches to the physical network interfaces. For the example architecture
+    used in this book, the following output can be used. In most cases, the content
+    in this section doesn''t need to be edited apart from the load balancer information
+    at the start, so edit to suit:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'The remaining section of this file describes which server each service runs
+    from. Most of the sections repeat, differing only in the name of the service.
+    This is fine as the intention here is to tell OpenStack-Ansible which server (we
+    give it a name so that Ansible can refer to it by name, and reference the IP associated
+    with it) runs the Nova API, RabbitMQ, or the Glance service, for example. As these
+    particular example services run on our controller nodes, and in a production setting
+    there are at least three controllers, you can quickly see why this information
+    repeats. Other sections refer specifically to other services, such as OpenStack
+    compute. For brevity, a couple of sections are shown here, but continue editing
+    the file to match your networking:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Save and exit the file. We will now need to generate some random passphrases
+    for the various services that run in OpenStack. In OpenStack, each service—such
+    as Nova, Glance, and Neutron (which are described through the book)—themselves
+    have to authenticate with Keystone, and be authorized to act as a service. To
+    do so, their own user accounts need to have passphrases generated. Carry out the
+    following command to generate the required passphrases, which would be later used
+    when the OpenStack playbooks are executed:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Finally, there is another file that allows you to fine-tune the parameters
+    of the OpenStack services, such as which backing store Glance (the OpenStack Image
+    service) will be using, as well as configure proxy services ahead of the installation.
+    This file is called `/etc/openstack_deploy/user_variables.yml`. Let''s view and
+    edit this file:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'In a typical, highly available deployment—one in which we have three controller
+    nodes—we need to configure Glance to use a shared storage service so that each
+    of the three controllers have the same view of a filesystem, and therefore the
+    images used to spin up instances. A number of shared storage backend systems that
+    Glance can use range from NFS to Swift. We can even allow a private cloud environment
+    to connect out over a public network and connect to a public service like Rackspace
+    Cloud Files. If you have Swift available, add the following lines to `user_variables.yml`
+    to configure Glance to use Swift:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '**Tip**: Latest versions of OpenStack-Ansible are smart enough to discover
+    if Swift is being used and will update their configuration accordingly.'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: View the other commented out details in the file to see if they need editing
+    to suit your environment, then save and exit. You are now ready to start the installation
+    of OpenStack!
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Ansible is a very popular server configuration tool that is well-suited to
+    the task of installing OpenStack. Ansible takes a set of configuration files that
+    *Playbooks* (a defined set of steps that get executed on the servers) use to control
+    how they executed. For OpenStack-Ansible, configuration is split into two areas:
+    describing the physical environment and describing how OpenStack is configured.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first configuration file, `/etc/openstack_deploy/openstack_user_config.yml`,
+    describes the physical environment. Each section is described here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: This section describes the networks required for an installation based on OpenStack-Ansible.
+    Look at the following diagram to see the different networks and subnets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Container**: Each container that gets deployed gets an IP address from this
+    subnet. The load balancer also takes an IP address from this range.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Tunnel**: This is the subnet that forms the VXLAN tunnel mesh. Each container
+    and compute host that participates in the VXLAN tunnel gets an IP from this range
+    (the VXLAN tunnel is used when an operator creates a Neutron subnet that specifies
+    the `vxlan` type, which creates a virtual network over this underlying subnet).
+    Refer to [Chapter 4](part0048_split_000.html#1DOR01-189e69df43a248268db97cde1b1a8e47
+    "Chapter 4. Neutron – OpenStack Networking"), *Neutron – OpenStack Networking*
+    for more details on OpenStack networking.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Storage**: This is the subnet that was used when a client instance spun up
+    in OpenStack request Cinder block storage:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'The `used_ips:` section refers to IP addresses that are already in use on that
+    subnet, or reserved for use by static devices. Such devices are load balancers
+    or other hosts that are part of the subnets that OpenStack-Ansible would otherwise
+    have randomly allocated to containers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `global_overrides:` section describes the details around how the containers
+    and bridged networking are set up. OpenStack-Ansible's default documentation expects
+    Linux Bridge to be used; however, Open vSwitch can also be used. Refer to [Chapter
+    4](part0048_split_000.html#1DOR01-189e69df43a248268db97cde1b1a8e47 "Chapter 4. Neutron
+    – OpenStack Networking"), *Neutron – OpenStack Networking*, for more details.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `internal_lb_vip_address:` and `external_lb_vip_address:` sections refer
+    to the *private* and *public* sides of a typical load balancer. The private (`internal_lb_vip_address`)
+    is used by the services within OpenStack (for example, Nova calls communicating
+    with the Neutron API would use `internal_lb_vip_address`, whereas a user communicating
+    with the OpenStack environment once it has been installed would use `external_lb_vip_address`).
+    See the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![How it works…](img/00004.jpeg)'
+  prefs: []
+  type: TYPE_IMG
+- en: A number of load balance pools will be created for a given **Virtual IP** (**VIP**)
+    address, describing the IP addresses and ports associated with a particular service,
+    and for each pool—one will be created on the public/external network (in the example,
+    a VIP address of `192.168.100.117` has been created for this purpose), and another
+    VIP for use internally by OpenStack (in the preceding example, the VIP address
+    `172.29.236.117` has been created for this purpose).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `tunnel_bridge:` section is the name given to the bridge that is used for
+    attaching the physical interface that participates in the VXLAN tunnel network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `management_bridge:` section is the name given to the bridge that is used
+    for all of the OpenStack services that get installed on the container network
+    shown in the diagram.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `storage_bridge:` section is the name given to the bridge that is used for
+    traffic associated with attaching storage to instances or where Swift proxied
+    traffic would flow.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Each of the preceding bridges must match the names you have configured in the
+    `/etc/network/interfaces` file on each of your servers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next section, `provider_networks`, remains relatively static and untouched
+    as it describes the relationship between container networking and the physical
+    environment. Do not adjust this section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Following the `provider_networks` section are the sections describing which
+    server or group of servers run a particular service. Each block has the following
+    syntax:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '**Tip**: Ensure the correct and consistent spelling of each server name (`ansible_inventory_name_for_server`)
+    to ensure correct execution of your Ansible playbooks.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A number of sections and their use are listed here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`shared-infra_hosts`: This supports the shared infrastructure software, which
+    is MariaDB/Galera and RabbitMQ'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`repo-infra_hosts`: This is the specific repository containers version of OpenStack-Ansible
+    requested'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`haproxy_hosts`: When using HAProxy for load balancing, this tells the playbooks
+    where to install and configure this service'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`os-infra_hosts`: These include OpenStack API services such as Nova API and
+    Glance API'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`log_hosts`: This is where the rsyslog server runs from'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`identity_hosts`: These are the servers that run the Keystone (OpenStack Identity)
+    Service'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`storage-infra_hosts`: These are the servers that run the Cinder API service'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`storage_hosts`: This is the section that describes Cinder LVM nodes'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`swift-proxy_hosts`: These are the hosts that would house the Swift Proxy service'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`swift_hosts`: These are the Swift storage nodes'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`compute_hosts`: This is the list of servers that make up your hypervisors'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`image_hosts`: These are the servers that run the Glance (OpenStack Image)
+    Service'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`orchestration_hosts`: These are the servers that run the Heat API (OpenStack
+    Orchestration) services'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`dashboard_hosts`: These are the servers that run the Horizon (OpenStack Dashboard)
+    service'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`network_hosts`: These are the servers that run the Neutron (OpenStack Networking)
+    agents and services'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`metering-infra_hosts`: These are the servers that run the Ceilometer (OpenStack
+    Telemetry) service'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`metering-alarm_hosts`: These are the servers that run the Ceilometer (OpenStack
+    Telemetry) service associated with alarms'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`metrics_hosts`: The servers that run the Gnocchi component of Ceilometer'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`metering-compute_hosts`: When using Ceilometer, these are the list of compute
+    hosts that need the metering agent installed'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Running the OpenStack-Ansible playbooks
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To install OpenStack, we simply run the relevant playbooks. There are three
+    main playbooks in total that we will be using:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`setup-hosts.yml`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`setup-infrastructure.yml`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`setup-openstack.yml`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Ensure that you are the `root` user on the deployment host. In most cases, this
+    is the first infrastructure controller node, `infra01`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To install OpenStack using the OpenStack-Ansible playbooks, you navigate to
+    the `playbooks` directory of the checked out Git repository, then execute each
+    playbook in turn:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First change to the `playbooks` directory by executing the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'The first step is to run a syntax check on your scripts and configuration.
+    As we will be executing three playbooks, we will execute the following against
+    each:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Now we will run the first playbook using a special OpenStack-Ansible wrapper
+    script to Ansible that configures each host that we described in the `/etc/openstack_deploy/openstack_user_config.yml`
+    file:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'After a short while, you should be greeted with a PLAY RECAP output that is
+    all green (with yellow/blue lines indicating where any changes were made), with
+    the output showing all changes were OK. If there are issues, review the output
+    by scrolling back through the output and watch out for any output that was printed
+    out in red. Refer to the *Troubleshooting the installation* recipe further on
+    in this chapter. If all is OK, we can proceed to run the next playbook for setting
+    up load balancing. At this stage, it is important that the load balancer gets
+    configured. OpenStack-Ansible installs the OpenStack services in LXC containers
+    on each server, and so far we have not explicitly stated which IP address on the
+    container network will have that particular service installed. This is because
+    we let Ansible manage this for us. So while it might seem counter-intuitive to
+    set up load balancing at this stage before we know where each service will be
+    installed—Ansible has already generated a dynamic inventory ahead of any future
+    work, so Ansible already knows how many containers are involved and knows which
+    container will have that service installed. If you are using an F5 LTM, Brocade,
+    or similar enterprise load balancing kit, it is recommended that you use HAProxy
+    temporarily and view the generated configuration to be manually transferred to
+    a physical setup. To temporarily set up HAProxy to allow an installation of OpenStack
+    to continue, modify your `openstack_user_config.yml` file to include a HAProxy
+    host, then execute the following:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'If all is OK, we can proceed to run the next Playbook that sets up the shared
+    infrastructure services as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This step takes a little longer than the first Playbook. As before, inspect
+    the output for any failures. At this stage, we should have a number of containers
+    running on each Infrastructure Node (also known and referred to as Controller
+    Nodes). On some of these containers, such as the ones labelled Galera or RabbitMQ,
+    we should see services running correctly on here, waiting for OpenStack to be
+    configured against them. We can now continue the installation by running the largest
+    of the playbooks—the installation of OpenStack itself. To do this, execute the
+    following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This may take a while to run—running to hours—so be prepared for this duration
+    by ensuring your SSH session to the deployment host will not be interrupted after
+    a long time, and safeguard any disconnects by running the Playbook in something
+    like `tmux` or `screen`. At the end of the Playbook run, if all is OK, congratulations,
+    you have OpenStack installed!
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Installation of OpenStack using OpenStack-Ansible is conducted using a number
+    of playbooks. The first playbook, `setup-hosts.yml`, sets up the hosts by laying
+    down the container configurations. At this stage, Ansible knows where it will
+    be placing all future services associated with OpenStack, so we use the dynamic
+    inventory information to perform an installation of HAProxy and configure it for
+    all the services used by OpenStack (that are yet to be installed). The next playbook,
+    `setup-infrastructure.yml`, configures and installs the base Infrastructure services
+    containers that OpenStack expects to be present, such as Galera. The final playbook
+    is the main event—the playbook that installs all the required OpenStack services
+    we specified in the configuration. This runs for quite a while—but at the end
+    of the run, you are left with an installation of OpenStack.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The OpenStack-Ansible project provides a wrapper script to the `ansible` command
+    that would ordinarily run to execute Playbooks. This is called `openstack-ansible`.
+    In essence, this ensures that the correct inventory and configuration information
+    is passed to the `ansible` command to ensure correct running of the OpenStack-Ansible
+    playbooks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Troubleshooting the installation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Ansible is a tool, written by people, that runs playbooks, written by people,
+    to configure systems that would ordinarily be manually performed by people, and
+    as such, errors can occur. The end result is only as good as the input.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Typical failures either occur quickly, such as connection problems, and will
+    be relatively self-evident, or after long running jobs that may be as a result
+    of load or network timeouts. In any case, the OpenStack-Ansible playbooks provide
+    an efficient mechanism to rerun playbooks without having to repeat the tasks it
+    has already completed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On failure, Ansible produces a file in `/root` (as we're running these playbooks
+    as `root`) called the *playbook* name, with the file extension of `.retry`. This
+    file simply lists the hosts that had failed so this can be referenced when running
+    the playbook again. This targets the single or small group of hosts, which is
+    far more efficient than a large cluster of machines that successfully completed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: We will step through a problem that caused one of the playbooks to fail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Note the failed playbook and then invoke it again with the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Ensure that you''re in the `playbooks` directory as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Now rerun that Playbook, but specify the `retry` file:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: In most situations, this will be enough to rectify the situation, however, OpenStack-Ansible
+    has been written to be idempotent—meaning that the whole playbook can be run again,
+    only modifying what it needs to. Therefore, you can run the Playbook again without
+    specifying the `retry` file.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Should there be a failure at this first stage, execute the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First remove the generated `inventory` files:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Now rerun the `setup-hosts.yml` playbook:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'In some situations, it might be applicable to destroy the installation and
+    begin again. As each service gets installed in LXC containers, it is very easy
+    to wipe an installation and start from the beginning. To do so, carry out the
+    following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We first destroy all of the containers in the environment:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: You will be asked to confirm this action. Follow the ons-screen prompts.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'We recommend you to uninstall the following package to avoid any conflicts
+    with the future running of the playbooks, and also clear out any remnants of containers
+    on each host:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Finally, remove the inventory information:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Ansible is not perfect and so are computers. Sometimes failures occur in the
+    environment due to SSH timeouts, or some other transient failure. Also, despite
+    Ansible trying its best to retry the execution of a playbook, the result might
+    be a failure. Failure in Ansible is quite obvious—it is usually predicated by
+    outputs of red text on the screen. In most cases, rerunning the offending playbook
+    may get over some transient problems. Each playbook runs a specific task, and
+    Ansible will state which task has failed. Troubleshooting why that particular
+    task had failed will eventually lead to a good outcome. Worst case, you can reset
+    your installation from the beginning.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Manually testing the installation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Once the installation has completed successfully, the first step is to test
+    the install. Testing OpenStack involves both automated and manual checks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Manual tests verify user-journeys that may not normally be picked up through
+    automated testing, such as ensuring horizon is displayed properly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Automated tests can be invoked using a testing framework such as tempest or
+    the OpenStack benchmarking tool—rally.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Ensure that you are `root` on the first infrastructure controller node, `infra01`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The installation of OpenStack-Ansible creates several `utility` containers
+    on each of the infra nodes. These utility hosts provide all the command-line tools
+    needed to try out OpenStack, using the command line of course. Carry out the following
+    steps to get access to a utility host and run various commands in order to verify
+    an installation of OpenStack manually:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, view the running containers by issuing the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'As you can see, this lists a number of containers because the OpenStack-Ansible
+    installation uses isolated Linux containers for running each service. By the side
+    of each one its IP address and running state will be listed. You can see here
+    that the container network of `172.29.236.0/24` was used in this chapter and why
+    this was named this way. One of the containers on here is the utility container,
+    named with the following format: `nodename_utility_container_randomuuid`. To access
+    this container, you can SSH to it, or you can issue the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'You will now be running a Terminal inside this container, with access only
+    to the tools and services belonging to that containers. In this case, we have
+    access to the required OpenStack clients. The first thing you need to do is source
+    in your OpenStack credentials. The OpenStack-Ansible project writes out a generated
+    bash environment file with an `admin` user and project that was set up during
+    the installation. Load this into your bash environment with the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '**Tip**: you can also use the following syntax in Bash: . `openrc`'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'Now you can use the OpenStack CLI to view the services and status of the environment,
+    as well as create networks, and launch instances. A few handy commands are listed
+    here:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The OpenStack-Ansible method of installing OpenStack installs OpenStack services
+    into isolated containers on our Linux servers. On each of the controller (or infra)
+    nodes are about 12 containers, each running a single service such as nova-api
+    or RabbitMQ. You can view the running containers by logging into any of the servers
+    as root and issuing a `lxc-ls -f` command. The `-f` parameter gives you a full
+    listing showing the status of the instance such as whether it is running or stopped.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'One of the containers on the infra nodes has `utility` in its name, and this
+    is known as a *utility container* in OpenStack-Ansible terminology. This container
+    has OpenStack client tools installed, which makes it a great place to start manually
+    testing an installation of OpenStack. Each container has at least an IP address
+    on the container network—in the example used in this chapter this is the `172.29.236.0/24`
+    subnet. You can SSH to the IP address of this container, or use another `lxc`
+    command to attach to it: `lxc-attach -n` `<name_of_container>`. Once you have
+    a session inside the container, you can use it like any other system, provided
+    those tools are available to the restricted four-walls of the container. To use
+    OpenStack commands, however, you first need to source the resource environment
+    file which is named `openrc`. This is a normal bash environment file that has
+    been prepopulated during the installation and provides all the required credentials
+    needed to use OpenStack straight away.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Modifying the OpenStack configuration
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: It would be ludicrous to think that all of the playbooks would be needed to
+    run again for a small change such as changing the CPU contention ratio from 4:1
+    to 8:1\. So instead, the playbooks have been developed and tagged so that specific
+    playbooks can be run associated with that particular project that would reconfigure
+    and restart the associated services to pick up the changes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Ensure that you are `root` on the *deployment host*. In most cases, this is
+    the first infrastructure controller node, `infra01`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The following are the common changes and how they can be changed using Ansible.
+    As we'll adjust the configuration, all of these commands are executed from the
+    same host you used to perform the installation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To adjust the CPU overcommit/allocation ratio, carry out the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Edit the `/etc/openstack_deploy/user_variables.yml` file and modify (or add)
+    the following line (adjust the figure to suit):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Now execute the following commands to make changes in the environment:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'For more complex changes, for example, to add configuration that isn''t a simple
+    one-line change in a template, we can use an alternative in the form of overrides.
+    To make changes to the default Nova Quotas, carry out the following as an example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Edit the `/etc/openstack_deploy/user_variables.yml` file and modify (or add)
+    the following line (adjust the figure to suit):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Now execute the following commands to make changes in the environment:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Changes for Neutron, Glance, Cinder, and all other services are modified in
+    a similar way. Adjust the name of the service in the syntax used. For example,
+    to change a configuration item in the `neutron.conf` file, you would use the following
+    syntax:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then execute the following commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: We modified the same OpenStack-Ansible configuration files as in the *Configuring
+    the installation* recipe and executed the `openstack-ansible playbook` command,
+    specifying the playbook that corresponded to the service we wanted to change.
+    As we were making configuration changes, we notified Ansible of this through the
+    `--tag` parameter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Refer to [https://docs.openstack.org/](https://docs.openstack.org/) for all
+    configuration options for each service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Virtual lab - vagrant up!
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In an ideal world, each of us would have access to physical servers and the
+    network kit in order to learn, test, and experiment with OpenStack. However, most
+    of the time this isn't the case. By using an orchestrated virtual lab, using Vagrant
+    and VirtualBox, allows you to experience this chapter on OpenStack-Ansible using
+    your laptop.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The following Vagrant lab can be found at [http://openstackbook.online/](http://openstackbook.online/).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This is the architecture of the Vagrant-based OpenStack environment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Virtual lab - vagrant up!](img/00005.jpeg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Essentially there are three virtual machines that are created (a controller
+    node, a compute node and a client machine), and each host has four network cards
+    (plus an internal bridged interface used by VirtualBox itself). The four network
+    cards represent the networks described in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Eth1**: This is included in the `br-mgmt` bridge, and used by the container
+    network'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Eth2**: This is included in the `br-vlan` bridge, and used when a VLAN-based
+    Neutron network is created once OpenStack is up and running'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Eth3**: This is the client or host network—the network we would be using
+    to interact with OpenStack services (for example, the public/external side of
+    the load balancer)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Eth4**: This is included in the `br-vxlan` bridge, and used when a VXLAN-based
+    Neutron overlay network is created once OpenStack is up and running'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Note that the virtual machine called `openstack-client`, which gets created
+    in this lab, provides you with all the command-line tools to conveniently get
+    you started with working with OpenStack.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In order to run a multi-node OpenStack environment, running as a virtual environment
+    on your laptop or designated host, the following set of requirements are needed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A Linux, Mac, or Windows desktop, laptop or server. The authors of this book
+    use macOS and Linux, with Windows as the host desktop being the least tested configuration.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: At least 16GB RAM. 24GB is recommended.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: About 50 GB of disk space. The virtual machines that provide the infra and compute
+    nodes in this virtual environment are thin provisioned, so this requirement is
+    just a guide depending on your use.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An internet connection. The faster the better, as the installation relies on
+    downloading files and packages directly from the internet.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How to do it…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To run the OpenStack environment within the virtual environment, we need a
+    few programs installed, all of which are free to download and use: VirtualBox,
+    Vagrant, and Git. VirtualBox provides the virtual servers representing the servers
+    in a normal OpenStack installation; Vagrant describes the installation in a fully
+    orchestrated way; Git allows us to check out all of the scripts that we provide
+    as part of the book to easily test a virtual OpenStack installation. The following
+    instructions describe an installation of these tools on Ubuntu Linux.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We first need to install VirtualBox if it is not already installed. We recommend
+    downloading the latest available releases of the software. To do so on Ubuntu
+    Linux as `root`, follow these steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We first add the `virtualbox.org` repository key with the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Next we add the repository file to our `apt` configuration, by creating a file
+    called `/etc/apt/sources.list.d/virtualbox.conf` with the following contents:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We now run an `apt update` to refresh and update the `apt` cache with the following
+    command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE54]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Now install VirtualBox with the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE55]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Once VirtualBox is installed, we can install Vagrant. Follow these steps to
+    install Vagrant:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Vagrant is downloaded from [https://www.vagrantup.com/downloads.html](https://www.vagrantup.com/downloads.html).
+    The version we want is Debian 64-Bit. At the time of writing, this is version
+    2.0.1\. To download it on our desktop issue the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE56]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: We can now install the file with the following command
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE57]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'The lab utilizes two vagrant plugins: `vagrant-hostmanager` and `vagrant-triggers`.
+    To install these, carry out the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Install `vagrant-hostmanager` using the `vagrant` tool:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE58]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Install `vagrant-triggers` using the `vagrant` tool:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE59]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'If Git is not currently installed, issue the following command to install `git`
+    on a Ubuntu machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE60]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now that we have the required tools, we can use the `OpenStackCookbook` Vagrant
+    lab environment to perform a fully orchestrated installation of OpenStack in a
+    VirtualBox environment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will first checkout the lab environment scripts and supporting files with
+    `git` by issuing the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE61]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We will change into the `vagrant-openstack` directory that was just created:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE62]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We can now orchestrate the creation of the virtual machines and installation
+    of OpenStack using one simple command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE63]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '**Tip**: This will take quite a while as it creates the virtual machines and
+    runs through all the same playbook steps described in this chapter.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Vagrant is an awesome tool for orchestrating many different virtual and cloud
+    environments. It allows us to describe what virtual servers need to be created,
+    and using Vagrant's provisioner allows us to run scripts once a virtual machine
+    has been created.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Vagrant's environment file is called **Vagrantfile**. You can edit this file
+    to adjust the settings of the virtual machine, for example, to increase the RAM
+    or number of available CPUs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This allows us to describe a complete OpenStack environment using one command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE64]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The environment consists of the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A controller node, `infra-01`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A compute node, `compute-01`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A client virtual machine, `openstack-client`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Once the environment has finished installing, you can use the environment by
+    navigating to `http://192.168.100.10/` in your web browser. To retrieve the admin
+    password, follow the steps given here and view the file named `openrc`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There is a single controller node that has a `utility` container configured
+    for use in this environment. Attach to this with the following commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE65]'
+  prefs: []
+  type: TYPE_PRE
+- en: Once you have retrieved the `openrc` details, copy these to your `openstack-client`
+    virtual machine. From here you can operate OpenStack, mimicking a desktop machine
+    accessing an installation of OpenStack utilizing the command line.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE66]'
+  prefs: []
+  type: TYPE_PRE
+- en: You should now be able to use OpenStack CLI tools to operate the environment.
+  prefs: []
+  type: TYPE_NORMAL

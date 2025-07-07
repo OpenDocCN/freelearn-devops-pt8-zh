@@ -1,0 +1,1100 @@
+- en: Managing Security Groups
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: OpenStack Networking provides two different APIs that can be used to implement
+    network traffic filters. The first API, known as the Security Group API, provides
+    basic traffic filtering at an instance port level. Security group rules are implemented
+    within iptables or as Open vSwitch flow rules on a compute node and filter traffic
+    entering or leaving Neutron ports attached to instances. The second API, known
+    as the Firewall as a Service API (FWaaS), also implements filtering rules at the
+    port level, but extends filtering capabilities to router ports and other ports
+    besides those belonging to traditional instances.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will focus on security groups and cover some fundamental
+    security features of Neutron, including the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A brief introduction to iptables
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating and managing security groups
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Demonstrating traffic flow through iptables
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Configuring port security
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Managing allowed address pairs
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Due to its experimental status as of the Pike and Queens releases of OpenStack,
+    the `openvswitch` firewall driver will not be discussed in this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Security groups in OpenStack
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A **security group** is a collection of network access rules known as **security
+    group rules** that limit the types of traffic an instance can send or receive.
+    When an iptables-based driver is used, security group rules are converted to iptables
+    rules that are applied on the `compute` nodes hosting the instances. Each OpenStack
+    project is provided with a default security group that can be modified by users
+    within the project. OpenStack Networking provides an API for creating, modifying,
+    applying, and deleting security groups and rules.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are multiple ways to apply security groups to instances. For example,
+    one or more instances, usually of similar functionality or role, can be placed
+    in a security group. Security group rules can reference IPv4 and IPv6 hosts and
+    networks as well as other security groups. Referencing a particular security group
+    in a rule, rather than a particular host or network, frees the user from having
+    to specify individual network addresses. Neutron will construct the filtering
+    rules applied to the host automatically based on information in the database.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Rules within a security group are applied at a port level on the compute node,
+    as demonstrated in the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/5b5f4fd1-977e-436e-8886-0290eee0ba6e.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In the preceding diagram, ports within the virtual switch belong to one of
+    three security groups: WEB, DB, or APP. When a change is made to a security group,
+    such as adding or removing rules to the group, corresponding iptables rule changes
+    are made automatically on the `compute` nodes.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Some users may use security groups to describe certain types of rules that should
+    be applied to a particular instance port. For example, a security group can be
+    used to categorize multiple hosts or subnets that are allowed access to a port.
+    Multiple security groups can be applied to a port, and all rules defined in those
+    groups are applied to the port. Because all traffic is implicitly denied and security
+    group rules define only allowed traffic through a port, there is no chance of
+    a rule in one security group applied to a port counteracting a rule in another
+    security group applied to the same port.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following example demonstrates the use of security groups to categorize
+    traffic that is allowed access through a port:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/53ad8a1f-cf17-478b-829c-d64f6bcb292a.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: When a port is created in Neutron, it is associated with a default security
+    group unless a specific security group is specified. The default security group
+    drops all ingress traffic and allows all egress traffic from the associated port.
+    Rules can be added to, or removed from, the default security group to change its
+    behavior. In addition, baseline port security rules are applied to every port
+    that prohibit IP, DHCP, and MAC address spoofing. This behavior can be changed
+    and will be discussed later on in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An introduction to iptables
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Iptables is a firewall built into Linux that allows a system administrator
+    to define tables containing chains of rules that determine how network packets
+    should be treated. Packets are processed by sequentially traversing rules in chains
+    within the following tables:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Raw**: This is a default table that filters packets before any other table.
+    It is mainly used for rules related to connection tracking.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Filter**: This is a default table for filtering packets.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**NAT**: This is a default table used for network address translation.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Mangle**: This is a default table used for specialized packet alteration
+    and is not used by the Security Group API.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A rule in a chain can cause a jump to another chain, which, in turn, can jump
+    to another chain, and so on. This behavior can be repeated to whatever level of
+    nesting is desired. If the traffic does not match the rules of a subchain, the
+    system recalls the point at which the jump occurred and returns to that point
+    for further processing. When iptables is enabled, every network packet arriving
+    at or leaving an interface traverses at least one chain.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are five default chains, and the origin of the packet determines which
+    chain will be initially traversed. The five default chains include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**PREROUTING**: Packets will enter this chain before a routing decision is
+    made. The PREROUTING chain is used by the raw, mangle, and NAT tables.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**INPUT**: This is used when a packet is going to be locally delivered to the
+    host machine. The INPUT chain is used by the mangle and filter tables.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**FORWARD**: All packets that have been routed and were not for local delivery
+    will traverse this chain. The FORWARD chain is used by the mangle and filter tables.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**OUTPUT**: Packets sent from the host machine itself will traverse this chain.
+    The OUTPUT chain is used by the raw, mangle, NAT, and filter tables.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**POSTROUTING**: Packets will enter this chain when a routing decision has
+    been made. The POSTROUTING chain is used by the mangle and NAT tables.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Each rule in a chain contains criteria that packets can be matched against.
+    The rule may also contain a target, such as another chain, or a verdict, such
+    as DROP or ACCEPT. As a packet traverses a chain, each rule is examined. If a
+    rule does not match the packet, the packet is passed to the next rule. If a rule
+    does match the packet, the rule takes the action indicated by the target or verdict.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Possible verdicts include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**ACCEPT**: The packet is accepted and sent to the application for processing'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**DROP**: The packet is dropped silently'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**REJECT**: The packet is dropped and an error message is sent to the sender'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**LOG**: The packet details are logged'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**DNAT**: This rewrites the destination IP of the packet'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**SNAT**: This rewrites the source IP of the packet'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**RETURN**: Processing returns to the calling chain'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The ACCEPT, DROP, and REJECT verdicts are often used by the filter table. Common
+    rule criteria include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`-p <protocol>`: Matches protocols such as TCP, UDP, ICMP, and more'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`-s <ip_addr>`: Matches source IP address'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`-d <ip_addr>`: Matches destination IP address'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--sport`: Matches source port'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--dport`: Matches destination port'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`-I <interface>`: Matches the interface from which the packet entered'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`-o <interface>`: Matches the interface from which the packet exits'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Neutron abstracts the implementation of security group rules from users, but
+    understanding how it works is important for operators tasked with troubleshooting
+    connectivity. For more information on iptables, please visit the following resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://www.booleanworld.com/depth-guide-iptables-linux-firewall/](https://www.booleanworld.com/depth-guide-iptables-linux-firewall/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://help.ubuntu.com/community/IptablesHowTo](https://help.ubuntu.com/community/IptablesHowTo)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using ipset
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In OpenStack releases prior to Juno, for every security group referenced in
+    a rule that was created, an exponential number of iptables rules were created
+    that corresponded to each source and destination pair of addresses and ports.
+    This behavior resulted in poor L2 agent performance as well as race conditions
+    where virtual machine instances were connected to the virtual bridge but were
+    unable to successfully connect to the network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Beginning with the Juno release, the ipset extension to iptables is utilized
+    in an attempt to reduce the number of iptables rules required by creating groups
+    of addresses and ports that are stored efficiently for fast lookup.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Without ipset, iptables rules that allow connections on port `80` to a set
+    of web instances may resemble the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: The match syntax `-d x.x.x.x` in the preceding code means "match packets whose
+    destination address is `x.x.x.x`". To allow all four addresses, four separate
+    iptables rules with four separate match specifications must be defined.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Alternatively, a combination of `ipset` and `iptables` commands can be used
+    to achieve the same result:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `ipset` command creates a new set, a webset, with four addresses. The `iptables`
+    command references the set with `--m set --match-set webset dst`, which means
+    "match packets whose destination matches an entry within the set named webset".
+  prefs: []
+  type: TYPE_NORMAL
+- en: By using an ipset, only one rule is required to accomplish what previously took
+    four rules. The savings are small in this example, but as instances are added
+    to security groups and security group rules are configured, the reduction in rules
+    has a noticeable impact on performance and reliability.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Working with security groups
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Security groups can be managed using the Neutron ReST API, the OpenStack CLI,
+    or the Horizon dashboard. Both methods offer a pretty complete experience and
+    are discussed in the following sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Managing security groups in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'From within the OpenStack command-line client, a number of commands can be
+    used to manage security groups. The primary commands associated with security
+    group management that will be discussed in this chapter are listed in the following
+    table:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Security Group Commands** | Description |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `security group create` | Creates a new security group |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `security group delete` | Deletes security group(s) |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `security group list` | Lists security group(s) |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `security group rule create` | Creates a new security group rule |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `security group rule delete` | Deletes security group rule(s) |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `security group rule list` | Lists security group rules |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `security group rule show` | Displays security group rule details |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `security group set` | Sets security group properties |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `security group show` | Displays security group details |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `server add security group` | Adds a security group to a server |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `server remove security group` | Removes a security group from a server |'
+  prefs: []
+  type: TYPE_TB
+- en: Creating security groups in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create a security group, use the `openstack security group create` command
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: By default, security groups in Neutron are pre-populated with two egress rules
+    that allow all outbound traffic over IPv4 and IPv6\. Inbound traffic is not permitted
+    by default.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deleting security groups in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To delete a security group, use the `openstack security group delete` command
+    and specify the ID or name of the security group:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To delete a security group named `MySampleSecGrp`, you can enter the following
+    command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Alternatively, you can use the group''s ID:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Multiple security groups can also be deleted simultaneously, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Neutron will successfully delete the security group(s) as long as ports utilizing
+    the group(s) have been deleted prior to the request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Listing security groups in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To obtain a listing of security groups, use the `openstack security group list`
+    command as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: The output returned includes the ID, name, and description of all security groups
+    associated with the scoped or specified project. If run as a user with the admin
+    role, all security groups across all projects will be listed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Showing the details of a security group in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To display the details of a security group, use the `openstack security group
+    show` command, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: Either the name or the ID of the security group can be specified. The output
+    returned includes the description, ID, name, associated project ID, and the individual
+    rules within the security group.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Updating security groups in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To update the attributes of a security group, use the `openstack security group
+    set` command as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: Attempting to modify the name of a default security group will result in an
+    error.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating security group rules in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create a security group rule, use the `openstack security group rule create`
+    command as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `--remote-ip` argument is optional and allows you to specify the source
+    address or network the rule applies to. The address or network should be defined
+    in CIDR format.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--remote-group` argument is optional and allows you to specify the name
+    or ID of a security group the rule should apply to rather than individual IP addresses
+    or networks. For example, when creating a rule to allow inbound SQL traffic to
+    database servers, you can specify the ID of a security group that application
+    servers are a member of without having to specify their individual IP addresses.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--description` argument applies a description to the security group rule.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--dst-port` argument is optional and allows you to specify a destination
+    port or range of ports separated by a colon, as in 137:139\. This option is required
+    for TCP and UDP protocols.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--icmp-type` and `--icmp-code` arguments specify the ICMP type and code,
+    respectively, for ICMP IP protocols. Allowing the entire ICMP protocol without
+    specific types and codes satisfies most use cases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--protocol` argument is optional and allows you to match traffic based
+    on the IP protocol. Possible options include ah, dccp, egp, esp, gre, icmp, igmp,
+    ipv6-encap, ipv6-frag, ipv6-icmp, ipv6-nonxt, ipv6-opts, ipv6-route, ospf, pgm,
+    rsvp, sctp, tcp, udp, udplite, vrrp or an IP protocol number [0-255]. The default
+    is tcp.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--ingress` argument means that the rule applies to incoming traffic, whereas
+    the `--egress` argument means that the rule applies to outgoing traffic from the
+    instance. These arguments are mutually exclusive, meaning only one can be used
+    to describe the rule's direction. If left unspecified, the default direction is
+    ingress.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--ethertype` argument is optional and allows you to specify whether the
+    rule applies to IPv4 or IPv6 traffic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--project` and `--project-domain` arguments are optional and can be used
+    to specify a project and domain other than the one associated with the user creating
+    the rule.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The group argument is used to specify the name or ID of the security group the
+    rule should be associated with.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deleting security group rules in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To delete a security group rule, use the `openstack security group rule delete`
+    command and specify the ID or name of the security group rule:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To delete a security group named `MySampleSecGrpRule80`, you can enter the
+    following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Multiple security groups can also be deleted simultaneously, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: While it is possible to delete the rules within the default security group,
+    it is not possible to delete the group itself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Listing security group rules in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To obtain a listing of security group rules and associated security groups,
+    use the `openstack security group rule list` command, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: All arguments are optional but can be used to filter results. The output returned
+    includes the ID, protocol, IP range, remote security group, and associated security
+    group for all security group rules associated with the scoped project. Specifying
+    `--long` will provide additional details not available in the standard output,
+    including direction and ether type. If run as a user with the admin role, all
+    security group rules across all projects will be listed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Showing the details of a security group rule in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To display the details of a security group rule, use the `openstack security
+    group rule show` command, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: Applying security groups to instances and ports
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Applying security groups to instances within the CLI is typically done at instance
+    creation using the `openstack server create` command that''s shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: Security groups can also be applied to running instances by using either the
+    `openstack port set` or the `openstack server add security group` commands. The
+    following examples demonstrate the use of the `openstack port set` command to
+    apply security groups to a port.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this example, the security group will be applied to the port, and the associated
+    rules will be implemented immediately:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Multiple security groups can be associated with a port simultaneously. To apply
+    multiple security groups to a port, use the `--security-group` argument before
+    each security group, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The following example demonstrates the use of the `openstack server add group`
+    command to apply a security group to an instance:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: Because a port cannot be specified as part of the command, the security group
+    will be applied to all ports associated with the instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Removing security groups from instances and ports in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To remove an individual security group, use the `openstack server remove security
+    group` command, as shown in the following example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Alternatively, you can use the `openstack port unset command` to remove the
+    group from a port:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To remove all security groups from a port, including the default group, use
+    the `openstack port set` command with the `--no-security-group` argument, as shown
+    in the following example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: Implementing security group rules
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In the following example, an instance named WEB1 has been created that acts
+    as a web server running Apache on ports 80 and 443\. Making a request to the web
+    server at 192.168.206.6:80 eventually times out:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/25a895c4-7704-419e-9e11-19b1a6e1e4cb.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'To demonstrate how security group rules are implemented on a compute node,
+    take note of the following WEB_SERVERS security group:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/5a3f7aa0-bf48-4f59-9685-440c9bfc52ec.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The following screenshot demonstrates two security group rules being added
+    to the WEB_SERVERS security group using the `openstack security group rule create`
+    command. The rules allow inbound connections on ports 80 and 443 from any remote
+    host, as defined by the CIDR 0.0.0.0/0:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/a62285ab-81b3-4c62-9334-974a74acf74a.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Using the `openstack server add security group` command, the WEB_SERVERS security
+    group can be applied to the WEB1 instance, as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/d340f90e-1db7-443e-9472-e4ec63190846.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Once a security group has been applied to the corresponding port of an instance,
+    a series of iptables rules and chains are implemented on the compute node hosting
+    the instance. A quick connectivity check shows that the rule(s) work as expected:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/9a74f15b-9c85-4bf4-ba09-a95ba7148267.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Stepping through the chains
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The implementation of security group rules using iptables is similar in both
+    Linux bridge and Open vSwitch-based environments. On `compute01`, a compute node
+    running the Linux bridge agent and hosting the instance in this example, shows
+    that iptables rules applied by the Neutron agent can be observed using the `iptables-save`
+    or `iptables -L` commands.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For readability, only the raw and filter tables of rules related to the instance
+    are shown in the following screenshot. Some comments have been removed or truncated
+    to fit the page:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/cc6c710c-f8a2-4641-a1ae-e4192a0a5db6.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'First, the PREROUTING chain of the raw table is consulted. In the PREROUTING
+    chain, we can find rules associating traffic traversing an instance''s interface
+    and/or related network to specific conntrack zone(s):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e8a06af4-d54b-4be7-aaae-41831a86a6ac.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Each Neutron network corresponds to a conntrack zone, which further helps distinguish
+    traffic in the case of overlapping address space between projects. Conntrack is
+    one piece of the Connection Tracking System and is utilized by iptables when performing
+    stateful packet inspection.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, network traffic may traverse the INPUT chain of the filter table as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This rule jumps to a chain named neutron-linuxbri-INPUT, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The rule states that traffic leaving the instance through the `tapadcc4b66-c1` interface
+    should be forwarded to the `neutron-linuxbri-oadcc4b66-c` chain, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/0f8794a8-be34-44e6-8fdb-6bf64e98d4fb.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The rules of the `neutron-linuxbri-oadcc4b66-c` chain states that outgoing DHCP
+    traffic should only be allowed when the client is attempting to obtain an address
+    from a DHCP server. By default, instances are not allowed to act as DHCP servers
+    and traffic will be dropped accordingly. The rules also state that traffic marked
+    as RETURN or ESTABLISHED will be allowed, but INVALID packets will be dropped.
+    Lastly, any traffic that does not match is dropped by a rule in the `neutron-linuxbri-sg-fallback`
+    chain.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Iptables may process traffic using the INPUT or FORWARD chains depending on
+    the destination address and whether it is local to the node or not. In most cases,
+    the FORWARD chains will be used instead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If traffic has survived the INPUT chains, it then moves on to the FORWARD chains
+    seen here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e8419d27-1788-49cd-bf6a-1e27f2a1bfe1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The first rule causes iptables to jump to the neutron-filter-top chain. From
+    there, iptables jumps to the `neutron-linuxbri-local` chain for further processing.
+    Because there are no rules defined in that chain, iptables returns to the calling
+    chain, `neutron-filter-top`. Once all rules have been processed, iptables returns
+    to the previous calling chain, FORWARD.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next rule in the FORWARD chain that is processed is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The mentioned rule causes iptables to jump to the `neutron-linuxbri-FORWARD`
+    chain seen here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/0441d2b5-9580-4b5b-8d36-4070be4f4e97.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The `-m` flag followed by `physdev` is a directive to iptables to use an extended
+    `packet matching` module that supports devices enslaved to a bridge device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Remember: When the Linux bridge agent is used, tap interfaces for instances
+    are connected to network bridges prefaced with brq-*. When the OVS agent is used,
+    the tap interfaces are connected to their own Linux bridge prefaced with qbr-*.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The packet will match one of the two rules based on the direction the packet
+    is headed through the interface. In either case, iptables jumps to the `neutron-linuxbri-sg-chain`
+    chain, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/aba61ace-b5f2-44da-b29d-7c1ea48bad73.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The direction of the packet will again dictate which rule is matched. Traffic
+    centering the instance through the `tapadcc4b66-c1` interface will be processed
+    by the `neutron-linuxbri-iadcc4b66-c` chain as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/3f98afd1-0c5b-40e8-8e95-c613dd8a1371.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The name of a security group chain corresponds to the first 9 characters of
+    the UUID of the Neutron port of which it is associated.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the mentioned rule, iptables uses the state module to determine the state
+    of the packet. Combined with connection tracking, iptables is able to track the
+    connection and determine the following states of the packet: INVALID, NEW, RELATED,
+    or ESTABLISHED. The state of the packet results in an appropriate action being
+    taken. Traffic not matched by any rule is dropped by the `neutron-linuxbri-sg-fallback`
+    chain:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Traffic exiting the instance through the `tapadcc4b66-c1` interface is processed
+    by the `neutron-linuxbri-oadcc4b66-c` chain as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/ecde14dc-b778-4099-87ea-572404d5add8.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The first UDP rule allows the instance to send `DHCPDISCOVER` and `DHCPREQUEST`
+    broadcast packets on UDP port 67\. All other traffic is then processed by the
+    `neutron-linuxbri-sadcc4b66-c` chain as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/5df28e2e-ade4-4a72-92e6-8c93a0b386ef.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The preceding rule prevents an instance from performing IP and MAC address spoofing.
+    Any traffic exiting the `tapadcc4b66-c1` interface must be sourced from IP address `192.168.206.6/32` and
+    MAC address `FA:16:3E:DC:D2:AB`. To permit outbound traffic from additional IP
+    or MAC addresses, use the Neutron `allowed-address-pairs `extension, which will
+    be discussed later on in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Further processing includes preventing DHCP spoofing and verifying the state
+    of the packet and performing the appropriate action. Traffic eventually returns
+    to the `neutron-linuxbri-sg-chain`, calling chain where it is allowed through:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: Working with security groups in the dashboard
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Within the Horizon dashboard, security groups are managed within the Security
+    Groups section under the Network tab:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/76fe940b-3a37-4493-b60e-d923c9f8ba7b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Creating a security group
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To create a security group, perform the following steps.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Click on the Create Security Group button in the upper right-hand corner of
+    the screen. A window will appear that will allow you to create a security group:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/8621c7f9-81a8-4dd4-afaf-1c0976e1d521.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The Name field is required. When you are ready to proceed, click on the blue
+    Create Security Group button to create the security group.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Managing security group rules
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Once created, you will be returned to the Security Groups section where you
+    can add rules to the security group by clicking the Manage Rules button of the
+    corresponding group:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/c24447b8-7283-4515-8085-89ed12eeccf9.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'To delete a rule, click the red Delete Rule button next to the corresponding
+    security group rule. To add a rule, click on the Add Rule button in the upper
+    right-hand corner:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/75971aea-b8de-4ee6-82f8-36e3460778b1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'A window will appear that will allow you to create rules. Within the rule list,
+    you can choose from a predefined list of protocols or create a custom rule as
+    follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/3eef5604-6c1d-4070-a8d0-7d0b79705a6f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The wizard allows you to specify the direction, port or range of ports, and
+    the remote network or group. To complete the rule creation process, click on the
+    blue Add button.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Applying security groups to instances
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To apply a security group to an instance, return to the Instances section of
+    the Compute panel. Click on the arrow under the Actions menu next to the instance
+    and choose Edit Security Groups:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/d3eb7f7d-6c97-4dc0-b876-c41c17579249.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'A window will appear that allows you to apply or remove security groups from
+    an instance. Hit the blue plus sign next to the group to apply it to an instance:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/23ea1f07-7a34-456c-af12-c423a37a308e.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Once clicked, the group will move to the Instance Security Groups column, as
+    shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/51b1ef6a-9e33-4636-bd1f-852e466f9a4a.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Click on the blue Save button to apply the changes to the instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Disabling port security
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: By default, Neutron applies anti-spoofing rules to all ports to ensure that
+    unexpected or undesired traffic cannot originate from or pass through a port.
+    This includes rules that prohibit instances from running DHCP servers or from
+    acting as routers. To address the latter, the `allowed-address-pairs` extension
+    can be used to allow additional IPs, subnets, and MAC addresses through the port.
+    However, additional functionality may be required that cannot be addressed by
+    the `allowed-address-pairs` extension.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the Kilo release of OpenStack, the port security extension was introduced
+    for the ML2 plugin, which allows all packet filtering to be disabled on a port.
+    This includes default rules that prevent IP and MAC spoofing as well as security
+    group functionality. This extension is especially useful when deploying instances
+    for use as a router or a load balancer. The port security extension requires additional
+    configuration that will be discussed in the following sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring Neutron
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To enable the port security extension, edit the ML2 configuration file on the
+    `controller01` node at `/etc/neutron/plugins/ml2/ml2_conf.ini` and add the following
+    to the `[ml2]` section:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Restart the `neutron-server` service for the changes to take effect:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can verify that the port security extension is enabled by verifying its
+    name in the extension list that''s provided by the `openstack extension list`
+    command, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/70567af4-1948-4ebe-9c9f-87332f6837f4.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Disabling port security for all ports on a network
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Even without the port security extension in place, Neutron implements the default
+    behavior of the extension by implementing DHCP, MAC address, and IP address spoofing
+    rules on every port. The port security extension allows users with the admin role
+    to disable port security on individual ports or network-wide. Port security can
+    be disabled on all ports connected to a particular network by setting the `--disable-port-security` argument
+    during network creation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/2bfcb8f3-df3c-4b27-80a3-a07c35f365d0.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'When a port is created and attached to the network, its `port_security_enabled`
+    attribute will be set to `False` automatically:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/56ac179e-ab5c-4359-b769-3f7a75c54987.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: It is important to know that when port security is disabled on a port, the API
+    will not allow the port to be associated with any security groups. The lack of
+    security group rules means all traffic is allowed in and out of a port. Disabling
+    port security means any filtering must be implemented within the guest operating
+    system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Modifying port security on an individual port
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When the port security extension is enabled, port security can be enabled or
+    disabled on an individual port by setting the `port_security_enabled` attribute
+    accordingly during the creation or update of a port.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following screenshot demonstrates updating a port to enable port security:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/5714ce0e-6cb3-4091-ad0e-7e2ea6462c58.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: By enabling port security, default anti-spoofing rules will be applied to the
+    port, and security groups can be applied as needed. Disabling port security will
+    remove the default anti-spoofing rules and security groups will not be allowed
+    on the port.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Allowed address pairs
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `allowed-address-pairs` extension can be used to allow additional IPs, subnets,
+    and MAC addresses, other than the fixed IP and MAC address associated with the
+    port, to act as source addresses for traffic leaving a port or virtual interface.
+    This is useful when treating an instance as a routing device or VPN concentrator,
+    or when implementing high-availability between multiple instances using addresses
+    that need to "float" between them, such as an `haproxy` and/or `keepalived` implementation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Existing allowed address pairs can be found in the details of each port by
+    using the `openstack port show` command. For every network and/or MAC address
+    that should be allowed, the `openstack port set` command should be used with the
+    `--allowed-address` argument, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: The MAC address value is optional. When a MAC address is not specified, the
+    MAC address of the port is used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Multiple allowed address pairs can be associated with a Neutron port simultaneously.
+    To apply multiple allowed address pairs to a port, simply specify multiple `ip_address` and `mac_address`
+    key/value pairs, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: To remove all allowed address pairs from the port, use the `openstack port set`
+    command with the `--no-allowed-address` argument.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Security groups are fundamental for controlling access to instances by allowing
+    users to create inbound and outbound rules that limit traffic to and from instances
+    based on specific addresses, ports, protocols, and even other security groups.
+    Default security groups are created by Neutron for every project that allows all
+    outbound communication and restrict inbound communication to instances in the
+    same default security group. Subsequent security groups are locked down even further,
+    allowing only outbound communication and not allowing any inbound traffic at all
+    unless modified by the user.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Security group rules are implemented on the compute nodes and are triggered
+    when traffic enters or leaves a virtual network interface belonging to an instance.
+    Users are free to implement additional firewalls within the guest operating system,
+    but may find managing rules in both places a bit cumbersome. Many organizations
+    still utilize and rely on physical firewall devices to provide additional filtering
+    at the edge of the network, which may mean coordination is required between users
+    of the cloud and traditional security teams to ensure proper rules and actions
+    are in place in all locations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will look at implementing Role-Based Access Control
+    (RBAC) within Neutron as a method of controlling access to networks between projects
+    from an API perspective.
+  prefs: []
+  type: TYPE_NORMAL

@@ -1,0 +1,1441 @@
+- en: Building a Virtual Switching Infrastructure Using Open vSwitch
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In *[Chapter 4](05786c3c-b24e-40dc-82a7-ed6072eca14f.xhtml), Virtual Network
+    Infrastructure Using Linux Bridges*, we looked at how the Linux bridge mechanism
+    driver and agent build a virtual network infrastructure using different types
+    of interfaces and Linux bridges. In this chapter, you will be introduced to the
+    Open vSwitch mechanism driver and its respective agent, which utilizes Open vSwitch
+    as the virtual switching technology that connect instances and hosts to the physical
+    network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, you will do the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Discover how Open vSwitch is used to build a virtual network infrastructure
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Visualize traffic flow through virtual switches
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Deploy the Open vSwitch mechanism driver and agent on hosts
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using the Open vSwitch driver
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The Open vSwitch mechanism driver supports a range of traditional and overlay
+    networking technologies, and has support for the following types of drivers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Local
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Flat
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: VLAN
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: VXLAN
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: GRE
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Within OpenStack Networking, Open vSwitch operates as a software switch that
+    uses virtual network bridges and flow rules to forward packets between hosts.
+    Although it is capable of supporting many technologies and protocols, only a subset
+    of Open vSwitch features are leveraged by OpenStack Networking.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following are three main components of Open vSwitch:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Kernel module**: The `openvswitch` kernel module is the equivalent of ASICs
+    on a hardware switch. It is the data plane of the switch where all packet processing
+    takes place.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**vSwitch daemon**: The `ovs-vswitchd` daemon is a Linux process that runs
+    in user space on every physical host and dictates how the kernel module will be
+    programmed.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Database server**: An OpenStack/Open vSwitch implementation uses a local
+    database on every physical host called the **Open vSwitch Database Server** (**OVSDB**),
+    which maintains the configuration of the virtual switches.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'A high-level architecture diagram of the preceding components can be seen here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/08b22c1f-e238-4798-8af0-291cd2da79be.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The Neutron Open vSwitch agent, `neutron-openvswitch-agent`, is a service that's
+    configured on hosts using the Open vSwitch mechanism driver and is responsible
+    for managing the implementation of networks and related interfaces. The agent
+    connects tap interfaces to Open vSwitch or Linux bridges, depending on the firewall
+    configuration, and programs flows using utilities such as `ovs-vsctl` and `ovs-ofctl` based
+    on data provided by the `neutron-server` service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In an Open vSwitch-based network implementation, there are five distinct types
+    of virtual networking devices, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tap devices
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Linux bridges
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Virtual ethernet cables
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: OVS bridges
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: OVS patch ports
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Tap devices and Linux bridges were described briefly in the previous section,
+    and their use in an Open vSwitch-based network remains the same. Virtual Ethernet
+    (**veth**) cables are virtual interfaces that mimic network patch cables. An Ethernet
+    frame sent to one end of a veth cable is received by the other end, just like
+    a real network patch cable. Neutron makes use of veth cables when making connections
+    between network namespaces and Linux bridges, as well as when connecting Linux
+    bridges to Open vSwitch switches.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Neutron connects interfaces used by DHCP or router namespaces and instances
+    to OVS bridge ports. The ports themselves can be configured much like a physical
+    switch port. Open vSwitch maintains information about connected devices, including
+    MAC addresses and interface statistics.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Open vSwitch has a built-in port type that mimics the behavior of a Linux veth
+    cable, but is optimized for use with OVS bridges. When connecting two Open vSwitch
+    bridges, a port on each switch is reserved as a **patch port**. Patch ports are
+    configured with a peer name that corresponds to the patch port on the other switch.
+    Graphically, it looks something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/08895d69-89b1-4519-9485-414488ea8d98.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.1
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the preceding diagram, two OVS bridges are cross-connected via a patch port
+    on each switch. Open vSwitch patch ports are used to connect Open vSwitch bridges
+    to each other, while Linux veth interfaces are used to connect Open vSwitch bridges
+    to Linux bridges, or Linux bridges to other Linux bridges.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Basic OpenvSwitch commands
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Open vSwitch includes utilities that can be used to manage virtual switches
+    created by users, including those created by the OpenStack Networking agent. These
+    commands are useful when troubleshooting issues that inevitably occur on the network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Base commands
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The majority of Open vSwitch configuration and troubleshooting can be accomplished
+    with the following commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`ovs-vsctl`: A tool used to configure the `ovs-vswitchd` database'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ovs-ofctl`: A tool used for monitoring and administering OpenFlow switches'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ovs-dpctl`: A tool used to administer Open vSwitch data paths'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ovs-appctl`: A tool used to query and manage Open vSwitch daemons'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: ovs-vsctl
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `ovs-vsctl` tool is used to configure and view OVS bridge/switch operations.
+    With this tool, users can configure ports on a switch, create and delete virtual
+    switches, create bonds, and manage VLAN tagging on ports.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Useful commands include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`ovs-vsctl show`: Prints a brief overview of the switch database configuration,
+    including ports, VLANs, and so on'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ovs-vsctl list-br`: Prints a list of configured bridges'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ovs-vsctl list-ports <bridge>`: Prints a list of ports on the specified bridge'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ovs-vsctl list interface`: Prints a list of interfaces along with statistics
+    and other data'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: ovs-ofctl
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `ovs-ofctl` tool is used to monitor and administer OpenFlow switches. The
+    Neutron Open vSwitch agent uses `ovs-ofctl` to program flows on the virtual switches
+    that are used to dictate traffic flow, perform VLAN tagging, perform NAT, and
+    more.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Useful commands include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`ovs-ofctl show <bridge>`: Shows OpenFlow features, actions, and port descriptions
+    for the specified bridge.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ovs-ofctl dump-flows <bridge> <flow>`: Prints the flow entries for the specified
+    bridge. If the flow is specified, only that flow is shown.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ovs-ofctl dump-ports-desc <bridge>`: Prints port statistics for the specified
+    bridge, including the state, peer, and speed of the interface.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: ovs-dpctl
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `ovs-dpctl` tool is used to administer and query Open vSwitch data paths.
+    Unlike `ovs-ofctl`, `ovs-dpctl` reflects flows for packets that have been matched
+    by actual traffic traversing the system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Useful commands include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`ovs-dpctl dump-flows`: Shows the flow table data for all flows traversing
+    the system'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: ovs-appctl
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `ovs-appctl` tool is used to query and manage Open vSwitch daemons, including
+    `ovs-vswitchd`, `ovs-controller`, and others.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Useful commands include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`ovs-appctl bridge/dump-flows <bridge>`: Dumps OpenFlow flows on the specified
+    bridge'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ovs-appctl dpif/dump-flows <bridge>`: Dumps data path flows on the specified
+    bridge'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ovs-appctl ofproto/trace <bridge> <flow>`: Shows the entire flow field of
+    a given flow, including the matched rule and the action taken'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Many of these commands are used by the Neutron Open vSwitch agent to program
+    virtual switches and can often be used by operators to troubleshoot network connectivity
+    issues along the way. Familiarizing yourself with these commands and their output
+    is highly recommended.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Visualizing traffic flow when using Open vSwitch
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'When using the Open vSwitch driver, for an Ethernet frame to travel from the
+    virtual machine instance to the physical network, it will pass through many different
+    interfaces, including the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Network Type** | **Interface Type** | **Interface Name** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| all | tap | tapN |'
+  prefs: []
+  type: TYPE_TB
+- en: '| all | bridge | qbrXXXX (only used with the iptables firewall driver) |'
+  prefs: []
+  type: TYPE_TB
+- en: '| all | veth | `qvbXXXX`, `qvoXXXX` (only used with the iptables firewall driver)
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| all | vSwitch | br-int |'
+  prefs: []
+  type: TYPE_TB
+- en: '| flat, vlan | vSwitch | br-ex (user-configurable) |'
+  prefs: []
+  type: TYPE_TB
+- en: '| vxlan, gre | vSwitch | br-tun |'
+  prefs: []
+  type: TYPE_TB
+- en: '| flat, vlan | patch | `int-br-ethX`, `phy-br-ethX` |'
+  prefs: []
+  type: TYPE_TB
+- en: '| vxlan, gre | patch | patch-tun, patch-int |'
+  prefs: []
+  type: TYPE_TB
+- en: '| flat, vlan | physical | ethX (where X is the interface) |'
+  prefs: []
+  type: TYPE_TB
+- en: The Open vSwitch bridge `br-int` is known as the **integration bridge**. The
+    integration bridge is the central virtual switch that most virtual devices are
+    connected to, including instances, DHCP servers, routers, and more. When Neutron
+    security groups are enabled and the iptables firewall driver is used, instances
+    are not directly connected to the integration bridge. Instead, instances are connected
+    to individual Linux bridges that are cross-connected to the integration bridge
+    using a veth cable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `openvswitch` firewall driver is an alternative driver that implements security
+    group rules using OpenFlow rules, but this is outside the scope of this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Open vSwitch bridge `br-ethX` is known as the **provider bridge**. The provider
+    bridge provides connectivity to the physical network via a connected physical
+    interface. The provider bridge is also connected to the integration bridge by
+    a virtual patch cable which is provided by patch ports `int-br-ethX` and `phy-br-ethX`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A visual representation of the architecture described here can be seen in the
+    following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/d01dc49d-0c21-44e9-bb34-8b00bdc884c8.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.2
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the preceding diagram, instances are connected to an individual Linux bridge
+    via their respective tap interface. The Linux bridges are connected to the OVS
+    integration bridge using a **veth** interface. OpenFlow rules on the integration
+    bridge dictate how traffic is forwarded through the virtual switch. The integration
+    bridge is connected to the provider bridge using an OVS patch cable. Lastly, the
+    provider bridge is connected to the physical network interface, which allows traffic
+    to enter and exit the host onto the physical network infrastructure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When using the Open vSwitch driver, each controller, network, or compute node
+    in the environment has its own integration bridge and provider bridge. The virtual
+    switches across nodes are effectively cross-connected to one another through the
+    physical network. More than one provider bridge can be configured on a host, but
+    often requires the use of a dedicated physical interface per provider bridge.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Identifying ports on the virtual switch
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Using the `ovs-ofctl show br-int` command, we can see a logical representation
+    of the integration bridge. The following screenshot demonstrates the use of this
+    command to show the switch ports of the integration bridge on `compute02`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/ea15fddd-3a0c-4ed0-85de-6f0bd970ac59.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The following are the components demonstrated in the preceding screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Port number 1 is named `int-br-eth2` and is one end of an OVS patch cable. The
+    other end connects to the provider bridge, `br-eth2` (not shown).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Port number 2 is named `patch-tun` and is one end of an OVS patch cable. The
+    other end connects to the tunnel bridge, `br-tun` (not pictured).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Port number 3 is named `qvo3de035cc-79` and corresponds to Neutron port `3de035cc-79a9-4172-bb25-d4a7ea96325e`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Port number 4 is named `qvoce30da31-3a`a and corresponds to Neutron port `ce30da31-3a71-4c60-a350-ac0453b24d7d`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Port number 5 is named `qvoa943af89-8e` and corresponds to Neutron port `` `a943af89-8e21-4b1d-877f-abe946f6e565.`
+    ``
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The LOCAL port named `br-int` is used internally by Open vSwitch and can be
+    ignored.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following screenshot demonstrates the switch configuration in a graphical
+    manner:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/190fb5f1-dbf1-4043-a3ad-38199335ffd6.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.3
+  prefs: []
+  type: TYPE_NORMAL
+- en: Identifying the local VLANs associated with ports
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Every port on the integration bridge connected to an instance or other network
+    resource is placed in a VLAN that is local to that virtual switch.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Open vSwitch database on each host is independent of all other hosts, and
+    the local VLAN database is not directly related to the physical network infrastructure.
+    Instances in the same Neutron network on a particular host are placed in the same
+    VLAN on the local integration bridge, but there is no VLAN ID consistency expected
+    between hosts. That said, flow rules will be implemented on each host that maps
+    the local VLAN ID to the ID associated with the respective Neutron network, allowing
+    for traffic between hosts across the common VLAN. This behavior will be discussed
+    in further detail later in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using the `ovs-vsctl show` command, you can identify the local VLAN tag of
+    all ports on all virtual switches on the host. The following screenshot demonstrates
+    this command in action on `compute02`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/14c94a42-eda9-4b2a-a887-53cb89438140.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Connected to the integration bridge are three interfaces named `qvoce30da31-3a`,
+    `qvoa943af89-8e`, and `qvo3de035cc-79`. Two of the interfaces are in the same
+    network and reside in the same local VLAN. The other interface, `qvoa943af89-8e`,
+    is in a different network and thus is a different VLAN.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The local VLAN IDs are arbitrarily assigned by the local Open vSwitch process
+    and may change upon restart of the `openvswitch-switch` service or after a reboot.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Programming flow rules
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Unlike the Linux bridge architecture, the Open vSwitch driver does not use VLAN
+    interfaces on the host to tag traffic. Instead, the Open vSwitch agent programs
+    flow rules on the virtual switches that dictate how traffic traversing the switch
+    should be manipulated before forwarding. When traffic traverses a virtual switch,
+    flow rules on the switch can transform, add, or strip the VLAN tags before forwarding
+    the traffic. In addition to this, flow rules can be added that drop traffic if
+    it matches certain characteristics. Open vSwitch is capable of performing other
+    types of actions on traffic, but those actions are outside the scope of this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using the `ovs-ofctl dump-flows <bridge>` command, we can observe the flows
+    that are currently programmed on the specified bridge. The Open vSwitch plugin
+    agent is responsible for converting information about the network in the Neutron
+    database to Open vSwitch flows, and constantly maintains the flows as changes
+    are being made to the network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Flow rules for VLAN networks
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the following example, VLANs `40` and `42` represent two networks in the
+    data center. Both VLANs have been trunked down to the `controller` and `compute`
+    nodes, and Neutron networks have been configured that utilize those VLAN IDs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the physical switch, the necessary configuration to facilitate the networking
+    described here will resemble the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When configured as a trunk port, the provider interface can support multiple
+    VLAN networks. Traffic that enters physical interface `eth2` is processed by the
+    flow rules on the `br-eth2` bridge it is connected to. Flow rules are processed
+    in order of priority from highest to lowest. By default, `ovs-ofctl` returns flow
+    entries in the same order that the virtual switch sends them. Using `--rsort`,
+    it is possible to return the results in order of priority, from highest to lowest,
+    to match the order in which packets are processed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/d50adb5c-2202-4c79-88f4-128d13aa80e1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: For readability, both the `duration` and `cookie` fields have been removed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first three rules specify a particular inbound port:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'According to the diagram in Figure 5.3, traffic entering the bridge `br-eth2` from
+    physical interface `eth2` does so through port 1, not the port named `phy-br-eth2`,
+    so the first three rules do not apply. As a result, traffic is forwarded to the
+    integration bridge via the fourth rule, where no particular port is specified:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/0f1662f0-b7d8-4009-be41-3699f8ec0639.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Flows with an action of `NORMAL` instructs Open vSwitch to act as a learning
+    switch, which means traffic will be forwarded out of all of the ports, other than
+    the one where traffic was received, until the switch learns and updates its forwarding
+    database. Traffic is forwarded out of the port that's connected to the integration
+    bridge.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The forwarding database, or FDB table, is the equivalent of a CAM or MAC address
+    table on a physical switch. This learning behavior is similar to that of a hardware
+    switch that floods traffic out of all ports until it learns the proper path.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As traffic exits the provider bridge `br-eth2` and enters port 1 of the integration
+    bridge `br-int`, it is evaluated by the flow rules on `br-int`, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/6c6defc2-2ee9-4974-8288-81e16d46edb4.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Of immediate importance are the flow rules inspecting traffic sourced from
+    the `int-br-eth2` interface, as that is where traffic enters the integration bridge
+    from the provider bridge. The first rule shown here performs the action of modifying
+    the VLAN ID of a packet from its original VLAN to a VLAN that is local to the
+    integration bridge on the `compute` node when the original VLAN ID, as identified
+    by the `dl_vlan` value, is 42:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/b80043b2-5731-443f-9fbd-91b99845b63e.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: When traffic tagged as VLAN 42 on the physical network is sent to an instance
+    and forwarded through the provider bridge to the integration bridge, the VLAN
+    tag is modified from 42 to local VLAN 1\. The frame is then forwarded to Table
+    60 for additional processing, where the default action is NORMAL. As a result,
+    the frame is forwarded to a port on `br-int`, which is connected to the instance
+    that matches the destination MAC address.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next rule performs a similar action when the data link VLAN is `40` by
+    replacing it with local VLAN 2\. If traffic matches the `drop` rule, it means
+    that no other rules of a higher priority entering `int-br-eth2` and traffic will
+    be dropped:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/b10e51cf-1b8e-4e84-8338-ea2bd1fd7b44.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Return traffic
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Return traffic from the instances through the integration bridge `br-int` may
+    be processed by various flow rules that are used to inhibit ARP and MAC spoofing
+    from instances. If the traffic is allowed, it is forwarded to Table 60 for additional
+    processing and out to the provider bridge:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/eb4af537-a41d-45e0-a37d-34f7d66f882c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Once traffic hits the provider bridge `br-eth2`, it is processed by the flow
+    rules as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/c165d624-1458-4123-99bf-b6cd32ec407d.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: If these rules look familiar, it's because they are the same flow rules on the
+    provider bridge that we showed you earlier. This time, however, traffic from the
+    integration bridge connected to port `phy-br-eth2` is processed by these rules.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first flow rule on the provider bridge checks the VLAN ID in the Ethernet
+    header, and if it is `1`, modifies it to `42` before forwarding the traffic to
+    the physical interface. The second rule modifies the VLAN tag of the frame from
+    `2` to `40` before it exits the bridge. All other traffic from the integration
+    bridge not tagged as VLAN `1` or `2` is dropped.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Flow rules for a particular network will not exist on a bridge if there are
+    no instances or resources in that network scheduled to that node. The Neutron
+    Open vSwitch agent on each node is responsible for creating the appropriate flow
+    rules for virtual switches on the respective node.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Flow rules for flat networks
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Flat networks in Neutron are untagged networks, meaning there is no 802.1q VLAN
+    tag associated with the network when it is created. Internally, however, Open
+    vSwitch treats flat networks similarly to VLAN networks when programming the virtual
+    switches. Flat networks are assigned a local VLAN ID in the Open vSwitch database
+    just like a VLAN network, and instances in the same flat network connected to
+    the same integration bridge are placed in the same local VLAN. However, there
+    is a difference between VLAN and flat networks that can be observed in the flow
+    rules that are created on the integration and provider bridges. Instead of mapping
+    the local VLAN ID to a physical VLAN ID, and vice versa, as traffic traverses
+    the bridges, the local VLAN ID is added to or stripped from the Ethernet header
+    by flow rules.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the physical switch, the necessary configuration to facilitate the networking
+    described here will resemble the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Alternatively, the interface can also be configured as an access port:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Only one flat network is supported per provider interface. When configured as
+    a trunk port with a native VLAN, the provider interface can support a single flat
+    network and multiple VLAN networks. When configured as an access port, the interface
+    can only support a single flat network and any attempt to tag traffic will fail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this example, a flat network has been added in Neutron that has no VLAN
+    tag:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/edec1bcf-184a-4aeb-baeb-32d07866335c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'On the physical switch, this network will correspond to the native (untagged)
+    VLAN on the switch port connected to `eth2` of `compute02`. In this case, the
+    native VLAN is 200\. An instance has been spun up on the network `MyFlatNetwork`,
+    which results in the following virtual switch configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/86ddb0bf-dc44-4d2f-8ebf-786e164889c0.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Notice that the port associated with the instance has been assigned a local
+    VLAN ID of 3, as identified by the `tag` value, even though it is a flat network.
+    On the integration bridge, there now exists a flow rule that modifies the VLAN
+    header of an incoming Ethernet frame when it has no VLAN ID set:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/c2129b44-84ff-4641-ad76-3b7674d57f77.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: TCI stands for **Tag Control Information**, and is a 2-byte field of the 802.1q
+    header. For packets with an 802.1q header, this field contains VLAN information
+    including the VLAN ID. For packets without an 802.1q header, also known as untagged,
+    the `vlan_tci` value is set to zero (`0x0000`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The result is that incoming traffic on the flat network is tagged as VLAN 3
+    and forwarded to instances connected to the integration bridge that reside in
+    VLAN 3.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As return traffic from the instance is processed by flow rules on the provider
+    bridge, the local VLAN ID is stripped and the traffic becomes untagged:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/3797747e-3fb4-4e52-a6dc-7921460f8ecb.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The untagged traffic is then forwarded out to the physical interface `eth2`
+    and processed by the physical switch.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Flow rules for overlay networks
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Overlay networks in a reference implementation of Neutron are ones that use
+    either VXLAN or GRE to encapsulate virtual instance traffic between hosts. Instances
+    connected to an overlay network are attached to the integration bridge and use
+    a local VLAN mapped to that network, just like the other network types we have
+    discussed so far. All instances on the same host are connected to the same local
+    VLAN.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this example, an overlay network has been created with Neutron auto-assigning
+    a segmentation ID of 39.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/6db7405b-1a7c-47d4-8c7f-7b4627b034b1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: No changes are needed on the physical switching infrastructure to support this
+    network, as the traffic will be encapsulated and forwarded through the overlay
+    network interface, `eth1`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'An instance has been spun up on the network `MyOverlayNetwork`, which results
+    in the following virtual switch configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/c1786c01-7aa6-4431-a02f-6e6862dcc591.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Notice that the port associated with the instance has been assigned a local
+    VLAN ID of 4, even though it is an overlay network. When an instance sends traffic
+    to another instance or device in the same network, the integration bridge forwards
+    the traffic out toward the tunnel bridge, `br-tun`, where the following flow rules
+    are consulted:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/551c9f09-b81b-4760-959b-9aaa8d972ed1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The flows rules implemented on the tunnel bridge are unique, in that they specify
+    a **virtual tunnel endpoint**, or VTEP, for every destination MAC address, including
+    other instances and routers that are connected to the network. This behavior ensures
+    that traffic is forwarded directly to the `compute` or `network` node where the
+    destination resides and is not forwarded out on all ports of the bridge. Traffic
+    that does not match is dropped.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this example, traffic to destination MAC address `fa:16:3e:f1:b0:49` is
+    forwarded out to port `vxlan0a140064`, which, as we can see here, is mapped to
+    a tunnel endpoint:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/d8b315d8-4b63-4939-8bdf-5632ab566eb2.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The address `10.20.0.100` is the VXLAN tunnel endpoint for `controller01`, and
+    the MAC address `fa:16:3e:f1:b0:49` belongs to the DHCP server in the `MyOverlayNetwork`
+    network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Return traffic to the instance is first processed by flow rules on the tunnel
+    bridge and then forwarded to the integration bridge, where it is then forwarded
+    to the instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Flow rules for local networks
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Local networks in an Open vSwitch implementation behave similar to that of a
+    Linux bridge implementation. Instances in local networks are connected to the
+    integration bridge and can communicate with other instances in the same network
+    and local VLAN. There are no flow rules created for local networks, however.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Traffic between instances in the same network remains local to the virtual switch,
+    and by definition, local to the `compute` node on which they reside. This means
+    that connectivity to services hosted on other nodes, such as DHCP and metadata,
+    will be unavailable to any instance not on the same host as those services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring the ML2 networking plugin
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The remainder of this chapter is dedicated to providing instructions on installing
+    and configuring the Neutron Open vSwitch agent and the ML2 plugin for use with
+    the Open vSwitch mechanism driver. In this book, `compute02`, `compute03`, and
+    `snat01` will be the only nodes configured for use with Open vSwitch.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring the bridge interface
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this installation, physical network interface `eth2` will be utilized as
+    the **provider interface** for bridging purposes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On `compute02`, `compute03`, and `snat01`, configure the `eth2` interface within
+    the `/etc/network/interfaces` file as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Close and save the file, and bring the interface up with the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: Because the interface will be used in a bridge, an IP address cannot be applied
+    directly to the interface. If there is an IP address applied to `eth2`, it will
+    become inaccessible once the interface is placed in a bridge. The bridge will
+    be created later on in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring the overlay interface
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this installation, physical network interface `eth1` will be utilized as
+    the **overlay interface **for overlay networks using VXLAN. For VXLAN networking,
+    this is the equivalent of the VXLAN tunnel endpoint, or VTEP. Neutron will be
+    responsible for configuring some aspects of Open vSwitch once the initial network
+    configuration has been completed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On all hosts, configure the `eth1` interface within the `/etc/network/interfaces`
+    file, if it has not already been done:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Use the following table for the appropriate address. Substitute the address
+    with `X` where appropriate:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Host** | **Address** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `compute02` | 10.20.0.102 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `compute03` | 10.20.0.103 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `snat01` | 10.20.0.104 |'
+  prefs: []
+  type: TYPE_TB
+- en: 'Close and save the file, and bring the interface up with the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Confirm that the interface is in an `UP` state and that the address has been
+    set using the `ip addr show dev eth1` command. Ensure the `compute02` can communicate
+    over the newly configured interface by pinging `controller01`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/a8de050c-6945-49b8-96b7-e1971355a34b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Repeat this process for all of the nodes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you experience any issues communicating across this interface, you *will*
+    experience issues with VXLAN networks that have been created with OpenStack Networking.
+    Any issues should be corrected before continuing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: ML2 plugin configuration options
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The ML2 plugin was initially installed in *[Chapter 3](bf508e37-ce8a-4116-89db-e8f8a6abf0f4.xhtml),
+    Installing Neutron, *and was configured to support the Linux bridge mechanism
+    driver in the previous chapter. It must be modified to support the Open vSwitch
+    mechanism driver.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Mechanism drivers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Mechanism drivers are responsible for implementing networks described by the
+    type driver. Mechanism drivers shipped with the ML2 plugin include `linuxbridge`,
+    `openvswitch`, and `l2population`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Update the ML2 configuration file on `controller01` and append `openvswitch`
+    to the list of mechanism drivers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: The Neutron Open vSwitch agent requires specific configuration options, which
+    will be discussed later on in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Flat networks
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `flat_networks` configuration option defines interfaces that support the
+    use of untagged networks, commonly referred to as native or access VLANs. This
+    option requires that a provider label is specified. A **provider label** is an
+    arbitrary label or name that is mapped to a physical interface or bridge on the
+    host. These mappings will be discussed in further detail later on in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the following example, the `physnet1` interface has been configured to support
+    a flat network:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Multiple interfaces can be defined using a comma-separated list:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Due to the lack of an identifier to segregate untagged traffic on the same interface,
+    an interface can only support a single flat network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this environment, the `flat_networks` option can remain *unconfigured*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Network VLAN ranges
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `network_vlan_ranges` configuration option defines a range of VLANs that
+    project networks will be associated with upon their creation when `tenant_network_types`
+    is `vlan`. When the number of available VLANs reaches zero, tenants will no longer
+    be able to create VLAN networks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the following example, VLAN IDs `40` through `43` are available for tenant
+    network allocation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Non-contiguous VLANs can be allocated by using a comma-separated list:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this installation, the provider label `physnet1` will be used with VLANs
+    `40` through `43`. Those VLANs will be automatically assigned to `vlan` networks
+    upon creation, unless overridden by a user with the `admin` role.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Update the ML2 configuration file on the `controller` node and add the following
+    `network_vlan_ranges` to the `[ml2_type_vlan]` section if it doesn''t already
+    exist:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: Tunnel ID ranges
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When GRE networks are created, each network is assigned a unique segmentation
+    ID that is used to encapsulate traffic. As traffic traverses the Open vSwitch
+    tunnel bridge, the segmentation ID is used to populate a field in the encapsulation
+    header of the packet. For GRE packets, the `KEY` header field is used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `tunnel_id_ranges` configuration option found under `[ml2_type_gre]` is
+    a comma-separated list of ID ranges that are available for tenant network allocation
+    when `tunnel_type` is set to `gre`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the following example, segmentation IDs 1 through 1,000 are reserved for
+    allocation to tenant networks upon creation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `tunnel_id_ranges` option supports non-contiguous IDs using a comma-separated
+    list as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: GRE networks will not be configured as part of the exercises in this book, so
+    `tunnel_id_ranges` can remain *unconfigured*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: VNI Ranges
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When VXLAN networks are created, each network is assigned a unique segmentation
+    ID that is used to encapsulate traffic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `vni_ranges` configuration option is a comma-separated list of ID ranges
+    that are available for project network allocation when `tunnel_type` is set to `vxlan`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the following example, segmentation IDs 1 through 1,000 are reserved for
+    allocation to tenant networks upon creation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `vni_ranges` option supports non-contiguous IDs using a comma-separated
+    list as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Update the ML2 configuration file on the `controller` node and add the following
+    `vni_ranges` to the `[ml2_type_vxlan]` section if it doesn''t already exist:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: The 24-bit VNI field in the VXLAN header supports up to approximately 16 million
+    unique identifiers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Security groups
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `enable_security_group` configuration option instructs Neutron to enable
+    or disable security group-related API functions. This option is set to `true`
+    by default.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `enable_ipset` configuration option instructs Neutron to enable or disable
+    the `ipset` extension for iptables when the `iptables_hybrid` firewall driver
+    is used. The use of ipsets allows for the creation of firewall rules that match
+    entire sets of addresses at once rather than having individual lines per address,
+    making lookups very efficient compared to traditional linear lookups. This option
+    is set to `true` by default.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If at any time the ML2 configuration file is updated, you must restart the `neutron-server` service
+    and respective Neutron agent for the changes to take effect.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring the Open vSwitch driver and agent
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The Open vSwitch mechanism driver is included with the ML2 plugin, and was installed
+    in *[Chapter 3](bf508e37-ce8a-4116-89db-e8f8a6abf0f4.xhtml), Installing Neutron*.
+    The following sections will walk you through the configuration of OpenStack Networking
+    so that you can utilize the Open vSwitch driver and agent.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While the Linux bridge and Open vSwitch agents and drivers can coexist in the
+    same environment, they should not be installed and configured simultaneously on
+    the same host.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing the Open vSwitch agent
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To install the Open vSwitch agent, issue the following command on `compute02`,
+    `compute03`, and `snat01`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: Dependencies, such as Open vSwitch components `openvswitch-common` and `openvswitch-switch`,
+    will be installed. If prompted to overwrite existing configuration files, type
+    `N` at the `[default=N]` prompt.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Updating the Open vSwitch agent configuration file
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The Open vSwitch agent uses a configuration file located at `/etc/neutron/plugins/ml2/openvswitch_agent.ini`
+    . The most common options can be seen as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: Tunnel types
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `tunnel_types` configuration option specifies the types of tunnels supported
+    by the agent. The two available options are `gre` and/or `vxlan`. The default
+    value is `None`, which disables tunneling.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Update the `tunnel_types` configuration option in the `[agent]` section of
+    the Open vSwitch agent configuration file accordingly on `compute02`, `compute03`,
+    and `snat01`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: L2 population
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To enable support for the L2 population driver, the `l2_population` configuration
+    option must be set to `true`. Update the `l2_population` configuration option
+    in the `[vxlan]` section of the Open vSwitch agent configuration file accordingly
+    on `compute02`, `compute03`, and `snat01`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: An important feature of the L2 population driver is its ARP responder functionality,
+    which avoids the broadcasting of ARP requests across the overlay network. Each
+    `compute` node can proxy ARP requests from virtual machines and provide them with
+    replies, all without traffic leaving the host.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To enable the ARP responder, update the following configuration option:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: The default `arp_responder` configuration is `false` and can remain *unchanged*
+    for this environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: VXLAN UDP port
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The default port for UDP traffic between VXLAN tunnel endpoints varies depending
+    on the system. The Internet Assigned Numbers Authority, or IANA, has assigned
+    UDP port 4789 for the purposes of VXLAN and that is the default port used by Open
+    vSwitch. The Linux kernel, on the other hand, uses UDP port 8472 for VXLAN. To
+    maintain compatibility with the hosts using the Linux bridge mechanism driver
+    and `vxlan` kernel module, the port must be changed from its default.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To change the port number, update the following configuration option from 4789
+    to 8472:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: This change is typically unnecessary in a pure Open vSwitch-based environment,
+    but is required for the environment described in this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Integration bridge
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `integration_bridge` configuration option specifies the name of the integration
+    bridge used on each node. There is a single integration bridge per node that acts
+    as the virtual switch where all virtual machine VIFs, otherwise known as **virtual
+    network interfaces**, are connected. The default name of the integration bridge
+    is `br-int` and should not be modified.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since the Icehouse release of OpenStack, the Open vSwitch agent automatically
+    creates the integration bridge the first time the agent service is started. You
+    do not need to add an interface to the integration bridge, as Neutron is responsible
+    for connecting network devices to this virtual switch.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tunnel bridge
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The tunnel bridge is a virtual switch, similar to the integration and provider
+    bridges, and is used to connect GRE and VXLAN tunnel endpoints. Flow rules exist
+    on this bridge that are responsible for properly encapsulating and decapsulating
+    tenant traffic as it traverses the bridge.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `tunnel_bridge` configuration option specifies the name of the tunnel bridge.
+    The default value is `br-tun` and should not be modified. It is not necessary
+    to create this bridge manually since Neutron does this automatically.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Local IP
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `local_ip` configuration option specifies the local IP address on the node,
+    which will be used to build the overlay network between hosts. Refer to *[Chapter
+    1](961d71d1-9804-4af7-ad1f-8716e6dd5ac6.xhtml)*, *Introduction to OpenStack Networking*,
+    for ideas on how the overlay network should be architected. In this installation,
+    all guest traffic through the overlay networks will traverse a dedicated network
+    over the `eth1` interface that we configured earlier in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Update the `local_ip` configuration option in the `[vxlan]` section of the
+    Open vSwitch agent configuration file accordingly on `compute02`, `compute03`, and
+    `snat01`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The following table provides the interfaces and addresses to be configured
+    on each host. Substitute these for `X` where appropriate:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Hostname** | **Interface** | **IP Address** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| compute02 | eth1 | 10.20.0.102 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| compute03 | eth1 | 10.20.0.103 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| snat01 | eth1 | 10.20.0.104 |'
+  prefs: []
+  type: TYPE_TB
+- en: Bridge mappings
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `bridge_mappings` configuration option describes the mapping of an artificial
+    label to a virtual switch created with Open vSwitch. Unlike the Linux bridge driver
+    that configures a separate bridge for every network, each with its own interface,
+    the Open vSwitch driver uses a single virtual switch containing a single physical
+    interface and uses flow rules to tag traffic if necessary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When networks are created, they are associated with an interface label, such
+    as `physnet1`. The label `physnet1` is then mapped to a bridge, such as `br-eth1`,
+    which contains the physical interface `eth1`. The mapping of the label to the
+    bridge interface is handled by the `bridge_mappings` option. This mapping can
+    be observed as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: The chosen label(s) must be consistent between all nodes in the environment
+    that are expected to handle traffic for a given network created with Neutron.
+    However, the physical interface mapped to the label may be different. A difference
+    in mappings is often observed when one node maps `physnet1` to a one gigabit-capable
+    bridge, while another maps `physnet1` to a ten gigabit-capable bridge.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Multiple bridge mappings are allowed and can be added using a comma-separated
+    list:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In this installation process, `physnet1` will be used as the interface label
+    and will map to the bridge `br-eth2`. Update the Open vSwitch agent configuration
+    file accordingly on `compute02`, `compute03`, and `snat01`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: Configuring the bridges
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To configure a bridge with Open vSwitch, use the Open vSwitch utility `ovs-vsctl`.
+    Create the bridge `br-eth2` on `compute02`, `compute03`, and `snat01`, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Use the `ovs-vsctl add-port` command to add physical interface `eth2` to the
+    bridge like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The configuration of the bridge should persist reboots. However, the bridge
+    interface can also be configured in `/etc/network/interfaces` if necessary using
+    the following syntax:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: Please note that the physical switch port connected to `eth2` must support 802.1q
+    VLAN tagging if VLAN networks of any type are to be created. On many switches,
+    the switch port can be configured as a trunk port.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Firewall driver
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `firewall_driver` configuration option instructs Neutron to use a particular
+    firewall driver for security group functionality.  Different firewall drivers
+    may be configured based on the mechanism driver in use.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Update the ML2 configuration file on `compute02` and `compute03` and define
+    the appropriate `firewall_driver` in the `[securitygroup]` section on a single
+    line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `iptables_hybrid` firewall driver implements firewall rules using iptables
+    and relies on the use of Linux bridges in-between the instance's tap interface
+    and the integration bridge. The `openvswitch` firewall driver, on the other hand,
+    implements firewall rules using OpenFlow and does not rely on Linux bridges or
+    iptables. As of the Pike release of OpenStack, the `openvswitch` firewall driver
+    is not production-ready and is not recommended.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you do not want to use a firewall and want to disable the application of
+    security group rules, set `firewall_driver` to `noop`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring the DHCP agent to use the Open vSwitch driver
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'For Neutron to properly connect DHCP namespace interfaces to the appropriate
+    network bridge, the DHCP agent on the node hosting the agent must be configured
+    to use the Open vSwitch interface driver, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this environment, the DHCP agent is running on the `controller01` node utilizing
+    the Linux bridge driver and agent, and the interface driver was configured to
+    work with Linux bridges. No change is necessary at this time. For environments
+    running only Open vSwitch, be sure to set the interface driver accordingly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Restarting services
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Now that the appropriate OpenStack configuration files have been modified to
+    use Open vSwitch as the networking driver, certain services must be started or
+    restarted for the changes to take effect.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The Open vSwitch network agent should be restarted on `compute02`, `compute03`,
+    and `snat01`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The following services should be restarted on the `controller` node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: Verifying Open vSwitch agents
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To verify that the Open vSwitch network agents have been properly checked in,
+    issue the `openstack network agent list` command on the `controller` node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/6d95c416-a899-4f59-9667-1d6bfccad549.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The Open vSwitch agent on `compute02`, `compute03`, and `snat01` should now
+    be visible in the output with a state of `UP`. If an agent is not present, or
+    the state is `DOWN`, you will need to troubleshoot agent connectivity issues by
+    observing log messages found in `/var/log/neutron/neutron-openvswitch-agent.log`
+    on the respective host.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This chapter saw us installing and configuring the Neutron Open vSwitch mechanism
+    driver and agent on two `compute` nodes and a dedicated `network` node, which
+    will be used for distributed virtual routing functions at a later time. Instances
+    scheduled to `compute02` and `compute03` will leverage Open vSwitch virtual network
+    components, while `compute01` and network services on `controller01` will leverage
+    Linux bridges.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Both the Linux bridge and Open vSwitch drivers and agents for Neutron provide
+    unique solutions to the same problem of connecting virtual machine instances to
+    the network. The use of Open vSwitch relies on flow rules to determine how traffic
+    in and out of the environment should be processed and requires both user space
+    utilities and kernel modules to perform such actions. On the other hand, the use
+    of Linux bridges requires the `8021q` and `bridge` kernel modules and relies on
+    the use of VLAN and VXLAN interfaces on the host to bridge instances to the physical
+    network.For simple environments, I recommend using the ML2 plugin and Linux bridge
+    mechanism driver and agent, unless integration with OpenFlow controllers or the
+    use of a third-party solution or plugin is required. Other Neutron technologies,
+    such as distributed virtual routers, are only available when using the Open vSwitch
+    driver and agent.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, you will be guided through the process of creating different
+    types of networks to provide connectivity to instances. The process of creating
+    networks is the same for both Linux bridge and Open vSwitch-based environments,
+    but the underlying network implementation will vary based on the driver and agent
+    in use.
+  prefs: []
+  type: TYPE_NORMAL

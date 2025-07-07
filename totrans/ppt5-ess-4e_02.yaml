@@ -1,0 +1,820 @@
+- en: Puppet Server and Agents
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: So far, you have dealt with some concise Puppet manifests that were built to
+    model some very specific goals. By means of the `puppet apply` command, you can
+    use such snippets on any machine in your infrastructure. This is not the most
+    common way of using Puppet, though, and this chapter will introduce you to the
+    popular server/agent structure. It's worth noting, however, that applying standalone
+    manifests that are independent of your overall Puppet design can always be useful.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Under the server/agent paradigm, you will typically install the Puppet agent
+    software on all nodes under your care and make them call the server, which is
+    yet another Puppet installation. The server will compile the appropriate manifests
+    and effectively remotely control the agents. Both the agent and the server authenticate
+    themselves using trusted SSL certificates.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This chapter covers the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Puppet server
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Setting up the Puppet agent
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Performance optimizations
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Completing the stack with PuppetDB
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The Puppet CA
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The Puppet server
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Many Puppet-based workflows are centered on the server, which is the central
+    source of configuration data and authority. The server hands instructions to all
+    the computer systems in the infrastructure (where agents are installed). It serves
+    multiple purposes in the distributed system of Puppet components.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The server will perform the following tasks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Storing manifests and compiling catalogs
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Serving as the SSL certification authority
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Processing reports from the agent machines
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Gathering and storing information about the agents
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: As such, the security of your server machine is paramount. The requirements
+    for hardening are comparable to those of a Kerberos key distribution center.
+  prefs: []
+  type: TYPE_NORMAL
+- en: During its first initialization, the Puppet server generates the CA certificate.
+    This self-signed certificate will be distributed among and trusted by all the
+    components of your infrastructure. This is why its private key must be protected
+    very carefully. New agent machines request individual certificates, which are
+    signed with the CA certificate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It's a good idea to include a copy of the CA certificate in your OS-provisioning
+    process so that the agent can establish the authenticity of the master before
+    requesting its individual certificate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The terminology around the master software might be a little confusing. That's
+    because both the terms **Puppet master** and **Puppet server** are floating around,
+    and they are closely related too. Let's consider some technological background
+    in order to give you a better understanding of what is what.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Puppet's master service mainly comprises a RESTful HTTP API. Agents initiate
+    the HTTPS transactions, with both sides identifying each other using trusted SSL
+    certificates. During the time when Puppet 3 and older versions were the most advanced
+    versions available, the HTTPS layer was typically handled by Apache. Puppet's
+    Ruby core was invoked through the `Passenger` module. This approach offered good
+    stability and scalability.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Puppet Inc. has improved upon this standard solution with specialized software
+    called `puppetserver`. The Ruby-based core of the master remains basically unchanged,
+    although it now runs on JRuby instead of Ruby's own MRI. The HTTPS layer is run
+    by Jetty, sharing the same Java virtual machine with the master.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By cutting out some middlemen, `puppetserver` is faster and more scalable than
+    a Passenger solution. It is also significantly easier to set up.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting up the server machine
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Getting the `puppetserver` software onto a Linux machine is just as simple as
+    the agent package (which you did at the very beginning of [Chapter 1](8a22dc0e-3fe2-4153-b60e-935b7e6d9f94.xhtml),
+    *Writing Your First Manifests*). Packages are available on Red Hat Enterprise
+    Linux and its derivatives, Debian and Ubuntu, and any other operating system that
+    is supported to run a Puppet server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Until now, the Puppet server must run on a Linux-based operating system, and
+    cannot run on Windows or any other Unix. A great way to get Puppet Inc. packages
+    on any platform is the Puppet Collection. Shortly after the release of Puppet
+    4, Puppet Inc. created this new way of supplying software. This can be considered
+    as a distribution in its own right. Unlike Linux distributions, it does not contain
+    a Kernel, system tools, or libraries. Instead, it comprises various software from
+    the Puppet ecosystem. Software versions that are available from the same Puppet
+    collection are guaranteed to work well together.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Use the following commands to install `puppetserver` from the first **Puppet
+    Collection** (**PC1**) on a Debian 8 machine (the collection for Debian 9 has
+    not yet received a `puppetserver` package at the time of writing this):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `puppetserver` package comprises only the Jetty server and the Clojure API,
+    but the all-in-one `puppet-agent` package is pulled in as a dependency.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The package name, `puppet-agent`, is misleading. This AIO package contains all
+    the parts of Puppet, including the master core, a vendored Ruby build, and several
+    pieces of additional software.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Specifically, you can use the `puppet` command on the master node. You will
+    soon learn how this is useful. However, when using the packages from Puppet Labs,
+    everything gets installed under `/opt/puppetlabs`. It is advisable to make sure
+    that your `PATH` variable always includes the `/opt/puppetlabs/bin` directory
+    so that the `puppet` command is found here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Regardless of this, once the `puppetserver` package is installed, you can start
+    the master service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Depending on the power of your machine, the startup can take a few minutes.
+    Once initialization completes, the server will operate very smoothly, though.
+    As soon as the master port `8140` is open, your Puppet master is ready to serve
+    requests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If the service fails to start, there might be an issue with certificate generation
+    (we observed such issues with some versions of the software). Check the log file
+    at `/var/log/puppetlabs/puppetserver/puppetserver-daemon.log`. If it indicates
+    that there are problems while looking up its certificate file, you can work around
+    the problem by temporarily running a standalone master as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: After initialization, you can stop this process. The certificate is available
+    now, and `puppetserver` should now be able to start as well.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another reason for start failures is an insufficient amount of memory. The Puppet
+    server process needs 2 GB of memory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating the master manifest
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When you used Puppet locally in [Chapter 1](8a22dc0e-3fe2-4153-b60e-935b7e6d9f94.xhtml),
+    *Writing Your First Manifests*, you specified a manifest file that `puppet apply`
+    should compile. The master compiles manifests for many machines, but the agent
+    does not get to choose which source file is to be used; this is completely at
+    the master's discretion. The starting point for any compilation by the master
+    is always the site manifest, which can be found in `/opt/puppetlabs/code/environments/production/manifests/`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The significance of the environments/production part will be investigated in
+    [Chapter 5](3217a4c2-135e-46b4-bcf2-eef9ddce9991.xhtml), *Combining Classes, Configuration
+    Files, and Extensions into Modules*. In Puppet versions before 4.0, the site manifest
+    is at another location, `/etc/puppet/manifests/site.pp`, and comprises just one
+    file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Each connecting agent will use all the manifests found here. Of course, you
+    don''t want to manage only one identical set of resources on all your machines.
+    To define a piece of manifest exclusively for a specific agent, put it in a `node`
+    block. This block''s contents will only be considered when the calling agent has
+    a matching common name in its SSL certificate. You can dedicate a piece of the
+    manifest to a machine with the name of `agent`, for example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: The given example does not show best practice for node classification. It is
+    merely used as an example. We will show the modern best practice node classification
+    in [Chapter 9](0a0cf4b0-23fa-48fd-abf9-77ed851bb581.xhtml), *Puppet Roles and
+    Profiles*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before you set up and connect your first agent to the master, step back and
+    think about how the master should be addressed. By default, agents will try to
+    resolve the unqualified `puppet` hostname in order to get the master's address.
+    If you have a default domain that is being searched by your machines, you can
+    use this as a default and add a record for `puppet` as a subdomain (such as `puppet.example.net`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Otherwise, pick a domain name that seems fitting to you, such as `master.example.net`
+    or `adm01.example.net`. What''s important is the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: All your agent machines can resolve the name to an address
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The master process is listening for connections on that address
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The master uses a certificate with the chosen name as CN or DNS Alt Names
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The mode of resolution depends on your circumstances; the `hosts` file on each
+    machine is one ubiquitous possibility. The Puppet server listens on all the available
+    addresses by default.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This leaves the task of creating a suitable certificate, which is simple. Configure
+    the master to use the appropriate certificate name and restart the service. If
+    the certificate does not exist yet, Puppet will take the necessary steps to create
+    it. Put the following setting into your `/etc/puppetlabs/puppet/puppet.conf` file
+    on the master machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: In Puppet versions earlier than 4.0, the default location for the configuration
+    file is `/etc/puppet/puppet.conf`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Upon its next start, the master will use the appropriate certificate for all
+    SSL connections. The automatic proliferation of SSL data is not dangerous, even
+    in an existing setup, except for the certification authority. If the master were
+    to generate a new CA certificate at any point in time, it would break the trust
+    of all existing agents.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Make sure that the CA data is neither lost nor compromised. All previously signed
+    certificates become obsolete whenever Puppet needs to create a new certification
+    authority. The default storage location is `/etc/puppetlabs/puppet/ssl/ca` for
+    Puppet 4.0 and higher, and `/var/lib/puppet/ssl/ca` for older versions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Inspecting the configuration settings
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'All the customization of the master''s parameters can be made in the `puppet.conf`
+    file. The operating system packages ship with some settings that are deemed sensible
+    by the respective maintainers. Apart from these explicit settings, Puppet relies
+    on defaults that are either built-in or derived from the environment (details
+    on how this works follow in the [Chapter 3](be2d7b8b-9ea8-4459-b415-081e77db07c7.xhtml),
+    *A Peek into the Ruby Part of Puppet - Facts, Types, and Providers*):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: Most users will want to rely on these defaults for as many settings as possible.
+    This is possible without any drawbacks because Puppet makes all settings fully
+    transparent using the `--configprint` parameter. For example, you can find out
+    where the master manifest files are located.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To get an overview of all available settings and their values, use the following
+    command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: While this command is especially useful on the master side, the same introspection
+    is available for `puppet apply` and `puppet agent`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Setting specific configuration entries is possible with the `puppet config`
+    command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: Setting up the Puppet agent
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As was explained earlier, the master mainly serves instructions to agents in
+    the form of catalogs that are compiled from the manifest. You have also prepared
+    a `node` block for your first agent in the master manifest.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing the agent software is easy; you did this at the start of [Chapter
+    1](8a22dc0e-3fe2-4153-b60e-935b7e6d9f94.xhtml), *Writing Your First Manifests*.
+    The plain Puppet package that allows you to apply a local manifest contains all
+    the required parts in order to operate a proper agent.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you are using Puppet Labs packages, use the instructions from earlier in
+    this chapter. On agent machines, you need not install the `puppetserver` package.
+    Just get `puppet-agent` instead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After a successful package installation, one needs to specify where puppet
+    agent can find the puppet server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Afterwards, the following invocation is sufficient for an initial test:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Puppet first created a new SSL certificate key for itself. For its own name,
+    it picked `agent`, which is the machine''s hostname. That''s fine for now. An
+    error occurred because the `puppet` name cannot be currently resolved to anything.
+    Add this to `/etc/hosts` so that Puppet can contact the master:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: How Puppet conveniently downloaded and cached the CA certificate. The agent
+    will establish trust based on this certificate from now on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Puppet created a certificate request and sent it to the master. It then immediately
+    tried to download the signed certificate. This is expected to fail the master
+    won't just sign a certificate for any request it receives. This behavior is important
+    for proper security.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There is a configuration setting that enables such automatic signing, but users
+    are generally discouraged from using this setting because it allows the creation
+    of arbitrary numbers of signed (and therefore, trusted) certificates to any user
+    who has network access to the master.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To authorize the agent, look for the CSR on the master using the `puppet cert`
+    command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This looks alright, so now you can sign a new certificate for the agent:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: When choosing the action for `puppet cert`, the dashes in front of the option
+    name can be omitted; you can just use `puppet cert list` and `puppet cert sign`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now the agent can receive its certificate for its catalog run as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: The agent is now fully operational. It received a catalog and applied all resources
+    found within. Before you read on to learn how the agent usually operates, there
+    is a note that is especially important for the users of Puppet 3.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Remember that you configured the master to use the name `master.example.net`
+    for the master machine earlier in this chapter by setting the `certname` option
+    in the master's `puppet.conf` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since this is the common name in the master's certificate, the preceding command
+    will not even work with a Puppet 3.x master. It works with `puppetserver` and
+    Puppet 4 because the default `puppet` name is now included in the certificate's
+    Subject Alternative Names by default.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It is tidier to not rely on this alias name, though. After all, in production,
+    you will probably want to make sure that the master has a fully qualified name
+    that can be resolved, at least inside your network. You should, therefore, add
+    the following to the `main` section of `puppet.conf` on each agent machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the absence of DNS to resolve this name, your agent will need an appropriate
+    entry in its hosts file or a similar alternative way of address resolution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'These steps are necessary in a Puppet 3.x setup. If you have been following
+    along with a Puppet 4 agent, you might notice that after this change, it generates
+    a new certificate signing request:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: If this happens, you will have to use `puppet cert sign` on the master again.
+    The agent will then retrieve a new certificate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The agent's life cycle
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In a Puppet-centric workflow, you typically want all changes to the configuration
+    of servers (perhaps even workstations) to originate on the Puppet master and propagate
+    to the agents automatically. Each new machine gets integrated into the Puppet
+    infrastructure with the master at its center, and gets removed during the decommissioning,
+    as shown in the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/0cad3915-47be-4fa8-a396-3ce43350b167.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: The very first step, generating a key and a certificate signing request is always
+    performed implicitly and automatically at the start of an agent run if no local
+    SSL data exists yet. Puppet creates the required data if no appropriate files
+    are found. There will be a short description on how to trigger this behavior manually
+    later in this section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next step is usually the signing of the agent''s certificate, which is
+    performed on the master. It is good practice to monitor the pending requests by
+    listing them on the console:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: From this point on, the agent will periodically check with the master to load
+    updated catalogs. The default interval for this is 30 minutes. The agent will
+    perform a run of a catalog each time and check the sync state of all the contained
+    resources. The run is performed for unchanged catalogs as well, because the sync
+    states can change between runs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before you manage to sign the certificate, the agent process will query the
+    master at short intervals for a while. This can avoid a 30 minute delay if the
+    certificate is not ready right when the agent starts up.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Launching this background process can be done manually through a simple command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: However, it is preferable to do this through the `puppet` system service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When an agent machine is taken out of active service, its certificate should
+    be invalidated. As is customary with SSL, this is done through revocation and
+    cleaning the certificate. The master adds the serial number of the certificate
+    to its certificate revocation list. This list, too, is shared with each agent
+    machine. Revocation is initiated on the master through the `puppet cert` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: The updated CRL is not honored until the master service is restarted. If security
+    is a concern, this step must not be postponed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The agent can then no longer use its old certificate:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: Renewing an agent's certificate
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Sometimes, it is necessary during an agent machine''s life cycle to regenerate
+    its certificate and related data. The reasons for this can include data loss,
+    human error, or certificate expiration, among others. The regeneration is achieved
+    through the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Performing the regeneration is quite simple: all relevant files are kept at
+    `/etc/puppetlabs/puppet/ssl` (for Puppet 3.x, this is `/var/lib/puppet/ssl`) on
+    the agent machine.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Once these files are removed (or rather, the whole `ssl/` directory tree),
+    Puppet will renew everything on the next agent run. Of course, a new certificate
+    must be signed. This requires some preparation; just initiating the request from
+    the agent will fail:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: The master still has the old certificate cached. This is a simple protection
+    against the impersonation of your agents by unauthorized entities.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To fix this, remove the certificate from both the master and the agent and
+    then start a Puppet run, which will automatically regenerate a certificate:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'On the master, use the following:'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On the agent, use the following:'
+  prefs:
+  - PREF_OL
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'On most platforms, use the following:'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On Windows, use the following:'
+  prefs:
+  - PREF_OL
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once you perform the cleanup operation on the master, as advised in the preceding
+    output, and remove the indicated file from the agent machine, the agent will be
+    able to successfully place its new CSR:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: The rest of the process is identical to the original certificate creation. The
+    agent uploads its CSR to the master, where the certificate is created through
+    the `puppet cert sign` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running the agent from cron
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'There is an alternative way to operate the agent. We covered starting one long-running
+    `puppet agent` process that does its work in set intervals and then goes back
+    to sleep. However, it is also possible to have cron launch a discrete agent process
+    in the same interval. This agent will contact the master once, run the received
+    catalog, and then terminate. This has several advantages, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The agent operating system saves resources
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The interval is precise and not subject to skew (when running the background
+    agent, deviations result from the time that elapses during the catalog run), and
+    distributed interval skew can lead to thundering herd effects
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Any agent crash or an inadvertent termination is not fatal
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Setting Puppet to run the agent from cron is also very easy to do with Puppet!
+    You can use a manifest like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `fqdn_rand` function computes a distinct minute for each of your agents.
+    Setting the `hour` property to `absent` means that the job should run every hour.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Performance optimizations
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Operating a Puppet master gives you numerous benefits over just using `puppet
+    apply` on all your machines. This comes at a cost, of course. The master and agents
+    form a server/client relation, and, as with most such constructs, the server can
+    become the bottleneck.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The good news is that the Puppet agent is a fat client. The major share of the
+    work inspecting file contents, interfacing with the package-management subsystem,
+    services subsystem, and much more is done by the agent. The master only has to
+    compile manifests and build catalogs from them. This becomes increasingly complex
+    as you hand over more control to Puppet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There is one more task your master is responsible for. Many of your manifests
+    will contain file resources that rely on prepared content:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `source` parameter with a URL value indicates that the file has been pregenerated
+    and placed in a module on the Puppet master (more on modules in [Chapter 5](3217a4c2-135e-46b4-bcf2-eef9ddce9991.xhtml), *Combining
+    Classes, Configuration Files, and Extensions into Modules*). The agent will compare
+    the local file with the master's copy (by checksum) and download the canonical
+    version, if required. The comparison is a frequent occurrence in most agent runs;
+    you will make Puppet manage a lot of files. The master does not need a lot of
+    resources to make this happen, but it *will* hinder fluent agent operation if
+    the master gets congested.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This can happen for any combination of the following reasons:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The total number of agents is too large
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The agents check in too frequently
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The manifests are too complex
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The Puppet server is not tuned adequately
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The master's hardware resources are insufficient
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: There are ways to scale your master operation via load balancing, but these
+    are not covered in this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Puppet Labs have some documentation on a few advanced approaches at [https://docs.puppetlabs.com/guides/scaling_multiple_masters.html.](https://docs.puppetlabs.com/guides/scaling_multiple_masters.html.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tuning puppetserver
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The puppetserver is a great way to run the master service. It is simple to set
+    up and maintain, and it also has great performance during the operation. Starting
+    up can take a little while to initialize everything to that end.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are only a few customizable settings that can impact performance. Seeing
+    as puppetserver runs in the JVM, the most important tuning approach is to scale
+    the heap. A small heap will increase the overhead for garbage collection. Therefore,
+    you should use the `-Xmx` and `-Xms` Java options to allow the JVM to use large
+    parts of your available memory for the aforementioned heap.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On Debian, these settings are found in `/etc/default/puppetserver`. It is sensible
+    to pass the same value to both. A dynamic heap has little benefit because you
+    cannot safely use any saved memory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For proper puppetserver functionality, it is recommended that you have 4 GB
+    of RAM available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Completing the stack with PuppetDB
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: PuppetDB is a specialized database REST API designed to interact with the Puppet
+    master. It mainly comprises a PostgreSQL backend with an API wrapper. The latter
+    was written in Clojure and runs in yet another JVM.
+  prefs: []
+  type: TYPE_NORMAL
+- en: PuppetDB aids the master's secondary task of storing reports and other agent
+    data. It is also necessary for some specific manifest compiler functionality.
+    This is covered in [Chapter 6](60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml), *The
+    Puppet Beginners Advanced Parts*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The best way to set up and configure PuppetDB is actually Puppet itself. Since
+    the necessary tools have not yet been introduced, we will postpone this step until
+    [Chapter 6](60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml),  *The Puppet Beginners
+    Advanced Parts*. This is not a problem, because PuppetDB is not essential for
+    basic master operation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Nevertheless, after finishing this chapter, you should include PuppetDB into
+    any new master setup because it allows for advanced reporting and introspection.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Puppet CA
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Among the most frustrating issues, especially for new users, are problems with
+    the agent's SSL handshake. Such errors are especially troublesome because Puppet
+    cannot always offer very helpful analysis in its logs - the problems occur in
+    the SSL library functions, and the application cannot examine the circumstances.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The online documentation at Puppet Labs has a troubleshooting section that also
+    has some advice concerning SSL-related issues at [https://docs.puppetlabs.com/guides/troubleshooting.html](https://docs.puppet.com/pe/latest/trouble_puppet.html).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Consider the following output for the `--test` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: The agent opines that the CRL it receives from the master is not yet valid.
+    Errors such as these can happen whenever the agent's clock gets reset to a very
+    early date. This can also result from a slight clock skew, when the CRL has recently
+    been updated through a revocation action on the master. If the system clock on
+    the agent machine returns a time far in the future, it will consider certificates
+    to be expired.
+  prefs: []
+  type: TYPE_NORMAL
+- en: These clock-related issues are best avoided by running an `ntp` service on all
+    Puppet agents and masters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Errors will generally result if the data in the agent''s `$ssldir` becomes
+    inconsistent. This can happen when the agent interacts with an alternate master
+    (a testing instance, for example). The first piece of advice you will most likely
+    receive when asking the community what to do about such problems is to create
+    a new agent certificate from scratch. This works as described in the *The agent''s
+    life cycle* section:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Remove all the SSL data from the agent machine
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Revoke and remove the certificate from the master using `puppet cert clean`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Request and sign a new certificate
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Before you start the recovery procedure, make sure that you are logged in to
+    the afflicted agent machine and not the master. Losing the master's SSL data will
+    make it necessary to recreate your complete SSL infrastructure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This approach will indeed remedy most issues. Be careful not to leave any old
+    files in the relevant location on the agent machine. If the problems persist,
+    a more involved solution is required. The openssl command-line tool is helpful
+    to analyze the certificates and related files. The details of such an analysis
+    are beyond the scope of this book, though.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You can now set up your own Puppet master, using the sophisticated puppetserver
+    solution. You have successfully signed the certificate for a Puppet agent and
+    can revoke certificates, if required. Using the `node` blocks in the master manifest,
+    you can describe individual manifests for each distinct agent. Finally, you learned
+    about some things that can go wrong with the SSL-based authentication.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In [Chapter 3](be2d7b8b-9ea8-4459-b415-081e77db07c7.xhtml), *A Peek into the
+    Ruby Part of Puppet - Facts, Types, and Providers*, we will take a look at the
+    inner workings of Puppet in order to give you an understanding of how the Puppet
+    agent adapts to its environment. You will also learn how the agent provides feedback
+    to the master, allowing you to create flexible manifests that fit different needs.
+  prefs: []
+  type: TYPE_NORMAL

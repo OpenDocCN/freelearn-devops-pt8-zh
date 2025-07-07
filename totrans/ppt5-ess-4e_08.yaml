@@ -1,0 +1,1099 @@
+- en: Separation of Code and Data with Hiera
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Working through the first seven chapters, you have used the basic structural
+    elements of Puppet in numerous examples and contexts. There has been a quick demonstration
+    of the more advanced language features, and you should have a good idea of what
+    distinguishes the manifest writing process in Puppet 4 from those of the earlier
+    releases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For all their expressive power, manifests do have some limitations. A manifest
+    that is designed by the principles taught up to this point mixes logic with data.
+    Logic is not only evident in control structures, such as `if` and `else`, but
+    it also emerges from the network of classes and defines that include and instantiate
+    one another.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'However, you cannot configure a machine by just including some generic classes.
+    Many properties of a given system are individual and must be passed as parameters.
+    This can have maintenance implications for a manifest that must accommodate a
+    large number of nodes. This chapter will teach you how to bring order back to
+    such complex code bases. In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the need for separate data storage
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Building hierarchical data structures
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Fetching data from classes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Debugging data lookups
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Managing resources from data
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Data in modules and environments
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding the need for separate data storage
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Looking back at what you have implemented during this book so far, you have
+    managed to create some very versatile code that did very useful things in an automatic
+    fashion. Your nodes can distribute entries for `/etc/hosts` among themselves.
+    They register each other's public SSH key for authentication. A node can automatically
+    register itself to a central Cacti server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Thanks to Facter, Puppet has the information that allows the effortless handling
+    of these use cases. Many configuration items are unique to each node only because
+    they refer to a detail (such as an IP address or a generated key) that is already
+    defined. Sometimes, the required configuration data can only be found on a remote
+    machine, which Puppet handles through exported resources. Such manifest designs
+    that can rely on facts are very economical. The information has already been gathered,
+    and a single class can most likely behave correctly for many or all of your nodes,
+    and can manage a common task in a graceful manner.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'However, some configuration tasks have to be performed individually for each
+    node, and these can incorporate settings that are rather arbitrary and not directly
+    derived from the node''s existing properties:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In a complex MySQL replication setup that spans multiple servers, each participant
+    requires a unique server ID. Duplicates must be prevented under any circumstances,
+    so randomly generating the ID numbers is not safe
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Some of your networks might require regular maintenance jobs to be run from
+    `cron`. Puppet should define a starting time for each machine to prevent the overlapping
+    of the runs on any two machines
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In server operations, you have to perform the monitoring of the disk space usage
+    on all systems. Most disks should generate early warnings so that there is time
+    to react. However, other disks will be expected to be almost full most of the
+    time, and should have a much higher warning threshold
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When custom-built systems and software are managed through Puppet, they are
+    also likely to require this type of micromanagement for each instance. The examples
+    here represent only a tiny slice of the things that Puppet must manage explicitly
+    and independently.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Consequences of defining data in the manifest
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'There are a number of ways in which a Puppet manifest can approach this problem
+    of micromanagement. The most direct way is to define whole sets of classes one
+    for each individual node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is a very high-maintenance solution for the following reasons:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The individual classes can become quite elaborate because all required `mysql`
+    class parameters have to be used in each one
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: There is much redundancy among the parameters that are, in fact, identical across
+    all nodes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The individually different values can be hard to spot, and must be carefully
+    kept unique throughout the whole collection of classes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: This is only really feasible by keeping these classes close together, which
+    might conflict with other organizational principles of your code base
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'In short, this is a brute-force approach that introduces its own share of cost.
+    A more economic approach would be to pass the values that are different among
+    nodes (and only those!) to a wrapper class:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This wrapper can declare the `mysql` class in a generic fashion, thanks to
+    the individual parameter value per node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is much better because it eliminates the redundancy and its impact on maintainability.
+    The wrinkle is that the `node` blocks can become quite messy with parameter assignments
+    for many different subsystems. Explanatory comments contribute to the wall of
+    text that each `node` block can become.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can take this a step further by defining lookup tables in hash variables,
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'outside of any `node` or `class`, on the global scope:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This alleviates the need to declare any variables in `node` blocks. The classes
+    look up the values directly from the hash:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is pretty sophisticated, and is actually close to the even better way that
+    you will learn about later in this chapter. Note that this approach still retains
+    a leftover possibility of redundancy. Some configuration values are likely to
+    be identical among all nodes that belong to one group, but are unique to each
+    group (for example, preshared keys of any variety).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This requires that all servers in the hypothetical `xndp12` cluster contain
+    some key-value pairs that are identical for all members:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is not ideal, but let's stop here. There is no point in worrying about
+    even more elaborate ways to sort configuration data into recursive hash structures.
+    Such solutions will quickly grow very difficult to understand and maintain anyway.
+    The silver bullet is an external database that holds all individual and shared
+    values. Before I go into the details of using Hiera for just this purpose, let's
+    discuss the general ideas of hierarchical data storage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building hierarchical data structures
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the previous section, we reduced the data problem to a simple need for key-value
+    pairs that are specific to each node under Puppet management. Puppet and its manifests
+    then serve as the engine that generates actual configuration from these minimalistic
+    bits of information.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A simplistic approach to this problem is an `ini` style configuration file
+    that has a section for each node that sets values for all configurable keys. Shared
+    values will be declared in one or more general sections:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Rails applications customarily do something similar and store their configuration
+    in a YAML format. The user can define different environments, such as `production`,
+    `staging`, and `testing`. The values that are defined per environment override
+    the global setting values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is quite close to the type of hierarchical configuration that Puppet allows
+    through its Hiera binding. The hierarchies that the aforementioned Rails applications
+    and `ini` files achieve through configuration environments are quite flat there
+    is a global layer and an overlay for specialized configuration. With Hiera and
+    Puppet, a single configuration database will typically handle whole clusters of
+    machines and entire networks of such clusters. This implies the need for a more
+    elaborate hierarchy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Hiera allows you to define your own hierarchical layers. There are some typical,
+    proven examples, which are found in many configurations out there:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `common` layer holds default values for all agents
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A `location` layer can override some values in accordance with the data center
+    that houses each respective node
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Each agent machine typically fills a distinct `role` in your infrastructure,
+    such as `wordpress_appserver` or `puppetdb_server`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Some configurations are specific to each single `machine`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: For example, consider the configuration of a hypothetical reporting client.
+    Your `common` layer will hold lots of presets, such as default verbosity settings,
+    the transport compression option, and other choices that should work for most
+    machines. On the `location` layer, you ensure that each machine checks in to the
+    respective local server reporting should not use WAN resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Settings per role are perhaps the most interesting part. They allow fine-grained
+    settings that are specific to a class of servers. Perhaps your application servers
+    should monitor their memory consumption in very close intervals. For the database
+    servers, you will want a closer view of hard drive operations and performance.
+    For your Puppet servers, there might be special plugins that gather specific data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `machine` layer is very useful in declaring any exceptions to the rule.
+    There are always some machines that require special treatment for one reason or
+    another. With a top hierarchy layer that holds data for each single agent, you
+    get full control over all the data that an agent uses.
+  prefs: []
+  type: TYPE_NORMAL
+- en: These ideas are still quite abstract, so let's finally look at the actual application
+    of Hiera.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring Hiera
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The support for retrieving data values from Hiera has been built into Puppet
+    since version 3\. All you need in order to get started is a `hiera.yaml` file
+    in the configuration directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Of course, the location and name of the configuration is customizable, as is
+    almost everything that is related to configuration. Look for the `hiera_config`
+    setting.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As the filename extension suggests, the configuration is in the YAML format
+    and contains a hash with keys for the backends, the hierarchy, and backend-specific
+    settings. The keys are noted as Ruby symbols with a leading colon:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that the value of `:backends` is actually a single-element array. You can
+    pick multiple backends. The significance will be explained later. The `:hierarchy`
+    value contains a list of the actual layers that were described earlier. Each entry
+    is the name of a data source. When Hiera retrieves a value, it searches each data
+    source in turn. The `%{}` expression allows you to access the values of Puppet
+    variables. Use only facts or global scope variables here; anything else will make
+    Hiera's behavior quite confusing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, you will need to include configurations for each of your backends.
+    The preceding configuration uses the YAML backend only, so there is only a hash
+    for `:yaml` with the one supported `:datadir` key. This is where Hiera will expect
+    to find YAML files with data. For each data source, the `datadir` can contain
+    one `.yaml` file. As the names of the sources are dynamic, you will typically
+    create more than four or five data source files. Let's create some examples before
+    we have a short discussion on the combination of multiple backends.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hiera version 5 was released with Puppet 4.9\. This new version of Hiera uses
+    another layout of the configuration file and offers more flexibility. We will
+    first introduce Hiera 3, prior to explaining the setup, migration, and additional
+    features of Hiera 5, as most of the basic concepts are identical.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Storing Hiera data
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The backend of your Hiera setup determines how you have to store your configuration
+    values. For the YAML backend, you fill `datadir` with files that each hold a hash
+    of values. Let''s put some elements of the reporting engine configuration into
+    the example hierarchy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The values in `common.yaml` are defaults that are used for all agents. They
+    are at the broad base of the hierarchy. Values that are specific to a `location`
+    or `role` apply to smaller groups of your agents. For example, the database servers
+    of the `postgres` role should run some special reporting plugins:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On such a high layer, you can also override the values from the lower layers.
+    For example, a role-specific data source, such as `role/postgres.yaml`, can set
+    a value for `reporting::server_port` as well. The layers are searched from the
+    most to the least specific, and the first value is used. This is why it is a good
+    idea to have a node-specific data source at the top of the hierarchy. On this
+    layer, you can override any value for each agent. In this example, the reporting
+    node can use the loopback interface to reach itself:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Each agent receives a patchwork of configuration values according to the concrete
+    YAML files that make up its specific hierarchy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Don't worry if all this feels a bit overwhelming; there are more examples in
+    this chapter. Hiera also has the charming characteristic of seeming rather complicated
+    on paper, but it feels very natural and intuitive once you try using it yourself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Choosing your backends
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'There are two built-in backends: YAML and JSON. This chapter will focus on
+    YAML, because it''s a very convenient and efficient form of data notation. The
+    JSON backend is very similar to YAML. It looks for data in `.json` files instead
+    of `.yaml` for each data source; these files use a different data notation format.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The use of multiple backends should never be truly necessary. In most cases,
+    a well thought-out hierarchy will suffice for your needs. With a second backend,
+    data lookup will traverse your hierarchy once per backend. This means that the
+    lowest level of your primary backend will rank higher than any layer from additional
+    backends.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In some cases, it might be worthwhile to add another backend just to get the
+    ability to define even more basic defaults in an alternative location perhaps
+    a distributed filesystem or a source control repository with different commit
+    privileges.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Also, note that you can add custom backends to Hiera, so these might also be
+    sensible choices for secondary or even tertiary backends. A Hiera backend is written
+    in Ruby, like the Puppet plugins. The details of creating such a backend are beyond
+    the scope of this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A particularly popular backend plugin is `eyaml`, available through the `hiera-eyaml`
+    Ruby gem. This backend allows you to incorporate encrypted strings in your YAML
+    data. Puppet decrypts the data upon retrieval.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With Puppet 5, the eyaml plugin is already part of the Puppet build OS packages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You have studied the theory of storing data in Hiera at length, so it's finally
+    time to see how to make use of this in Puppet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fetching data from classes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Looking up a key value in Hiera is easy. Puppet comes with a very straightforward
+    function for this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: Whenever the compiler encounters such a call in the manifest of the current
+    agent node, it triggers a search in the hierarchy. The specific data sources are
+    determined by the hierarchy in your `hiera.yaml` file. It will almost always rely
+    on fact values provided by the agent to make flexible data source selections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If the named key cannot be found in the agent''s hierarchy, the master aborts
+    the catalog compilation with an error. To prevent this, it is often sensible to
+    supply a default value with the lookup:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this case, Puppet uses an empty array if the hierarchy mentions no plugins.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the other hand, you can purposefully omit the default value. Just as with
+    `class` and `define` parameters, this signals that the Hiera value is required.
+    If the user fails to supply it, Puppet will abort the manifest compilation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Working with simple values
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'You have seen how to invoke the `hiera` function for value retrieval. There
+    is really not more to it than what you have seen in the previous section, except
+    for an optional parameter. It allows you to include an additional layer at the
+    top of your hierarchy. If the key is found in the named data source, it will override
+    the result from the regular hierarchy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: If the `reporting::plugins` key is found in the `global-overrides` data source,
+    the value is taken from there. Otherwise, the normal hierarchy is searched.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Generally, assigning the retrieved value to a manifest variable is quite common.
+    However, you can also invoke the `hiera` function in other useful contexts, such
+    as the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: The lookup result can be handed to a resource directly as a parameter value.
+    This is an example of how to allow Hiera to define a specific IP address per machine
+    that should be used for a specific service. It acts as a simple way to manually
+    override Facter's assumptions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It is generally safer to store Hiera lookup results in a variable first. This
+    allows you to check their data type. In Puppet 3, you need to use an `assert`
+    function from the `stdlib` module. Puppet 4 has an operator for this purpose:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Another frequent occurrence is a parameter default that is made dynamic through
+    a Hiera lookup:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For `logrotate::config` resources that are declared with an explicit parameter
+    value, the Hiera value is ignored:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: This can be a little confusing. Still, the pattern adds some convenience. Most
+    agents can rely on the default. The hierarchy allows you to tune this default
+    on multiple levels of granularity.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Binding class parameter values automatically
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The concept of parameterized classes might have gotten a somewhat tarnished
+    reputation, judging from our coverage of it so far. It allegedly makes it difficult
+    to include classes from multiple places in the manifest, or silently allows it
+    under shifting circumstances. While that is `true`, you can avoid these issues
+    by relying on Hiera for your class parameterization needs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since Puppet's version 3.2, it has been possible to choose the values for any
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'class''s parameters right in the Hiera data. Whenever you include a class that
+    has any parameters, Puppet will query Hiera to find a value for each of them.
+    The keys must be named after the class and parameter names, joined by a double
+    colon. Remember the `cacti` class from [Chapter 5](3217a4c2-135e-46b4-bcf2-eef9ddce9991.xhtml),
+    *Combining Classes, Configuration Files, and Extensions into Modules.* It had
+    a `$redirect` parameter. To define its value in Hiera, add the `cacti::redirect`
+    key:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: Some classes have very elaborate interfaces the `apache` class from the Puppet
+    Labs Apache module accepts 70 parameters at the time of writing this. If you need
+    many of those, you can put them into the target machine's dedicated YAML file
+    as one coherent block of keys with values. It will be quite readable because the
+    `apache::` prefixes line up.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You don't save any lines compared to specifying the parameters right in the
+    manifest, but at least the wall of options will not get in your way while you're
+    programming in your manifests, you separated data from code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The point that is perhaps the most redeeming for class parameterization is
+    that each key is independent in your hierarchy. Many parameters can most likely
+    be defined for many or all of your machines. Clusters of application servers can
+    share some settings (if your hierarchy includes a layer on which they are grouped
+    together), and you can override parameters for single machines as you see fit:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding example prepares your site to use the Puppet certificates for
+    HTTPS. This is a good choice for internal services, because trust to the Puppet
+    CA can be easily established, and the certificates are available on all agent
+    machines. The third parameter, `purge_configs`, prevents the module from obliterating
+    any existing Apache configuration that is not under Puppet's management.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s see an example of a more specific hierarchy layer that overrides this
+    setting:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: On machines that have the `httpsec` role, the Apache configuration should be
+    purged so that it matches the managed configuration completely. The hierarchy
+    of such machines also defines some additional values that are not defined in the
+    `common` layer. The SSL settings from `common` remain untouched.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A specific machine''s YAML can override keys from either layer if need be:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: All these settings require no additional work. They take effect automatically,
+    provided that the `apache` class from the `puppetlabs-apache` module is included.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For some users, this might be the only way in which Hiera is employed on their
+    master, which is perfectly valid. You can even design your manifests specifically
+    to expose all configurable items as class parameters. However, keep in mind that
+    another advantage of Hiera is that any value can be retrieved from many different
+    places in your manifest.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For example, if your firewalled servers are reachable through dedicated NAT
+    ports, you will want to add those ports to each machine''s Hiera data. The manifest
+    can export this value not only to the firewall server itself, but also to external
+    servers that use it in scripts and configurations to reach the exporting machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The values will most likely be defined on different hierarchical layers. `nat_port`
+    is agent-specific and can only be defined in the `%{::fqdn}` (or `%{::clientcert}`
+    for better security) derived data source. `nat_ip` will probably be identical
+    for all servers in the same cluster. They might share a server role. `firewall_segment`
+    could well be identical for all servers that share the same location:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As previously mentioned, some of this data will be helpful in other contexts
+    as well. Assume that you deploy a script through a defined type. The script sends
+    messages to remote machines. The destination address and port are passed to the
+    defined type as parameters. Each node that should be targeted can export this
+    script resource:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: It would be impractical to do all this in one class that takes the port and
+    address as parameters. You would want to retrieve the same value from within different
+    classes or even modules, each taking care of the respective exports.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Handling hashes and arrays
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Some examples in this chapter defined array values in Hiera. The good news is
+    that retrieving arrays and hashes from Hiera is not at all different from retrieving
+    simple strings, numbers, or Boolean values. The `hiera` function will return all
+    these values, which are ready for use in the manifest.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are two more functions that offer special handling for such values; the
+    `hiera_array` and `hiera_hash` functions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The presence of these functions can be somewhat confusing. New users might assume
+    that these are required whenever retrieving hashes or arrays from the hierarchy.
+    When inheriting Puppet code, it can be a good idea to double-check that these
+    derived functions are actually used correctly in a given context.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When the `hiera_array` function is invoked, it gathers all named values from
+    the whole hierarchy and merges them into one long array that comprises all elements
+    that were found. Take the example of the distributed firewall configuration once
+    more. Each node should be able to export a list of rules that open ports for public
+    access. The manifest for this would be completely driven by Hiera:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: Please note that the title `200 NAT ports` does not allude to the number of
+    ports, but just adheres to the naming conventions for `firewall` resources. The
+    numeric prefix makes it easy to maintain order. Also, note the seemingly nonsensical
+    default value of `false` for the `site::net::nat_ip` key in the `if` clause. This
+    forms a useful pattern, though the resource should only be exported if `public_ip`
+    is defined for the respective node.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Care must be taken if `false` or the empty string is a conceivable value for
+    the key in question. In this case, the `if` clause will ignore that value. In
+    such cases, you should use a well-defined comparison instead:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The hierarchy can then hold ports on several layers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The SSH port should be available for all nodes that get a public address. Note
+    that this value is not an array itself. This is fine Hiera will include scalar
+    values in the resulting list without any complaints:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: Standalone web application servers present their HTTP and HTTPS ports to
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'the public:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: The testing instance for your new cloud service should expose a range of ports
+    for custom services. If it has the `webserver` role (somehow), it will lead to
+    an export of ports `22`, `80`, and `443`, as well as its individually chosen list.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When designing such a construct, keep in mind that the array merge is only ever
+    cumulative. There is no way to exclude values that were added in lower layers
+    from the final result. In this example, you will have no opportunity to disable
+    the SSH port `22` for any given machine. You should take good care when adding
+    common values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A similar alternative lookup function exists for hashes. The `hiera_hash` function
+    also traverses the whole hierarchy and constructs a hash by merging all hashes
+    it finds under the given Hiera key from all hierarchy layers. Hash keys in higher
+    layers overwrite those from lower layers. All values must be hashes. Strings,
+    arrays, or other data types are not allowed in this case:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'These are the default settings for `haproxy` at the lowest hierarchy level.
+    On web servers, the daemon should run as the general web service user:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: When retrieved using `hiera('haproxy_settings')`, this will just evaluate to
+    the hash, `{'user'=>'www-data','group'=>'www-data'}`. The hash at the role-specific
+    layer completely overrides the default settings.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To get all values, create a merger using `hiera_hash(''haproxy_settings'')`
+    instead. The result is likely to be more useful:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The limitations are similar to those of `hiera_array`. Keys from any hierarchy
+    level cannot be removed; they can only be overwritten with different values. The
+    end result is quite similar to what you would get from replacing the hash with
+    a group of keys:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: If you opt to do this, the data can also be easily fitted to a class that can
+    bind these values to parameters automatically. Preferring flat structures can,
+    therefore, be beneficial. Defining hashes in Hiera is still generally worthwhile,
+    as the next section explains. [https://docs.puppetlabs.com/references/latest/function.html#createresources](https://docs.puppetlabs.com/references/latest/function.html#createresources) originally
+    been conceived for. Hiera can serve as a basic ENC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Choosing between manifest and Hiera designs
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You can now move most of the concrete configuration to the data storage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Classes can be included from the manifest or through Hiera. Puppet looks up
+    parameter values in the hierarchy, and you can flexibly distribute the configuration
+    values there in order to achieve the desired result for each node with minimal
+    effort and redundancy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This does not mean that you don''t write actual manifest code anymore. The
+    manifest is still the central pillar of your design. You will often need logic
+    that uses the configuration data as input. For example, there might be classes
+    that should only be included if a certain value is retrieved from Hiera:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: If you try and rely on Hiera exclusively, you will have to add `nginx` to the
+    `classes` array at all places in the hierarchy that set the `use_caching_proxy`
+    flag to `true`. This is prone to mistakes. What's worse is that the flag can be
+    overridden from `true` to `false` at a more specific layer, but the `nginx` element
+    cannot be removed from an array that is retrieved by `hiera_include`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is important to keep in mind that the manifest and data should complement
+    each other. You should primarily build manifests and add lookup function calls
+    at opportune places. Defining flags and values in Hiera should allow you (or the
+    user of your modules) to alter the behavior of the manifest. The data should not
+    be the driver of the catalog composition, except for places in which you replace
+    large numbers of static resources with large data structures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Debugging data lookups
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As you can see from the preceding example, the data that contributes to the
+    complete configuration of any module can be rather dispersed throughout the set
+    of your data sources. It can be challenging to determine where the respective
+    values are retrieved from for any given agent node. It can be frustrating to trace
+    data sources to find out why a change at some level will not take effect for some
+    of your agents.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To help make the process more transparent, Hiera comes with a command-line
+    tool called `hiera`. Invoking it is simple:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: It retrieves a given key using the specified configuration from `hiera.yaml`.
+    Make sure that you use the same Hiera configuration as Puppet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Of course, this can only work sensibly if Hiera selects the same data sources
+    as the compiler, which uses fact values to form a concrete hierarchy. These required
+    facts can be given right on the command line as the final parameters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: This prints the `demo::atoms` value of the specified server to the console.
+    The fact values can also be retrieved from a YAML file or other alternative sources.
+    Use `hiera --help` to get information about the available scenarios.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Make sure that you add the `-d` (or `--debug`) flag in order to get helpful
+    information about the traversal of the hierarchy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: Hiera 5 allows for another way of debugging data lookups. We will cover Hiera
+    5 later in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Managing resources from data
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You can now move configuration settings to Hiera and dedicate your manifest
+    to logic. This works seamlessly as far as classes and their parameters are concerned,
+    because class parameters automatically retrieve their values from Hiera. For configuration
+    that requires you to instantiate resources, you still need to write the full manifests
+    and add manual lookup function calls.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For example, an Apache web server requires some global settings, but the interesting
+    parts of its configuration are typically performed in virtual host configuration
+    files. Puppet models them with defined resource types. If you want to configure
+    an `iptables` firewall, you have to declare lots of resources of the `firewall`
+    type (available through the `puppetlabs-firewall` module).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Such elaborate resources can clutter up your manifest, yet they mostly represent
+    data. There is no inherent logic to many firewall rules (although sometimes a
+    set of rules is derived from one or several key values). Virtual hosts often stand
+    for themselves as well, with little or no relation to configuration details that
+    are relevant to other parts of the setup.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Puppet comes with yet another function that allows you to move whole sets of
+    such resources to Hiera data. The pattern is straightforward: a group of resources
+    of the same type are represented by a hash. The keys are resource titles, and
+    the values are yet another layer of hashes with key-value pairs for attributes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This YAML data represents two `service` resources. To make Puppet add them
+    as actual resources to the catalog, use the iterator function from Puppet 4:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Within older Puppet code, one will most likely find the usage of the `create_resources`
+    function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first argument is the name of the resource type, and the second must be
+    the hash of actual resources. There are some more aspects to this technique, but
+    do note that, with Puppet 4, it is no longer necessary to rely on the `create_resources`
+    function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It's useful to be aware of the basics of it anyway. It is still in broad use
+    for existing manifests, and it is still the most compact way of converting data
+    into resources. To learn more, refer to the online documentation at [https://docs.puppetlabs.com/references/latest/function.html#createresources](https://docs.puppetlabs.com/references/latest/function.html#createresources).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The Puppet 4 iterator has a few advantages over the `create_resources` approach:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can perform data transformations, such as adding a prefix to string values,
+    or deriving additional attribute values
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Each iteration can do more than just creating one resource per inner hash, for
+    example, including required classes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You can devise a data structure that deviates from the strict expectancies of
+    `create_resources`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The manifest is more clear and intuitive, especially to uninitiated readers
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: For creating many simple resources (such as the services in the preceding example),
+    you might wish to avoid `create_resource` in Puppet 4 manifests. Just keep in
+    mind that if you don't take advantage of doing so, you can keep the manifest more
+    succinct by sticking to `create_resources` after all.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Puppet 4 comes with a useful tool to generate YAML data that is suitable for
+    `create_resources`. With the following command, you can make Puppet emit service
+    type resources that represent the set of available services on the local system,
+    along with their current property values:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `-y` switch selects a YAML output instead of Puppet DSL.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In theory, these techniques allow you to move almost all your code to Hiera
+    data (the next section discusses how desirable that really is). There is one more
+    feature that goes one step further in this direction:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This call gathers values from all over the hierarchy; just the same as `hiera_array`.
+    The resulting array is interpreted as a list of class names. All these named classes
+    are included. This allows for some additional consolidation in your manifest:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: You can possibly even use `hiera_include` to declare these classes outside of
+    any `node` block. The data will then affect all nodes. Additionally, from some
+    distinct classes, you might also declare other classes via `hiera_include`, whose
+    names are stored under a different Hiera key.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The ability to enumerate classes for each node to include is what Puppet's **External
+    Node Classifiers** (**ENCs**) had originally been conceived for. Hiera can serve
+    as a basic ENC thanks to the `hiera_include` function. This is most likely preferred
+    over writing a custom ENC. However, it should be noted that some open source ENCs,
+    such as Foreman, are quite powerful and can add much more convenience; as a result,
+    Hiera has not supplanted the concept as a whole.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The combination of these tools opens some ways for you to shrink your manifests
+    to their essential parts and configure your machines gracefully through Hiera.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hiera version 5
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Hiera 5 was released with Puppet 4.9\. Earlier Puppet 4 releases had Hiera
+    4 bundled. The main difference between older Hiera and Hiera 5 is the concept
+    of multilayered Hiera hierarchies:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first layer is the module layer. Hiera 5 allows you to use Hiera data in
+    modules by specifying a Hiera 5 config version `hiera.yaml` file inside the module
+    root
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The second layer is the environment layer where you place a `hiera.yaml` file
+    inside the environment root
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The last layer is the main layer, where `hiera.yaml` resides in `/etc/puppetlabs/puppet/hiera.yaml`.
+    This was the only layer available in older Hiera versions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The main layer is no longer considered best practice, and exists for compatibility
+    reasons. Everybody is encouraged to migrate data from the main layer to the environment
+    layer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With Hiera 5, the configuration file has completely different content. It is
+    still a YAML style file, but backends are no longer globally configured but put
+    into the hierarchy level. This allows you to specify different backends for different
+    Hiera hierarchies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s convert the `hiera.yaml` file from Hiera 3 to Hiera 5:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Transform this file to the Hiera 5 `.yaml` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: Besides this, it is possible to configure the Hiera lookup behavior by adding
+    `lookup_options` keys to your Hiera data. On each data lookup, Hiera 5 will first
+    check for the `lookup_options` key and will then use this information to look
+    up the desired data. But how should Hiera know which layer to use?
+  prefs: []
+  type: TYPE_NORMAL
+- en: With Hiera 3 we used the `hiera`, `hiera_array`, or `hiera_hash` function to
+    retrieve data. With Hiera 5, these functions have been replaced by a single lookup
+    function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`hiera` (key) gets converted to lookup(key)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`hiera_array` (key) gets converted to lookup(key, array, unique)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`hiera_hash` (key) gets converted to lookup(key, hash, hash)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The automatic data lookup from classes works without any further changes. Another
+    change with Hiera 5 is the way we debug Hiera data lookups. Puppet now has the
+    puppet lookup interface. Remember the Hiera cli tool:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now we can use the Puppet lookup cli:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: The main difference is that Puppet lookup uses facts stored on the Puppet master
+    instead of adding each used fact on cli. Besides this, there is an additional
+    option `--explain`, which replaces the debug option from Hiera cli.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When using Puppet lookup with the `--explain` option, the output also shows
+    the lookup for the merge behavior.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Describing all of the new features, especially the paths and globbing possibilities
+    and the configuration of Hiera lookup behavior inside Hiera, is beyond the scope
+    of this book:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/1706dbd4-a78d-4735-a7fc-1e0c1d0c36a0.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: '[http://www.craigdunn.org/2012/05/239/](http://www.craigdunn.org/2012/05/239/),
+    and the design has since been adopted by many users.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Hiera is a tool that stores and retrieves data in a hierarchical fashion. Each
+    retrieval uses a distinct data source from each hierarchy layer and traverses
+    your hierarchy from the most to the least specific level. The hierarchy is defined
+    by the user as an array in a YAML file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Puppet has Hiera support built in, and you can use it to separate data from
+    code. From manifests, you will mainly perform lookups through the `hiera` function.
+    In most cases, the respective entries will rely on fact values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another common way to employ Hiera through Puppet is to name the Hiera keys
+    in the `<class-name>::<parameter-name>` format. When including a parameterized
+    class, Puppet will look for such keys in Hiera. If the manifest does not supply
+    a parameter value, Puppet automatically binds the value from Hiera to the respective
+    parameter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Manifests that boast large numbers of static resources can be cleaned up by
+    converting the declarations to hashes and using the `create_resources` or `each`
+    function to declare resources from the data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hiera 5 offers a broad set of new functionality, including data in modules and
+    data in environments. This chapter gave you guidance on how to migrate data to
+    Hiera 5.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Within [Chapter 9](0a0cf4b0-23fa-48fd-abf9-77ed851bb581.xhtml), *Puppet Roles
+    and Profiles*, we will discuss how modules and node classification should work
+    together, and how to automatically build and deploy a Puppet code environment.
+  prefs: []
+  type: TYPE_NORMAL

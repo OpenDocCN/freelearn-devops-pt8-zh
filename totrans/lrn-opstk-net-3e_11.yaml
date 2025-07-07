@@ -1,0 +1,646 @@
+- en: Router Redundancy Using VRRP
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the Juno release of OpenStack, the Neutron community introduced two methods
+    of attaining high availability in routing. This chapter focuses on a method that
+    uses the Virtual Routing Redundancy Protocol, also known as VRRP, to implement
+    redundancy between two or more Neutron routers. High availability using distributed
+    virtual routers, otherwise known as DVR, will be discussed in [*Chapter 12*](b441728b-4377-43cf-b675-166266fef6c9.xhtml)*,
+    Distributed Virtual Routers*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the previous chapter, we explored the concept of standalone routers and
+    how they allow users to route traffic between project networks and external networks
+    as well as provide network address translation for instances managed by the user.
+    In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: High availability of routing using keepalived and VRRP
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Installing and configuring additional L3 agents
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Demonstrating the creation and management of a highly-available router
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using keepalived and VRRP to provide redundancy
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Keepalived is a software package for Linux that provides load balancing and
+    high availability to Linux-based software and infrastructures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Virtual Router Redundancy Protocol, or VRRP, is a first hop redundancy protocol
+    that aims to provide high availability of a network's default gateway by allowing
+    two or more routers to provide backup for that address. If the active router fails,
+    a backup router will take over the address within a brief period of time. VRRP
+    is an open standard and is based on the proprietary Hot Standby Router Protocol,
+    or HSRP, developed by Cisco.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Neutron uses keepalived, which utilizes VRRP, to provide failover between multiple
+    sets of router namespaces.
+  prefs: []
+  type: TYPE_NORMAL
+- en: VRRP groups
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: With VRRP, a group of routers can be configured to act as a single virtual router.
+    Routers in the VRRP group elect a master to act as the active gateway device,
+    and hosts in the network only need to configure the virtual router address as
+    their default network gateway or next hop address. When a failover occurs, another
+    router in the group will take over routing duties while the configuration of hosts
+    in the network never changes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A VRRP virtual router should not be confused with a Neutron virtual router.
+    The former represents a logical entity, while the latter actually exists as a
+    virtualized routing device, typically implemented as a network namespace.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the following diagram, Router A, Router B, and Router C form a single virtual
+    router. In this configuration, each router has its own IP address and the virtual
+    router has its own IP address. Hosts in the network use the virtual router address
+    as their default gateway:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/080aa743-df33-458e-98db-67c3c051babf.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: As the master router, Router B in the preceding diagram is responsible for the
+    virtual address `192.168.1.1`, and routes traffic for hosts using that address
+    as their gateway. The master router sends VRRP advertisements to the group, which
+    include the priority and state of the master router using the multicast address
+    `224.0.0.18`. The backup routers use a variety of timers and configuration options
+    to determine when a master router has failed and change their state accordingly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Routers that make up the virtual router communicate between themselves using
+    the multicast IP address `224.0.0.18` and IP protocol number 112\. The network
+    setup for this communication is automatically configured and is not impacted by
+    security group rules or manageable by users or operators.
+  prefs: []
+  type: TYPE_NORMAL
+- en: VRRP priority
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Routers in the VRRP group elect a master router according to their priorities.
+    The router with the highest priority is elected master, while the other routers
+    in the group are relegated to backup duties. When a master router fails to send
+    its VRRP advertisements to the group, the backup routers in the VRRP group elect
+    a new master to replace the failed master.
+  prefs: []
+  type: TYPE_NORMAL
+- en: VRRP priorities range from 0 to 255, with 255 being the highest priority. Neutron
+    configures each router in a group with the same priority of 50\. Because the priority
+    is the same between routers, in the event of a failover, the election process
+    falls back to the highest IP address. That is to say that a backup router with
+    IP address `192.168.1.200` on the HA interface will be elected master over a router
+    with IP address `192.168.1.100`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: VRRP working mode
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'A router in a VRRP group works in one of two modes: preemptive and non-preemptive.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Preemptive
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In preemptive mode, when a master router fails, it becomes the master router
+    again when it returns to a group and has a higher priority than the newly elected
+    master.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Non-preemptive
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In non-preemptive mode, when a router in a VRRP group becomes the master, it
+    continues to operate as the master under normal working conditions. If a backup
+    router is assigned a higher priority later, the active master router will continue
+    to operate as the master until it fails.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As of the Kilo release of OpenStack, Neutron configures each router to act in
+    non-preemptive mode, although this may change in the future. In the event of a
+    failure of the HA network, which is used for communication between the routers,
+    a failed master router may not detect that it has failed. It can continue to operate
+    as a master router, even though another router has been elected master. The lack
+    of connectivity between the routers means that all routers may not receive VRRP
+    advertisements. When connectivity is re-established, the routers may engage in
+    an election to determine a single master router. This failure scenario is not
+    common, but one to keep in mind when troubleshooting issues with highly-available
+    routers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: VRRP timers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Timers that are used within VRRP include an advertisement interval timer and
+    a preemption delay timer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Advertisement interval timer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The master router in a VRRP group periodically sends advertisements on an interval
+    established by the advertisement interval timer to inform other routers in the
+    group that it is operating properly. If a backup router does not receive advertisements
+    in a period of three times the interval, the backup regards itself as the master
+    and sends VRRP advertisements to start a new master election process. Neutron
+    routers in a master state are configured to send advertisements every two seconds.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Preemption delay timer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: After a backup router receives an advertisement with a priority lower than itself,
+    it waits for a period of time established by the preemption delay timer before
+    sending out VRRP advertisements to start a new master election. This delay helps
+    the routers avoid frequent state changes among members of the VRRP group in cases
+    of network flapping. Because preemption is not enabled within Neutron routers,
+    this timer is not configured.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Networking of highly available routers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When a highly-available router is created, Neutron creates a VRRP group composed
+    of at least two router namespaces by default. The namespaces are spread across
+    multiple hosts running the Neutron L3 agent, and each runs the keepalived service
+    with an automatically generated configuration. Traffic between the routers uses
+    a dedicated network interface, which is discussed in the following section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Dedicated HA network
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Routers in a VRRP group communicate among one another over a dedicated HA network.
+    An HA router is automatically configured with an interface prefixed with that
+    is only used for this communication.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first time an HA router is created in a project, Neutron configures a network
+    and subnet using the CIDR `169.254.192.0/18`. The network type used is based on
+    the default project network type. Only one HA network is created per project,
+    and it is used by all HA routers that are created by that project. If all HA routers
+    in a project are deleted, the HA network will remain and will be reused for all
+    other HA routers that get created by the project in the future.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Networks created by Neutron for VRRP communication between routers are not actually
+    assigned to projects. As a result, these networks are hidden from regular users
+    in the CLI and GUI. The name of the network reflects the associated project, however,
+    and is used by the L3 agent for identification purposes. Under normal conditions,
+    an HA network should remain hidden and not be modified by users or administrators.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Limitations
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: VRRP utilizes a virtual router identifier, or VRID, to exchange VRRP protocol
+    messages over multicast with other routers using the same VRID to determine which
+    is the master router. The VRID is 8 bits in length and the valid range is 1-255\.
+    Because each project uses a single administrative network for VRRP communication
+    between routers, individual projects are limited to 255 highly-available routers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Virtual IP
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A VRRP virtual router has a virtual IP address that can serve as the default
+    gateway for hosts in the network. The master router owns the IP address until
+    a failover event occurs, at which time a backup router becomes the new master
+    and takes over the IP and associated routing duties.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Due to limitations with keepalived, Neutron HA routers do not completely follow
+    the VRRP networking conventions described up to this point. Neutron assigns a
+    single virtual IP to an HA router, and that virtual IP is only configured on the
+    master router in the group at any given time. While the address does fail over
+    between routers during a failover event, it is not actually used as a gateway
+    address for any network. As HA routers are created, a new virtual IP address is
+    assigned to the respective group.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Neutron assigns virtual IP addresses from the `169.254.0.0/24` network by default.
+    If an HA router's VRID is 5, then the assigned virtual IP would be `169.254.0.5`.
+    Using the VRID in the virtual IP assignment process assures that the address is
+    consistent among HA router instances on different nodes without having to be stored
+    in the database.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Instead of using virtual addresses for each connected subnet, Neutron uses
+    the `virtual_ipaddress_excluded` configuration section found within the `keepalived
+    configuration` file to specify routes, addresses, and their respective interfaces
+    that should be configured when a router becomes master for the group. Likewise,
+    the interface configuration will be removed once the router becomes a backup router.
+    The following screenshot demonstrates various interfaces and routes that will
+    be modified:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/f9b3befd-420d-4910-9529-7347e2154b17.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The keepalived configuration file for an HA router will be discussed in further
+    detail later in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The reason for this behavior is due to the keepalived service being limited
+    to 20 configured virtual addresses, which could artificially limit the number
+    of subnets attached to a Neutron router. The use of `virtual_ipaddress_excluded`
+    is a known workaround of that limitation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Determining the master router
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In the following screenshot, an HA router without any connected gateway or
+    project networks is scheduled across three L3 agents running on a single `controller`
+    and two compute nodes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/59b9a246-80eb-4226-9244-9793e4d9395f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The Neutron L3 agent is commonly installed on controller or network nodes, but
+    can be installed on `compute` nodes as well. This is especially true when distributed
+    virtual routers are configured.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the preceding example, one router acts as the master while the other two
+    are relegated to backup duties. The HA interfaces are used for communication between
+    the routers. At any given time, only the master router should have the virtual
+    IP address `169.254.0.1` configured on its HA interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing and configuring additional L3 agents
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To configure HA routers, two or more L3 agents are required. The L3 agent was
+    installed on the `controller01` node in the previous chapter. On all remaining
+    `compute` nodes, run the following command to install the L3 agent:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Defining an interface driver
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Both the Linux bridge and Open vSwitch mechanism drivers support HA routers,
+    and the Neutron L3 agent must be configured to use the interface driver that corresponds
+    to the chosen mechanism driver.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Update the Neutron L3 configuration file on the `compute` nodes at `/etc/neutron/l3_agent.ini`
+    and specify one of the following interface drivers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On `compute01` running the Linux bridge agent:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On `compute02` and running the Open vSwitch agent:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Setting the agent mode
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The Neutron `L3` agent considers HA routers as legacy routers, as many of the
+    same mechanisms used for standalone routers are shared with HA routers. Therefore,
+    the default value for `agent_mode` of `legacy` shall remain unchanged for the
+    remainder of this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Restarting the Neutron L3 agent
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'After making changes to the configuration of the Neutron L3 agent, issue the
+    following command on the `compute` nodes to restart the agent:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After a restart of the services, the additional agents should check in. Use
+    the following `openstack network agent list` command to return a listing of all L3
+    agents:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output should resemble the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/03668108-9251-4ba4-863d-17b9888ce895.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: If an agent is not listed in the output as expected, troubleshoot any errors
+    that may be indicated in the `/var/log/neutron/l3-agent.log` log file on the respective
+    node.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring Neutron
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Neutron uses default settings to determine the type of routers that users are
+    allowed to create. In addition, the settings also specify the number of routers
+    that make up a VRRP group, the default HA network CIDR, and the default network
+    type.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following settings are specified within the Neutron configuration file
+    at `/etc/neutron/neutron.conf`, and only need to be modified on the host(s) running
+    the Neutron API service. In this environment, the `neutron-server` service runs
+    on the `controller01` node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: To set HA routers as the default router type for projects, set the `l3_ha` configuration
+    option to `True` in `neutron.conf`. For this demonstration, the default value
+    of `False` is sufficient.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With a value of `False`, only users with the admin role can create HA routers.
+    Ordinary users will be limited to the default router type, which in most cases
+    is standalone.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To set a maximum number of `L3` agents used for a virtual router, set ` max_l3_agents_per_router`
+    accordingly. For this demonstration, the default value is sufficient and will
+    mean that three network namespaces will be constructed to make up the VRRP virtual
+    router.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To modify the network type used for HA routers, change the value of `l3_ha_network_type`.
+    By default, the default project network type is used and is sufficient for this
+    demonstration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If the default project network type is vlan, VLANs may be consumed at a faster-than-expected
+    rate, as each project can consume a single VLAN for the HA network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once the changes have been made, restart the `neutron-server` service on the
+    `controller` node for the changes to take effect.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Working with highly available routers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: With a few exceptions, creating and managing an HA router is no different from
+    its standalone counterpart. Neutron's router management commands were covered
+    in the previous chapter, and the exceptions can be found in the following sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating highly-available routers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Users with the admin role can create highly-available routers using the `--ha`
+    argument with the `openstack router create command` shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Users without the admin role do not have the ability to override the default
+    router type and cannot specify the `--ha` argument.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deleting highly-available routers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To delete a highly-available router, simply use the `openstack router delete
+    command` shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: When all HA routers in a project are removed, the HA network used for communication
+    between routers stays behind. That network will be reused upon the creation of
+    HA routers at a later time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Decomposing a highly available router
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Using concepts demonstrated in previous chapters, let''s walk through the creation
+    and decomposition of a highly available router. In the following example, I''ve
+    started out with an external provider network named `GATEWAY_NET` and a project
+    network named `PROJECT_NET`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/138e2329-e4d3-41c1-bda2-6d05cbc98442.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Using the `openstack router create` command with the `--ha` argument, we can
+    create an HA router named `MyHighlyAvailableRouter`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/1f590bb4-c404-4624-b2d9-4222b8135136.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Upon creation of the HA router, a network namespace was created on up to three
+    hosts running the Neutron L3 agent. In this demonstration, the L3 agent is running
+    on the `controller01` and two compute nodes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the following screenshot, a router namespace that corresponds to the `MyHighlyAvailableRouter`
+    router can be observed on each host:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/8bb73910-2b62-4115-a484-d5556f2c4f89.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Neutron automatically created a network reserved for communication between
+    the routers upon creation of the first HA router within a project using the network
+    defined by the `l3_ha_net_cidr` configuration option in the L3 agent configuration
+    file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/14891d53-2fda-4d20-af25-0db340e83821.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The HA network is not directly associated with the project and is not visible
+    by anyone but an administrator, who is able to see all networks. The output here
+    shows the details of the network:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/3c9c377b-1b86-48b1-814a-e7d4abbbf4c2.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: As you can see, the `project_id` field is blank, while the name of the HA network
+    includes the ID of the project. The network is used by Neutron for all HA routers
+    created by that project in the future.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The HA network utilizes the default project network type and will consume a
+    segmentation ID of that type.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Both a gateway and internal interface have been attached to the router. The
+    `openstack port list` command reveals the gateway, internal, and HA ports associated
+    with the router:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/8f9e1bbf-56f2-4735-aa66-c31bf12bcb20.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The three HA ports were created automatically by Neutron and are used for communication
+    between the router namespaces distributed across the hosts. Inside the network
+    namespaces, we can find the corresponding interfaces:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/691c85b3-6ef0-4610-9e75-093c003daa60.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: '![](img/25171b5d-d7fa-426f-adab-c9664d5e91a8.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: '![](img/71a50c98-1c22-4250-a6c0-aefcefa07d0a.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In the preceding screenshots, the router namespace on  `compute02` has been
+    elected as the master router, as evidenced by the virtual IP, `169.254.0.1/24`,
+    being configured on the HA interface within the namespace. In addition to the
+    HA interface, the `qg` and `qr` interfaces are only fully configured on the master
+    router. If more than one router owns the virtual IP, or if you see the `qg` and
+    `qr` interfaces fully configured on more than one router, there may be communication
+    issues between the routers on the `HA` network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Based on Neutron's configuration of keepalived, the virtual IP is not used as
+    a gateway address and is only used as a standardized address that can failover
+    to other routers as part of the VRRP failover mechanisms. Neutron does not treat
+    addresses on the `qg` or `qr` interfaces as virtual IPs. Along with the virtual
+    IP, the `qg` and `qr` interfaces should only be configured and active on the master
+    router at any given time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can use the `openstack network agent list` command with the `--router`
+    and `--long` arguments to determine the agent(s) a router is scheduled to as well
+    as see the HA state for the given agent, if applicable:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e67ac1c6-09d2-4eef-b51e-10531d4c7e58.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Examining the keepalived configuration
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Neutron has configured keepalived in each qrouter namespace so that, together,
+    the namespaces can act as a single virtual router. A keepalived service runs in
+    each namespace and uses the following configuration file located on the underlying
+    host running the `L3` agent:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'A look at the configuration file for the active router on `compute02` shows
+    the keepalived and VRRP configurations currently in use:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/b6af2916-c880-4268-9da9-e1f864948d15.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Executing a failover
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Under normal circumstances, a node is not likely to fail, and router failover
+    is unlikely to occur. A failure scenario can be recreated by manually rebooting
+    the node hosting the active router or by putting its physical interfaces into
+    a down state.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Failover actions are logged in the following location within the router namespaces:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'An example of a router going from a backup state to master state once failure
+    is detected can be observed in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/76e2ca61-fbff-4a8b-b7c6-199414e7af1c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In the preceding screenshot, the router on `compute01` became the new master
+    router. In the log, this was identified by the `state_master` message. Once the
+    former master router regains connectivity and detects a new master has been elected,
+    it moves to a backup state, as indicated by the `state_backup` message seen here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/1f887b6a-1769-440f-bc98-29ad3e8b09df.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Highly available routers can be created and managed using the same router command
+    set discussed in the previous chapter. Neutron L3 agents are responsible for configuring
+    the routers in a VRRP group, and the routers are left to elect a master router
+    and implement their respective keepalived configuration based on their master
+    or backup state at that time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While HA routers provide a level of redundancy over their standalone counterparts,
+    they are not without their drawbacks. A single node hosting a master router is
+    still a bottleneck for traffic traversing that router. In addition, if the network
+    used for dedicated VRRP traffic between routers experiences a loss of connectivity,
+    the routers can become split-brained. This can cause two or more routers to become
+    master routers and potentially cause ARP and MAC flapping issues in the network.
+    Connection tracking between routers has not been implemented as of the Pike release,
+    which means that connections to and from instances may be severed during a failover
+    event. These shortcomings are being actively worked on and look to be addressed
+    in future releases of OpenStack.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will look at how virtual routers can be distributed
+    across `compute` nodes and serve as the gateway for their respective instances
+    using a technology referred to as Distributed Virtual Routers, or DVR.
+  prefs: []
+  type: TYPE_NORMAL

@@ -1,0 +1,1426 @@
+- en: '9'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Benchmarking the Infrastructure – Evaluating Resource Capacity and Optimization
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: “Save for a rainy day.”
+  prefs: []
+  type: TYPE_NORMAL
+- en: – Aesop
+  prefs: []
+  type: TYPE_NORMAL
+- en: One of the major challenges when operating a growing infrastructure is keeping
+    different services up and running within the expected defined **Service Level
+    Agreements** ( **SLAs** ). During the course of production, unexpected issues
+    might arise, even though a proper monitoring solution has been put in place to
+    act proactively when certain situations are detected, such as scaling cluster
+    nodes up and down to accommodate more tenant workloads. In a complex environment
+    such as OpenStack, hitting system performance limits is considered a common issue
+    due to its distributed and loose architecture. The more services join the ecosystem,
+    the more performance issues will be raised. You might have a monitoring dashboard
+    where all services are showing green but cloud tenant users are facing issues
+    with spawning a **Virtual Machine** ( **VM** ) after several failed requests.
+    Logging, as we covered in the previous chapter, could help with deep diving into
+    the root cause but not with tracing such reluctant events leading to user frustration
+    due to undetected performance issues. For this reason, a best practice is to keep
+    profiling the cloud environment in each minor or major ecosystem. One of the most
+    highly recommended approaches is to include a benchmarking stage in your CI/CD
+    pipeline for each change. Another way is to conduct a profiler cycle on each OpenStack
+    environment software or hardware update and collect performance metrics to compare
+    to the existing SLA. The OpenStack cloud environment does not come with infinite
+    resources, and knowing your limits in advance is essential before making business
+    and operational decisions to extend your service catalogs to cloud users.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will go through different options for running benchmarking
+    exercises in OpenStack, detecting potential bottlenecks, and working on recommendations
+    to avoid performance issues in production. The following topics will be covered:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Improve database performance in OpenStack using caching
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Benchmark OpenStack and identify the source of performance bottlenecks
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Optimize our cloud control and data plane using Watcher
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Learn how to trace requests traveling across OpenStack services to identify
+    bottlenecks and improve performance
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Empowering the database
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Databases in OpenStack are considered one of the most critical shared infrastructure
+    services that require additional attention. From a high-availability perspective,
+    a multi-master cluster based on **Galera MariaDB** would satisfy the requirement
+    for a resilient database setup would does not fully guarantee high-performing
+    write or read transactions. The database performance becomes an issue when the
+    cloud environment keeps growing without measuring the new load. Databases in OpenStack
+    can grow massively and result in large tables. Each read or write request and
+    API call increases the load, leading to common scenarios encountered with databases,
+    such as database inconsistency. A tenant could fire an API request to disassociate
+    a network interface from an instance but the record in the database would remain
+    unchanged. A quick fix is to log in to the database and change the record manually,
+    which can be an error-prone process. The other common pattern is **multiple writes
+    concurrency** , whereby two services assign the same resource ID based on an incoherent
+    status attribute. For example, a new instance might be spawned and may be unable
+    to associate floating IP resources that have been, at the same time, dissociated
+    from a terminated instance. Relational databases typically face performance challenges,
+    and generally, cloud operators utilize database administrators to keep their large
+    and complex database environments. Each request in an OpenStack environment would
+    reach a database for a read or write, and as we have learned in previous chapters,
+    most OpenStack services interact with the database to fulfill a request, ideally
+    within an acceptable response time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Aside from possible ways to improve an OpenStack database setup through hardware
+    upscaling and upgrades, it is important to keep track of generic metrics of the
+    database, such as the number of reads or writes, input/output storage trends,
+    and error rates. That will help you conclude approximately when the database will
+    present a bottleneck. If the software and configuration tweaks won’t help bypass
+    the surge, a hardware upgrade will be more convenient to ensure that there is
+    less trouble in the next production cycle.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running with caching
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: One of the fastest ways to ensure an optimally performing database is to look
+    at the hardware running the cluster. The nature of physical disks has a great
+    influence on their capability to perform a certain number of operations. For example,
+    using **Solid State Devices** ( **SSDs** ) for database nodes can be very beneficial
+    in improving the access time and transfer data speed, as well as the input/output
+    wait factors. The latest generations will consider Flash storage devices that
+    improve read/write operations and are capable of handling high operation concurrency
+    rates. On the other hand, there are better and more cost-effective ways to design
+    a well-performing database solution, such as by reducing the disk input/output
+    activities on the database side via caching.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Caching happens at every step along the way, from the servers to the browsers
+    of end users. From the end user’s perspective, caching can minimize unresponsive
+    statuses when passing queries all the way to the database. Additionally, caching
+    might be suitable for moving a long queue of database queries entirely outside
+    of the database server. In such cases, you are better off looking at an external
+    caching solution, such as **Memcached** or **Redis** . By exposing a memory server,
+    the OpenStack database servers can benefit from a caching layer for Horizon to
+    store OpenStack service data. One important consideration is that the caching
+    layer does not store data. Once, for example, a Memcached instance restarts, the
+    data will be lost. Memcached is a typically adopted caching solution in OpenStack
+    that runs in any type of configuration. Large-scale OpenStack environments run
+    the caching layer in dedicated cluster nodes to double the performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A typical Memcached setup only requires the usage of hardware with fewer CPU
+    specifications in contrast to database requirements. The following diagram depicts
+    how Memcached is used in the OpenStack environment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.1 – The Memcached integration in OpenStack](img/B21716_09_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.1 – The Memcached integration in OpenStack
+  prefs: []
+  type: TYPE_NORMAL
+- en: This workflow diagram exposes a **write-through caching mechanism** by getting
+    data that is stored in Memcached while it performs a read to the MySQL database.
+    In the next section, we will deploy a Memcached layer in an existing OpenStack
+    environment using **kolla-ansible** .
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deploying caching
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Before we start deploying our Memcached instance in the existing OpenStack environment,
+    it is essential to iterate through common workflows in OpenStack that would engage
+    caching operations. When firing an instance creation request, several API requests
+    are generated and aligned to reach specific service endpoints. This process involves
+    requests from Horizon to Nova to launch the API request, Glance to fetch an image,
+    Cinder to attach volumes, Neutron to assign network ports, and so on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Upon each request, Keystone checks its records in the database to verify the
+    validity of internal tokens.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With a large number of similar API requests, Keystone would consume more CPU
+    resources for the database to fetch those tokens and validate them accordingly.
+    That would increase latency in order to fulfill new incoming requests and lead
+    to longer delays in lookups through the database table caused by expired tokens.
+    Caching can drastically reduce the load on the database by not saving the tokens
+    in the database and instead using the caching layer. Keystone will save all its
+    token records in a Memcached instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the following exercise, we will deploy a Memcached container as part of
+    the control plane nodes. As recommended previously, the Memcached layer can be
+    run on a dedicated server of even clusters for the highest performance and would
+    require clustering configuration separately, which falls outside of the scope
+    of this book. Update the **multi_packtpub_prod** file to assign the **memcached**
+    role to cloud controller nodes, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The next step is to enable the Memcached service in the **globals.yml** file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, run the pipeline and make sure that the **memcached** container is
+    created and up and running by executing the following command line on the controller
+    node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is the output we get:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.2 – Listing the Memcached kolla container](img/B21716_09_02.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.2 – Listing the Memcached kolla container
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Make sure that Keystone has been reconfigured to use caching, which can be
+    checked in the Keystone configuration file in the cloud controller node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Further checks can be performed on the Memcached instance by watching the **get_hits**
+    value increase when firing Keystone API calls, as depicted here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We get the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.3 – Listing Memcached get_hits stats](img/B21716_09_03.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.3 – Listing Memcached get_hits stats
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A few bounced usage statistic values are useful to verify the current behavior
+    of the Keystone caching mechanism in real time, such as the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**accepting_conns** : This is the number of accepted connections to the Memcached
+    server. Any newly added service configured to use Memcached as a cache backend
+    will increase its value by 1.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**bytes** : This is the number of bytes used for caching items in real time.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**bytes_read** : This is the number of incoming bytes to the Memcached server.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**bytes_written** : This is the number of outgoing bytes from the Memcached
+    server.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**cmd_get** : This is the number of get commands received by the Memcached
+    server.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**cmd_set** : This is the number of set commands processed by the Memcached
+    server.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**get_hits** : This is the number of successful cache hits (get requests).
+    The hit rate can be obtained by dividing **get_hits** by the **cmd_get** value
+    and generating the percentage.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**get_misses** : This is the number of failed cache hits ( get requests).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Most of the OpenStack services can take advantage of the caching layer, so Keystone
+    can use Memcached servers to store the tokens for each service request instead
+    of caching them by default in-process. Once enabled, **kolla-ansible** will roll
+    out the caching layer and adjust the services configuration to use the Memcached
+    layer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As Memcached is deployed through the cloud controller nodes, we can make sure
+    that its clients are handled by the HAProxy load balancer and use multiple Memcached
+    instances in TCP mode. We can simply edit the **enable_haproxy_memcached** variable
+    in the **kolla-ansible/ansible/group_vars/all.yml** file, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: After running the pipeline, the Memcached cluster will be listed in HAProxy
+    and served through its virtual IP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will need to tell Nova services that we already have multiple Memcached
+    instances running in three different cloud controller nodes. When **cc01.os**
+    becomes unavailable, **cc02.os** takes over, and so on. We will set the following
+    directive in each controller and compute node in the **/** **etc/nova/nova.conf**
+    file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Memcached can also be beneficial for our dashboard. We can tell Horizon to
+    use Memcached for the Django web caching. It just needs to point to the virtual
+    IP, considering a scalable cloud controller setup. The dashboard includes the
+    **CACHES** settings, which we need to edit or add. On your cloud controller nodes,
+    edit the **/etc/openstackdashboard/local_settings.py** file like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Optionally, the next configuration snippet can be added to each HAProxy instance
+    to boost a scalable Django dashboard, which will now use a scalable Memcached
+    setup:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Reload the HAProxy configuration by firing the following command line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: There are a gazillion use cases where managing the performance of databases
+    is important; it is a large topic and demands more database expertise to find
+    anomalies and tackle them immediately. Memcached is one way to handle massive
+    bursts of read operations, but that may not be enough. Database performance can
+    be more complicated to tackle when it grows and there are few tools available
+    to automate database performance checks and remediation. OpenStack comes with
+    some tooling around its core ecosystem that supports cloud operators to benchmark,
+    observe, and make architectural decisions to improve service performance. In the
+    next section, we will dive into the art of OpenStack benchmarking using automated
+    tooling.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Benchmarking the cloud
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Scaling up hardware resources is the standard way to address capacity and performance
+    limits. With the help of a monitoring system, cloud operators can react proactively
+    to add more resources in a defined window of time to accommodate the additional
+    load. However, monitoring systems are not enough to better know our limits. In
+    distributed computing systems, every circulated request incurs a performance hit.
+    In the OpenStack world, a load of API requests can be complicated to trace and
+    develop an approximate measurement of how much a part or service can handle.
+  prefs: []
+  type: TYPE_NORMAL
+- en: From the early stages of the cloud journey, cloud operators should define and
+    develop a strategic approach to measure their cloud limits and performance metrics.
+    However, the challenging part is the absence of efficient tools that could be
+    integrated into the life cycle of cloud deployments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To address this gap of performance measurement, one key factor is to benchmark
+    the private cloud setup under load at scale for the control and data planes separately.
+    It is heartening to know that with the great success of OpenStack, more benchmarking
+    tools are being developed around its ecosystem and for each plane. In the next
+    section, we will explore a sophisticated benchmarking tool to measure the control
+    plane: the **Rally** tool.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Rally in action
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '**kolla-ansible** does not support Rally out of the box for installation as
+    Rally is not originally native or part of the OpenStack ecosystem. Installing
+    Rally can be done in various ways, and its package installation is available for
+    many Linux distributions. We will keep our installation platform-agnostic by using
+    containers, but this is not a must.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can still integrate the Rally service in the **kolla-ansible** code. You
+    will need to build your own Rally container, push it to your own private repository,
+    and write the Ansible role.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For the next installation exercise, we will use the latest Docker Rally image
+    from Docker Hub that comes with the Rally service and different plugins for OpenStack.
+    In one of the cloud controller nodes, pull the Rally container by running the
+    following command line in a new directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The pulled image version of Rally is 2.3.0, which is the latest version at
+    the time of writing. Database, configuration, and records of Rally can be stored
+    by creating a Docker volume as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The next command step is simply running the Rally Docker container by indicating
+    the path where Rally will persist data under the **/** **home/rally/.rally** directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Rally default configuration places the **'rally.sqlite'** Rally database
+    under the **/home/rally/.rally** directory. This default configuration can overridden
+    by updating the available options located in the **/** **etc/rally/rally.conf**
+    file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will need to register our OpenStack environment with Rally by providing a
+    deployment file in which OpenStack environment variables, such as admin credentials,
+    are required.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Different variables of the admin username, password, and tenant are generated
+    in the **/** **etc/kolla/clouds.yaml** file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the Rally container Bash prompt, create a **deployment.json** file and make
+    sure that the different variables are assigned values from the **/** **etc/kolla/clouds.yaml**
+    file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Using the Rally client command line, create a deployment using the previously
+    created file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.4 – Listing the Rally deployment status](img/B21716_09_04.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.4 – Listing the Rally deployment status
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Source the generated **openrc** file located under **~/.rally** :'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Verify the availability of the OpenStack deployment using the deployment check
+    command, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here is the output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.5 – Listing the OpenStack services statuses](img/B21716_09_05.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.5 – Listing the OpenStack services statuses
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now that we have a Rally server installed and properly configured to talk to
+    OpenStack APIs, it is time for cloud benchmarking. By default, you may find numerous
+    benchmarking scenarios under **/rally/sample/tasks/scenarios** for all OpenStack
+    services, including other incubated projects such as Murano and Sahara. We will
+    concentrate on benchmarking our existing running OpenStack services. Before starting
+    our first benchmark test, it would be great to shine the spotlight on how Rally
+    works in the first place. Scenarios in Rally are performed based on tasks. A task
+    can include a set of running benchmarks against the OpenStack cloud written in
+    sample JSON or YAML file format. The former file generally has the following structure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Each stanza block is defined as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**ScenarioClass.scenario_method** : This defines the name of the benchmark
+    scenario.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**args** : Every method corresponding to a specific class scenario can be customized
+    by passing parameters before launching the benchmark.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**runner** : This defines the workload frequency type and the order of the
+    benchmarking scenarios. The runner stanza can support different types, as follows:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**constant** : This involves running the scenario for a fixed number of times.
+    For example, a scenario can be run 10 times in the total test period.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**constant_for_duration** : This involves running the scenario for a fixed
+    number of times until a certain point in time.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**periodic** : This involves defining a certain period to run two consecutive
+    benchmark scenarios.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**serial** : This involves running the scenario for a fixed number of times
+    in a single benchmark thread.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**context** : This defines the environment type in which our benchmark scenario(s)
+    can run. Usually, the concept of context defines how many tenants and active users
+    will be associated with a given OpenStack project. It can also specify a quota
+    per tenant or user within a certain granted role.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**sla** : This is very useful for identifying the overall scenario average
+    success rate of the benchmark.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If you are hoping to find a convenient benchmarking scenario that will reveal
+    more significant results from your current OpenStack deployment, you’ll have to
+    keep looking for a real use case that is more specific to cloud operators. For
+    example, Rally can help developers easily run synthetic workloads such as VM provisioning
+    and destroy instances for a limited period. However, the case seems to be more
+    complicated for cloud operators. Such results generated from workloads are more
+    high-level but allow you to identify bottlenecks in the cloud.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s consider a real-world example: companies have several applications that
+    need to be deployed in different usage patterns. If we have multiple concurrent
+    instances of an application for QA/dev, they will be deployed in different versions
+    of this application on the cloud several times per day. Let’s take the use case
+    of a large deployment, where there is a set number of teams running a bunch of
+    standard stack applications and each application will contain a lot of VMs that
+    need to be deployed at certain times in a day. Such workload requirements are
+    translated to OpenStack terms as follows: we will have *M* number of users provisioning
+    *N* number of VMs within a specific flavor and time period in a concurrent way.
+    As we know, OpenStack is not a monolithic structure; it is a distributed system
+    with different daemons and services talking to each other. If we decompose a use
+    case of provisioning an instance to the primitives, it helps us to understand
+    where we spend most of the time during the VM provisioning phase and build records
+    of historical data. For example, by running the same benchmark several times but
+    changing the parameters of database configuration or enabling Glance. In the next
+    subsection, we will use the same benchmarking approach to run against the Keystone
+    service.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Keystone under stress
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Our example scenario is a benchmarking test based on the Rally method named
+    **KeystoneBasic.authenticate_user_and_validate_token** . The scenario is intended
+    to measure the time to fetch and validate tokens issued by Keystone when authenticating
+    users under a specific load. An important note for the sake of the demonstration
+    is that the load test will be applied on a specific Keystone configuration that
+    does not support the **WSGI** module for the Apache web server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The latest version of **kolla-ansible** comes with Keystone configured with
+    the WSGI ( **mod_wsgi** ) module enabled by default for Apache. You can disable
+    the module manually in the Keystone configuration file or create a new Kolla container
+    to test the first Rally scenario. Make sure to perform the load exercise in a
+    separate environment to not break the Keystone configuration and hence other services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s create a new file named **perf_keystone_pp.yaml** . The content of the
+    file task looks as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: The sample scenario will create a constant load of a Keystone scenario authenticating
+    users and validating tokens 50 times without pausing by creating 5 different tenants
+    with 10 users in each. Note that in each iteration, 50 scenarios will run at the
+    same time in concurrency mode to simulate multiple user access. The **sla** section
+    defines a condition where if one authentication attempt fails, then the task will
+    be aborted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s run the previous benchmark using the Rally command line, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Note that this time, we added a new option to our **abort-on-sla-failure**
+    command. This is a very useful argument if you are running such a benchmark scenario
+    in a real OpenStack production environment. Rally generates a heavy workload,
+    which might cause performance troubles in the existing cloud. Thus, we tell Rally
+    to stop the load at a certain moment when the **sla** conditions are met. The
+    output of our executed task is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.6 – Listing Rally task stats](img/B21716_09_06.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.6 – Listing Rally task stats
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The Rally benchmark results show that the scenario test has run 50 times and
+    is completed with a 100% success rate. To dive into more details, we can visualize
+    the HTML report using the generated Rally task ID by running the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Our first test iteration benchmark involves a simple SLA condition that was
+    met during the Rally task:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.7 – A Rally SLA failure_rate HTML report](img/B21716_09_07.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.7 – A Rally SLA failure_rate HTML report
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'From the same report dashboard, in the **Overview** tab, a second pertinent
+    chart, **Load Profile** , illustrates how many iterations were running in parallel
+    during the Rally task:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.8 – The Load Profile report for the Keystone scenario, generated
+    by Rally](img/B21716_09_08.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.8 – The Load Profile report for the Keystone scenario, generated by
+    Rally
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The **Load Profile** graph can be used to illustrate the variation of running
+    iterations simultaneously over the workload period. This information is useful
+    for learning about the system behavior at certain peaks and planning how much
+    load can be supported at any given time. More details are provided in the second
+    tab, **Details** , where we can find **Atomic Action Durations** charts showing,
+    in our case, two actions – **keystone_v2.fetch_token** and **keystone_v2.validate_token**
+    :'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.9 – An Atomic Action Durations graph for Keystone steps, generated
+    by Rally](img/B21716_09_09.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.9 – An Atomic Action Durations graph for Keystone steps, generated
+    by Rally
+  prefs: []
+  type: TYPE_NORMAL
+- en: The chart helps with seeing the variation of the scenario for each action and
+    how the duration is affected and changed throughout the execution of iterations.
+    As we can see, both actions do not have the same duration as fetching and validating
+    tokens are two different operations. If our test case failed in terms of SLA conditions,
+    such as a very long duration for scenario execution, we can use this chart to
+    drive a granular analysis of which action the bottleneck occurred on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can adjust our success criteria parameters a bit in a second iteration for
+    a stricter SLA to visualize a more realistic scenario. For example, we can modify
+    our **sla** section as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The new **sla** section defines five conditions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**max_avg_duration** : If the maximum average duration of an authentication
+    is longer than five seconds, the task will be aborted.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**max_seconds_per_iteration** : If the maximum duration of an authentication
+    request is longer than five seconds, the task will be aborted'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**failure_rate** : If more than one authentication fails, the task will be
+    aborted defined by the parameter **max** .'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**performance_degradation** : If the difference between the maximum and minimum
+    duration of completed iterations is more than 50 percent, the task will be aborted.
+    The maximum value is defined by **max_degradation** parameter.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: ': **outlier** : The outlier limits the number of long-running iterations to
+    a value of **1** defined by the **max** parameter.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Once the Rally scenario has been modified, rerun the task as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s check our charts again by generating a new report with a different name
+    so we can compare the difference in the results from the previous iteration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: '![Figure 9.10 – An SLA for the Keystone load profile, generated by Rally](img/B21716_09_10.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.10 – An SLA for the Keystone load profile, generated by Rally
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'During the test, Rally detected a maximum value for the iteration of **11.27**
+    seconds, which does not comply with our SLA requirement:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.11 – A stacked overview of Keystone actions’ durations](img/B21716_09_11.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.11 – A stacked overview of Keystone actions’ durations
+  prefs: []
+  type: TYPE_NORMAL
+- en: With the new SLA conditions, Rally execution stopped at the sixth iteration.
+    The demanded average time of authenticating a user and validating the token was
+    not met and hence, this will affect the overall scenario execution duration time.
+    The next goal is to compete against that value and decrease it to below five seconds.
+    Our benchmark test showed that authenticating and validating user tokens at a
+    certain peak of workload would not achieve our SLA requirements. Moreover, the
+    time spent authenticating one user increases and might be timed out as concurrency
+    levels hit a specific threshold. This performance challenge can be tweaked by
+    revisiting our Keystone setup. We can refer to an advanced Keystone design pattern
+    that empowers our identity service performance within the OpenStack environment.
+    As many OpenStack components are developed to support the **eventlet-based** process,
+    the Keystone component can run in different ways by supporting the multi-threading
+    process at the cost of our cloud controller’s CPU power. One recommendation is
+    to deploy Keystone in an Nginx server under WSGI or an Apache server with the
+    **mod_wsgi** module enabled.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fronting our Keystone instance with a web server will bring facilities for handling
+    parallel HTTP connections and advanced features to proxy authentication requests
+    to our identity instance in a multi-threaded-based process mode. By default, the
+    community **kolla-ansible** code comes with the WSGI module enabled that will
+    be used for this exercise. The WSGI Keystone configuration is provided in the
+    **wsgi-keystone.conf.j2** template located under the **/ansible/roles/keystone/templates**
+    directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following snippet shows a basic WSGI configuration in Keystone with the
+    **VirtualHost** option:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Note that the WSGI process group defines the number of threads to be run by
+    the Keystone user ( **threads=1** ) and processes ( **keystone_api_workers** ).
+    We can increase the number of processed requests by adjusting the number for processes
+    defined in the **keystone_api_workers** option and threads in **WSGIDaemonProcessdirective**
+    :'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: As we have introduced a configuration change, run the pipeline to pull and run
+    the new configurations to be reflected in the web server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now we have Keystone backed by a web server and empowered by multi-threaded
+    process mode by means of the WSGI module. We have already defined the process
+    daemons and threads that will help trace the limit of our hardware and Keystone
+    capabilities against the same scenario by running it once again:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Demonstrating the last Keystone settings, our cloud controller should be running
+    more **apache2** processes and hence using more CPU power. That can be illustrated
+    in the new performance results for authentication and validation duration change:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: '![Figure 9.12 – The Keystone SLA upon web server threads increasing](img/B21716_09_12.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.12 – The Keystone SLA upon web server threads increasing
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now we have reached our goal by reducing the max number of seconds per iteration
+    to below five seconds (4.19 seconds). As we have achieved a *green* SLA, we can
+    analyze our new Keystone boost configuration from the **Load** **Profile** chart:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: "![Figure 9.13 – \uFEFFKeystone load profile after increasing number of web\
+    \ server threads](img/B21716_09_13.jpg)"
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.13 – Keystone load profile after increasing number of web server threads
+  prefs: []
+  type: TYPE_NORMAL
+- en: Compared to previous iterations, simultaneous requests can be handled by a pool
+    of threads, so Keystone is able to face concurrent iterations during the workload
+    timeline. Although the currency level was set higher, we can notice that the maximum
+    value of the load testing performed was only **24** . That confirms that our thread
+    and process settings for WSGI were heading in the right direction, leaving more
+    free slots for more concurrency and less time for processing per iteration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There is more that can be done with Rally, but the scenarios described are sophisticated
+    enough to start our benchmarking journey in OpenStack. Rally is also a pluggable
+    platform that allows operators to create and customize their benchmarking scenarios
+    to meet certain special use cases. Benchmarking is helpful to get insights into
+    how your OpenStack is performing in regard to the defined SLA. However, when performance
+    anomalies are detected, benchmarking cannot help directly to remediate the issue.
+    For this reason, the profiling practice covered in the next section should be
+    taken into consideration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Profiling the cloud
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The OpenStack ecosystem is composed of multiple services that connect with each
+    other to fulfill a request. In some cases, a request can be processed extremely
+    slowly and fail. If the rate of request failures keeps increasing, cloud operators
+    must investigate and understand the root cause of the issue. Monitoring, debugging,
+    and logging tools can partially be the answer to such scenarios, but they lack
+    a request flow mechanism. A tiny but great tool has been developed in the OpenStack
+    ecosystem named **OSProfiler** , which focuses on service tracing. OSProfiler
+    provides a view of requests as they travel through different OpenStack services
+    and compiles data to be visualized in a timeline graph. Cloud operators can determine
+    bottlenecks in the OpenStack deployment and improve its performance by comparing
+    trace sets with different conditions. The OSProfiler tool is capable of providing
+    valuable insights and tracing data that captures the response time of APIs, databases,
+    drivers, and RPC calls. Cloud operators can store the tracing information in persistent
+    storage for further analysis, such as Redis, Elasticsearch, a simple file, or
+    MongoDB.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In a complex system such as OpenStack, tracing where a request is spent most
+    of the time is extremely helpful to troubleshoot faster, identify bottlenecks,
+    and prevent the issue from happening again. Using OSProfiler, cloud operators
+    can figure out the reason, for example, why launching a VM request takes ages.
+    OSProfiler is capable of showing the services involved in such requests, as well
+    as their dependencies. Operators can conclude which service presents the bottleneck
+    and how to improve the response time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next section will illustrate how to install and run OSProfiler in the existing
+    OpenStack environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Profiler in action
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Since the Antelope version, OSProfiler can trace all the OpenStack core services
+    in addition to other projects. The OpenStack community aims to use OSProfiler
+    for all OpenStack projects without exception due to its light and powerful tracing
+    capabilities. The **kolla-ansible** infrastructure already supports OSProfiler,
+    which can be installed easily. OSProfiler can be enabled by configuring the following
+    settings in the **globals.yml** file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that OSProfiler uses Elasticsearch as a backend to store the tracing data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: If **enable_elasticsearch** is set to **"no"** , Kolla will install and use
+    Redis as a default backend for OSProfiler.
+  prefs: []
+  type: TYPE_NORMAL
+- en: OSProfiler does not need to be installed on a dedicated host. At the time of
+    writing, OpenStack **kolla-ansible** supports OSProfiler for Keystone, Nova, Glance,
+    Cinder, Neutron, Placement, Swift, Heat, Trove, Senlin, and Vitrage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once the **globals.yml** file is updated and pushed, run the pipeline and the
+    OSProfiler library should be installed. Before starting a profiling exercise,
+    we will need to retrieve the generated OSProfiler secret referenced by the **osprofiler_secret**
+    key in the **/etc/kolla/passwords.yml** file. The **osprofiler_secret** key will
+    be used to create profiler UUIDs with OpenStack client command lines for supported
+    services. The next example illustrates a tracing exercise of a Glance API call,
+    as demonstrated in the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Use the official OpenStack Python client running in a cloud controller node
+    to generate a tracing output:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This is the output we get:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![Figure 9.14 – OSProfiler image list](img/B21716_09_14.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.14 – OSProfiler image list
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**<OSPROFILER_SECRET>** is the retrieved OSProfiler secret retrieved from the
+    **/etc/kolla/passwords.yml** file referenced in the **osprofiler_secret** parameter.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is possible to customize the **OSPROFILER_SECRET** value for each supported
+    service by configuring the **hmac_keys** setting in each configuration file that
+    corresponds to that service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The command line returns an OSProfiler tracing command line, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.15 – An OSProfiler trace command output](img/B21716_09_15.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.15 – An OSProfiler trace command output
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Use the **osprofiler** command line to print the tracing graph in HTML format.
+    The retrieved tracing data can be stored locally in the created Elasticsearch
+    instance:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: An HTML report should be available locally under the **/** **tmp** directory.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'Visualize the tracing results by accessing the generated **image_perf.html**
+    file in a browser:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 9.16 – An example of OSProfiler tracing results](img/B21716_09_16.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.16 – An example of OSProfiler tracing results
+  prefs: []
+  type: TYPE_NORMAL
+- en: The generated HTML report exposes, for each request made at the time of processing
+    of each call, the nature of the service call (API, database, etc.) and its corresponding
+    project. The **Levels** column corresponds to a traced point that includes a low
+    level of detailed information in JSON format.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tracing is a great practice to debug at a low level what cannot be detected
+    in your monitoring system or overlooked in the log data. Both profiling and benchmarking
+    provide sufficient information about cloud performance and the trend of resource
+    utilization. As the cloud infrastructure keeps receiving new tenants, more hardware
+    demands will increase. If this is not watched and analyzed from the early days,
+    the cost can rise and the risks will be out of control. Operators should be provided
+    with strategies and tooling to automate budget control and management. One of
+    the best approaches with limited resources is to seek optimization, which will
+    be covered in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Watching the cloud
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Once your cloud environment has started to expand and more hardware resources
+    are deployed, cloud operators should find ways to optimize costs. There are niche
+    use cases, such as optimizing the placement of VMs (VMs migrate between hosts
+    in case of imbalance detection).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The lack of tooling and efficient processes to conduct a resource optimization
+    exercise presents a big challenge to private cloud operators. Traditionally, OpenStack
+    administrators needed to manually grab historical metrics on resource usage, analyze
+    them in regular sprints, and make decisions based on the collected data. However,
+    manual processing in a large OpenStack deployment can be error prone. To automate
+    such a process, the OpenStack community has come up with an evolving incubated
+    project code named **Watcher** . The main objective of the Watcher project is
+    to enable new ways for cloud operators to reduce the cloud’s **Total Cost of Ownership**
+    ( **TCO** ). Watcher is designed to monitor, analyze, and execute optimization
+    tasks based on predefined goals. The following diagram illustrates how Watcher’s
+    continuous optimization loop is designed through a set of steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.17 – OpenStack’s Watcher steps workflow](img/B21716_09_17.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.17 – OpenStack’s Watcher steps workflow
+  prefs: []
+  type: TYPE_NORMAL
+- en: It starts with the **Monitor** state, where data metrics are collected from
+    various data sources, such as the type of CPU, memory utilization, and energy
+    consumption. Then, the collected information is analyzed and aggregated. Watcher
+    then engages a profiler component that concludes a few patterns and uses that
+    to predict VM resource utilization. An optimization plan will be created by an
+    **Optimizer** component by taking a set of goals and constraints as inputs, for
+    example, by creating some collocation rules such as affinity and anti-affinity
+    rules in the Nova scheduler. Watcher will make scheduling decisions based on such
+    inputs and can leverage some of the other constraints defined by other projects.
+    The next stage runs the **Planner** component, so Watcher builds action items,
+    for example, if a VM needs to be migrated from one host to another. In the Plan
+    phase, Watcher puts a set of steps that can be acted upon and ordered to run serially
+    or in parallel. Finally, Watcher executes the action plan and applies the optimal
+    state of the infrastructure as specified in the defined goals.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next section will go through the installation of the Watcher project in
+    the existing OpenStack environment using **kolla-ansible** and demonstrate its
+    usage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Watcher in action
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The latest **kolla-ansible** code releases come with the Watcher playbook ready
+    for installation. Keystone, Nova, and Ceilometer must be running before installing
+    Watcher. In the following setup, all Watcher components, including **watcher-api**
+    , **watcher-engine** , and **watcher-applier** , will be part of the cloud controller
+    node group. To install **watcher** components, configure the **multi_packtpub_prod**
+    inventory file by adding the following section:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, enable the Watcher service in the **globals.yml** file by adjusting the
+    following configuration line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The Watcher service comes with a Horizon plugin that will be visible on the
+    Horizon dashboard once installed. Commit the changes and run the pipeline. Once
+    finished, check the new Docker containers for the Watcher service by running the
+    following command line in any of the controller nodes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here is the output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.18 – A Watcher deployment check](img/B21716_09_18.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.18 – A Watcher deployment check
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before starting to use the Watcher service, it is important to highlight the
+    different steps of a Watcher workflow:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Create an optimization goal and associate it with a strategy.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Create an audit template that is associated with the optimization goal.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Create an audit that will be triggered by the audit template.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Generate an action plan by the created audit.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Take action either manually or in an automatic fashion.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: In the following part of this section, we will demonstrate a predefined Watcher
+    strategy, which is referred to as the **VM Workload Consolidation Strategy** .
+    The goal of such a strategy is to consolidate a running workload in the cloud
+    and optimize the number of resources that run it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To quickly check the predefined list of goals in Watcher, run the following
+    command line and take note of the **Server Consolidation** goal **UUID** or **Name**
+    in the output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.19 – Watcher optimization goal listing](img/B21716_09_19.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.19 – Watcher optimization goal listing
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, obtain the list of available strategies for the **Server Consolidation**
+    goal using the listed goal **UUID** or **Name** from the previous output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We get the following output now:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.20 – A Watcher optimization strategy listing](img/B21716_09_20.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.20 – A Watcher optimization strategy listing
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'From the returned list of strategies, we will use the **vm_workload_consolidation**
+    strategy to minimize the number of hosts running a workload with respect to resource
+    capacity constraints. Before creating the audit template, we can check the distribution
+    of the instances across different hypervisor machines before applying the selected
+    optimization strategy in the Watcher panel:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.21 – The instance distribution state before the optimization is
+    applied](img/B21716_09_21.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.21 – The instance distribution state before the optimization is applied
+  prefs: []
+  type: TYPE_NORMAL
+- en: The **Hypervisor** list is composed of three compute nodes and the specific
+    distribution of instances spread across them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the next step, create an audit template associated with the selected goal
+    and the chosen strategy by running the following command line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here is the output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.22 – Watcher optimization audit template creation](img/B21716_09_22.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.22 – Watcher optimization audit template creation
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, run an audit from the created audit template, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.23 – Watcher optimization audit creation](img/B21716_09_23.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.23 – Watcher optimization audit creation
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that the audit creation may take longer to complete. The **State** field
+    shows **PENDING** . During that state, the audit request is treated by the Watcher
+    decision engine, which passes the requested audit to the next state. If the Watcher
+    decision engine finds at least one optimization option that can be applied within
+    the set of the audited resources (compute nodes for the context of the current
+    goal and strategy), the audit state will change to **SUCCEEDED** .
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Use the **optimize audit show** command with the generated audit UUID and verify
+    whether the status of the audit creation is completed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here is the output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.24 – Watcher optimization audit validation](img/B21716_09_24.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.24 – Watcher optimization audit validation
+  prefs: []
+  type: TYPE_NORMAL
+- en: For each created audit, the optimization service generates an action plan. An
+    action plan defines which tasks need to be executed to achieve the goal set at
+    the start. Action plans use advanced algorithms and return some pertinent information,
+    such as **efficacy indicators** (reflects an improvement score based on the generated
+    audit solution) and global efficacy (general scoring for the evaluated action
+    plan).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once the audit creation status changes to **SUCCEEDED** , run the following
+    command line with the audit UUID to retrieve the action plan generated by the
+    audit:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.25 – Watcher optimization action plan listing](img/B21716_09_25.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.25 – Watcher optimization action plan listing
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note in the previous output that the Watcher planner has created an action plan
+    that is waiting for operator validation. The **RECOMMENDED** state is the last
+    step performed by the Planner component. From the **Global efficacy** information,
+    the **watcher-planner** process has concluded that around 33% of compute nodes
+    can be pulled back while maintaining the same amount of running workloads.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The returned action plan line is not sufficient to go through all the different
+    action items. There is a separate command line for that purpose. Before applying
+    any action plan, an operator should review the associated actions as follows.
+    Run the following command line with the action plan UUID generated in the previous
+    step:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The action plan lists all items that will be actioned. The following list is
+    a truncated version for a longer output that indicates the change of the Nova
+    service’s state in the first line. The following lines are the planned action
+    based on the first item that will be executed serially. Each following action
+    item is a recommendation of the Watcher planner to migrate a set of instances
+    once the parent action (the Nova service’s state) is updated:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.26 – Watcher optimization action listing](img/B21716_09_26.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.26 – Watcher optimization action listing
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once reviewed, an operator can go ahead and run the **watcher-applier** process
+    to execute the action plan by running the following command line with the action
+    plan UUID:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output can be quite large due to the values assigned to action plan indicators
+    ( **Efficacy indicators** and **Global efficacy** embedded JSON values). A simple
+    truncated version can be visualized as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.27 – Watcher optimization action start](img/B21716_09_27.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.27 – Watcher optimization action start
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Most importantly, note the **PENDING** state of the action plan execution.
+    That is expected to keep running for a longer time due to the migration of a set
+    of instance tasks in the background. The **Efficacy indicators** and **Global
+    efficacy** fields simply reflect a description of the recommended action plan
+    that can be summarized as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Efficacy indicators** : This refers to the number of compute nodes in which
+    the **Applier** component is performing optimization actions. In our example,
+    we are dealing with three nodes. As recommended, the audit aims to release one
+    compute node from the three. Additionally, the indicator keeps counting each migrated
+    instance reported by the Nova service when accomplished. The **instance_migrations_count**
+    recommendation indicates that the number of instance migrations to be performed
+    is **2** .'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Global efficacy** : This is the ratio of nodes aimed to be released once
+    all action items are executed. The ratio is obtained by dividing the number of
+    released compute nodes by the total number of compute nodes in the audit scope.
+    In our case, the ratio will be approximately 33%.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'You can run the previous command line several times and notice the change of
+    the action plan execution state from **PENDING** to **ONGOING** . Once all migration
+    tasks are performed, the state of the action plan should be updated to **SUCCEEDED**
+    with the execution summary in the **Efficacy indicators** and **Global** **efficacy**
+    fields:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.28 – Watcher optimization action plan start](img/B21716_09_28.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.28 – Watcher optimization action plan start
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'By checking the Watcher dashboard, we can notice the change in the instance
+    counts across the listed hypervisors where **cn01.os** becomes completely free.
+    Watcher has determined that a given workload can run in two compute nodes instead
+    of three, leaving one hypervisor machine’s resources free, as shown:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.29 – The instance distribution state after optimization is applied](img/B21716_09_29.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.29 – The instance distribution state after optimization is applied
+  prefs: []
+  type: TYPE_NORMAL
+- en: With this optimization achievement, cloud operators should get more free resources
+    to route requests to for future workloads. Predefined goals are a great start
+    to performing optimization exercises. Operators can define custom strategies and
+    goals for different cases based on workload needs as well as the scheduling mechanism
+    that has already been configured. From a big-picture perspective, a well-defined
+    filtering and scheduling configuration is beneficial not only to tackle customization
+    on compute resources and allocation but also to help the Watcher planner find
+    the best optimization options. That will save operational overhead and a good
+    amount of costs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we brought our OpenStack setup to the next level by highlighting
+    a few advanced settings that leverage its performance, such as the database. You
+    should now understand the necessity for undergoing rigorous and effective testing
+    of the cloud platform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There is a learning curve in the art of benchmarking, which gives insight into
+    all facets of the components running in the OpenStack environment, including system
+    hardware and software resources. The chapter highlighted a tiny component, OSProfiler,
+    that can be installed easily in OpenStack to trace and debug requests traveling
+    across the OpenStack services. With a complete view of requests, operators can
+    collect more data and generate a detailed service map that can be used for further
+    performance analytics. The last part of the chapter drew upon best practices relating
+    to resource optimization and automating recommendations when opportunities exist
+    to reduce costs and improve performance. With Watcher, operators will not need
+    to seek a third-party solution unless more functionalities are required. Benchmarking,
+    profiling, and optimization practices should be performed periodically. Although
+    the chapter did not cover how to automate those practices, creating dedicated
+    pipelines for each benchmarking, profiling, and optimization process is highly
+    recommended.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This chapter closes the second part of this book. In the next part, we will
+    look at some recent and modern approaches that leverage the benefits of private
+    and public clouds. In the next chapter, we will go through some common cloud hybrid
+    design patterns where OpenStack continues to shine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Part 3: Extending the OpenStack Cloud'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The final part of the book will crystallize a trendy topic covering the adoption
+    of a hybrid cloud setup. Using OpenStack as a private cloud environment joined
+    with a public cloud provider, this part of the book will demonstrate how to leverage
+    both cloud models to spread workloads in the most efficient and cost-saving ways.
+    Empowered with microservices design patterns and containerization technology,
+    this part will explore different tools and ways to run a workload based on Kubernetes
+    across a running private cloud based on OpenStack and a public cloud based on
+    AWS.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This part has the following chapters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[*Chapter 10*](B21716_10.xhtml#_idTextAnchor217) , *OpenStack Hybrid Cloud
+    – Design Patterns*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 11*](B21716_11.xhtml#_idTextAnchor230) , *A Hybrid Cloud Hyperscale
+    Use Case – Scaling a Kubernetes Workload*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

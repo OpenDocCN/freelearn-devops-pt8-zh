@@ -1,0 +1,745 @@
+- en: '7'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: OpenShift Network
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As we know, networking can be the cause of big trouble if it is not well designed.
+    From a traditional perspective, the network is the dorsal spine of every infrastructure.
+    Networking equipment such as routers, modems, switches, firewalls, **Web Application
+    Firewalls** (**WAFs**), **Intrusion Detection Systems/Intrusion Prevention Systems**
+    (**IDSs/IPSs**), proxies, and **Virtual Private Networks** (**VPNs**) needs to
+    be totally integrated, deployed, and maintained using best practices to ensure
+    high performance and reliable network infrastructure. In this chapter, we will
+    discuss important concepts related to networking on OpenShift that you need to
+    take into consideration to make the best decisions for your case.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This chapter covers the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: OpenShift networking
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Network policies
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: What is an Ingress controller?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Types of routes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: OpenShift networking
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Throughout this book, we continue to reaffirm the importance of choosing the
+    right architecture as it directly impacts the way the cluster will work. We expect
+    that, at this time, all the required network decisions have been made and implemented
+    already – there are a lot of network changes that are not possible after cluster
+    deployment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Although we already discussed networks in [*Chapter 2*](B18015_02.xhtml#_idTextAnchor028),
+    *Architecture Overview and Definitions*, and deployed our cluster, we believe
+    that it is important to expand on this topic a bit more and include more details
+    about the differences when considering network usage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Red Hat OpenShift uses a default **Software-Defined Network** (**SDN**) based
+    on Open vSwitch ([https://github.com/openvswitch/ovs](https://github.com/openvswitch/ovs))
+    that creates a multilayer network solution. This additional layer works as a virtual
+    switch on top of the network layer, and it is responsible for creating, maintaining,
+    and isolating traffic on the virtual LAN.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Because of its multiple-layer network capacity, Open vSwitch provides a way
+    to control traffic coming in and out of the cluster. Refer to the following diagram
+    to better understand network traffic between network layers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.1 – Overview of the networking layers ](img/B18015_07_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.1 – Overview of the networking layers
+  prefs: []
+  type: TYPE_NORMAL
+- en: During the OpenShift cluster installation, some namespaces related to network
+    functions are created; basically, the most important network project is `openshift-sdn`,
+    which contains some pods for each node that will be responsible for the traffic
+    between the nodes. It is relevant to also state that the traffic is running inside
+    a virtual LAN operated by Open vSwitch. There are other network projects involved
+    as well, such as `openshift-host-network` and `openshift-ingress`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How does traffic work on Open vSwitch?
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: To answer this question, we need to define where the traffic begins. Let’s start
+    with the internal traffic, which means the communication between the application’s
+    pods that are inside the OpenShift cluster.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To facilitate your understanding, consider two applications running on OpenShift;
+    the first one is named `app-frontend` and the second `app-backend`. As the name
+    suggests, `app-frontend` makes API calls to `app-backend` to process user requests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Therefore, when a pod from the `app-frontend` application makes a request to
+    the `app-backend` application, this request will be sent to the internal service,
+    in this case the `app-backend` service. The `app-backend` service is responsible
+    for delivering that package to one of the `app-backend` pods. In the same way,
+    the application handles its request and sends the result package back to the service
+    network, which, at this point, already has a connection established with `app-frontend`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.2 – Service network layer ](img/B18015_07_02.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.2 – Service network layer
+  prefs: []
+  type: TYPE_NORMAL
+- en: With that, we have briefly explained the traffic between applications inside
+    the cluster. Now, let’s see how external-to-internal traffic is handled. When
+    a request comes from outside the cluster, it goes initially to the external load
+    balancer. As the load balancer receives a connection, it routes the request to
+    one of the *OpenShift Ingress* pods, which sends it to the service of the destination
+    application, which, in turn, routes it to the proper application’s pod.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.3 – Route SDN networking ](img/B18015_07_03.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.3 – Route SDN networking
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now that you understand how traffic works in an OpenShift cluster, it is important
+    to reinforce that OpenShift basically works with three network layers: the node
+    network, the service network, and the cluster network (aka the pods network).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The **node network** is the physical network used to create and maintain machines.
+    The **service network** is a virtual layer created by Open vSwitch that is responsible
+    for routing traffic between pods and services. The **cluster network** is another
+    Open vSwitch virtual layer responsible for creating subnets for the communication
+    of pods – it allows isolating traffic between projects as needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next sections, we will look deeper into the main available networking
+    plugins for OpenShift. Keep in mind that there are subtle differences between
+    the aforementioned plugins, so the decision between using one plugin and another
+    must be taken into account according to the differences in functionality, which
+    can somewhat affect the architecture of the cluster, and also the network functionality
+    available to the applications. This is a decision that must be made together with
+    the network and software architecture team, to understand the current use cases
+    and planned future implementations, aiming for an efficient and functional cluster.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Network type – OpenShift SDN or OVN-Kubernetes
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: OpenShift is a complete PaaS solution based on Kubernetes that provides several
+    options other than its default components. For instance, OpenShift, by default,
+    uses the Open vSwitch network plugin (OpenShift SDN), but you can use **OVN-Kubernetes**
+    as an alternative.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A network plugin is a feature that creates an overlay network using the Kubernetes
+    **Container Network Interface** (**CNI**) that isolates the traffic between the
+    virtual machines network and the OpenShift nodes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: These two supported options offer a good and reliably performing network, but
+    you can use other kinds of CNI depending on the scenario where OpenShift has been
+    provisioned. Check the link for *OpenShift Tested Integrations* in the *Further
+    reading* section of this chapter to see the options that are tested and supported
+    by Red Hat.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Network policies
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As we already mentioned, OpenShift uses an SDN, and preferably, the network
+    traffic control should be done using the features the cluster provides itself.
+    In our experience, having implemented OpenShift in many organizations, we have
+    often heard doubts regarding how to control network traffic within the cluster,
+    as most customers are used to doing it by using regular firewall devices. In this
+    section, we will walk you through how to control network traffic to be able to
+    allow or deny network traffic as needed. Before giving you some options to do
+    that, we first need to differentiate the different traffic directions that we
+    have in a cluster.
+  prefs: []
+  type: TYPE_NORMAL
+- en: North-south traffic
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: OpenShift has been designed to cover the most common scenarios, even regarding
+    networking. When an incoming connection comes from outside the cluster to an application,
+    it is possible to control network traffic into the cluster using an external firewall
+    and/or the **OpenShift Ingress** solution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: East-west traffic
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Initially, it may sound a little weird to say that there is also network traffic
+    in east-west directions but east-west network traffic is nothing more than traffic
+    between applications in different namespaces inside the same OpenShift cluster.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following diagram explains how these different types of traffic occur in
+    a cluster:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.4 – North-south/east-west traffic flow ](img/B18015_07_04.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.4 – North-south/east-west traffic flow
+  prefs: []
+  type: TYPE_NORMAL
+- en: You have seen the possible directions in which the traffic on the network can
+    be controlled. In the next section, you will see how to control the network traffic
+    in the cluster.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Controlling network traffic
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'There are different options for controlling traffic on OpenShift:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: For north-south traffic, you can either use an external firewall and load balancer
+    to control the traffic before getting into the OpenShift cluster or use annotations
+    in the OpenShift **route** object to control aspects such as the rate limit, timeout,
+    and load balancing algorithm.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Use a proper **network policy** to allow or deny a traffic flow, as needed.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Use the **ovs-multitenant** network isolation mode. This mode was commonly used
+    on OpenShift version 3 but is not encouraged on version 4, as the Network Policy
+    plugin has become the standard.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If you intend to use microservices with OpenShift, you may also choose to use
+    a **service mesh** to control the east-west traffic, which uses the **istio-proxy**
+    sidecar to give the lowest granularity of isolation mode. Service meshes are not
+    the focus of this book, but if you want more information on them, check out the
+    *Further reading* section of this chapter.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you used to use **ovs-multitenant** on OpenShift 3.x and want to have similar
+    functionality on version 4.x, we recommend you customize the project template,
+    adding network policies to block traffic between different projects by default.
+    The process to do that is simple and described at this link: [https://docs.openshift.com/container-platform/latest/networking/network_policy/default-network-policy.html](https://docs.openshift.com/container-platform/latest/networking/network_policy/default-network-policy.html).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we will focus on Network Policy, as this is the standard network
+    plugin on OpenShift 4\. See next how to create a network policy to control the
+    network traffic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a network policy
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: As we already mentioned, with network policies, you can define rules to allow
+    or block ingress network traffic in a cluster. With a network policy, you can,
+    for instance, allow traffic between pods inside the same namespace but deny it
+    from other namespaces. You may also allow traffic only on a specific port, and
+    so on. Therefore, for a better understanding of network policies and the directions
+    in which traffic is and isn’t allowed to flow, we will provide several diagrams
+    and scenarios to clarify the importance of namespace isolation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For learning purposes, we will use three namespaces, named `bluepets`, `greenpets`,
+    and `otherpets`. In the following diagram, we are illustrating the default **network
+    policy**, which allows traffic between namespaces and traffic from a cluster ingress
+    by default:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.5 – Default network policy – allow all ](img/B18015_07_05.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.5 – Default network policy – allow all
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, let’s go ahead and demonstrate connections allowed to these two namespaces:
+    `bluepets` and `greenpets`. To facilitate your understanding, we are running tests
+    in an external network with no direct route to the `rsh` on the `greenpets` namespace
+    and try to reach the service IP of the `bluepets` namespace in our lab scenario
+    discussed previously.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before going into that, we must get the service IPs from both the namespaces
+    to use later in the pod terminal and check the results accordingly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.6 – Service IPs – bluepets and greenpets namespaces ](img/B18015_07_06.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.6 – Service IPs – bluepets and greenpets namespaces
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Take a look at the following screenshot. We `rsh` a pod under the `greenpets`
+    namespace and run `curl` on the following endpoints:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The service IP in `greenpets` (the same namespace): To check connectivity between
+    a pod and service in the same namespace (highlighted with a green square in the
+    following screenshot).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The service IP in `bluepets` (a different namespace): We similarly call the
+    service IP of the `bluepets` namespace and it also works fine (highlighted with
+    a blue square in the following screenshot).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![Figure 7.7 – Testing connectivity between two namespaces ](img/B18015_07_07.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.7 – Testing connectivity between two namespaces
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In our next scenario, we will block all traffic on the `greenpets` namespace,
+    for which the diagram looks like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.8 – greenpets namespace – denying all traffic ](img/B18015_07_08.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.8 – greenpets namespace – denying all traffic
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To accomplish this scenario, we apply a network policy manifest on the `greenpets`
+    namespace:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, let’s perform the same tests again to demonstrate that all network traffic
+    in `greenpets` (route and service) is denying connections:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.9 – Deny all traffic test ](img/B18015_07_09.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.9 – Deny all traffic test
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, we will go deeper and apply a rule that only allows traffic from ingress
+    to flow to pods under the `greenpets` namespace. To do so, we are going to apply
+    the following YAML file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'What this NP does is to only allow pods in the ingress namespace to communicate
+    with pods in the `greenpets` namespace, all other traffic will be blocked. Check
+    out the following diagram and notice that *east-west* traffic between namespaces
+    is denied, but *north-south* traffic is allowed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.10 – greenpets namespace traffic only allowed for Ingress connections
+    (external route) ](img/B18015_07_10.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.10 – greenpets namespace traffic only allowed for Ingress connections
+    (external route)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Notice now that the network communication between the external route (ingress)
+    and the service is working; however, traffic between `bluepets` and `greenpets`
+    is denied.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.11 – Testing network traffic. 1) From bluepets namespace to greenpets
+    namespace: Connection denied. 2) From external route (ingress) to greenpets namespace:
+    Connection allowed. ](img/B18015_07_11.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 7.11 – Testing network traffic. 1) From bluepets namespace to greenpets
+    namespace: Connection denied. 2) From external route (ingress) to greenpets namespace:
+    Connection allowed.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, we will take a look at the most common scenario: the least isolation
+    configuration. This network policy scenario is based on a namespace label that
+    we will apply in the `greenpets` namespace and will work as a key to configure
+    the communication between namespaces.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.12 – Labeled namespaces allowing traffic ](img/B18015_07_12.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.12 – Labeled namespaces allowing traffic
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Looking at the previous diagram, you can see three different namespaces, `bluepets`,
+    `greenpets`, and `otherpets`. A network policy will be applied to the `greenpets`
+    namespace, which will use a label with the `join=greenpets` value. In other words,
+    it means that only elements in namespaces labeled with `join=greenpets` can communicate
+    with the application in the `greenpets` namespace. To implement this, we will
+    apply the following manifest and commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, check the connectivity between the namespaces `bluepets` and `greenpets`
+    by running the following test:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.13 – Testing labeled namespace. Connection to a namespace that contains
+    the proper label – connection allowed ](img/B18015_07_13.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.13 – Testing labeled namespace. Connection to a namespace that contains
+    the proper label – connection allowed
+  prefs: []
+  type: TYPE_NORMAL
+- en: In *Figure 7.13,* you see that the connection was allowed as the namespace contains
+    the label `join=greenpets`. However, in *Figure 7.14*, you can see the connection
+    is denied, as the traffic flows from a namespace (`otherpets`) that doesn’t contain
+    this label.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.14 – Testing non-labeled namespace denying traffic ](img/B18015_07_14.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.14 – Testing non-labeled namespace denying traffic
+  prefs: []
+  type: TYPE_NORMAL
+- en: Network policy is an important tool to isolate network traffic. It is important
+    you consider the challenges that certain types of rules may bring, though. If
+    not properly designed, standardized, and adopted, they may cause you headaches
+    by allowing what should be blocked and blocking what shouldn’t be.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Also, you have to consider which types of workload will run in your cluster.
+    For microservice-oriented applications, for instance, we recommend you look at
+    the **Istio service mesh**, which in general is more appropriate and will bring
+    more granular network access control.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So far, you have learned the definitions and important concepts of SDNs, such
+    as controlling traffic in horizontal and vertical directions by applying policies
+    using labels. Continue, next, to see more about routes and ingress controllers
+    and learn how to use them for your applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: What is an ingress controller?
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: An **Ingress controller** is a lightweight, self-healing load balancer that
+    distributes network traffic from outside the cluster to a network service. Using
+    an Ingress controller is a standard approach for providing and managing ingress
+    traffic to containerized applications. The default ingress controllers on OpenShift
+    use the mature and stable **HAProxy** under the hood. In OpenShift, when you deploy
+    a cluster, the ingress controller is automatically created and hosted in two worker
+    nodes by default.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How does an ingress operator work?
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'An Ingress operator acts similarly to almost all cluster operators in OpenShift:
+    protecting the important settings of the operation of a cluster. The operator
+    monitors the ingress pods running in the `openshift-ingress` namespace and protects
+    the `IngressController` objects from wrong and non-compatible settings that can
+    lead to problems with the cluster network.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Otherwise, you can create others `IngressController` objects in addition to
+    the default one to isolate the traffic of certain groups of applications, using
+    what is named **router sharding**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Different from traditional networking configuration, in which you need complex
+    routing tables and firewall configuration, OpenShift abstracts this complex networking
+    layer configuration, making it a much easier task.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a new ingress controller
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To create a new ingress controller, you must take the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Define at least two nodes to host the new ingress controller.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Apply a new label to nodes.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Export the default `IngressController` object.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Change the name and desired settings of the newly created YAML manifest file.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Deploy the new `IngressController` object by applying the YAML created previously.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'You can see in the following lines an example of the process mentioned previously:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the previous code, we have highlighted some parts with numbers. Let’s take
+    a look:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*[1]: New IngressController name.*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*[2]: DNS domain for the new ingress.*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*[3]: A label that defines where the IngressController pods will run.*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*[4]: To implement shards. It can be namespaceSelector or routeSelector.*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*[5]: Used to filter the set of routes that are served by this IngressController.*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Namespace or Route Selector?
+  prefs: []
+  type: TYPE_NORMAL
+- en: The example you have seen uses the `routeSelector`. There is an alternative
+    way to configure the IngressController, which is using `namespaceSelector`. It
+    may seem confusing to define the right selector for your case, but it is not –
+    `routeSelector` is a more granular option, allowing you to publish routes to different
+    IngressControllers in the same namespace. The main decision factor is if, in your
+    case, you need to be able to publish routes of a single namespace in different
+    IngressControllers, you have to use `routeSelectors`. Otherwise, you will most
+    likely use `namespaceSelectors`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For example, consider a namespace called `APP` that contains two different
+    routes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Route A published in router 1 with the URL `app1.prod.hybridmycloud.com`
+  prefs: []
+  type: TYPE_NORMAL
+- en: Route B published in router 2 with the URL `app1.qa.hybridmycloud.com`
+  prefs: []
+  type: TYPE_NORMAL
+- en: This scenario is only possible if you use `routeSelector`. However, this is
+    an unusual scenario; usually, routes in a single namespace are always published
+    in the same IngressController, so for that reason, it is also very common to use
+    `namespaceSelector`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As previously mentioned, router sharding is a technique that allows creating
+    an ingress for the purpose of segregating traffic, whether due to the need for
+    isolation between environments or even for the traffic of a given application
+    to be fully directed from this new ingress.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Testing the new ingress
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'After the ingress pods are created on the nodes, you can test the newly created
+    ingress. We will create a route using the sample application named `hello-openshift`
+    and apply the proper route selector label. Follow these steps to accomplish this
+    task:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: The last line of the previous block of commands explicitly sets the `type=sharded`
+    label, which we used in our example for `routeSelector`. When OpenShift sees this
+    label, it will automatically publish this route in the new ingress.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Continue on to the following section to get a full understanding of how to use
+    the recently created ingress with what is called a **route** in OpenShift.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Types of routes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Routes are the representation of a configuration on an ingress internal load
+    balancer for a specific application to expose a Kubernetes service to a DNS name,
+    such as `example.apps.env.hybridmycloud.com`. When a route is created, OpenShift
+    automatically configures a frontend and backend in the Ingress’ HAProxy pod to
+    publish the URL and make the traffic available from the outside world.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Routes can be published using either the HTTP or HTTPS protocol. For HTTPS,
+    three different types of routes define how the TLS termination works in the SSL
+    stream between the user and the pod. In the following subsections, we will walk
+    you through each of them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Passthrough routes
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: A **passthrough route**, as the name suggests, is a configuration in which the
+    packages are forwarded straight to the network service without doing a TLS termination,
+    acting as a Layer 4 load balancer. Passthrough is often used with applications
+    that provide their own TLS termination inside the application’s pod, either by
+    implementing it in the source code or using a middleware layer (such as JBoss
+    or WebSphere).
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.15 – Passthrough route  ](img/B18015_07_15.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.15 – Passthrough route
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, you''ll see the second option you have: edge route.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Edge routes
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In this route, the TLS termination is handled by OpenShift ingress and forwarded
+    to the service as clear text. This kind of route is used very often as it is easy
+    to use: a self-signed certificate automatically generated by OpenShift is applied
+    to the ingress and it signs all the routes that use the default wildcard domain
+    – this is performed by OpenShift automatically; no additional configuration is
+    needed. However, you can replace the self-signed certificate with a custom digital
+    certificate, if you don’t want to use the default self-signed certificate.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.16 – Edge route ](img/B18015_07_16.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.16 – Edge route
+  prefs: []
+  type: TYPE_NORMAL
+- en: An edge route is the most common and easy-to-implement model since the certificate
+    chain terminates at the edge of the OpenShift network, which is the ingress. It
+    is important to highlight that the traffic between the ingress and the application
+    pods is not encrypted but occurs inside the OpenShift SDN, which means that the
+    network packages are encapsulated using OVS. The last method available is reencrypted
+    routes. You'll see how it works next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reencrypted routes
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Reencrypted routes offer two layers of TLS termination: traffic is decrypted
+    using the certificate for the external FQDN (for example, `example.apps.env.hybridmycloud.com`)
+    at the cluster edge (OpenShift Ingress), and then the traffic is re-encrypted
+    again, but now using a different certificate. While this is a secure route, it
+    has also a performance penalty due to the termination and re-encryption operation
+    performed by the ingress.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.17 – Reencrypted route ](img/B18015_07_17.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.17 – Reencrypted route
+  prefs: []
+  type: TYPE_NORMAL
+- en: A reencrypted route takes a similar approach as an edge route but it goes through
+    two layers of CAs. The first is related to the external public domain, for example,
+    *hybridcloud.com*, and then the second layer of encryption is internal, known
+    by OpenShift Ingress and the application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'We have seen in this chapter some of the important aspects related to the OpenShift
+    network. Now you are familiar with the two types of network plugins supported
+    with OpenShift, OpenShift SDN and OVN-Kubernetes, and the different kinds of traffic
+    you need to care about when managing the platform’s network. You have also seen
+    how the ingress controller works, how to create a new one, and the three different
+    types of secure routes you may use with your applications: passthrough, edge,
+    and reencrypted.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: You navigated through network policies to learn a bit more about how to control
+    traffic and provide network isolation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As you know, security is a real concern in today's digital world. In the next
+    chapter, we will cover important aspects you need to consider about security on
+    OpenShift. So, go ahead and check it out!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'If you want more information related to the concepts we covered in this chapter,
+    check out the following references:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Kubernetes Ingress controller*: [https://www.nginx.com/resources/glossary/kubernetes-ingress-controller](https://www.nginx.com/resources/glossary/kubernetes-ingress-controller)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*HAProxy documentation*: [https://www.haproxy.com/documentation/hapee/latest/onepage/](https://www.haproxy.com/documentation/hapee/latest/onepage/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Annotations used to override a route’s default configuration*: [https://docs.openshift.com/container-platform/4.10/networking/routes/route-configuration.html#nw-route-specific-annotations_route-configuration](https://docs.openshift.com/container-platform/4.10/networking/routes/route-configuration.html#nw-route-specific-annotations_route-configuration)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Configuring ingress cluster traffic using an Ingress controller*: [https://docs.openshift.com/container-platform/4.10/networking/configuring_ingress_cluster_traffic/configuring-ingress-cluster-traffic-ingress-controller.html](https://docs.openshift.com/container-platform/4.10/networking/configuring_ingress_cluster_traffic/configuring-ingress-cluster-traffic-ingress-controller.html)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Creating secured routes*: [https://docs.openshift.com/container-platform/4.10/networking/routes/secured-routes.html](https://docs.openshift.com/container-platform/4.10/networking/routes/secured-routes.html)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*OpenShift Tested Integrations*: [https://access.redhat.com/articles/4128421](https://access.redhat.com/articles/4128421)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Service mesh*: [https://docs.openshift.com/container-platform/4.10/service_mesh/v2x/servicemesh-release-notes.html](https://docs.openshift.com/container-platform/4.10/service_mesh/v2x/servicemesh-release-notes.html)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

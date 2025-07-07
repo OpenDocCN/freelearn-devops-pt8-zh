@@ -1,0 +1,865 @@
+- en: '12'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Go Serverless on Azure – Building Solutions with Azure Functions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Are you ready? We are about to turn the page on Microsoft Azure – but only after
+    we take the final step of transitioning our application to Serverless architecture.
+    Like we did on the **Amazon Web Services** (**AWS**) platform, in the last two
+    chapters, we worked hard to implement our solution on Microsoft Azure using **virtual
+    machines** (**VMs**) and then containers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’ve taken time to do some comparisons between how things work on AWS and Microsoft
+    Azure to help us understand the subtle and sometimes not-so-subtle differences
+    between the cloud platforms.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’ve noticed that while our Terraform code has been changing pretty consistently
+    between cloud platforms, our application code and the operating system configuration
+    – either in Packer or Docker – haven’t. As we take our final step with Microsoft
+    Azure, we’ll be going through a similar process to what we went through when we
+    transitioned our application to **AWS Lambda**. We’ll have to completely refactor
+    the application code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This chapter covers the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Laying the foundation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Designing the solution
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Building the solution
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Automating the deployment
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Laying the foundation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Our story continues through the lens of Söze Enterprises, founded by the enigmatic
+    Turkish billionaire Keyser Söze. Our team has been hard at work building the next-generation
+    autonomous vehicle orchestration platform. Our initial strategy involved minimizing
+    change to allow the team to focus on driving features into our product. However,
+    our elusive CEO had other ideas and pushed us to adopt container technology to
+    make our product more flexible and scalable going forward. Working with Keyser,
+    there is never a dull moment, but managing such radical change so quickly can
+    be frustrating.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Meanwhile, in St. Barts, with the sun setting over the Caribbean and the cocktail
+    party in full swing, Keyser has a chance encounter at the bar with Mark Russinovich,
+    the CTO of Microsoft Azure. They immediately hit it off, chatting over mojitos.
+    When Mark gets a glimpse of Keyser’s immense vision for the autonomous vehicle
+    platform, he casually suggests that maybe Keyser shouldn’t concern himself with
+    infrastructure at all. Mark explains how leveraging Azure Functions and other
+    serverless offerings could free him from the shackles of infrastructure management,
+    allowing him to focus entirely on his grand vision.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Thanks to Mark’s insights and Keyser’s whimsical decision-making, our team veers
+    deeper into Microsoft Azure, explicitly transitioning from **Azure Kubernetes
+    Service** (**AKS**) to **Azure Functions** for serverless computing. This might
+    require a complete re-think of our application architecture, but it could free
+    us from the significant operational overhead of managing low-level infrastructure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Designing the solution
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In this section, we will be taking a look at the overall design of our solution,
+    given the shift from VM and container-based architectures toward serverless architectures.
+    As we saw in [*Chapter 9*](B21183_09.xhtml#_idTextAnchor446), at its core, serverless
+    has a quintessential objective of eliminating heavy infrastructure from the stack.
+    Therefore, we will be looking for ways to shed any Azure services that require
+    significant fixed costs, such as VMs or Kubernetes clusters, and replace them
+    with serverless options. This change in our operational context and technology
+    landscape will likely require us to rethink some things about our solution, both
+    in terms of its design, implementation, and deployment strategy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.1 – Logical architecture for the autonomous vehicle platform](img/B21183_12_1.0.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.1 – Logical architecture for the autonomous vehicle platform
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Our application’s architecture doesn’t change significantly, but we will be
+    using different Azure services to host it. In this case, we’ll be using Azure
+    Storage to host the application’s frontend, and we’ll be using Azure Functions
+    to host the application’s backend:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.2 – Source control structure of our repository](img/B21183_12_2.0.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.2 – Source control structure of our repository
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this solution, our code base will consist of four parts. First, we’ll have
+    the Terraform code that provisions the environment and the GitHub Actions code
+    that executes the deployment process. Then, we’ll have the two code bases for
+    our application’s frontend and backend.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Cloud architecture
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In [*Chapter 10*](B21183_10.xhtml#_idTextAnchor474), our cloud-hosting solution
+    was a set of dedicated VMs, and in [*Chapter 11*](B21183_11.xhtml#_idTextAnchor509),
+    it was a set of shared VMs within our Kubernetes cluster’s node pool. Using VMs
+    has the most sunk cost, whether they are standalone VMs or part of a Kubernetes
+    node pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In [*Chapter 11*](B21183_11.xhtml#_idTextAnchor509), our entire solution was
+    executed on containers that allowed the frontend and the backend to coexist as
+    a set of containers on the same VMs. This saved us some money, but we still needed
+    servers to host the workload. In this chapter, we have a new objective: to take
+    advantage of the power of the cloud by leveraging cloud-native services that abstract
+    the underlying infrastructure from us and allow us to truly pay for only what
+    we use. Azure’s serverless offerings will be crucial to us in this endeavor.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Frontend
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: In previous chapters, we hosted our frontend on public-facing servers that returned
+    the HTML and JavaScript that composed our web application. There, we still required
+    a cloud-hosted solution to host the files and respond to requests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, due to the nature of the web application running within the end user’s
+    browser, we don’t need to use cloud-hosted VMs to host what are essentially flat
+    files. We can use simple cloud storage to host the frontend as a static website
+    and rely on the cloud platform to shoulder the burden of returning the web content.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For this, we can use Azure Storage. This service has several different storage
+    capabilities built into it, but for our static website, we’ll be using Azure Blob
+    storage. Blob storage allows us to host static web content that is internet accessible,
+    and Azure Storage handles all the load balancing, SSL termination, and scaling
+    up to meet huge spikes in demand:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.3 – Azure Storage handles web page requests, while Azure Functions
+    handles REST API requests](img/B21183_12_3.0.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.3 – Azure Storage handles web page requests, while Azure Functions
+    handles REST API requests
+  prefs: []
+  type: TYPE_NORMAL
+- en: To do this, we’ll need to have an `$web` to where we can publish the web content.
+    All Azure Storage accounts have an internet-accessible public domain. When we
+    activate the static websites feature of Azure Storage, internet traffic gets routed
+    to content hosted in the `$web` storage container.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This will give us a huge advantage because Azure Storage has absolutely no sunk
+    costs. When you create an Azure Storage account, it costs you absolutely zero
+    dollars ($0) per month. Like other serverless offerings, it uses a set of micro-transactions
+    to measure your activity and charge you for precisely what you use. In **Azure
+    Blob storage**, this can be a bit complicated as several measurements incur costs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following table shows all the costs you will run into when using Azure
+    Storage to host your static websites:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Metric** | **Unit** | **Scale** | **Price** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Storage | GBs | 1,000 | $0.0518 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Read transactions | Transactions | 10,000 | $0.004 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Write transactions | Transactions | 10,000 | $0.1125 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Other operations | Transactions | 10,000 | $0.004 |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 12.1 – Azure Storage micro-transactional pricing
+  prefs: []
+  type: TYPE_NORMAL
+- en: The pricing I chose is the most expensive option with geo-redundant, zone-redundant
+    storage with additional read-only access in an alternate region. The prices that
+    are listed here are for Azure’s West US 2 region, though the prices may have changed
+    by the time you are reading this, so it’s best to check the latest prices for
+    the most accurate cost estimation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I included these prices to make a point. We can host a static website on a three-node
+    Kubernetes cluster for approximately $300 a month or we can host a static website
+    on Azure Storage for less than $0.01 a month on the most rock-solid storage tier
+    that Azure has to offer. Which approach would you choose?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Backend
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Like our frontend, in previous chapters, our backend was also hosted on VMs
+    in two different ways: dedicated VMs and shared VMs within the node pool on our
+    Kubernetes cluster.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unlike the frontend, our backend doesn’t have the option of running entirely
+    client-side inside the end user’s web browser. In the backend, we have custom
+    code that needs to run on a server. Therefore, we need to find a solution to host
+    these components without all the overhead of a fleet of VMs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On Azure, we can use Azure Functions to accomplish this. Azure Functions is
+    a managed service that allows you to deploy your code without paying the sunk
+    costs for any of the underlying VMs. Like Azure Storage, it has a micro-transactional
+    pricing model that charges you for precisely what you use.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following table shows the costs that you will incur when deploying your
+    code to Azure Functions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Metric** | **Unit** | **Scale** | **Price** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Execution time | GB/s | 1 | $0.000016 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Total executions | Transactions | 1,000,000 | $0.020 |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 12.2 – Azure Functions micro-transactional pricing
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first thing that you’ll probably notice is that, like Azure Storage, these
+    prices are extremely small but they measure a very small amount of activity on
+    the platform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For example, the execution time metric has a unit of GB/s, which is the amount
+    of memory, in gigabytes, your Azure Function uses per second. Given that it measures
+    at a *per-second* interval, you don’t have to be running Azure Functions very
+    long to rack up quite a few of these.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The total executions is a rather simple metric that seemingly has no constraints,
+    but Azure Functions have natural constraints built into them. For example, each
+    of these executions is limited to 10 minutes. Now, if you are trying to respond
+    to requests from a web application, you probably won’t want to design your Azure
+    Function to take 10 minutes anyway, as this would be a pretty poor experience
+    for the end user using the web browser. In this scenario, you want your Azure
+    Function to return in no more than a few seconds. However, Azure Functions can
+    be employed for many different tasks besides responding to HTTP requests from
+    a browser, and sometimes, it makes sense to run long-running activities. For those
+    situations, you can opt to host your Azure Functions on a Premium Azure Functions
+    service plan. This removes the execution length duration because rather than paying
+    per transaction, you are essentially reserving capacity.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Azure Functions have multiple hosting options. There is the **Premium service
+    plan** that we discussed previously, which allows you to reserve capacity, connect
+    to private networks, remove the 10-minute cap on Azure Function execution duration,
+    and allow your Azure Functions to run up to 60 minutes. These Premium plans have
+    sunk cost as you are pre-allocating Azure resources to ensure your Azure Functions
+    operate at maximum performance. You can even select different hardware configurations
+    (CPU and memory) to better fit your workload’s needs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.4 – Azure Functions are deployed to Function Apps, which are hosted
+    on App Service plans](img/B21183_12_4.0.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.4 – Azure Functions are deployed to Function Apps, which are hosted
+    on App Service plans
+  prefs: []
+  type: TYPE_NORMAL
+- en: In stark contrast, there is the **Consumption service plan**, which has no sunk
+    cost but more constraints on usage and no control over scaling and resource configuration
+    of the host environment. The Consumption service plan is a good place to do development
+    and testing, but if you’re going to run production workloads, I’d highly recommend
+    sticking with a Premium service plan.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Previously, our ASP.NET REST API was set up using a traditional ASP.NET project
+    that used controllers to implement the REST API endpoints. However, when transitioning
+    to Azure Functions, this solution structure is incompatible with the Azure Functions
+    framework. To be able to host our REST API as Azure Functions, we need to conform
+    to the framework that Azure Functions dictates. This means that the ASP.NET controller
+    classes will need to be refactored so that they conform to this standard. In the
+    next section, we’ll delve into the code that makes this possible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deployment architecture
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Now that we have a good idea of what our cloud architecture is going to look
+    like for our solution on Azure, we need to come up with a plan for how to provision
+    our environments and deploy our code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In [*Chapter 10*](B21183_10.xhtml#_idTextAnchor474), when we deployed our application
+    to VMs, we baked our compiled application code into a VM image using Packer. Similarly,
+    in [*Chapter 11*](B21183_11.xhtml#_idTextAnchor509), when we deployed our application
+    to containers on our Kubernetes cluster, we baked our application code into container
+    images using Docker. With serverless, this completely changes because Azure’s
+    serverless offerings completely abstract away the operating system. This means
+    that all we are responsible for is producing a compatible deployment package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating the deployment package
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'As we discussed in the previous section, we have two components of our application:
+    the frontend and the backend. Each has a different deployment target. We are going
+    to deploy the frontend as a static website, while the backend is going to be deployed
+    as an Azure Function. Since both are .NET projects, we will be using both .NET
+    and Azure platform-specific tools to create deployment packages and deploy them
+    to their target Azure services. The following diagram shows the process we’ll
+    go through to provision our environment, package our application code, and deploy
+    it to the target environment out in Azure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.5 – Deployment pipeline to build our .NET application code for
+    deployment to Azure](img/B21183_12_5.0.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.5 – Deployment pipeline to build our .NET application code for deployment
+    to Azure
+  prefs: []
+  type: TYPE_NORMAL
+- en: For the frontend, this means enabling the feature to deploy our ASP.NET Blazor
+    web application as a WebAssembly. This will allow the frontend to be hosted as
+    a static website that can run completely client-side without any server-side rendering.
+    This is only possible because of the way we have designed our frontend web application,
+    which uses HTML, CSS, and JavaScript to interact with server-side REST APIs. It’s
+    important to note that ASP.NET Blazor supports both hosting options, but we specifically
+    chose to go down the client-side-only path and eliminate any dependency on server-side
+    page rendering. As a result, when we use the .NET CLI to publish our ASP.NET Blazor
+    project, it will emit a folder containing static web content. Then, using the
+    Azure CLI, we can upload the contents of this folder to our Azure Blob storage
+    account’s `$web` container to complete the deployment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For the backend, again using the .NET CLI, we need to publish our project. This
+    will emit all the files needed to properly inform the Azure Functions service
+    about our little Azure Function. Once this is done, we need to zip this folder
+    up into a zip archive. Finally, we can use the Azure CLI to deploy this zip archive
+    to our Azure Function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we have a solid plan for how we will implement both the cloud architecture
+    using Azure and the deployment architecture using GitHub Actions, let’s start
+    building! In the next section, we’ll break down the **HashiCorp Configuration
+    Language** (**HCL**) code we can use to implement the Terraform code and modify
+    the application code so that it conforms to the Azure Functions framework.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building the solution
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Now that we have a solid design for our solution, we can begin building it.
+    As we discussed in the previous section, because we’ll be using Azure serverless
+    offerings such as Azure Storage and Azure Functions to host our application, we
+    will need to make some changes to our application code. This is something that
+    we never had to do in *Chapters 10* and *11* as we were able to deploy our application
+    to the cloud by packaging it in either a VM image (using Packer) or in a container
+    image (using Docker). Therefore, to build our solution, we need to write some
+    Terraform code and update our application code in C#.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Terraform
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'As we discussed in our design, our solution is made up of two application components:
+    the frontend and the backend. Each has a code base of application code that needs
+    to be deployed. Unlike previous chapters, where we had operating system configuration
+    as well, now that we are using serverless offerings, this is no longer our responsibility
+    as the platform takes care of it for us.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Much of the Terraform setup is very similar to what we have done in previous
+    chapters, so we will only focus on new resources needed for our solution. You
+    can check the full source code for this book, which is available in this book’s
+    GitHub repository, if you want to work with the complete solution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Frontend
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'First, we need to provision a storage account where we can deploy our frontend
+    to. The Azure Storage account is one of the most common Terraform resources to
+    be provisioned as many other Azure services use storage accounts for different
+    purposes. However, we need to configure our storage account differently by using
+    an optional block called `static_website`. This block will enable the static website
+    feature and will place the `$web` container in our storage account by default:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Backend
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Azure Functions are deployed to a resource called a function app. They come
+    in two varieties – one for Windows and another for Linux. This can be quite perplexing
+    – isn’t the whole purpose of using a serverless offering so that you don’t have
+    to think about the operating system? However, the underlying operating system
+    can impact the types of runtimes that are supported for your Azure Function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To provide a function app, we need to have a service plan. As we mentioned
+    in the previous section, there are multiple types of service plans. The two main
+    types are Consumption and Premium. To use a Consumption service plan, you need
+    to use `Y1` as the SKU name, and to use a Premium service plan, you need to use
+    either `EP1`, `EP2`, or `EP3`. Each of the Premium service plan SKUs has a different
+    set of compute and memory resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now that we have a service plan, we can provision one or more function apps
+    for it. The function apps do not need to share the same resource group, so you
+    could have a central team manage the service plans and have each team manage its
+    own function apps that are hosted within the service plan:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: The important thing is that the operating system of the service plan should
+    match the function app’s Terraform resource type. Only `azurerm_windows_function_app`
+    resources should be provisioned to service plans with an `os_type` value of `Windows`,
+    and likewise, only `azurerm_linux_function_app` resources should be provisioned
+    to service plans with an `os_type` value of `Linux`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The function app also needs a storage account to be provisioned. This should
+    be different than the storage account that’s used to provision the frontend. While
+    it’s a common practice to provision a dedicated storage account for the function
+    app, it’s technically possible to use the same storage account for both the function
+    app and the frontend. However, given that there is no additional cost for an additional
+    storage account, you only pay for the storage. I recommend provisioning a dedicated
+    storage account to keep the separation between the two components of your architecture.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Secrets management
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'An important block for a function app is the `app_settings` block. This is
+    where we can pass secrets to our Azure Functions, as well as other parameters
+    that affect our deployment strategy and other runtime configurations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here, we are setting the connection string for the Azure Storage account that
+    we will use to connect to blob and queue storage within the application. We can
+    also use Key Vault to store these secrets using special syntax:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If we replace the previous setting with the new one, we will no longer store
+    the secret in the Azure Function app. The secret is only in Key Vault:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This also requires us to set up a role assignment to grant the Azure Function’s
+    user-assigned identity the necessary permissions to access the secrets stored
+    in Key Vault. Without this necessary role assignment, even if we use the special
+    syntax to refer to the Key Vault secret correctly, Azure Functions will not be
+    able to access the secrets:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.6 – The structure of Azure Functions resources](img/B21183_12_6.0.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.6 – The structure of Azure Functions resources
+  prefs: []
+  type: TYPE_NORMAL
+- en: As you can see, the Azure function is a much more simple deployment. We don’t
+    need a virtual network or any of the other surrounding resources that we provisioned
+    in previous chapters just to get off the ground. For most applications, the built-in
+    security of Azure Functions and Key Vault is sufficient. However, if we wanted
+    to enable private networking because our application has to follow some regulatory
+    compliance, we can do that, but otherwise, it is not required.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Application code
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Azure Functions are inherently event-based. Each Azure Function is triggered
+    by a different type of event, and the Azure Functions SDK provides an extensible
+    framework for triggering based on different types of events. Azure Functions has
+    implemented several different triggers for all sorts of different Azure services,
+    which makes it easy to design Azure Functions that can respond to all sorts of
+    different activities taking place within your Azure environment. For this book,
+    we’ll only focus on the HTTP trigger, but if you are interested, I recommend checking
+    out all the other options that Azure Functions has – it’s quite extensive.tt
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In a traditional ASP.NET REST API solution, you have controller classes that
+    embody a specific route and then methods that implement different operations at
+    that route:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.7 – ASP.NET MVC controller class anatomy](img/B21183_12_7.0.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.7 – ASP.NET MVC controller class anatomy
+  prefs: []
+  type: TYPE_NORMAL
+- en: The controller class needs to be decorated with an `ApiController` attribute
+    that informs the ASP.NET runtime that this class should be used to process incoming
+    web requests at the route specified in the `Route` attribute.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Each method is decorated with an attribute that denotes which HTTP verb the
+    method should respond to. In the preceding example, we use `HttpGet`, but there
+    are corresponding attributes for each of the supported HTTP verbs. The method
+    can take strongly typed parameters that can either be part of the route, the query
+    string, or the request body. The method returns `IActionResult` by default, which
+    allows us to return different data structures, depending on the outcome of the
+    request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To implement a REST API using Azure Functions, we need to implement a class
+    using the Azure Function SDK. This requires us to slightly adjust how we implement
+    both our class and our method. We will employ different class and method attributes
+    to achieve a similar outcome: defining an endpoint that responds to web requests
+    at a specific route.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The Azure Function class is not decorated with any attributes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.8 – Azure Function class anatomy](img/B21183_12_8.0.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.8 – Azure Function class anatomy
+  prefs: []
+  type: TYPE_NORMAL
+- en: Only the methods should be decorated with a `FunctionName` attribute, which
+    will correlate them with a named scope for the Azure Function framework. This
+    attribute is similar to the `Route` attribute as it informs the base route of
+    all of the methods implemented within this named context of Azure Functions. Azure
+    Function classes can be implemented as static or non-static classes. I recommend
+    using non-static classes as they allow you to use dependency injection to greatly
+    improve the testability of your Azure Functions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The methods in an Azure Functions class are where we tie into the event-triggering
+    framework of Azure Functions. When responding to a web request, we need the first
+    parameter of our method to be of the `HttpRequest` type, and we need to use the
+    `HttpTrigger` attribute on this method parameter. Since we decorated the method
+    with the `FunctionName` attribute already, the Azure Functions framework knows
+    to interrogate this method for any available event triggers. Hence, supplying
+    `HttpRequest` with the `HttpTrigger` attribute attached will meet the match criteria,
+    and Azure Functions will wire up this method so that it responds to incoming web
+    traffic accordingly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This pattern is very similar to the traditional ASP.NET implementation using
+    controller classes. However, it takes on a slightly different structure. All the
+    same anatomical elements are there but just in different places: HTTP verb, route
+    to the endpoint, input parameters (either a query string or on the request body),
+    and the response body.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unlike in a traditional ASP.NET project, the HTTP verb is not a method-level
+    attribute. It’s a parameter of the `HttpTrigger` attribute. The method does allow
+    us to add additional input parameters as either query string or part of the route
+    but not part of the request body itself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As we can see, the cloud architecture radically simplifies things, but one
+    trade-off is that our backend code needs to be adapted to the Azure Functions
+    framework. This will require development and testing efforts to transform our
+    code base into this new hosting model. This stands in stark contrast to what we
+    explored in previous chapters, where we hosted on VMs or containerized and hosted
+    on a Kubernetes cluster. While conforming to the Azure Functions model does take
+    work, its benefits are two-fold: first, it allows us to take advantage of close
+    to zero sunk cost, and second, it allows us to fully abstract the underlying infrastructure
+    from us and let the Azure platform take care of scalability and high availability.
+    This allows us to focus more on the functionality of our solutions rather than
+    the plumbing required to keep the lights on.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we have implemented Terraform to provision our solution and made changes
+    to our application code so that it conforms to the Azure Functions framework,
+    in the next section, we’ll dive into YAML and Bash and implement the necessary
+    GitHub Actions workflows.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Automating the deployment
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As we discussed in the previous section, serverless offerings such as Azure
+    Functions and Azure Storage abstract away the operating system configuration.
+    Therefore, when we deploy, we just need an application package that’s compatible
+    with the target platform. In this section, we’ll create an automation pipeline
+    using GitHub Actions that will provision our application to its new serverless
+    home in Azure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Terraform
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The first thing that we need to do is provision our environment to Azure. This
+    is going to be extremely similar to the way we did this in the previous chapters.
+    In [*Chapter 10*](B21183_10.xhtml#_idTextAnchor474), we needed to ensure that
+    our VM images were built and available before we executed Terraform because the
+    Terraform code base referenced the VM images when it provisioned the VMs. This
+    means that with our VM architecture, application deployment happens before Terraform
+    provisions the environment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.9 – Packer-produced VM images are a prerequisite for Terraform](img/B21183_12_9.0.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.9 – Packer-produced VM images are a prerequisite for Terraform
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In [*Chapter 11*](B21183_11.xhtml#_idTextAnchor509), when we provisioned our
+    Kubernetes cluster using Azure Kubernetes, we had no such prerequisite. The application
+    deployment occurred after the Kubernetes cluster was online. This means that with
+    container-based architecture, application deployment happens after Terraform provisions
+    the environment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.10 – Docker-produced container images are provisioned to Kubernetes
+    after Terraform executes](img/B21183_12_10.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.10 – Docker-produced container images are provisioned to Kubernetes
+    after Terraform executes
+  prefs: []
+  type: TYPE_NORMAL
+- en: When using Azure’s serverless offerings, the deployment process mirrors that
+    of what we saw when deploying our application as containers to Kubernetes. Just
+    like with this approach, we need to build a deployment artifact for Azure’s serverless
+    offerings. For the frontend, that means simply generating the static web content,
+    and for the backend, that means generating an Azure Functions ZIP archive. These
+    artifacts share a similar purpose to the Docker images in that they are a target
+    service-compatible way of packaging our application for deployment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As shown in the following figure, the serverless deployment looks very similar
+    to the approach we used with the container-based architecture:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.11 – The .NET CLI produces deployment artifacts that are provisioned
+    to Azure after Terraform executes](img/B21183_12_11.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.11 – The .NET CLI produces deployment artifacts that are provisioned
+    to Azure after Terraform executes
+  prefs: []
+  type: TYPE_NORMAL
+- en: That’s because Azure is fulfilling the role that Kubernetes played when using
+    a serverless approach. Azure just has custom tools to facilitate the deployment
+    of the application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deployment
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Now that Terraform has provisioned the Azure infrastructure that we need for
+    our serverless solution, we need to take the final step of deploying both deployment
+    artifacts to the appropriate locations in Azure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will use .NET and Azure custom tools to produce the artifacts and deploy
+    them to these target locations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Frontend
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: As we saw in other chapters, our .NET application code needs to follow a continuous
+    integration process where the code is built and tested using automated unit testing
+    and other built-in quality controls. Nothing changes here, except that we need
+    to add some special handling to the deployment artifact that these processes produce
+    to make sure it is available to our GitHub Action’s job that deploys the workload
+    to the appropriate location.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `dotnet publish` command is used to output the deployment artifact of the
+    .NET application code. For the ASP.NET Blazor web application, this output is
+    a folder container, a collection of loose files containing HTML, JavaScript, and
+    CSS. To pass all these files efficiently from one GitHub Actions job to another,
+    we need to zip them up into a single file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now that the static web content has been zipped into a ZIP archive, we can
+    use the `upload-artifact` GitHub Action to save this file to GitHub Actions. This
+    will make the file available for future jobs that are executed within the pipeline:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Future jobs can simply download the artifact using a corresponding `download-artifact`
+    GitHub Action and the same name that was used to upload it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Because the ASP.NET Blazor web application is going to be hosted as static
+    web content on our Azure Storage account, we need to ensure that we unzip it to
+    upload the contents to Azure Blob storage. If we were to upload the zip archive
+    to Blob storage, the web application wouldn’t work correctly because all of the
+    web content would be trapped inside the archive file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now that the static web content has been unzipped to the staging directory,
+    we can use the `az storage blob upload-batch` command to deploy all of the files
+    to the `$``web` container:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: We need to make sure that we authenticate with Azure and that we are targeting
+    the right Azure subscription that has the Azure Storage account that we want to
+    target. Therefore, we need to execute the `az login` command to authenticate and
+    then use `az account set` to ensure we are working on the right subscription.
+    Once we’ve done that, we can execute `az storage blob upload-batch` to recursively
+    upload all the files within the staging directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Azure Function
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: To deploy the Azure Function, the same process must be followed to pass the
+    artifact from the GitHub Actions job that builds the deployment artifact to the
+    job that deploys the artifact.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Like the `az storage blob upload-batch` command, we also need to authenticate
+    and set the right Azure subscription. The only difference is that we are using
+    the `az functionapp deployment source config-zip` command to provision a ZIP archive
+    to the Azure Function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Unlike how we provisioned the frontend, we don’t need to unzip the deployment
+    package for the Azure Function. Azure Functions is expecting our application code
+    to be bundled into a ZIP archive:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: You might remember from the previous section where we set `app_settings` on
+    the Azure Function that we set two settings – `SCM_DO_BUILD_DURING_DEPLOYMENT`
+    and `WEBSITE_RUN_FROM_PACKAGE`. These two settings tell Azure Functions that our
+    application code is already pre-compiled and bundled into a ZIP archive.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That’s it! With that, our application has been fully deployed to Azure Storage
+    and Azure Functions!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we designed, built, and automated the deployment of a complete
+    end-to-end solution using serverless architecture using Azure Functions. To accomplish
+    this, we finally had to make some major changes to our application code so that
+    it conformed to the requirements of the serverless runtime. When adopting serverless
+    offerings, you must make this distinct and considerable decision as it tightly
+    couples your application code with the target cloud platform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Throughout this journey, we have meticulously constructed three distinct solutions
+    on the Azure platform by utilizing VMs, Kubernetes through **Azure Kubernetes
+    Service** (**AKS**), and now, serverless with Azure Functions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we conclude this Azure-centric narrative, we stand on the brink of a thrilling
+    new alternate reality. Guided by the enigmatic vision of our CEO, Keyser Söze,
+    we are poised to embark on an adventurous collaboration with Google. This partnership
+    is set to unfold in a realm of endless possibilities, mirroring our Azure achievements
+    on Google Cloud. Our narrative will transition to exploring similar architectures
+    on Google Cloud, so stay tuned as we venture into this *alternate universe* with
+    Keyser Söze, delving into Google Cloud’s offerings and continuing to innovate
+    our solutions in cloud computing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Part 5: Building Solutions on Google Cloud'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Armed with the conceptual knowledge of Terraform and architectural concepts
+    that transcend the implementation details of the major public cloud platforms,
+    we’ll explore building solutions on Google Cloud with three cloud computing paradigms:
+    virtual machines, containers with Kubernetes, and serverless with Google Cloud
+    Functions.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This part has the following chapters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[*Chapter 13*](B21183_13.xhtml#_idTextAnchor569), *Getting Started on Google
+    Cloud – Building Solutions with GCE*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 14*](B21183_14.xhtml#_idTextAnchor605), *Containerize on Google Cloud
+    – Building Solutions with GKE*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 15*](B21183_15.xhtml#_idTextAnchor641), *Go Serverless on Google
+    Cloud – Building Solutions with Google Cloud Functions*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

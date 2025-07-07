@@ -1,0 +1,977 @@
+- en: Distributed Virtual Routers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Prior to the introduction of Neutron in the Folsom release of OpenStack, all
+    network management was built in to the Nova API and was known as nova-network.
+    Nova-network provided floating IP functionality, and network failure domains were
+    limited to an individual compute node – something that was lacking in the early
+    releases of Neutron. Nova-network has since been deprecated and most of its functionality
+    has been implemented and improved upon in the latest releases of Neutron. In the
+    last chapter, we looked at using VRRP to provide high-availability using active-standby
+    routers. In this chapter, we will look at how distributed virtual routers borrow
+    many concepts from the nova-network multi-host model to provide high-availability
+    and smaller network failure domains while retaining support for many of the advanced
+    networking features provided by Neutron.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Legacy routers, including standalone and active-standby, are compatible with
+    multiple mechanism drivers, including the Linux bridge and Open vSwitch drivers.
+    Distributed virtual routers, on the other hand, require Open vSwitch and are only
+    supported by the Open vSwitch mechanism driver and agent. Other drivers and agents,
+    such as those for OVN or OpenContrail, may provide similar distributed routing
+    functionality, but are out of the scope of this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Distributing routers across the cloud
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Much like nova-network did with its multi-host functionality, Neutron can distribute
+    a virtual router across compute nodes in an effort to isolate the failure domain
+    to a particular compute node rather than a centralized network node. By eliminating
+    a centralized Layer 3 agent, routing that was performed on a single node is now
+    handled by the compute nodes themselves.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Legacy routing using a centralized network node resembles the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/23292ba5-2cd8-42f5-b08e-f694f82e0b1c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In the legacy model, traffic from the blue virtual machine to the red virtual
+    machine on a different network would traverse a centralized network node hosting
+    the router. If the node hosting the router were to fail, traffic between the instances
+    and external networks or the instances themselves would be dropped.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, I will discuss the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing and configuring additional L3 agents to support distributed virtual
+    routers
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Demonstrating the creation and management of a distributed virtual router
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Routing between networks behind the same router
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Outbound connectivity using SNAT
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Inbound and outbound connectivity using floating IPs
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Installing and configuring Neutron components
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To configure distributed virtual routers, there are a few requirements that
+    must be met, including the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: ML2 plugin
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: L2 population mechanism driver
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Open vSwitch mechanism driver
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Layer 3 agent installed on all networks and compute nodes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In the environment built out in this book, a single controller node handles
+    OpenStack API services, DHCP and metadata services, and runs the Linux bridge
+    agent for use with standalone and HA routers. `compute01` runs the Linux bridge
+    agent, while `compute02` and `compute03` run the Open vSwitch agent. Another node,
+    `snat01`, will run the Open vSwitch agent and be responsible for outbound SNAT
+    traffic when distributed virtual routers are used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A diagram of this configuration can be seen here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/c7392b1b-1565-4f42-b61b-2de284f39ef5.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: While the mixing of drivers and agents between nodes is possible thanks to the
+    ML2 core plugin, a design like this is not typical in a production environment.
+    Instances deployed on `compute01` may experience connectivity issues if deployed
+    on a network using a distributed virtual router.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing additional L3 agents
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Run the following command on `snat01` to install the `L3` agent:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Defining an interface driver
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Open vSwitch and the Open vSwitch mechanism driver are required to enable and
+    utilize distributed virtual routers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Update the Neutron L3 agent configuration file at `/etc/neutron/l3_agent.ini` on
+    `snat01` and specify the following interface driver:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Enabling distributed mode
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The ML2 plugin is required to operate distributed virtual routers and must be
+    configured accordingly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Update the OVS configuration file at `/etc/neutron/plugins/ml2/openvswitch_agent.ini`
+    on `compute02`, `compute03`, and `snat01` to enable the OVS agent to support distributed
+    virtual routing and `L2` population:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Setting the agent mode
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'When using distributed virtual routers, a node can operate in one of two modes:
+    `dvr` or `dvr_snat`. A node configured in `dvr_snat` mode handles north-south
+    SNAT traffic, while a node in `dvr` mode handles north-south DNAT (for example,
+    floating IP) traffic and east-west traffic between instances.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Compute nodes running the Open vSwitch agent run in dvr mode. A centralized
+    network node typically runs in `dvr_snat` mode, and can potentially acts as a
+    single point of failure for the network for instances not leveraging floating
+    IPs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Neutron supports deploying highly-available `dvr_snat` nodes using VRRP, but
+    doing so is outside the scope of this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this book, the `snat01` node will be dedicated to handling SNAT traffic when
+    using distributed virtual routers, as `controller01` has been configured with
+    the Linux bridge agent and is not an eligible host for DVR-related functions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the `snat01` node, configure the L3 agent to operate in `dvr_snat` mode
+    by modifying the `agent_mode` option in the L3 agent configuration file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On the `compute02` and `compute03` nodes, modify the L3 agent to operate in
+    `dvr` mode from `legacy` mode:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On the `snat01`, `compute02`, and `compute03` nodes, set the `handle_internal_only_routers`
+    configuration option to `false`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: Configuring Neutron
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Neutron uses default settings to determine the type of routers that users are
+    allowed to create as well as the number of routers that should be deployed across L3
+    agents.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following default settings are specified within the `neutron.conf` configuration
+    file and only need to be modified on the host running the Neutron API service.
+    In this environment, the `neutron-server` service runs on the `controller01` node.
+    The default values can be seen here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: To set distributed routers as the default router type for projects, set the `router_distributed`  configuration
+    option to `true`. For this demonstration, the default value of `false` is sufficient.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once the changes have been made, restart the `neutron-server` service on `controller01`
+    for the changes to take effect:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: Restarting the Neutron L3 and Open vSwitch agent
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'After making changes to the configuration of the Neutron L3 and L2 agents,
+    issue the following command on `compute02`, `compute03`, and `snat01` to restart
+    the respective agents:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After a restart of the services, the additional agents should check in. Use
+    the following `openstack network agent list` command to return a listing of all
+    L3 agents:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output should resemble the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/5759a2e8-1a1f-483d-b831-52b3a1198928.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: If an agent is not listed in the output as expected, troubleshoot any errors
+    that may be indicated in the`/var/log/neutron/l3-agent.log` log file on the respective
+    node.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Managing distributed virtual routers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: With a few exceptions, managing a distributed router is no different from its
+    standalone counterpart. Neutron's router management commands were covered in [*Chapter
+    10*](371886b8-4c2a-49e9-90b8-8fe79217adb4.xhtml), *Creating Standalone Routers
+    with Neutron*. The exceptions are covered in the following section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating distributed virtual routers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Users with the admin role can create distributed virtual routers using the
+    `--distributed` argument with the `openstack router create` command, as shown
+    here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Users without the admin role are limited the router type specified by the `router_distributed`
+    configuration option in the Neutron configuration file. Users do not have the
+    ability to override the default router type and cannot specify the `--distributed`
+    argument.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Routing east-west traffic between instances
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the network world, east-west traffic is traditionally defined as server-to-server
+    traffic. In Neutron, as it relates to distributed virtual routers, east-west traffic
+    is traffic between instances in different networks owned by the same project.
+    In Neutron's legacy routing model, traffic between different networks traverses
+    a virtual router located on a centralized network node. With DVR, the same traffic
+    avoids the network node and is routed directly between the compute nodes hosting
+    the virtual machine instances.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reviewing the topology
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Logically speaking, a distributed virtual router is a single router object
+    connecting two or more project networks, as shown in the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e96b7f9d-f071-4cdb-8ccc-57861b9684f2.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In the following example, a distributed virtual router named `MyDistributedRouter`
+    has been created and connected to two project networks: `BLUE_NET` and `RED_NET`.
+    Virtual machine instances in each network use their respective default gateways
+    to route traffic to the other network through the same router. The virtual machine
+    instances are unaware of where the router is located.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A look under the hood, however, tells a different story. In the following example,
+    the blue VM pings the red VM and traffic is routed and forwarded accordingly:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/f566fa0d-3573-4fda-afdf-f079a466f0fb.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'As far as the user is concerned, the router connecting the two networks is
+    a single entity known as `MyDistributedRouter`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/3bd87c91-f995-4d05-bf1d-c57f955d9c63.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Using the `ip netns exec` command, we can see that the `qr` interfaces within
+    the namespaces on each compute node and the `SNAT` node share the same interface
+    names, IP addresses, and MAC addresses:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/9b89c623-86e4-42ae-857a-d5d7c0cb03d1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In the preceding screenshot, the qrouter namespaces on the `snat01` and `compute`
+    nodes that correspond to the distributed router contain the same `qr-841d9818-bf`
+    and `qr-d2ce8f82-d8` interfaces and addresses that correspond to the `BLUE_NET`
+    and `RED_NET` networks. A creative use of routing tables and Open vSwitch flow
+    rules allows traffic between instances behind the same distributed router to be
+    routed directly between compute nodes. The tricks behind this functionality will
+    be discussed in the following sections and throughout this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Plumbing it up
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When a distributed virtual router is connected to a subnet using the OpenStack
+    `router add subnet` or `add port` commands, the router is scheduled to all nodes
+    hosting ports on the subnet and running the Open vSwitch agent, including any
+    controller or network node hosting DHCP or load balancer namespaces and any compute
+    node hosting virtual machine instances in the subnet. The L3 agents are responsible
+    for creating the respective `qrouter` network namespace on each node, and the
+    Open vSwitch agent connects the router interfaces to the bridges and configures
+    the appropriate flows.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Distributing router ports
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Without proper precautions, distributing ports with the same IP and MAC addresses
+    across multiple compute nodes presents major issues in the network. Imagine a
+    physical topology that resembles the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/b4d17ae3-2c7b-4c05-9638-952215a6e9a7.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In most networks, an environment consisting of multiple routers with the same
+    IP and MAC address connected to a switch would result in the switches learning
+    and relearning the location of the MAC addresses across different switch ports.
+    This behavior is often referred to as MAC flapping and results in network instability
+    and unreliability.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Virtual switches can exhibit the same behavior regardless of segmentation type,
+    as the virtual switch may learn that a MAC address exists both locally on the
+    compute node and remotely, resulting in similar behavior that is observed on the
+    physical switch.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Making it work
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To work around this expected network behavior, Neutron allocates a unique MAC
+    address to each compute node that is used whenever traffic from a distributed
+    virtual router leaves the node. The following screenshot shows the unique MAC
+    addresses that have been allocated to the nodes in this demonstration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e24d08a1-b5cf-4c4d-b8b2-6d859920ddd5.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Open vSwitch flow rules are used to rewrite the source MAC address of a packet
+    as it leaves a router interface with the unique MAC address allocated to the respective
+    host. In the following screenshot, a look at the flows on the provider bridge
+    of `compute02` demonstrates the rewriting of the non-unique `qr` interface MAC
+    address with the unique MAC address assigned to `compute02`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/1002a811-f119-4d2c-a1c3-dfed467cacac.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Likewise, when traffic comes in to a compute node that matches a local virtual
+    machine instance''s MAC address and segmentation ID, the source MAC address is
+    rewritten from the unique source host MAC address to the local instance''s gateway
+    MAC address:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/0dbc6f49-6fa8-4a8f-b6d0-a2bd256f912c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Because the Layer 2 header rewrites occur before traffic enters and after traffic
+    leaves the virtual machine instance, the instance is unaware of the changes made
+    to the frames and operates normally. The following section demonstrates this process
+    in further detail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Demonstrating traffic between instances
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Imagine a scenario where virtual machines in different networks exist on two
+    different compute nodes, as demonstrated in the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/8eebe763-af14-40c5-804d-4896181297d0.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Traffic from the blue virtual machine instance on Compute A to the red virtual
+    machine instance on Compute B will first be forwarded from the instance to its
+    local gateway through the integration bridge and to the router namespace, as shown
+    here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/b47c3150-7e30-4833-8c5d-c73638f88947.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Blue VM | Blue router interface | Blue VM | Red VM |'
+  prefs: []
+  type: TYPE_TB
+- en: 'The router on Compute A will route the traffic from the blue VM to the red
+    VM, replacing the source MAC address with its red interface and the destination
+    MAC address to that of the red VM in the process:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Red router interface | Red VM | Blue VM | Red VM |'
+  prefs: []
+  type: TYPE_TB
+- en: 'The router then sends the packet back to the integration bridge, which then
+    forwards it to the provider bridge, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e8dc1472-2887-4d5c-99f3-3a8ea8d1da5b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'As traffic arrives at the provider bridge of ComputeA, a series of flow rules
+    are processed, resulting in the source MAC address being changed from the red
+    interface of the router to the unique MAC address of the host:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Source host (Compute A) | Red VM | Blue VM | Red VM |'
+  prefs: []
+  type: TYPE_TB
+- en: 'The traffic is then forwarded out onto the physical network and over to Compute
+    B:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/d6d6c107-c126-4dd4-8cd5-d033e6900a46.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'When traffic arrives at Compute B, it is forwarded through the provider bridge.
+    A flow rule adds a local VLAN header that allows traffic to be matched when it
+    is forwarded to the integration bridge:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/a32b1323-db6a-4d84-bfe6-90c33a393ed8.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Source host (Compute A) | Red VM | Blue VM | Red VM |'
+  prefs: []
+  type: TYPE_TB
+- en: 'In the integration bridge, a flow rule strips the local VLAN tag and changes
+    the source MAC address back to that of the router''s red interface. The packet
+    is then forwarded to the red VM:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/44741845-6b41-4c39-893f-6f2302debc8f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Red router interface | Red VM | Blue VM | Red VM |'
+  prefs: []
+  type: TYPE_TB
+- en: Return traffic from the red VM to the blue VM undergoes a similar routing path
+    through the respective routers and bridges on each compute node.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Centralized SNAT
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Source NAT, or SNAT for short, is the method of changing the source address
+    of a packet as it leaves the interface of a router. When a Neutron router is allocated
+    an IP address from an external network, that IP is used to represent traffic that
+    originates from virtual machine instances behind the router that do not have a
+    floating IP. All routers in Neutron, whether they are standalone, highly-available,
+    or distributed, support SNAT and masquerade traffic originating behind the router
+    when floating IPs are not used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By default, routers that handle SNAT are centralized on a single node and are
+    not highly available, resulting in a single point of failure for a given network.
+    As a workaround, multiple nodes may be configured in `dvr_snat` mode. Neutron
+    supports the ability to leverage VRRP to provide highly-available SNAT routers,
+    however, the feature is experimental and is not discussed in this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reviewing the topology
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In this DVR SNAT demonstration, the following provider and project networks
+    will be used:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/b2d32260-1aee-43d7-be47-16e8bb43c510.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Using the -`-distributed` argument, a distributed virtual router has been created:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/c8adb6aa-376b-46bb-bd13-0f9110c6d780.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In this environment, the L3 agent on the host `snat01` is in `dvr_snat` mode
+    and serves as the centralized `SNAT` node. Attaching the router to the project
+    network `GREEN_NET` results in the router being scheduled to the `snat01` host:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/4f296eb7-3978-4eb5-8014-5661ebdf3e89.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: When an instance is spun up in the `GREEN_NET` network, the router is also scheduled
+    to the respective compute node.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'At this point, both the `snat01` and `compute03` nodes each have a `qrouter`
+    namespace that corresponds to the `MyOtherDistributedRouter` router. Attaching
+    the router to the external network results in the creation of a `snat` namespace
+    on the `snat01` node. Now, on the `snat01` node, two namespaces exist for the
+    same router – `snat` and `qrouter`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/ffd6a9a0-1431-4944-9edf-bc6dc32a2898.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'This configuration can be represented by the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/7b709011-fe7d-4c2c-8426-7a9fea9566a1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The `qrouter` namespace on the `snat01` node is configured similarly to the
+    `qrouter` namespace on the `compute03` node. The `snat` namespace is for the centralized
+    SNAT service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the `snat01` node, observe the interfaces inside the `qrouter` namespace:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/eeaf895d-0961-4ea3-af54-3065c378bddc.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Unlike the `qrouter` namespace of a legacy router, there is no `qg` interface,
+    even though the router was attached to the external network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'However, taking a look inside the `snat` namespace, we can find the `qg` interface
+    that is used to handle outgoing traffic from instances:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/4ed72fc1-3ae4-4ef8-8c95-2f9c90249f6d.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In addition to the `qg` interface, there is now a new interface with the prefix
+    of `sg`. A virtual router will have a `qr` interface and the new `sg` interface
+    for every internal network it is connected to. The `sg` interfaces are used as
+    an extra hop when traffic is source NAT'd, which will be explained in further
+    detail in the following sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using the routing policy database
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When a virtual machine instance without a floating IP sends traffic destined
+    to an external network such as the internet, it hits the local `qrouter` namespace
+    on the compute node and is routed to the `snat` namespace on the centralized `network`
+    node. To accomplish this task, special routing rules are put in place within the
+    `qrouter` namespaces.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Linux offers a routing policy database made up of multiple routing tables and
+    rules that allow for intelligent routing based on destination and source addresses,
+    IP protocols, ports, and more. There are source routing rules for every subnet
+    a virtual router is attached to.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this demonstration, the router is attached to a single project network:
+    `172.24.100.0/24`. Take a look at the main routing within the `qrouter` namespace
+    on `compute01`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/1493007e-84b0-406b-b282-e03bc7719843.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Notice how there is no default route in the main routing table.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the compute node, use the `ip rule` command from within the qrouter namespace
+    to list additional routing tables and rules created by the Neutron agent:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/21123baa-9601-4424-963e-c1c0a60da20c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The table numbered `2887279617` was created by Neutron. The additional routing
+    table is consulted and a default route is found:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/7b8e400d-d647-4acd-ad70-223ae37d287a.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: From that output, we can see that `172.24.100.11` is the default gateway address
+    and corresponds to the `sq` interface within the `snat` namespace on the centralized
+    node. When traffic reaches the `snat` namespace, the source NAT is performed and
+    the traffic is routed out of the `qg` interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tracing a packet through the SNAT namespace
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In the following example, the green VM sends traffic to `8.8.8.8`, a Google
+    DNS server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/dda3f8c0-163e-40e3-b906-e1aa7c7025a9.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Green VM | Green Router Interface (`qr1`) | Green VM | `8.8.8.8`(Google DNS)
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: 'When traffic arrives at the local qrouter namespace, the main routing table
+    is consulted. The destination IP, `8.8.8.8`, does not match any directly connected
+    subnet, and a default route does not exist. Secondary routing tables are then
+    consulted, and a match is found based on the source interface. The router then
+    routes the traffic from the green VM to the green interface of the `SNAT` namespace,
+    `sg1`, through the east-west routing mechanisms covered earlier in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/8bb3c752-d12c-49a9-bf1d-5a0a4f922ff5.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Green Router Interface (qr1) | Green SNAT Interface (sg1) | Green VM | `8.8.8.8`(Google
+    DNS) |'
+  prefs: []
+  type: TYPE_TB
+- en: 'When traffic enters the snat namespace, it is routed out to the `qg` interface.
+    The `iptables` rules within the namespace change the source IP and MAC address
+    to that of the `qg` interface to ensure traffic is routed back properly:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/5e99d675-8d50-46ef-8378-250891d3a0c4.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| External SNAT Interface (`qg`) | Physical Default Gateway | External SNAT
+    Interface (`qg`) | `8.8.8.8`(Google DNS) |'
+  prefs: []
+  type: TYPE_TB
+- en: When the remote destination responds, a combination of flow rules on the centralized
+    network node and compute node, along with data stored in the connection tracking
+    and NAT tables, ensures the response is routed back to the green VM with the proper
+    IP and MAC addresses in place.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Floating IPs through distributed virtual routers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the network world, north-south traffic is traditionally defined as client-to-server
+    traffic. In Neutron, as it relates to distributed virtual routers, north-south
+    traffic is traffic that originates from an external network to virtual machine
+    instances using floating IPs, or vice versa.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the legacy model, all traffic to or from external clients traverses a centralized
+    network node hosting a router with floating IPs. With DVR, the same traffic avoids
+    the network node and is routed directly to the compute node hosting the virtual
+    machine instance. This functionality requires compute nodes to be connected directly
+    to external networks through an external bridge – a configuration that up until
+    now has only been seen on nodes hosting standalone or highly-available routers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introducing the FIP namespace
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Unlike SNAT traffic, traffic through a floating IP with DVR is handled on the
+    individual compute nodes rather than a centralized node. When a floating IP is
+    attached to a virtual machine instance, the L3 agent on the compute node creates
+    a new `fip` namespace that corresponds to the external network the floating IP
+    belongs to if one doesn''t already exist:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/5809684a-c9e8-4b36-ba53-a3a64e64c51e.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Any router namespace on a compute node connected to the same external network
+    shares a single fip namespace and is connected to the namespace using a veth pair.
+    The veth pairs are treated as point-to-point links between the fip namespace and
+    individual qrouter namespaces, and are addressed as `/31` networks using a common
+    `169.254/16` link-local address space. Because the network connections between
+    the namespaces exist only within the nodes themselves and are used as point-to-point
+    links, a Neutron project network allocation is not required.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the `qrouter` namespace, one end of the veth pair has the prefix `rfp`,
+    meaning router-to-FIP:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/8fb7d188-2416-411b-8980-dcd8986275c1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Inside the `fip` namespace, the other end of the veth pair has the prefix `fpr`,
+    meaning FIP-to-router:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/a3e2b5bd-bf5f-47f6-96b9-df5e58419ece.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In addition to the `fpr` interface, a new interface with the prefix fg can be
+    found inside the FIP namespace. The `rfp`, `fpr`, and `fg` interfaces will be
+    discussed in the following sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tracing a packet through the FIP namespace
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'When a floating IP is assigned to an instance, a couple of things occur:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A fip namespace for the external network is created on the compute node if one
+    doesn't exist.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The route table within the qrouter namespace on the compute node is modified.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The following sections demonstrate how traffic to and from floating IPs is processed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Sending traffic from an instance with a floating IP
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Imagine a scenario where a floating IP, `10.30.0.107`, has been assigned to
+    the green VM represented in the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/c610d0b5-26a0-4fa4-bc44-a758bad49bba.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'When the green virtual machine instance at `172.24.100.6` sends traffic to
+    an external resource, it first arrives at the local `qrouter` namespace:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/a286ad14-006c-4ccd-9dd4-09bd00ac3c87.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Green VM | Green qr interface | Green VM Fixed IP(172.24.100.6) | 8.8.8.8(Google
+    DNS) |'
+  prefs: []
+  type: TYPE_TB
+- en: 'When traffic arrives at the local qrouter namespace, the routing policy database
+    is consulted so that traffic may be routed accordingly. Upon association of the
+    floating IP to a port, a source routing rule is added to the route table within
+    the qrouter namespace:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/f0f39a25-fb08-43d0-996a-d3d8e26b3a8b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The main routing table inside the qrouter namespace with a higher priority does
+    not have a default route, so the `57481:` from `172.24.100.6` lookup 16 rule is
+    matched instead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A look at the referenced routing table, table 16, shows the fip namespace''s
+    `fpr` interface is the default route for traffic sourced from the fixed IP of
+    the instance:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/8a840447-86e8-4b77-b022-b3331f4d5bc6.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The qrouter namespace performs the NAT translation of the fixed IP to the floating
+    IP and sends the traffic to the fip namespace, as demonstrated in the following
+    diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/82e9aa42-5732-4aba-9cd0-d2a44e970a8f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `rfp` interface | `fpr` interface | Green VM Floating IP(`10.30.0.107`) |
+    8.8.8.8(Google DNS) |'
+  prefs: []
+  type: TYPE_TB
+- en: 'Once traffic arrives at the `fip` namespace, it is forwarded thru the `fg`
+    interface to its default gateway:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/ea44db9d-3220-4e0c-aba5-efbb36661c61.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: '| **Source MAC** | **Destination MAC** | **Source IP** | **Destination IP**
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `fg` interface | Physical Default Gateway | Green VM Floating IP(`10.30.0.107`)
+    | 8.8.8.8(Google DNS) |'
+  prefs: []
+  type: TYPE_TB
+- en: Returning traffic to the floating IP
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: If you recall from earlier in this chapter, a single `fip` namespace on a compute
+    node is shared by every `qrouter` namespace on that node connected to the external
+    network. Much like a standalone or highly-available router has an IP address from
+    the external network on its `qg` interface, each `fip` namespace has a single
+    IP address from the external network configured on its `fg` interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On `compute03`, the IP address is `10.30.0.113`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/be0a4b2c-6d48-4a4e-861e-c7cfdc6b9a6a.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Unlike a legacy router, the qrouter namespaces of distributed routers do not
+    have direct connectivity to the external network. However, the qrouter namespace
+    is still responsible for performing the NAT from the fixed IP to the floating
+    IP. Traffic is then routed to the `fip` namespace and, from there on out, to the
+    external network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using proxy ARP
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Floating IPs are configured on the `rfp` interface within the `qrouter` namespace,
+    but are not directly reachable from the gateway of the external network, since
+    the `fip` namespace sits between the `qrouter` namespace and the external network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To allow for the routing of traffic through the `fip` namespace back to the
+    `qrouter` namespace, Neutron relies on the use of proxy arp. By automatically
+    enabling proxy arp on the `fg` interface, the `fip` namespace is able to respond
+    to ARP requests for the floating IP, on behalf of the floating IP, from the upstream
+    gateway device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When traffic is routed from the gateway device to the `fip` namespace, the
+    routing table is consulted and traffic is routed to the respective `qrouter` namespace:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/595f662d-d3b3-491e-8b07-4369a6fa9f1f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The following diagram demonstrates how proxy arp works in this scenario:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/02c50add-6d56-45a1-add8-a863854d72ae.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The `fg` interface within the `fip` namespace responds on behalf of the `qrouter`
+    namespace since `qrouter` is not directly connected to the external network. The
+    use of a single `fip` namespace and proxy arp eliminates the need to provide each
+    `qrouter` namespace with its own IP address from the external network, which reduces
+    unnecessary IP address consumption and makes more floating IPs available for use
+    by virtual machine instances and other network resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Distributed virtual routers have a positive impact on the network architecture
+    as a whole by avoiding bottlenecks and single points of failure seen in the legacy
+    model. Both east/west and north/south traffic can be routed and forwarded between
+    compute nodes, resulting in a more efficient and resilient network. SNAT traffic
+    is limited to a centralized node, but highly-available SNAT routers are currently
+    available in an experimental status and will be production-ready in future releases
+    of OpenStack.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While distributed virtual routers help provide parity with nova-network's multi-host
+    capabilities, they are operationally complex and considerably more difficult to
+    troubleshoot if things go wrong when compared to a standalone or highly-available
+    router.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will look at the advanced networking service known as
+    load balancing as-a-service, or LBaaS, and its reference architecture using the
+    `haproxy` plugin. LBaaS allows users to create and manage load balancers that
+    can distribute workloads across multiple virtual machine instances. Using the
+    Neutron API, users can quickly scale their application while providing resiliency
+    and high availability.
+  prefs: []
+  type: TYPE_NORMAL

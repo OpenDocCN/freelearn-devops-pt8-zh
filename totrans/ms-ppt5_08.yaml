@@ -1,0 +1,776 @@
+- en: Extending Puppet with Tasks and Discovery
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Since the launch of Puppet 5, three new services have been announced by Puppet:
+    Tasks, Discovery, and Pipelines. Puppet Tasks provides us an imperative solution
+    for automating ad hoc tasks. Puppet Discovery allows us to discover the state
+    of infrastructure. Puppet Pipelines, which will be discussed briefly in the next
+    chapter, covers application-level CI/CD.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we'll investigate and use Puppet Tasks to help manage a web
+    server. We'll walk through some best practices and appropriate times for using
+    Puppet Tasks. We'll then dive into Puppet Discovery and inspect our infrastructure.
+    We'll use Puppet Discovery to make intelligent decisions on what to automate in
+    our infrastructure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Puppet Tasks
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Puppet is designed to provide continual enforcement of an end-state on nodes
+    in an infrastructure. While Puppet can cover most infrastructure tasks, some things
+    are better left to ad hoc tasks. Puppet Tasks are on-demand actions that can be
+    run on nodes and containers. You write tasks in a similar way to scripts, and
+    they can be written in any language that''s available on the target node.  When
+    deciding on the right tool for the job, between a task or a Puppet manifest, I
+    stick to a simple thought process: is this something I want permanently, or a
+    single one-off action?'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's think about some things in a normal workplace that would be permanent,
+    or stateful. The physical address of where I work and the building, rooms, and
+    furniture are examples of physical things I'd want permanently enforced. Things
+    like weekly meetings or the daily scrum would also be something to continually
+    enforce, as a business rule. All of these things have components, from the brick
+    and mortar to the time and place of the weekly scrum. If we could manage the real
+    world with our IT tools, Puppet would be the perfect tool to describe our office
+    and business rules, which we expect to stay constant.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the same context, an impromptu meeting or after-work function would consist
+    of a series of tasks, performed once, but mostly in the same manner every time
+    (with variables). If a customer orders something, we'd use a task to deliver the
+    request. If the request was custom, we'd instead use a series of tasks to build
+    the composite whole. These are the things we do consistently, but with variations
+    and at unknown points in time. An external event or person drives the creation
+    of this work, but we try to repeat things in an automated way to save time and
+    increase consistency.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The chief difference between Tasks and Puppet for management is imperative and
+    declarative models. In this section, we'll be setting up Bolt (the technology
+    that powers tasks), building a web server with Puppet, and then deploying our
+    websites on demand with Bolt.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Bolt
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Bolt is the primary driver for Puppet Tasks, and is an open source project written
+    in Ruby for remotely executing scripts of any language, on systems over SSH and
+    WinRM. You can write your tasks in any language supported by the end host, such
+    as PowerShell and Bash on Windows and Linux, or Ruby and Python if interpreters
+    are available. Bolt was designed as an agentless system to distribute scripts
+    and execute remote commands over standard protocols, using SSH public key encryption
+    or a username and password. There is also a built-in command-line tool for building
+    inventory files over PuppetDB queries. Bolt also supports task plans, packaged
+    in forge modules, which chain multiple tasks together, providing more complex
+    tasks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing Bolt
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Bolt can be installed via a number of methods, all described at [https://puppet.com/docs/bolt/0.x/bolt_installing.html](https://puppet.com/docs/bolt/0.x/bolt_installing.html):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A downloadable package from [http://downloads.puppet.com/](http://downloads.puppet.com/)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A public Chocolatey package
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: OSX Homebrew installation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Linux native package repositories
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Rubygems
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Bolt works remotely over standard connection protocols. Try installing it and
+    using it on your workstation, instead of the Puppet Master, during this lesson.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On my MacBook, I''ll install Bolt using Homebrew:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'I''ll then close my Terminal, and reopen it and verify that the `bolt` command
+    is in my path:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Managing nodes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In Bolt, we have to explicitly list the nodes that we want to manage. We can
+    do this via the `--nodes` command flag, or by providing an inventory file. An
+    inventory file is a YAML file that contains groups of nodes, with configuration
+    options already set. By default, an `inventory` file placed at `~/.puppetlabs/bolt/inventory.yaml`
+    will be used by Bolt. For this section, we''ll only be targeting our Puppet Master,
+    so I''ll ensure that it is in the `inventory` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Before I can run Bolt to that server, I''m going to need to ensure that my
+    SSH key is available as the root user on that system. I''ll use the `ssh-copy-id`
+    utility to transfer this from my UNIX-based system to the root user:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Ad hoc commands
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'At the very basic core of Puppet Bolt, we issue remote commands, send scripts,
+    and run scripts. Bolt provides three simple commands to do just that: `bolt command
+    run`, `bolt file upload`, and `bolt script run`. To test our SSH key from earlier,
+    let''s run a simple command using `bolt command run`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For simple one-off tasks, running the `bolt` command can be a great way to
+    inspect a system. When we have a larger list of instructions to send, we''ll want
+    to write a script and run it remotely. Here is a simple script that returns users
+    and all open ports:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When we run this script via `bolt script run`, we get the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, if I wanted to make this script available on the Puppet Server for
+    a local user, I could send it over with `bolt script upload`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: Bolt tasks
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Bolt tasks allow us to write and extend a script with additional metadata parameters.
+    These parameters can be provided on execution by environment variables, PowerShell
+    named arguments, or as JSON input in more advanced cases. Bolt tasks are similar
+    to resources in Puppet, allowing us to parameterize an action and use a command
+    in a repeatable way. We'll be writing a simple task that allows us to inspect
+    certain log files on the Puppet Master by name. This task will be part of a logs
+    module, named `puppetserver`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: task.json
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'This JSON parameter file is an optional component for tasks and allows the
+    passing of parameters as environment variables to our scripts. We can use this
+    file to also limit user input as well, leaving a small number of options available
+    for our users if necessary. In the following example, our script will accept a
+    log and store the parameter. The log parameter will only allow three choices,
+    which determine where to find the log file the user is searching for. The store
+    parameter will be off by default, but will allow us to aggregate logs for the
+    plan we''ll build in the next section:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: The parameters use the same data types as Puppet. You can use any data type
+    available to Puppet as a data type for Puppet tasks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Task
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Our task will be a simple shell script that reads a named file based on our
+    input parameters, makes a decision on whether or not to store the output, and
+    then returns the output as JSON to Bolt. It's important that our return comes
+    back as JSON so that it can be picked up by Bolt. In more complex use cases, we
+    could even use this JSON to pass key value pairs to a follow-on task in plans,
+    which we'll cover in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A task can be written in any language available to the system. This example
+    will use Bash, as nearly every administrator has worked with it. If you haven't
+    tried writing scripts in Python, Ruby, Golang, or any other scripting language
+    outside of shell, give it a shot. These tasks actually become easier to write
+    in these more advanced languages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are a few things worth noting in our shell script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Values returned from our JSON parameters file become environment variables,
+    and start with `PT_`. Our script refers to `$PT_log and $PT_store` to check the
+    values that will be sent over the command line.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We're using a case statement to map `$PT_log` to a log file. This use is similar
+    to a selector statement in Puppet.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If `$PT_store` is true, we'll build a log file that can be appended to.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The log is printed out in the final line as JSON so that Puppet Tasks knows
+    it is a valid output to the command line:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s double check that the files we''ve written are in the proper location
+    before we run our command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can then run our command on the command line. We''ve added some parameters
+    that help along the way:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`nodes`: This determines which nodes based on our inventory file to run on.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`modulepath`: Where to look for modules. Because we''re working on this module
+    directly, we''ve just set the modulepath to the directory above the module.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--no-host-key-check`: You may not need this, but to ease troubleshooting of
+    SSH in this section, we''ll use this flag.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`log=puppetdb`: This is the parameter which we wrote in our JSON file. It will
+    be transformed into `$PT_log` and used in our shell script:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: Try the command out for yourself. It will return a different log file for each
+    command, and if you pass `store=true`, it will even start appending this log to
+    a file in `/tmp` named `puppetlog.log`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Bolt plans
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: If Puppet tasks are our imperative resources, Puppet plans are our Puppet manifests.
+    Here, we combine multiple tasks and commands to form an orchestrated plan. These
+    plans are written in the same DSL as Puppet code, although at the time of writing
+    this book, only puppet functions can be used, and not many objects like resources
+    or class are included.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In our sample plan, we''re going to introduce two parameters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`$enterprise`: This is used to determine if `pe-console-services` should be
+    checked in the plan (it is possible to use facts from the target or PuppetDB as
+    well)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`$servers`: This is a list of servers that''s passed as a comma-separated list'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Our task will clean up any existing stored logs and build a fresh set. This
+    script will run the log scraper task we built in the last section for each section,
+    and aggregate all the logs together. Enterprise, as an optional flag, will determine
+    if `pe-console-services.log` is included as well. After we''ve built the log,
+    we''ll simply read the log file and ensure that it is returned to the command
+    line with the `return` function. Finally, we''ll clean up after ourselves and
+    clean the aggregated log we just built in `/tmp`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once we''ve built our plan, we can run `bolt plan run`, passing our `modulepath`
+    and parameters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You may notice that the log comes back as a big JSON object, with no line breaks
+    represented. If you want to view this aggregated log file for yourself, try running
+    the following command and inspecting the new `puppetlog.log` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: Puppet Enterprise Task Management
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Bolt is a fully-featured open source product. It does not need Puppet Enterprise
+    to work well in your environment. That being said, the console for Puppet Enterprise
+    ties in very nicely with Bolt. There is a single tasks page on the left-hand side
+    of the console that will take you to the main tasks page. Once you enter, you'll
+    be greeted with the Run a task page, which provides you with a few convenient
+    features if you're sharing yours tasks in your organization.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This section is only relevant for Puppet Enterprise users. This module will
+    need to be in `/etc/puppetlabs/code/environments/production/modules` via r10k
+    or manual placement to be read by the Puppet Enterprise console.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first main feature is the ability to directly view the supporting JSON
+    parameters file before running the task. Notice that our description and optional
+    parameters are represented in tasks when we add `logs::puppetserver`, making documentation
+    for other users convenient:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/42da619d-e125-47ff-b7c4-e9c5d9fa40b2.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Every parameter is also represented as a drop-down menu. Because we selected
+    Enum[console,puppetdb,puppetserver] as our type in `puppetserver.json`, those
+    are the only options available to the users in the console. Store is also a true
+    or false only value drop-down, thanks to our Boolean selection:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/f88b2203-b70f-4c09-a399-1b67f26f6b04.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Once we run the job, we''ll get back a cleaned up version of the logs that
+    we''ve selected. If you''re in a large organization, you could put this task into
+    the inventory and allow administrators to remotely view log files on demand without
+    ever needing to log into the server or manage the code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/cff42a38-a4e4-4dff-94cc-9d30ddd6a56f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: This task was meant to be a simple example. With complicated tasks and plans,
+    you can orchestrate automation of any kind and in any language across your infrastructure,
+    using just SSH or WinRM. Our tasks have the ability to import and export JSON
+    variables, allowing us to build more complex dependencies between tasks. Puppet
+    Tasks is still relatively new to the Puppet ecosystem, but is a promising new
+    addition, allowing for the rapid sharing of administration automation tasks within
+    an organization.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Puppet Discovery
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Puppet Discovery is a new product by Puppet. Puppet Discovery is a standalone
+    containerized application built to discover information about containers and virtual
+    machines in real-time. This platform is designed to have an inventory of all IT
+    resources, discover details about each resource, and take action on those machines.
+    Although still in the early phases of development, I expect to see tighter integration
+    between Discovery, Puppet Tasks, and the greater Puppet ecosystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Puppet Discovery is generally safe to install and use to inspect a production-level
+    system. Puppet Discovery does do an active scan of all sources, and may trigger
+    security warnings in your organization. Make sure that you coordinate with a security
+    team if you decide to use Puppet Discovery against corporate resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we'll be installing Puppet Discovery and viewing what is available
+    to us. We'll start by installing the system, followed by adding an IP CIDR block
+    of our infrastructure machine, and then connect to our machines using credentials.
+    Then we'll explore Puppet Discovery to view details of individual nodes and packages
+    across our infrastructure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This may trigger security alerts in production if security isn't notified.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing Discovery
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Puppet Discovery is not a **Free and Open Source Software** (**FOSS**). We'll
+    need a license from Puppet, which can be obtained at [licenses.puppet.com](http://licenses.puppet.com/).
+    Select an available Puppet Discovery license to get started and then download
+    it to the target machine you'll run Puppet Discovery on. This JSON file will be
+    used in the installation of our Puppet Discovery application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You'll need Docker available on the machine. In order to install Puppet Discovery,
+    you'll need to have Docker on the host.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Preparing Puppet Discovery
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Download Puppet Discovery for your operating system at [https://puppet.com/download-puppet-discovery](https://puppet.com/download-puppet-discovery).
+    This section will help us put the binary in our path and set up Puppet Discovery
+    for the first time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After we''ve downloaded Puppet Discovery, we''ll want to move the binary into
+    our path. On most Unix-based operating systems, `/usr/local/bin` is in your path.
+    We need to place our binary in our path, make it executable, and ensure we can
+    run it as the local user:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: If `/usr/local/bin` is not in your path, you can see which directories are in
+    your path by using `echo $PATH` on your system. This will come back as a list
+    separated by colons.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once we''ve verified that the binary works, we''ll run `puppet-discovery start`
+    to start the service. We''ll be prompted to provide a license key, read the EULA
+    (which will pop up in a browser), and generate an administrative password:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: Once we've finished this step, Puppet Discovery will be running on port `8443`
+    on our target machine in a Docker container.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At the time of writing this book, the license prompt uses a relative path not
+    an absolute path, so ensure you're running this command from somewhere you can
+    find that JSON file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Managing sources
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Our initial login won't take us to our splash screen until we've provided a
+    basic list of target machines and credentials to Puppet Discovery. Puppet Discovery
+    has the ability to tie into an entire Amazon Web Services, Google Compute Platform,
+    Microsoft Azure, or VMWare VSphere account and perform automatic discovery of
+    available resources. We can also provide a direct list of IP addresses if no API-driven
+    platform is available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we'll be adding a CIDR block of IP addresses to Discovery,
+    which will be available to all users regardless of platform and hypervisor.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adding sources by IP address
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: If you're using a cloud provider to test this setup, go ahead and use the cloud
+    provider instead. The rest of this section will not be reliant on the methodology
+    that we use to connect to machines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'During the writing of this book, several nodes have been created in my Puppet
+    Infrastructure so that we can inspect them. I''ve used Vagrant and VirtualBox
+    as my platform, and I will be using my local network of `10.20.1.0/24` to discover
+    all of my Puppet infrastructure. When selecting the IP address you will use to
+    demonstrate this section, make sure that the machine you''ve installed Docker
+    on has the ability to find the nodes over the network provided:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e872e04f-b7a5-42ff-8afc-b16277b84ab2.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Managing credentials
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'After our first list of nodes to discover, Puppet Discovery will automatically
+    take us to a splash page, allowing us to select an authentication method. At the
+    time of writing this book, three methods are available: an SSH Private Key, an
+    SSH Credential, and a WinRM Credential. SSH Private Keys are generally the most
+    secure method available, but if SSH keys are not available on the remote systems,
+    a username and password is taken via SSH Credential for Linux or WinRM Credential
+    for Windows.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we'll be using an SSH key to provide connections to the machines
+    we discovered in the previous step.
+  prefs: []
+  type: TYPE_NORMAL
+- en: SSH key file
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: If you're using vagrant for testing this, rather than a cloud provider, I'm
+    simply using the default insecure keys provided by vagrant. This key can always
+    be found at [https://github.com/hashicorp/vagrant/tree/master/keys](https://github.com/hashicorp/vagrant/tree/master/keys).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When adding credentials, we''re also scoping our credentials. In an SSH private
+    key credential, you begin by selecting the PEM file you wish to apply from your
+    local hard drive. We have three available RBAC options:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Discover data on hosts**: Should this key be used to discover information?'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Run tasks on target hosts**: Should this key be able to run and execute tasks?'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Escalate privileges to root**: Should this user become the root user for
+    discovery and tasks?'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Finally, we have a username and passphrase. Our username is the user we want
+    to connect as to our remote machines. As my machines are all in vagrant, vagrant
+    is also the user I''ll be connecting with. The passphrase is used to decrypt the
+    SSH key, and is optional if your key doesn''t have a passphrase like mine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/6f84d545-1672-4fde-9f9b-8fb8a1721929.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Once we've set up our first set of hosts and credentials, we'll be ready to
+    use Puppet Discovery.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Discovering
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: It may take some time for Puppet Discovery to collect all the information on
+    your infrastructure. Additionally, browser caching can prevent population of this
+    page after discovery. You may need to wait and clear your cache before you see
+    any data populate on the dashboard.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Our splash page now displays all the hosts, packages, and containers that can
+    be found against all of the sources we''ve provided and all authentication methods
+    we''ve entered. This dashboard is interactive, and clicking any box will take
+    you into a view, displaying all nodes that represent the information on the dashboard:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/118d339b-bffb-4597-89c5-e3e7a67965ae.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: If you're curious about the process used to discover these nodes, you can click
+    the Previous Events icon in the top-left corner of Discovery and view the log
+    for the discovery.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Viewing the Discovery
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In my original sample, I provided the `10.20.1.0/24` CIDR block to scan. Puppet
+    Discovery attempted a connection to the entire IP range using my provided credentials
+    and returned all my nodes. You may had noticed that I have one failed node, which
+    is actually my gateway and cannot be logged into using my credentials:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/f055ae46-3faa-458f-a6e4-7febc8905c46.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Discovering hosts
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Back on the dashboard, let''s go ahead and select Hosts to view a list of all
+    hosts, not narrowed down to specific information. We''ll see some basic information
+    displayed about all of these hosts, from the operating system to the uptime of
+    the machine itself:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/ed81f5b4-a442-4c28-bbc7-eaeaf6d0e8e3.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'If we select the hyperlink for any individual node, we''ll get a much more
+    useful list of objects to work with, which provides us with detailed information
+    about each host. Each tab will present us with different information:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Attributes**: The primary attributes used by Puppet Discovery itself, including
+    hostname, DNS name, and operating system details'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Services**: All services on the node, and their current state (running, stopped)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Users**: All users on the system, and their home directory'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Groups**: All groups available on the system'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Packages**: Each package on the system, their version, and the method used
+    to install them'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Tags**: Any tags listed by the cloud provider'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Containers**: Any containers running on the host system'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Discovering packages
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'We can inspect packages as a whole in Puppet Discovery. When you select packages
+    from the dashboard, you''ll be taken to a page that lists all packages, their
+    version, package manager, and, most importantly, the number of instances they''re
+    running on. We can use this information to see if software has been universally
+    installed on our infrastructure, or to track versioning across infrastructure.
+    This information is particularly helpful in security remediation when attempting
+    to determine vulnerable systems in the infrastructure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/19b8d522-4399-4ab0-a0ba-4b069e9a752c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Acting
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Puppet Discovery also allows us to take a very limited set of actions against
+    our infrastructure today: installing Puppet agents and managing services. In the
+    future, Puppet Discovery may include the ability to federate tasks over your infrastructure
+    as well. You can access these actions by selecting the Act + icon in the top bar
+    of Puppet Discovery. You''ll be redirected to the Select a task page:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/c91ac103-9e6b-482b-a52e-fa54d110359e.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Installing agents
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Installing agents using Puppet Discovery is one of the easiest ways to install
+    Puppet agents throughout your infrastructure. You''re currently able to provide
+    the following parameters and apply the tasks to a list of hosts:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`master`: Which Puppet Master to use. This is the only non-optional parameter.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`cacert_content`: Expected CA certificate the Master should return.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`certname`: Certname of agent.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`environment`: Environment the node should run in.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`dns_alt_names`: DNS alternate names baked into the agent certificate.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`custom_attributes`: Any custom CSR attributes.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`extension_request`: Any specific extension requests (such as `pp_role`) to
+    add to the certificate.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Managing services
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Managing services is also available in Puppet Discovery, and gives us only
+    two fields to use: **Action** and **Name**. Use these two fields to find a service
+    on the machine and start, stop, or restart any services on the node. This is a
+    convenient agent-free way to do some basic management of your infrastructure before
+    introducing Puppet on each node.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Uses for Discovery
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Discovery is still pretty new to the Puppet ecosystem. It is meant to be the
+    first thing installed before determining how you want to proceed with your greater
+    Puppet infrastructure rollout. That being said, Puppet Discovery has a few key
+    uses:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Determining what you already have in your environment
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Ensuring that security patches are properly installed on target machines
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Inspecting resources at a higher level, rather than executing on them
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we took a look at Puppet Tasks and Puppet Discovery. Bolt and
+    Puppet Tasks allow us to perform remote ad hoc commands on target machines. We
+    can parameterize these ad hoc commands and build tasks that are highly shareable
+    actions in our organization. We can even chain together these tasks as Puppet
+    Plans to build more complex actions that we can share across our infrastructure.
+    We inspected Puppet Discovery, installed it on our local system, and viewed the
+    existing infrastructure. We learned how to view and deploy agents, as well as
+    manage services with Puppet Discovery.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will cover virtual and exported resources in Puppet in the next chapter.
+  prefs: []
+  type: TYPE_NORMAL

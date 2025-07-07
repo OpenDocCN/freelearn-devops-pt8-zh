@@ -1,0 +1,1124 @@
+- en: Chapter 6. Managing Resources and Files
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '|   | *"The art of simplicity is a puzzle of complexity".* |   |'
+  prefs: []
+  type: TYPE_TB
+- en: '|   | --Douglas Horton |'
+  prefs: []
+  type: TYPE_TB
+- en: 'In this chapter, we will cover the following recipes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Distributing cron jobs efficiently
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Scheduling when resources are applied
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using host resources
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using exported host resources
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using multiple file sources
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Distributing and merging directory trees
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Cleaning up old files
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Auditing resources
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Temporarily disabling resources
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Introduction
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the previous chapter, we introduced virtual and exported resources. Virtual
+    and exported resources are ways to manage the way in which resources are applied
+    to a node. In this chapter, we will deal with when and how to apply resources.
+    In some cases, you may only wish to apply a resource off hours, while in others,
+    you may wish to only audit the resource but change nothing. In other cases, you
+    may wish to apply completely different resources based on which node is using
+    the code. As we will see, Puppet has the flexibility to deal with all these scenarios.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Distributing cron jobs efficiently
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When you have many servers executing the same cron job, it's usually a good
+    idea not to run them all at the same time. If all the jobs access a common server
+    (for example, when running backups), it may put too much load on that server,
+    and even if they don't, all the servers will be busy at the same time, which may
+    affect their capacity to provide other services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As usual, Puppet can help; this time, using the `inline_template` function to
+    calculate a unique time for each job.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Here''s how to have Puppet schedule the same job at a different time for each
+    machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Modify your `site.pp` file as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Run Puppet:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Run `crontab` to see how the job has been configured:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: We want to distribute the hour of the cron job runs across all our nodes. We
+    choose something that is unique across all the machines and convert it to a number.
+    This way, the value will be distributed across the nodes and will not change per
+    node.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can do the conversion using Ruby's `sum` method, which computes a numerical
+    value from a string that is unique to the machine (in this case, the machine's
+    hostname). The `sum` function will generate a large integer (in the case of the
+    string `cookbook`, the sum is 855), and we want values for `hour` between 0 and
+    23, so we use Ruby's `%` (modulo) operator to restrict the result to this range.
+    We should get a reasonably good (though not statistically uniform) distribution
+    of values, depending on your hostnames. Another option here is to use the `fqdn_rand()`
+    function, which works in much the same way as our example.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If all your machines have the same name (it does happen), don't expect this
+    trick to work! In this case, you can use some other string that is unique to the
+    machine, such as `ipaddress` or `fqdn`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There's more...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'If you have several cron jobs per machine and you want to run them a certain
+    number of hours apart, add this number to the `hostname.sum` resource before taking
+    the modulus. Let''s say we want to run the `dump_database` job at some arbitrary
+    time and the `run_backup` job an hour later, this can be done using the following
+    code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: The two jobs will end up with different `hour` values for each machine Puppet
+    runs on, but `run_backup` will always be one hour after `dump_database`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Most cron implementations have directories for hourly, daily, weekly, and monthly
+    tasks. The directories `/etc/cron.hourly`, `/etc/cron.daily`, `/etc/cron.weekly`,
+    and `/etc/cron.monthly` exist on both our Debian and Enterprise Linux machines.
+    These directories hold executables, which will be run on the referenced schedule
+    (hourly, daily, weekly, or monthly). I find it better to describe all the jobs
+    in these folders and push the jobs as `file` resources. An admin on the box searching
+    for your script will be able to find it with `grep` in these directories. To use
+    the same trick here, we would push a cron task into `/etc/cron.hourly` and then
+    verify that the hour is the correct hour for the task to run. To create the cron
+    jobs using the cron directories, follow these steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, create a `cron` class in `modules/cron/init.pp`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Include the `cron` class in your cookbook node in `site.pp`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Create a template to hold the cron task:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Then, run Puppet:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Verify that the script has the same value we calculated before, `15`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Now, this job will run every hour but only when the hour, returned by `$(date
+    +%H)`, is equal to `15` will the rest of the script run. Creating your cron jobs
+    as file resources in a large organization makes it easier for your fellow administrators
+    to find them. When you have a very large number of machines, it can be advantageous
+    to add another random wait at the beginning of your job. You would need to modify
+    the line before `echo run-backup` and add the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: This will sleep a maximum of `600` seconds but will sleep a different amount
+    each time it runs (assuming your random number generator is working). This sort
+    of random wait is useful when you have thousands of machines, all running the
+    same task and you need to stagger the runs as much as possible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: See also
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The *Running Puppet from cron* recipe in [Chapter 2](ch02.html "Chapter 2. Puppet
+    Infrastructure"), *Puppet Infrastructure*
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Scheduling when resources are applied
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'So far, we looked at what Puppet can do, and the order that it does things
+    in, but not when it does them. One way to control this is to use the `schedule`
+    metaparameter. When you need to limit the number of times a resource is applied
+    within a specified period, `schedule` can help. For example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: The most important thing to understand about `schedule` is that it can only
+    stop a resource being applied. It doesn't guarantee that the resource will be
+    applied with a certain frequency. For example, the `exec` resource shown in the
+    preceding code snippet has `schedule => daily`, but this just represents an upper
+    limit on the number of times the `exec` resource can run per day. It won't be
+    applied more than once a day. If you don't run Puppet at all, the resource won't
+    be applied at all. Using the hourly schedule, for instance, is meaningless on
+    a machine configured to run the agent every 4 hours (via the `runinterval` configuration
+    setting).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'That being said, `schedule` is best used to restrict resources from running
+    when they shouldn''t, or don''t need to; for example, you might want to make sure
+    that `apt-get update` isn''t run more than once an hour. There are some built-in
+    schedules available for you to use:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`hourly`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`daily`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`weekly`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`monthly`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`never`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: However, you can modify these and create your own custom schedules, using the
+    `schedule` resource. We'll see how to do this in the following example. Let's
+    say we want to make sure that an `exec` resource representing a maintenance job
+    won't run during office hours, when it might interfere with production.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In this example, we''ll create a custom `schedule` resource and assign this
+    to the resource:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Modify your `site.pp` file as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Run Puppet. What you''ll see will depend on the time of the day. If it''s currently
+    outside the office hours period you defined, Puppet will apply the resource as
+    follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'If the time is within the office hours period, Puppet will do nothing:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'A schedule consists of three bits of information:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `period` (`hourly`, `daily`, `weekly`, or `monthly`)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `range` (defaults to the whole period, but can be a smaller part of it)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `repeat` count (how often the resource is allowed to be applied within the
+    range; the default is 1 or once per period)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Our custom schedule named `outside-office-hours` supplies these three parameters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `period` is `daily`, and `range` is defined as an array of two time intervals:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The schedule named `outside-office-hours` is now available for us to use with
+    any resource, just as though it were built into Puppet such as the `daily` or
+    `hourly` schedules. In our example, we assign this schedule to the `exec` resource
+    using the `schedule` metaparameter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Without this `schedule` parameter, the resource would be applied every time
+    Puppet runs. With it, Puppet will check the following parameters to decide whether
+    or not to apply the resource:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Whether the time is in the permitted range
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Whether the resource has already been run the maximum permitted number of times
+    in this period
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For example, let''s consider what happens if Puppet runs at 4 p.m., 5 p.m.,
+    and 6 p.m. on a given day:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**4 p.m.**: It''s outside the permitted time range, so Puppet will do nothing'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**5 p.m.**: It''s inside the permitted time range, and the resource hasn''t
+    been run yet in this period, so Puppet will apply the resource'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**6 p.m.**: It''s inside the permitted time range, but the resource has already
+    been run the maximum number of times in this period, so Puppet will do nothing'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: And so on until the next day.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There's more...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The `repeat` parameter governs how many times the resource will be applied
+    given the other constraints of the schedule. For example, to apply a resource
+    no more than six times an hour, use a schedule as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: Remember that this won't guarantee that the job is run six times an hour. It
+    just sets an upper limit; no matter how often Puppet runs or anything else happens,
+    the job won't be run if it has already run six times this hour. If Puppet only
+    runs once a day, the job will just be run once. So `schedule` is best used to
+    make sure things don't happen at certain times (or don't exceed a given frequency).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using host resources
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: It's not always practical or convenient to use DNS to map your machine names
+    to IP addresses, especially in cloud infrastructures, where those addresses may
+    change all the time. However, if you use entries in the `/etc/hosts` file instead,
+    you then have the problem of how to distribute these entries to all machines and
+    keep them up to date.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Here's a better way to do it; Puppet's host resource type controls a single
+    `/etc/hosts` entry, and you can use this to map a hostname to an IP address easily
+    across your whole network. For example, if all your machines need to know the
+    address of the main database server, you can manage it with a `host` resource.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Follow these steps to create an example `host` resource:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Modify your `site.pp` file as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Run Puppet:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Puppet will check the `target` file (usually `/etc/hosts`) to see whether the
+    host entry already exists, and if not, add it. If an entry for that hostname already
+    exists with a different address, Puppet will change the address to match the manifest.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There's more...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Organizing your host resources into classes can be helpful. For example, you
+    could put the host resources for all your DB servers into one class called `admin::dbhosts`,
+    which is included by all web servers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Where machines may need to be defined in multiple classes (for example, a database
+    server might also be a repository server), virtual resources can solve this problem.
+    For example, you could define all your hosts as virtual in a single class:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You could then realize the hosts you need in the various classes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: Using exported host resources
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the previous example, we used the spaceship syntax to collect virtual host
+    resources for hosts of type database or type web. You can use the same trick with
+    exported resources. The advantage to using exported resources is that as you add
+    more database servers, the collector syntax will automatically pull in the newly
+    created exported host entries for those servers. This makes your `/etc/hosts`
+    entries more dynamic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: We will be using exported resources. If you haven't already done so, set up
+    puppetdb and enable storeconfigs to use puppetdb as outlined in [Chapter 2](ch02.html
+    "Chapter 2. Puppet Infrastructure"), *Puppet Infrastructure*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In this example, we will configure database servers and clients to communicate
+    with each other. We'll make use of exported resources to do the configuration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create a new database module, `db`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Create a new class for your database servers, `db::server`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Create a new class for your database clients:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Apply the database server module to some nodes, in `site.pp`, for example:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Run Puppet on the nodes with the database server module to create the exported
+    resources.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Apply the database client module to cookbook:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Run Puppet:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Verify the host entries in `/etc/hosts`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In the `db::server` class, we create an exported host resource:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: This resource uses the fully qualified domain name (`$::fqdn`) of the node on
+    which it is applied. We also use the short hostname (`$::hostname`) as an alias
+    of the node. Aliases are printed after `fqdn` in `/etc/hosts`. We use the node's
+    `$::ipaddress` fact as the IP address for the host entry. Finally, we add a tag
+    to the resource so that we can collect based on that tag later.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The important thing to remember here is that if the ip address should change
+    for the host, the exported resource will be updated, and nodes that collect the
+    exported resource will update their host records accordingly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We created a collector in `db::client`, which only collects exported host resources
+    that have been tagged with `''db::server''`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: We applied the `db::server` class for a couple of nodes, dbserver1 and dbserver2,
+    which we then collected on cookbook by applying the `db::client` class. The host
+    entries were placed in `/etc/hosts` (the default file). We can see that the host
+    entry contains both the fqdn and the short hostname for dbserver1 and dbserver2.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There's more...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Using exported resources in this manner is very useful. Another similar system
+    would be to create an NFS server class, which creates exported resources for the
+    mount points that it exports (via NFS). You can then use tags to have clients
+    collect the appropriate mount points from the server. In the previous example,
+    we made use of a tag to aid in our collection of exported resources. It is worth
+    noting that there are several tags automatically added to resources when they
+    are created, one of which is the scope where the resource was created.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using multiple file sources
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A neat feature of Puppet's `file` resource is that you can specify multiple
+    values for the `source` parameter. Puppet will search them in order. If the first
+    source isn't found, it moves on to the next, and so on. You can use this to specify
+    a default substitute if the particular file isn't present, or even a series of
+    increasingly generic substitutes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'This example demonstrates using multiple file sources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create a new greeting module as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Create the file `modules/greeting/files/hello.txt` with the following contents:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Create the file `modules/greeting/files/universal.txt` with the following contents:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Add the class to a node:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Run Puppet:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Check the contents of the `/tmp/greeting` file:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Now remove the `hello.txt` file from your Puppet repository and rerun the agent:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'On the first Puppet run, puppet searches for the available file sources in
+    the order given:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The file `hello.txt` is first in the list, and is present, so Puppet uses that
+    as the source for `/tmp/greeting`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On the second Puppet run, `hello.txt` is missing, so Puppet goes on to look
+    for the next file, `universal.txt`. This is present, so it becomes the source
+    for `/tmp/greeting`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: There's more...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'You can use this trick anywhere you have a `file` resource. A common example
+    is a service that is deployed on all nodes, such as rsyslog. The `rsyslog` configuration
+    is the same on every host except for the rsyslog server. Create an `rsyslog` class
+    with a file resource for the `rsyslog` configuration file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: Then, you put the default configuration in `rsyslog.conf`. For your rsyslog
+    server, `logger`, create an `rsyslog.conf.logger` file. On the machine logger,
+    `rsyslog.conf.logger` will be used before `rsyslog.conf` because it is listed
+    first in the array of sources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: See also
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The *Passing parameters to classes* recipe in [Chapter 3](ch03.html "Chapter 3. Writing
+    Better Manifests"), *Writing Better Manifests*
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Distributing and merging directory trees
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As we saw in the previous chapter, the file resource has a `recurse` parameter,
+    which allows Puppet to transfer entire directory trees. We used this parameter
+    to copy an admin user's dotfiles into their home directory. In this section, we'll
+    show how to use `recurse` and another parameter `sourceselect` to extend our previous
+    example.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Modify our admin user example as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Remove the `$dotfiles` parameter, remove the condition based on `$dotfiles`.
+    Add a second source to the home directory `file` resource:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Create a base directory and copy all the system default files from `/etc/skel`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Create a new `admin_user` resource, one that will not have a directory defined:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Run Puppet:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: If a `file` resource has the `recurse` parameter set on it, and it is a directory,
+    Puppet will deploy not only the directory itself, but all its contents (including
+    subdirectories and their contents). As we saw in the previous example, when a
+    file has more than one source, the first source file found is used to satisfy
+    the request. This applies to directories as well.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There's more...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'By specifying the parameter `sourceselect` as ''all'', the contents of all
+    the source directories will be combined. For example, add `thomas admin_user`
+    back into your node definition in `site.pp` for cookbook:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now run Puppet again on cookbook:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: Because we previously applied the `thomas admin_user` to cookbook, the user
+    existed. The two files defined in the `thomas` directory on the Puppet server
+    were already in the home directory, so only the additional files, `.bash_logout`,
+    `.bash_profile`, and `.emacs` were created. Using these two parameters together,
+    you can have default files that can be overridden easily.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Sometimes you want to deploy files to an existing directory but remove any files
+    which aren't managed by Puppet. A good example would be if you are using `mcollective`
+    in your environment. The directory holding client credentials should only have
+    certificates that come from Puppet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `purge` parameter will do this for you. Define the directory as a resource
+    in Puppet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: The combination of `recurse` and `purge` will remove all files and subdirectories
+    in `/etc/mcollective/ssl/clients` that are not deployed by Puppet. You can then
+    deploy your own files to that location by placing them in the appropriate directory
+    on the Puppet server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If there are subdirectories that contain files you don''t want to purge, just
+    define the subdirectory as a Puppet resource, and it will be left alone:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Be aware that, at least in current implementations of Puppet, recursive file
+    copies can be quite slow and place a heavy memory load on the server. If the data
+    doesn't change very often, it might be better to deploy and unpack a `tar` file
+    instead. This can be done with a file resource for the `tar` file and an exec,
+    which requires the file resource and unpacks the archive. Recursive directories
+    are less of a problem when filled with small files. Puppet is not a very efficient
+    file server, so creating large tar files and distributing them with Puppet is
+    not a good idea either. If you need to copy large files around, using the Operating
+    Systems packager is a better solution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Cleaning up old files
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Puppet's `tidy` resource will help you clean up old or out-of-date files, reducing
+    disk usage. For example, if you have Puppet reporting enabled as described in
+    the section on generating reports, you might want to regularly delete old report
+    files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Let's get started.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Modify your `site.pp` file as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Run Puppet:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Puppet searches the specified path for any files matching the `age` parameter;
+    in this case, `2w` (two weeks). It also searches subdirectories (`recurse => true`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Any files matching your criteria will be deleted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There's more...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'You can specify file ages in seconds, minutes, hours, days, or weeks by using
+    a single character to specify the time unit, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`60s`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`180m`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`24h`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`30d`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`4w`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'You can specify that files greater than a given size should be removed, as
+    follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs: []
+  type: TYPE_PRE
+- en: This removes files of 100 megabytes and over. For kilobytes, use `k`, and for
+    bytes, use `b`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Note that if you specify both age and size parameters, they are treated as
+    independent criteria. For example, if you specify the following, Puppet will remove
+    all files that are either at least one day old, or at least 512 KB in size:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: age => "1d",
+  prefs: []
+  type: TYPE_NORMAL
+- en: size => "512k",
+  prefs: []
+  type: TYPE_NORMAL
+- en: Auditing resources
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Dry run mode, using the `--noop` switch, is a simple way to audit any changes
+    to a machine under Puppet's control. However, Puppet also has a dedicated audit
+    feature, which can report changes to resources or specific attributes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Here''s an example showing Puppet''s auditing capabilities:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Modify your `site.pp` file as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Run Puppet:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE54]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `audit` metaparameter tells Puppet that you want to record and monitor certain
+    things about the resource. The value can be a list of the parameters that you
+    want to audit.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this case, when Puppet runs, it will now record the owner and mode of the
+    `/etc/passwd` file. In future runs, Puppet will spot whether either of these has
+    changed. For example, if you run:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE55]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Puppet will pick up this change and log it on the next run:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE56]'
+  prefs: []
+  type: TYPE_PRE
+- en: There's more...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'This feature is very useful to audit large networks for any changes to machines,
+    either malicious or accidental. It''s also very handy to keep an eye on things
+    that aren''t managed by Puppet, for example, application code on production servers.
+    You can read more about Puppet''s auditing capability here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[http://puppetlabs.com/blog/all-about-auditing-with-puppet/](http://puppetlabs.com/blog/all-about-auditing-with-puppet/)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you just want to audit everything about a resource, use `all`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE57]'
+  prefs: []
+  type: TYPE_PRE
+- en: See also
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The *Noop - the don't change anything option* recipe in [Chapter 10](ch10.html
+    "Chapter 10. Monitoring, Reporting, and Troubleshooting"), *Monitoring, Reporting,
+    and Troubleshooting*
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Temporarily disabling resources
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Sometimes you want to disable a resource for the time being so that it doesn''t
+    interfere with other work. For example, you might want to tweak a configuration
+    file on the server until you have the exact settings you want, before checking
+    it into Puppet. You don''t want Puppet to overwrite it with an old version in
+    the meantime, so you can set the `noop` metaparameter on the resource:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE58]'
+  prefs: []
+  type: TYPE_PRE
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'This example shows you how to use the `noop` metaparameter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Modify your `site.pp` file as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE59]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Run Puppet:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE60]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `noop` metaparameter is set to `true`, so for this particular resource,
+    it's as if you had to run Puppet with the `--noop` flag. Puppet noted that the
+    resource would have been applied, but otherwise did nothing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The nice thing with running the agent in test mode (`-t`) is that Puppet output
+    a diff of what it would have done if the `noop` was not present (you can tell
+    puppet to show the diff''s without using `-t` with `--show_diff`; `-t` implies
+    many different settings):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE61]'
+  prefs: []
+  type: TYPE_PRE
+- en: This can be very useful when debugging a template; you can work on your changes
+    and then see what they would look like on the node without actually applying them.
+    Using the diff, you can see whether your updated template produces the correct
+    output.
+  prefs: []
+  type: TYPE_NORMAL

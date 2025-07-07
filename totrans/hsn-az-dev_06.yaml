@@ -1,0 +1,703 @@
+- en: Mobile Notifications with Notification Hub
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Push notifications are one of the main features of many mobile apps. They facilitate
+    informing a user about a wait for action, or maybe about a temporary discount
+    that is available only for minutes within an application. While each mobile OS
+    vendor has its own service for such notifications, it's always nice to configure
+    such a feature in one place, so we don't have to worry about changes in the underlying
+    API or the parameters required. Azure Notification Hub simplifies things greatly
+    by providing a single service that acts as a single endpoint for our mobile applications,
+    easing both development and testing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following topics will be covered in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Notification Hub and its benefits
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Notification architecture and the best patterns for sending a notification to
+    mobile apps
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Registering a device within Notification Hub and maintaining registrations
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Sending notifications to multiple vendors
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Sending a rich content notification through Notification Hub
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To perform exercises from this chapter, you will need the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: An active Azure subscription
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Visual Studio 2017 with Tools for Universal Windows apps installed
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A Windows Store account
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Reasons to use Notification Hub
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: If you have ever had a chance to develop an application that was integrated
+    with any notifications system, you probably know the challenges that are faced
+    when creating such a product. In this chapter, I will try to introduce you to
+    some basic concepts such as PNS, push notifications, and device registrations.
+    This will ensure that we can easily start developing applications leveraging Notification
+    Hub features and focus on learning details and hidden functionalities.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exercises from this chapter are written for **Universal Windows Platform** (**UWP**)
+    applications—however, the concepts presented are true also for other platforms
+    such as Android or iOS.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Challenges for application design
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Let''s assume you have the following architecture:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/f349f142-6d65-4104-93a8-775296a547f4.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Here, we have a backend that sends some messages to three different platforms:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: iOS
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Android
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Windows
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Now, if these messages are push notifications, our backend will have to communicate
+    with three different services:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Apple Push Notification Service** (**APNS**)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Firebase Cloud Messaging** (**FCM**)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Windows Notification Service** (**WNS**)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Each of these services is called a **Platform Notification Service** (**PNS**).
+    Their responsibility is to accept a request to send a notification and send it
+    to the appropriate device. They also handle registration of the devices that want
+    to accept notifications (for instance, by tokens in APNS). The downside of such
+    a solution is that none of these services has a common interface—we cannot introduce
+    a simple wrapper in our backend to handle each request in the same fashion. The
+    solution for that kind of trouble would be altering our architecture a little
+    bit, so it contains a service that aggregates the logic for each PNS and is able
+    to communicate with them:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/af3659a3-656d-4b51-a9c0-925aa30c3fda.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Notification Hub is such a service; it's an abstraction over different PNSes
+    and is able to handle different device registration. We can consider two more
+    problems—scaling and routing. It is important to know that, according do the PNSes
+    guide, the device token must be refreshed with each app launch. Now, if it is
+    your backend responsibility, you may end up with a solution that tries to handle
+    refresh requests instead of focusing on your business logic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Additionally, if you want to send a notification to a particular device, you
+    have to store its identifier somewhere so you are able to route a message to it.
+    All of these responsibilities can be moved to a notification service, so this
+    whole overhead can be taken from the backend.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Push notification architecture
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Creating a whole system that relies on push notification is not a trivial task.
+    Besides ensuring that you are not focusing on handling each PNS logic individually
+    and providing reliable device registration and routing systems, you have to introduce
+    a pipeline for passing messages from one part of your system to the end device.
+    In this section, we will focus on incorporating Notification Hub into a few reference
+    architectures, which will help you understand its role and the connections between
+    different cloud services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Direct connection
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The simplest architecture we could think of would be a direct connection between
+    a backend and notification service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/bb7fc67a-53af-44ca-a7bd-d7cfa2c2dabb.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In such a scenario, each send notification request is handled by Notification
+    Service, which communicate with different PNSes. Each PNS individually handles
+    a request and sends a notification to a registered device. Device registration
+    is handled by Notification Service—each device has to register in it to be able
+    to receive a notification. Note that, even in that simple scenario, Notification
+    Service (in our case—Notification Hub) takes responsibility for two important
+    things:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Providing a common interface for different PNSes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Handling device registration and routing
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Devices never communicate directly with the PNS itself—they only receive push
+    notifications as a result of sending a request to Notification Service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Queued communication
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Sometimes exposing Notification Service to the backend is not the way to go—it
+    could become unresponsive, have some performance issues, or just be overloaded.
+    In such a situation, it is always good to have something that can cache messages
+    and store them until all issues are resolved. Let''s modify the previous architecture
+    with one more service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/fa1627e3-e404-4b0c-9d77-5f82bb24d8c4.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: By introducing a Queue with readers, you can absolve the backend from handling
+    communication with Notification Service and move the responsibility for delivering
+    a message to them. Now Backend does not have to know how to handle undelivered
+    messages and will not be aware of a storage for storing them. This solution can
+    be also scaled much more easily than the previous one, as you do not have to worry
+    about losing a message—a queue should be able to cache them as long as needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Make sure that your caching mechanism makes sense in the business domain you
+    are working with. Caching a notification request for a day, for example, and sending
+    a notification after that time may not make any sense in scenarios such as geolocalization,
+    a specific time, or a short-lived discount.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Triggered communication
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Sometimes, you might like to send a notification based on some specific set
+    of parameters or raising an event. Let''s assume you would like to send it whenever
+    a photo is uploaded to storage:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/dc74a003-82c7-4ade-a13b-09a1592e3a02.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In this asynchronous scenario, you have an Event Listener, which listens to
+    an event publication and performs an action based on the passed metadata. It sends
+    a request to a Notification Service, which communicates with PNS to send a notification
+    with the appropriate content (probable information regarding an upload status).
+    Once more, we see the advantages of having a service acting as a proxy to PNSes—the
+    whole communication can be made asynchronous and each component has its own responsibility.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Registering devices in Notification Hub
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To be able to actually send a notification, you have to register a device in
+    the PNS. Without using a service such as Notification Hub, you would have to know
+    the individual logic of each PNS and storage device data somewhere. Such a challenge
+    would be problematic in most cases, as usually you do not want to handle external
+    dependencies by yourself; rather, your aim is to simplify the overall system logic.
+    In this section, you will learn how device registration is handled in Notification
+    Hub and how to monitor it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Notification Hub device registration
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'When you register a device in Notification Hub, you are actually associating
+    it with a template of a notification and tag. To create such a link, you need
+    a PNS handle, which can be understood as an identifier of a specific vendor (such
+    as a token or GCM registration ID). In fact, there are two ways to register a
+    device:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Use registration**: Where you pass an identifier, tag, and template'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Use installation**: An enhanced registration with an additional set of push-related
+    properties'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Please note that, currently, if you want to use installation, there is no possibility
+    to use a .NET SDK—you are limited to using the REST API of a service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We have to also describe what tags and templates are to fully understand the
+    process:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Tag**: This is a way to route a notification to a particular set of (or all)
+    registered devices. It allows you to segment users, so you can easily decide who
+    is an addressee of a message; you can use, for example, `version_Beta` to send
+    a notification to a limited group of devices using a preview version of your application.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Template**: This is a particular schema of data designed to be sent to a
+    client application. It differs depending on the PNS used and varies from JSON
+    data to XML documents. By using Notification Hub, you can create a platform-agnostic
+    template, which can be reused between different platforms.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Now we will try registering a device using both methods and understand the differences
+    between them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a Notification Hub
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Before we start sending notifications, we have to have a notification service
+    provisioned and working. To create a Notification Hub instance, go to the portal
+    and click on the + Create a resource button. Search for Notification Hub and click
+    Create. Here, you can see a completed configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/1b1e2ca5-d221-44cc-923e-b2e5da518a39.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'As you can see, there is nothing unexpected on that screen—the only things
+    that need clarification are Pricing tier and Namespace:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Namespace: You can have multiple Notification Hubs inside the same namespace.
+    A namespace is a logical container for your hubs and holds the limit of available
+    pushes for them.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Pricing tier: Depending on the selected tier (Free, Basic, or Standard) you
+    will have different features available and a different number of available pushes
+    for your hubs. Additionally, it defines the price of extra pushes and the number
+    of active devices. What is more, the Standard tier comes with handy enterprise
+    features such as multi-tenancy or scheduled push.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For the purpose of this exercise, the Free tier will be more than enough. Once
+    you are satisfied with your configuration, click on the Create button and wait
+    a second for service creation. When it is created, you can go to its page where
+    you will see an Overview blade:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/0babb183-5361-404f-b38a-ac63a7739e15.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: There, you can click on the hub you created to see its features. We will cover
+    them later in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Registering in an application
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we will try to perform a registration using a UWP application
+    in Visual Studio. To get started, open the `HandsOnAzureApp` project from the
+    source code for this chapter—you should see a blank UWP application with boilerplate
+    code in it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will use a UWP application here because it is the easiest way to get started
+    and work with Notification Hub. However, if you are a mobile developer, you can
+    use any kind of project you want.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To get started with registration, you will have to install a package to work
+    with Notification Hub—use the NuGet package manager and search for the `WindowsAzure.Messaging.Managed`
+    package, which holds all of the components required for this particular exercise.
+    In the `App.xaml.cs` file, you will have to add the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'What we are doing here can be described as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We are creating a notification channel to be used for a registration
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We are defining a hub, which we will use to handle notifications and registrations
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We are registering a device and displaying a dialog if an operation was successful
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: You may wonder how to obtain the connection string used for the communication;
+    to get it, go to Azure Portal, select your Notification Hub namespace and click
+    on the Access Policies blade—there you will see a policy named `RootManageSharedAccessKey`,
+    from which you can copy a connection string.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I am using a root policy only for the purpose of this exercise. In a production
+    environment, it is always good to create an individual policy for each application
+    and select only those permissions that are required for it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When you enter your hub name and paste a connection string, call the `RegisterADevice()`method
+    in `OnLaunched()`. Now, you can try to start an application. If everything is
+    successful, you should see a screen similar to mine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/309000d1-c39b-4f6b-929b-7e5927c5010e.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Congratulations—you have just registered your very first device in Notification
+    Hub!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Checking available registrations
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Once you register a device, you need to make sure it is really available in
+    Notification Hub. The easiest way to do so is to check device registrations in
+    a service itself using Server Explorer, which can be accessed either by clicking
+    on it in the View menu (View | Server Explorer) or by using the *Ctrl* + *W* + *L *key
+    combination:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/17ad80e0-6a21-45b5-99ad-0b2c2d1ee18c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Now, when you double-click on an Notification Hub instance you would like to
+    check, you will see a new screen that contains two tabs—Test Send (which we will
+    cover later) and Device Registrations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'By clicking on the latter, you will able to verify all available registrations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/136d5430-51ef-4687-b9a9-465b981ab6ee.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Using installations
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Installations is a newer feature, which allows you to handle each device registration
+    using a bit different syntax and tools. It has a few important advantages over registrations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: While it is possible to duplicate registrations (by registering the same device
+    twice), installations are idempotent. That means that sending the same installation
+    multiple times will not result in the creation of more than one registration record.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: By using `HTTP PATCH`, you are able to update a specific parameter in an installation.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It is easier to perform individual pushes, since each installation is automatically
+    tagged using an installation identifier. In registrations, you would have to create
+    such a tag by yourself and maintain it somehow to get the same functionality.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'As I said in a previous part of this book, it is not currently possible to
+    use installations with the .NET SDK on the client side—to check this functionality,
+    we will have to use the Notification Hub RESTful API or use SDK for the backend.
+    Here, you can find an example request for calling an API method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: To generate an authorization token you will need to generate an SAS token. You
+    can find a guide on how to generate it here  [https://msdn.microsoft.com/library/azure/dn495627.aspx](https://msdn.microsoft.com/library/azure/dn495627.aspx).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Sending a notification
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The main functionality of Notification Hub is to send a notification to a set
+    of registered devices. You will see that, using its SDK and portal, you can easily
+    start using that feature without knowing the internal logic of different PNSes.
+    After this section, you should be able to use Notification Hub without problems
+    and incorporate it into your applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Sending a test notification
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: While developing your application, you always need a way to test it. When using
+    Notification Hub, you have two options when it comes to sending a test notification—either
+    use the portal or its SDK. Both possibilities allow for similar results; however,
+    using the SDK is a bit more flexible as it is easier to find all of the devices
+    to which you would like to send a notification or add any kind of logic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Test notification in Azure Portal
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'When you go to the hub you created, you will see that, at the top of the page,
+    there is a Test Send button:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/b107f2e6-af2a-4c5a-b2c4-7f631498a28f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'When you click on it, you will see a screen for the Test Send functionality.
+    There are a few fields available and they all depend on the platform selected.
+    In the following, you can find a sample request for the Windows platform:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/b236fe41-ffc6-46af-bea1-81580fc38334.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Now, if you click the Send button, Notification Hub will select ten different
+    registered devices, which will receive a notification. If you want, you can change
+    both the type and the payload sent. What is more, you can send a message to a
+    specific set of devices by specifying the Send to Tag Expression option.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Test notification in the SDK
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'It is also possible to send a test notification using the Notification Hub
+    SDK. To use it, you will need to install the following package: `Microsoft.Azure.NotificationHubs`.
+    Consider the following example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: The last parameter enables sending a test notification. That means that, each
+    time you send a notification using the SDK, it will be sent to a maximum of ten
+    registered devices. Additionally, you will get the outcome of each operation (whether
+    it succeeded or failed).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Remember that, when test mode is enabled, each request to Notification Hub is
+    throttled. That means that you will not be able to overload your communication
+    channel as send operations will be queued and executed in a controlled manner.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can check whether test send is enabled by checking a property on the `NotificationHubClient`
+    object:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Using the SDK to send a notification
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The Notification Hub SDK brings many different methods for sending notifications,
+    depending on the configuration and expected output. Here you can find all the
+    methods available in the SDK:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you can see, we have two different categories:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Native notifications**: Methods for sending a notification to a specific
+    platform only'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Generic notifications**: A set of methods for sending a notification to a
+    specific tag'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'I strongly encourage you to experiment and test different possibilities as
+    each method is a bit different. Here you can find the result of calling `SendAppleNativeNotificationAsync()`
+    and serializing the output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The result will be as follows in my case:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, we get the complete result of sending a notification to a set
+    of registered devices. You can leverage that output to work with your application
+    and, for instance, display the appropriate status or report.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Rich content notifications
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the last section of this chapter, we will talk a bit about another type of
+    notification, which is called **rich content notification**. Sometimes you would
+    like to send something more than plain text. In Notification Hub, it is possible
+    to send, for example, an image to enhance the look and feel of an application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Please note that receiving rich content notifications requires making changes
+    on the client side. We will not cover that in this chapter but, at the end of
+    it, you will find a link where such an operation is described in detail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating and sending a rich content notification
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create and send a rich content notification, you will need two things:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A model of a notification
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The notification payload and content
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The idea is to send it in a way that will enable a client application to fetch
+    rich content and handle it on its side. In fact, the simplest way to do so would
+    be to have an API that provides two operations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Send a notification
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Fetch notification data
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'In the following, you can find example code for both actions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, the only thing we have to do is to keep the correct schema for
+    sending a notification to a particular PNS. In the previous example, I used APNS
+    but, of course, it is possible for other vendors (as long as their software supports
+    receiving images or audio through push notifications). You can find the example
+    in the source code for this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, you have learned what Notification Hub is and how you can use
+    it to incorporate push notifications into your applications. We covered some reference
+    architectures and possible scenarios, which should help you understand what the
+    purpose of this service is and how it solves problems when sending notifications
+    to multiple PNSes and devices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This chapter ends the first part of this book. In the next one, we will focus
+    on serverless components and architectures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What is PNS?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Do multiple platforms (iOS, Android, and Windows) have different PNSes?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the difference between registration and installation?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Can you register the same number of devices in the Free and Basic tiers?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the easiest way to check registered devices in Notification Hub?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How can you send a test notification?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What are rich content notifications?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Azure Notification Hub documentation: [https://docs.microsoft.com/en-us/azure/notification-hubs/](https://docs.microsoft.com/en-us/azure/notification-hubs/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'IOS push notifications: [https://docs.microsoft.com/en-us/azure/notification-hubs/notification-hubs-aspnet-backend-ios-apple-push-notification-service-apns-rich](https://docs.microsoft.com/en-us/azure/notification-hubs/notification-hubs-aspnet-backend-ios-apple-push-notification-service-apns-rich)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Registrations in Azure Notification Hub: [https://docs.microsoft.com/en-us/azure/notification-hubs/notification-hubs-push-notification-registration-management](https://docs.microsoft.com/en-us/azure/notification-hubs/notification-hubs-push-notification-registration-management)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

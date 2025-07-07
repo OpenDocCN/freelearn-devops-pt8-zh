@@ -1,0 +1,1576 @@
+- en: '11'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Publishing Applications
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Running applications on Kubernetes adds resilience to all of an application’s
+    components by running its processes as containers. This helps us to provide stability
+    and update these components without impacting our users. Although Kubernetes provides
+    a lot of resources to simplify the cluster-wide management of the applications,
+    we do need to understand how using these resources will affect the way our applications
+    are reached by our users.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we will learn how to publish our applications to make them
+    accessible to our users. This will involve publishing certain Pods or containers
+    to provide services, but sometimes, we may also need to debug our applications
+    to fix issues that arise.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By the end of this chapter, we will have learned how **NetworkPolicy resources**
+    help us to isolate the workloads deployed in our cluster, and we will have reviewed
+    the use of **service mesh** solutions to improve the overall security between
+    our applications’ components.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will cover the following topics in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding Kubernetes features for publishing applications cluster-wide
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Proxying and forwarding applications for debugging
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using the host network namespace for publishing applications
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Publishing applications with Kubernetes’ NodePort feature
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Providing access to your Services with LoadBalancer Services
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding Ingress Controllers
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Improving our applications’ security
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We will start this chapter by reviewing the different options we have with Kubernetes
+    out of the box for delivering our applications to our users.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You can find the labs for this chapter at [https://github.com/PacktPublishing/Containers-for-Developers-Handbook/tree/main/Chapter11](https://github.com/PacktPublishing/Containers-for-Developers-Handbook/tree/main/Chapter11),
+    where you will find some extended explanations, omitted in the chapter’s content
+    to make it easier to follow. The *Code In Action* video for this chapter can be
+    found at [https://packt.link/JdOIY](https://packt.link/JdOIY).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding Kubernetes features for publishing applications cluster-wide
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Kubernetes is a container orchestrator that allows users to run their applications’
+    workloads cluster-wide. We reviewed in [*Chapter 9*](B19845_09.xhtml#_idTextAnchor202),
+    *Implementing Architecture Patterns*, the different patterns we can use to deploy
+    our applications using different Kubernetes resources. Pods are the minimum deployment
+    unit for our applications and have dynamic IP addresses, thus we can’t use them
+    for publishing our applications. Dynamism affects the exposure of all the components
+    internally and externally – while Kubernetes successfully makes the creation and
+    removal of containers simple, the IP addresses used will continuously change.
+    Therefore, we need an intermediate component, the Service resource, to manage
+    the interaction of any kind of client with the Pods (running on the backend) associated
+    with an application component. We can also have Service resources pointing to
+    external resources (for example, the `ExternalName` Service type).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is crucial to understand that not all an application’s components need to
+    be accessible outside of the cluster or even namespace scopes. In this chapter,
+    we are going to learn different options and mechanisms for publishing applications
+    for access both inside and outside of the Kubernetes cluster. You as a developer
+    must know and understand which of the application’s components will act as frontends
+    for your application and thus must be accessible and which should act as backends
+    and be reachable, and employ the appropriate mechanisms in each case.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will use Kubernetes Service resources to publish the application’s Pods internally
+    or externally as required. We will never connect to Pods’ published ports directly.
+    Pods’ ports will be associated with a Service resource using labels. An intermediate
+    resource is created to associate Services with Pods, EndpointSlices, and Endpoint
+    resources. These resources are created automatically for you when you create a
+    Service and the associated Pods are located. The EndpointSlices point to Endpoint
+    resources, which are updated when the backend Pods (or external Services) change.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s see how this works with an example. We will create a Service resource
+    before its actual Pods. The following code snippet shows an example of a Service
+    resource manifest:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If we create the Service resource using the preceding YAML manifest and retrieve
+    the created endpoints, we will see which Pods (with their IP addresses) are associated
+    as backends. Let’s see the currently associated endpoints:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The list of endpoints is empty because we don’t have any associated backend
+    Pod (with the `myapp=test` label). Let’s create a simple Pod with this label using
+    `kubectl run`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We now review the associated Pods again:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice that we didn’t specify any port for the Pod, hence the association may
+    be wrong (in fact, the `docker.io/nginx:alpine` image defines port `80` for the
+    process). Kubernetes does not verify this information; it just creates the required
+    links between resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: EndpointSlice resources are managed by Kubernetes and are dynamically updated
+    whenever a new Pod is created or an old one fails (in fact, the backend Endpoint
+    resources change and the update is propagated). If you are having problems with
+    a Service not responding but your Pods are running, this is something you may
+    need to check.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This is just an example of creating a simple **ClusterIP** Service, which is
+    the default option. We already learned the different Service resource types in
+    [*Chapter 9*](B19845_09.xhtml#_idTextAnchor202), *Implementing Architecture Patterns*,
+    but it may be important to quickly review those types that allow us to publish
+    applications:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**ClusterIP**: This is the default type, used to publish a Service internally.
+    An FQDN is created in Kubernetes’ internal DNS (CoreDNS component) associated
+    with the IP address of the Service resource (assigned by the internal IPAM from
+    the Services’ pool).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Headless**: These Services don’t have an associated IP address, although
+    they also have an FQDN. In this case, all IP addresses of the Pods associated
+    with the Endpoint resource will be resolved.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`30000`-`32767` port range. It is important to understand that NodePort Services
+    have a ClusterIP address, associated via the internal Service’s FQDN.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**LoadBalancer**: This type of Service resource integrates with external cloud
+    or on-premise software or hardware load balancers (or it creates them in your
+    cloud infrastructure) from the underlying infrastructure to route user traffic
+    to an application’s Pods. In this case, a NodePort is created (along with its
+    associated ClusterIP) to route the traffic from the external load balancer to
+    the backend Endpoint resources. Kubernetes will use its own integration with the
+    cloud infrastructure to create the required load balancers or apply specific configurations
+    pointing to the associated NodePorts whenever a LoadBalancer Service resource
+    is created.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: We employ ClusterIP and Headless Services for internal use and NodePort and
+    LoadBalancer Services whenever we are going to expose our applications. But this
+    is not strictly true, as we can also use **Ingress Controllers** to publish applications
+    without using either NodePort or LoadBalancer resources. This helps you to abstract
+    your applications from the underlying infrastructure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s continue exploring the different options provided by the Kubernetes platform
+    for publishing applications by introducing the **Ingress Controller** concept.
+    An Ingress Controller is a Kubernetes controller that we can add to our cluster
+    to implement reverse proxy functionalities. This will allow us to use ClusterIP
+    Service resources to expose our applications because the traffic coming from our
+    users will be routed entirely internally from this proxy component to the Service
+    and then reach the associated Pods. This proxy is configured dynamically by using
+    **Ingress** resources. These resources allow us to define our applications’ host
+    headers and link them to our Service resources. Your work as a developer involves
+    creating appropriate Ingress resources for your frontend application’s components.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, let’s introduce the Kubernetes `/``api/v1/namespaces/default/pods`
+    path.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For debugging purposes, we can also use `kubectl port-forward`, which proxies
+    specific Services to our desktop computer client. Note that neither method, `proxy`
+    or `port-forward`, should be permitted in production because they directly expose
+    important resources, bypassing our Kubernetes and load balancer infrastructure
+    security.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we will use the `kubectl proxy` feature to access a Service
+    resource and reach our application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Proxying and forwarding applications for debugging
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we will learn how to publish the Kubernetes API directly on
+    our desktop computer and reach any Service created in the cluster (if we have
+    the appropriate permissions), and how to forward a Service directly to our client
+    computer using the `port-forward` feature.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kubernetes client proxy feature
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'We use `kubectl proxy` to enable the Kubernetes proxy feature. Some important
+    options help us manage how and where the Kubernetes API will be accessible. We
+    use the following options to define where the Kubernetes API will be published:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`--address`: This option allows us to define the IP address of our client host
+    used for publishing the Kubernetes API. By default, `127.0.0.1` is used.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--port` or `-p`: This option is used to set the specific port where the Kubernetes
+    API will be available. The default value is `8001`, and although we can let Kubernetes
+    use a random port by using `-p=0`, it is recommended to always define a specific
+    port.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--unix-socket` or `-u`: This option is used to define a Unix socket instead
+    of a TCP port, which is more secure if you limit access to the socket at the filesystem
+    level.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following options are used to secure the Kubernetes API access:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`--accept-hosts` and `--accept-paths`: These options allow us to ensure that
+    only specific host headers and API paths will be allowed. For example, we can
+    ensure local access only using the following regex pattern, `''^localhost$,^127\.0\.0\.1$,^\[::1\]$''`,
+    with the `--``accept-hosts` argument.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--reject-methods`: We can block specific API methods by rejecting them. For
+    example, we can disable the patching of any Kubernetes resource by using `kubectl`
+    `proxy --reject-methods=''PATCH''`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--reject-paths`: We can specify certain paths to be denied by using this option.
+    We can, for example, disable the attachment of a new process to a Pod resource
+    (`kubectl exec` equivalent) by using `–-reject-paths=''^/api/.*/pods/.*/exec,''`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It is important to understand that, although we have seen some options for ensuring
+    security, the Kubernetes proxy feature shouldn’t be used in production environments
+    because it may be possible to bypass the RBAC system if someone gets access to
+    the API via the proxied port. The user authentication used for creating the proxy
+    will allow access to anyone via the exposed API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This method should only be used for debugging in either your own Docker Desktop,
+    Rancher Desktop, or Minikube for exposing a Kubernetes remote development environment.
+    Your Kubernetes administrators must enable this method for you if you are not
+    using your own Kubernetes environment. You must ensure that your operating system
+    allows access to the specified port by reviewing your firewall settings if you
+    still aren’t able to reach the proxied Kubernetes API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now we have reviewed how we can employ this method to publish Kubernetes APIs,
+    let’s use it to access a created Service resource with a quick example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 11.1 – Creating a simple webserver Service with NGINX and exposing
+    the Kubernetes API](img/B19845_11_1.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.1 – Creating a simple webserver Service with NGINX and exposing the
+    Kubernetes API
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Notice that we executed `kubectl proxy` in the background using `&`. We did
+    this to be able to continue in the current terminal. The `kubectl proxy` action
+    runs in the foreground, and it will keep running until we issue *Ctrl* + *C* to
+    terminate the process. To end the background execution, we can use the following
+    steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`$` `jobs`'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`[1]+ Running kubectl` `proxy &`'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`$` `kill %1`'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now that we have access to Kubernetes API, we can access the ClusterIP Service
+    resource directly using the proxied port, but first, let’s review the Service
+    resource:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 11.2 – Accessing the webserver Service resource using the Kubernetes
+    proxy](img/B19845_11_2.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.2 – Accessing the webserver Service resource using the Kubernetes
+    proxy
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We configured port `8080` for the `webserver` Service resource. The Kubernetes
+    proxy will publish the Service resources using the following URI format (Kubernetes
+    API):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`/``api/v1/namespaces/<NAMESPACE>/services/<SERVICE_NAME>:<SERVICE_PORT>/proxy/`'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Therefore, the `webserver` Service is accessible in `/api/v1/namespaces/default/services/webserver:8080/proxy/`,
+    and we can reach NGINX’s default `index.xhtml` page, as we can see in the following
+    screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 11.3 – Accessing the webserver Service using the kubectl proxy feature](img/B19845_11_3.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.3 – Accessing the webserver Service using the kubectl proxy feature
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Service is accessible and we reached the `webserver` Service’s default page.
+    Let’s now review how we can forward the Service’s port to our desktop computer
+    without having to implement a complex routing infrastructure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kubernetes client port-forward feature
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Instead of accessing the full Kubernetes API, we can use `kubectl port-forward`
+    to forward ports from a Service, Deployment, ReplicaSet, StatefulSet, or even
+    a Pod resource directly. In this case, a transparent NAT is used to forward a
+    backend port to a port defined on our desktop computer by executing the `kubectl`
+    command-line client.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s see how this works, using the `webserver` Service defined in the previous
+    section as an example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 11.4 – Using port-forward to publish the webserver Service resource
+    example](img/B19845_11_4.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.4 – Using port-forward to publish the webserver Service resource example
+  prefs: []
+  type: TYPE_NORMAL
+- en: As you can see in this example, it is quite simple to forward any application’s
+    Kubernetes resource listening on a defined port. We can specify the port attached
+    to our application in our local client by using `[LOCAL_PORT:]RESOURCE_PORT`.
+    Note that it is important to choose the local IP address when working on a multihomed
+    host with multiple IP addresses using the `--address` argument. This will improve
+    the overall security by attaching an interface if we define the appropriate firewall
+    rules to only allow our host. By default, `localhost` is used, which means that
+    it will remain secure as long as we are the only user with access to our desktop
+    computer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we will discuss the direct use of the host’s kernel network
+    namespace for publishing Pod resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using the host network namespace for publishing applications
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: So far, we have seen different methods for accessing ClusterIP Service resources
+    or Pods (created using different workload types) by either proxying or forwarding
+    their ports to our desktop computers. Sometimes, however, the applications require
+    a direct connection to the host’s interfaces, without the bridge interface created
+    by the container runtime. In this case, the containers in the Pod will use the
+    network namespace of the host, which allows the processes inside to control the
+    host because they will have access to all the host’s interfaces and network traffic.
+    This can be dangerous and must only be used to manage and monitor the host’s interfaces.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using the hostNetwork key
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To use the host’s network namespace, we set the `hostNetwork` key to `true`.
+    The Pod will now get all the IP addresses associated with the host, including
+    those of all the virtual interfaces associated with the containers running in
+    that host. But what is particularly important in terms of publishing our applications
+    is that they will be accessible through any of the host’s IP addresses, waiting
+    for requests on the ports defined by the `ports` keys in the Pod `spec` section.
+    Let’s see how this works by executing an NGINX Pod with the aforementioned `hostNetwork`
+    key. We will use `cat` (redirected to `kubectl`) to create a Pod resource on the
+    fly using the `nginx/nginx-unprivileged:stable-alpine3.18` image (which uses the
+    unprivileged port `8080`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 11.5 – Exposing a Pod using hostNetwork](img/B19845_11_5.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.5 – Exposing a Pod using hostNetwork
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This way, your NGINX web server will be accessible in the host’s IP address
+    where it is running (in this example, on the IP address `192.168.65.4`, which
+    is the address of our Docker Desktop worker and master host). The following code
+    snippet shows the creation of the `webserver` application using the host’s interfaces,
+    and how we get the content of the NGINX process:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 11.6 – Accessing the webserver application using the host’s IP address](img/B19845_11_6.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.6 – Accessing the webserver application using the host’s IP address
+  prefs: []
+  type: TYPE_NORMAL
+- en: Notice that we executed the `curl` binary inside the `webserver` Pod. In this
+    example, we are using Docker Desktop with `frjaraur/nettools` image (developed
+    and maintained by me), to verify that the application is accessible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this case, we are using just one port on our Pod; in fact, we didn’t even
+    declare the ports on our Pod’s container, hence all the ports defined in the container
+    image will be used. Using `hostNetwork`, all the ports defined in the image will
+    be exposed, which may be a problem if you don’t want to expose some specific Pods
+    externally (for example, if your application has an internal API or administration
+    interface that you will not be able to access). If you manage the platform yourself,
+    you can manage access by modifying the host’s firewall, but this can be tricky.
+    In such situations, we can use the `hostPort` key at container level, instead
+    of using `hostNetwork` at the Pod resource level. Let’s explore this in the next
+    section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using hostPort
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The `hostPort` key is used inside the `containers` section of the Pod, where
+    we define the ports to be exposed either internally or externally. With `hostPort`,
+    we can expose only those ports that are required, while the remainder can stay
+    internal. Let’s see an example involving defining two containers within the `webserver`
+    Pod:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 11.7 – Example with two containers but only one exposed at the host
+    level](img/B19845_11_7.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.7 – Example with two containers but only one exposed at the host level
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the preceding screenshot, we have two containers. Let’s verify whether they
+    are reachable using the `frjaraur/nettools` image again, trying to access both
+    ports via `curl`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 11.8 – Access to the webserver Service’s ports 8080 and 80](img/B19845_11_8.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.8 – Access to the webserver Service’s ports 8080 and 80
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the preceding screenshot, we can see that only port `8080` is accessible
+    on the host’s IP address. Port `80` is accessible locally within the Kubernetes
+    cluster.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Neither `hostNetwork` nor `hostPort` should be used without a Kubernetes administrator’s
+    supervision. Both represent a security breach and should be avoided unless strictly
+    necessary for our application. They are commonly used for monitoring or administrative
+    workloads when we need to manage or monitor the hosts’ IP addresses.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we have learned the different options we have at the host level, let’s
+    continue reviewing the NodePort mechanism associated with Service resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Publishing applications with Kubernetes’ NodePort feature
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'As we mentioned at the beginning of this chapter, in the *Understanding the
+    Kubernetes features for publishing applications cluster-wide* section, every NodePort
+    Service resource has an associated ClusterIP IP address. This IP address is used
+    to internally load balance all the client requests (from the Kubernetes cluster,
+    internal, and external clients). Kubernetes provides this internal load to all
+    available Pod replicas. All replicas will have the same weight, hence they will
+    receive the same amount of requests. The ClusterIP IP address makes the applications
+    running within Pods accessible internally. To make them available externally,
+    the NodePort Service type attaches the defined port on all cluster nodes using
+    NAT. The following schema represents the route taken by a request to an application
+    running inside a Kubernetes cluster:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 11.9 – NodePort simplified communications schema](img/B19845_11_9.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.9 – NodePort simplified communications schema
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The Endpoint resource is used to map the Pods’ backends with the Service’s
+    ClusterIP. This resource is dynamically configured using label selectors in the
+    Service’s YAML manifest. Here is a simple example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 11.10 – Simple Pod and NodePort YAML manifests](img/B19845_11_10.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.10 – Simple Pod and NodePort YAML manifests
+  prefs: []
+  type: TYPE_NORMAL
+- en: The preceding screenshot shows the most common Service resource usage. With
+    this manifest, an EndpointSlice resource will be created, associating the application’s
+    Pods with the Service by using the labels defined in the selector section. Notice
+    that using these label selectors will create these EndpointSlice resources pointing
+    to backend Pod resources running in the same namespace. But we can create Service
+    resources without dynamic Pods attachment. This scenario could be useful, for
+    example, to link external Services running outside of Kubernetes with an internal
+    Service resource (this is how the `ExternalName` Service resource type works),
+    or to access a Service from another namespace as if it were deployed on your current
+    namespace. The internal Pods are made accessible thanks to the kube-proxy component,
+    which will inject the traffic to the Pod’s containers. This only happens in those
+    nodes where the actual Pods are running, although the Service is accessible cluster-wide.
+  prefs: []
+  type: TYPE_NORMAL
+- en: EndpointSlice resources using label selectors will create Endpoint resources,
+    and thus, their status updates are propagated. Failed Pod resources will be deprecated
+    from the actual Service and requests will not be routed to those backends, hence
+    Kubernetes will only route to healthy Pods. This is the most popular and recommended
+    method for using Service resources because this way, your resources are infrastructure
+    agnostic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s see a quick example of how Endpoint resource creation works by creating
+    a `webserver` Pod and publishing the web process in NodePort mode by using `kubectl
+    expose`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 11.11 – Exposing a Pod using the imperative format](img/B19845_11_11.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.11 – Exposing a Pod using the imperative format
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the preceding example, we created a Pod and then exposed it by using `30000`-`32767`
+    range to the port of the Service resource. We also retrieved a list of endpoints
+    and the dynamic configurations created. We used the `kubectl expose <WORKLOAD_TYPE>
+    <WORKLOAD_NAME>` format syntax to create the Service. This uses label selectors
+    for the creation of the Service resource, taking the labels from the actual workload,
+    hence an EndpointSlice resource was created to attach the available Pods to the
+    Service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this example, the `webserver` application will be accessible using the `docker-desktop`
+    node IP address, which may require additional configuration if you use WSL2 for
+    execution. This is because in this infrastructure we will need to declare an NAT
+    IP address to forward to your desktop computer. This will not be required if Hyper-V
+    or Minikube are used as a Kubernetes environment on your PC. In a remote Kubernetes
+    cluster, you must ensure that the IP addresses of the hosts and the ports are
+    reachable from your computer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Because the NodePort Services use the host’s ports, these ports must be allowed
+    in each node’s firewall. Your Kubernetes administrator may have configured multiple
+    interfaces on your Kubernetes platform nodes and should inform you about which
+    IP addresses to use to make your applications accessible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If your workloads run on a cloud infrastructure, additional steps may be required
+    to allow access to your Service resources, and thus this is often not a good option
+    for publishing your applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we will review the LoadBalancer Service type, which was
+    created specifically for cloud environments but is now also available for on-premises
+    infrastructure thanks to software load balancers such as MetalLB.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Providing access to your Services with LoadBalancer Services
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A LoadBalancer-type Service requires an external device to integrate your application.
+    This type of Service resource includes a NodePort and its ClusterIP IP address.
+    The external device provides a LoadBalancer IP address that will be load-balanced
+    to the IP addresses of the cluster nodes and associated NodePorts. This configuration
+    is completely managed for you by Kubernetes, but you must define an appropriate
+    `spec` section for your infrastructure. This type of resource depends on the actual
+    infrastructure because it will use the APIs from software-defined networking infrastructure
+    to route and publish the applications’ Services. Loadbalancer Service resources
+    were prepared primarily for Kubernetes cloud platforms but are now more commonly
+    encountered in modern local data centers with software-defined networks and API-managed
+    devices, although they require a good knowledge of the underlying platform to
+    work. As mentioned before, each LoadBalancer Service resource is assigned an IP
+    address dynamically, which may require additional management on your cloud infrastructure
+    and even additional costs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The cloud provider decides how the Service is to be load-balanced. Depending
+    on the cloud platform used, the NodePort part can sometimes be omitted as direct
+    routing may be available if defined by the platform vendor.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On-premises virtual cloud infrastructures such as OpenStack can be integrated
+    into our Kubernetes platforms to manage this type of Service resource because
+    they are also part of the Kubernetes core. But if you are not using OpenStack
+    or any other on-premise virtual cloud infrastructure, there are solutions such
+    as MetalLB ([https://metallb.org/](https://metallb.org/)) that make it possible
+    to run a Kubernetes-compatible and dynamically configurable load balancer on any
+    bare-metal infrastructure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This type of Service resource is not recommended if you are looking for maximum
+    compatibility and want to avoid vendor-specific resources. It really has a lot
+    of dependencies on the underlying infrastructure and may require additional configurations
+    to be done on the platform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you as a developer have to implement a Service of type LoadBalancer (or you’re
+    simply curious about their definition), you can use Minikube as it implements
+    this functionality on your desktop computer without any external requirements
+    to negotiate. Docker Desktop will report the LoadBalancer IP address as `localhost`,
+    hence you will be able to connect to the given Services directly using the `127.0.0.1`
+    IP address.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s see how this works with a simple example. We will first start a new Minikube
+    cluster environment (ensure your Docker Desktop or Rancher Desktop instances are
+    stopped before starting Minikube), and then we will create a `minikube start`
+    and `minikube` `tunnel` commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 11.12 – Execution of a Minikube cluster from an administrator console](img/B19845_11_12.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.12 – Execution of a Minikube cluster from an administrator console
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will open another console, but this time we will connect to the Kubernetes
+    cluster, so we don’t need to execute the commands as an administrator. We create
+    a Pod and then expose it using imperative mode with the LoadBalancer type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 11.13 – Creating a LoadBalancer Service in Minikube](img/B19845_11_13.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.13 – Creating a LoadBalancer Service in Minikube
+  prefs: []
+  type: TYPE_NORMAL
+- en: Notice that we have a new column with the external IP addresses. In this case,
+    it is an emulation of a real external load balancer device that provides a specific
+    IP address for the new Service manifest. Minikube, in fact, creates a tunnel from
+    the Kubernetes node to your desktop computer, making the Pod accessible over the
+    assigned load-balanced IP address `(EXTERNAL-IP)` and the Service’s port. In this
+    case, we will reach the NGINX web server at `http://10.98.19.87:8080`. We then
+    test the accessibility of the application with `curl` (which is an alias for Windows
+    PowerShell’s `Invoke-WebRequest` command).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The dependency of the LoadBalancer Service type on the platform infrastructure
+    makes this type too specific for day-to-day usage and may not be available in
+    all Kubernetes clusters. Therefore, the best solution for compatibility is to
+    use Ingress Controllers, as we will learn in the following section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding Ingress Controllers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: An **Ingress Controller** is a piece of software that provides load balancing,
+    SSL termination, and host-based virtual routing. It is a reverse proxy that runs
+    in the Kubernetes cluster, which manages a reverse proxy network component that
+    can run inside the Kubernetes cluster or externally, just like any other network
+    infrastructure device. An Ingress Controller acts just like any other controller
+    deployed in a Kubernetes cluster, although it is not managed by the cluster itself.
+    We must deploy this controller manually as it is not part of the Kubernetes core.
+    If required, we can deploy multiple Ingress Controllers in a cluster and define
+    which one is to be used by default if none is specified.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ingress Controllers work very well with HTTP/HTTPS applications (OSI Layer 7,
+    the application layer), but we can publish TCP and UDP applications too (OSI Layer
+    4, the transport layer), although this does require more configuration and may
+    not be the best option. In such cases, it may be better to use an external load
+    balancer and route traffic to NodePort Service resources because TCP and UDP Ingress
+    resources will need additional ports to distribute incoming traffic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kubernetes administrators use **IngressClass resources** to declare the different
+    Ingress Controllers available on a platform. Each Ingress Controller is associated
+    with an IngressClass resource. You as the developer must create Ingress resources,
+    which are the definitions required for reverse-proxying your application’s workloads.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are multiple options for deploying an Ingress Controller: cloud providers
+    and many software vendors have developed their own solutions, and you can include
+    any of them in your own Kubernetes setup, but you must understand their specific
+    features and particularities. You can review the available solutions in the Kubernetes
+    documentation at [https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/#additional-controllers](https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/#additional-controllers)
+    and ask your Kubernetes administrator about the Ingress Controllers available
+    on your platform before preparing your applications. Small tweaks may be necessary
+    on your side in your Ingress resources. In the following section, we will examine
+    the most frequently encountered option, the **Kubernetes NGINX Ingress Controller**,
+    included by default in some Kubernetes solutions.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deploying an Ingress Controller
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To deploy an Ingress Controller, we simply follow the specific instructions
+    for the chosen solution. There may be different approaches for installing the
+    given software in your cluster, but we will follow the easiest one: deploying
+    a YAML file containing all the required resources in one file ([https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.1/deploy/static/provider/cloud/deploy.yaml](https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.1/deploy/static/provider/cloud/deploy.yaml)).
+    Make sure to check the latest available release before using the URL just provided
+    and consult the specific instructions provided for it. At the time of writing
+    this book, NGINX Controller release `1.8.1` was the latest release available.
+    In this example, we use the cloud YAML file, although you can use the bare-metal
+    option if you have a fully functional Kubernetes environment installed (this version
+    uses NodePort instead of the LoadBalancer type). Let’s work through our simple
+    example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We start by running `kubectl apply` on a Docker Desktop environment:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 11.14 – Deployment of the popular Kubernetes NGINX Ingress Controller](img/B19845_11_14.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.14 – Deployment of the popular Kubernetes NGINX Ingress Controller
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As you can see in the previous screenshot, many resources are created for the
+    Ingress Controller to work. A new namespace was created, `ingress-nginx`, and
+    some Pods are now running there:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 11.15 – Deployment, Pods, and IngressClass resources created](img/B19845_11_15.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.15 – Deployment, Pods, and IngressClass resources created
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the preceding screenshot, we can see an `IngressClass` resource created.
+    We may need to configure it as default.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s check the deployed Ingress Controller. We first check the Service resource
+    created to reach the Deployment resource using `kubectl` `get svc`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 11.16 – Verification of the deployed Ingress Controller](img/B19845_11_16.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.16 – Verification of the deployed Ingress Controller
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note in the preceding screenshot how the Service resource was created as a `LoadBalancer`
+    type. It acquired the `localhost` IP address (we are using Docker Desktop in this
+    example), which means that we should be able to reach the NGINX Ingress Controller
+    backend directly with `curl` using `localhost`. The Service is listening on ports
+    `80` and `443`, and we were able to reach both (we passed the `-k` argument to
+    `curl` to avoid having to verify the associated auto-signed and untrusted SSL
+    certificate).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The use of Ingress Controllers improves security when we add SSL certificates
+    to implement SSL tunnels between our applications’ exposed components and our
+    users, or even between different components that use the Ingress URL associated
+    with the Service resource.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s go ahead now and learn how to manage the behavior of our applications
+    using Ingress resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ingress resources
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'As with any other resource, we need to define `apiVersion`, `kind`, `metadata`,
+    and `spec` keys and sections. The most important section is `.spec.rules`, which
+    defines a list of host rules that dynamically configure the reverse proxy deployed
+    by the Ingress Controller. Let’s see a basic example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 11.17 – Ingress resource example](img/B19845_11_17.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.17 – Ingress resource example
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the preceding screenshot, we can see the `ingressClassName` key, which indicates
+    the Ingress Controller to be used. The `rules` section defines a list of host
+    headers and the paths associated with the different backends. In our example,
+    the [www.webserver.com](http://www.webserver.com) host header is required; if
+    requests do not include it, they will be redirected to the default backend (if
+    defined) or be shown a `404` error (page not found). The `backend` section describes
+    the Service resource that will receive the application’s requests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s run a quick example using the `webserver` Service resource created in
+    the previous section. It will listen on port `8080`, hence we create an Ingress
+    resource with a fake hostname and validate its accessibility with `curl -H "host:
+    <FAKE_HOST>" http://localhost` (we use `localhost` because its IP address is the
+    one associated with the `LoadBalancer` Service):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 11.18 – Ingress webserver resource for the webserver Service example](img/B19845_11_18.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.18 – Ingress webserver resource for the webserver Service example
+  prefs: []
+  type: TYPE_NORMAL
+- en: Security features are implemented in the `.spec.tls` section, where we link
+    the hosts with their keys and certificates, integrated into a Secret resource.
+    This Secret must be included in the namespace in which you defined the Ingress
+    resource, and it is of the `tls` type. The `data` sections in these Secrets must
+    include the key for the generation of the certificate along with the generated
+    certificate itself. We will learn how to create this via an example in the *Labs*
+    section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can have an Ingress resource with rules for multiple hosts and each host
+    with multiple paths, although it is more common to separate each host on a different
+    Ingress resource for easier management and include multiple paths for reaching
+    different backend Service resources. This combination represents a typical microservice
+    architecture where each application functionality is provided by different backend
+    Services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `annotations` section can be used to instruct the Ingress Controller regarding
+    special configurations. Here is a list of some of the most important configurations
+    we can manage via annotations for the Kubernetes NGINX Ingress Controller:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`nginx.ingress.kubernetes.io/rewrite-target`: It is usual to integrate some
+    rewrite rules in our Ingress resource for rewriting the application’s URI paths.
+    There are also options for redirecting URLs.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`nginx.ingress.kubernetes.io/auth-type` and `nginx.ingress.kubernetes.io/auth-secret`:
+    These will allow us to use basic authentication at the Ingress level for our applications.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`nginx.ingress.kubernetes.io/proxy-ssl-verify`: If our Service resource backends
+    use TLS, there are many annotations available to manage how NGINX connects to
+    them.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`nginx.ingress.kubernetes.io/enable-cors`: We may need to enable **Cross-Origin
+    Resource Sharing** (**CORS**) in our application to allow some external routes
+    and URLs. There are also other interesting options here for managing and securing
+    CORS behavior.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`nginx.ingress.kubernetes.io/client-body-buffer-size`: It’s quite common to
+    limit the size of client requests to avoid overall performance issues, but your
+    application may require larger responses.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'There are many options available beyond these, and you may need to ask your
+    Kubernetes and infrastructure administrators for advice. The range on offer includes
+    integrating external authentication backends, limiting the rate of requests to
+    avoid **distributed denial-of-service** (**DDoS**) attacks, redirecting and rewriting
+    URLs, enabling SSL passthrough, and even managing canary application deployments,
+    routing some requests to a newer release of your workload backends. Some of the
+    options can be defined at the Ingress Controller level, which will affect all
+    Ingress resources at once. For a full list of available annotations, please refer
+    to the following page: [https://kubernetes.github.io/ingress-nginx/user-guide/nginx-configuration/annotations/](https://kubernetes.github.io/ingress-nginx/user-guide/nginx-configuration/annotations/).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is very important to understand that the options mentioned here may differ
+    from those available for other Ingress Controllers (at least, they will use other
+    annotation keys, for sure). Some Ingress Controllers such as Kong also implement
+    API management for your backend Services, which can be very useful if they are
+    involved in many interactions. Ask your Kubernetes administrators about the Ingress
+    Controllers deployed on your platform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We covered the basics here, but as always, note that your Ingress resource
+    may need some small tweaks to fully implement your platform requirements. In OpenShift,
+    for example, Ingress Controllers can be enabled, but by default, Kubernetes will
+    use OpenShift Route, which is the Red Hat implementation of a L7 reverse proxy
+    for publishing applications in Kubernetes. Ingress Controllers and OpenShift Route
+    are quite similar (even their resources look alike) but you should review further
+    specific information about it if your application needs to run on an OpenShift
+    cluster. The following link may help you decide which one to use if both implementations
+    are available for your application: [https://cloud.redhat.com/blog/kubernetes-ingress-vs-openshift-route](https://cloud.redhat.com/blog/kubernetes-ingress-vs-openshift-route).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: By default, Kubernetes implements a flat network, without any access boundaries
+    between applications. This applies no restrictions to any lateral movement (East-West
+    traffic), a configuration that could cause critical security issues. In the next
+    section, we will review some security improvements to help us publish our applications
+    securely.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Improving our applications’ security
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In Kubernetes, application traffic flows freely by default. A flat network is
+    deployed to cover Pod-to-Pod and Service-to-Pod communications – remember that
+    containers within a Pod have a common, shared IP address. Pods running within
+    a Kubernetes cluster will see each other, and it will require some extra work
+    to protect one application from another, even if they run on different nodes and
+    in different namespaces.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It may be strange to hear, but applications running in different namespaces
+    can see each other. In fact, if they have an associated Service resource, it would
+    be easy to use the internal DNS to resolve its associated IP address and access
+    its processes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we will learn how NetworkPolicy resources can be used to
+    define our applications’ communications and have Kubernetes block any unwanted
+    connectivity for us.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Network policies
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: NetworkPolicy resources (also referred to as `netpol`) allow us to manage OSI
+    Layer 3 and 4 communications (IP and port access, respectively). Kubernetes provides
+    the NetworkPolicy resource as part of its core, but its implementation depends
+    on the CNI deployed in your cluster. Therefore, it is vital to use a CNI (such
+    as Calico, Canal, or Cilium, among others) that implements this feature.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'NetworkPolicy resources define all aspects of Pod communications: egress (output
+    traffic) and ingress (input traffic). As we will see in a few moments, NetworkPolicies
+    are applied to specific sets of Pods by using the `.spec.podSelector` section.
+    NetworkPolicy resources are namespaced, hence `podSelector` allows us to decide
+    which Pods are to be affected by our rule definitions. Multiple rules can be applied
+    to a Pod, and your Kubernetes administrators may have included some `GlobalNetworkPolicy`
+    resources that affect the entire cluster, thus you should inquire whether any
+    cluster default rules require allowing some egress or ingress traffic. It is quite
+    common to allow only DNS traffic by default, disallowing all additional egress
+    traffic. If this is the case in your cluster, you will need to declare all egress
+    (as well as ingress) communications in your applications’ manifests. Let’s see
+    a quick example of a NetworkPolicy in which we declare both ingress and egress
+    communications:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 11.19 – NetworkPolicy resource manifest with both egress and ingress
+    rules](img/B19845_11_19.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.19 – NetworkPolicy resource manifest with both egress and ingress
+    rules
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s review some of the most important keys and sections available in the
+    preceding code snippet. The `.spec.podSelector` section declares which Pods in
+    the current namespace (if none are declared under the `metadata` section) will
+    be affected by this policy. Under the `policyTypes` key, we can see a list of
+    policy types defined. We should clarify here that egress communications are those
+    initiated from a Pod, while ingress communications are those that go into the
+    Pod. If you declare both types, egress and ingress, and then only declare a section
+    for one of them (either an `egress` or `ingress` section, as in the preceding
+    example), the omitted one is declared as empty, meaning that that type of communication
+    will not be allowed *at all*. The `egress` section in this example is a list of
+    rules to be applied. Let’s have a closer look at this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first rule allows egress communications from selected Pods (those with the
+    `app=myapp` label) to port `5978` on any host in the `10.0.0.0/24` subnet
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The second rule allows egress communications to UDP port `53` on any host (Kubernetes
+    internal and external DNS)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'In the `ingress` section, two rules are also declared:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first rule allows access to port `6379` on the selected Pods (those containing
+    the `app=myapp` label) for any communication coming from the `172.17.0.0/16` subnet
+    (except those hosted on the `172.17.1.0/24` subnet), from Pods running in namespaces
+    with the `project=myproject` label, and from Pods in the current namespace with
+    the `role=frontend` label. We can say that *Kubernetes is all* *about labels*.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The second ingress rule allows access to selected Pods on port `80` from hosts
+    on the `192.168.200.0/24` subnet.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: These rules may seem complex but are quite easy to implement in practice.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you are planning to deploy all your application’s components in a specific
+    namespace, it could be worthwhile to allow all egress and ingress communications
+    between your Pods. This isn’t a good idea for production because only attackers’
+    lateral movements to other namespaces will be blocked, but a security issue in
+    one of your Pods could affect others in the same namespace. While preparing your
+    NetworkPolicy resources or debugging your application, allowing all namespace
+    East-West traffic may also be necessary. The following YAML manifests allow all
+    internal communication and expose only the frontend component externally:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 11.20 – Example manifests for allowing all namespaced communications
+    as well as access to port 80 on a specific Pod](img/B19845_11_20.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.20 – Example manifests for allowing all namespaced communications
+    as well as access to port 80 on a specific Pod
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The preceding screenshot shows two manifests:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The one on the left declares a NetworkPolicy resource that allows all communications
+    between all Pods deployed in the current namespace. The rule applies to all Pods
+    in the namespace because `podSelector` is empty.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The manifest on the right allows access to the Pod with the `appcomponent=frontend`
+    label (`podSelector` applies on this Pod) on port `80`, but only from hosts on
+    the `192.168.200.0/24` subnet.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: NetworkPolicy resources apply at the connection level and don’t leave any connectivity
+    traces by default, which may be inconvenient when trying to fix some connectivity
+    issues between components. Some CNI plugins such as Calico enable you to log connections
+    between Pods. This requires additional permissions on your Kubernetes environment.
+    Ask your Kubernetes administrators if they can provide some connectivity traces
+    if required for debugging your applications. In some cases, it is best to start
+    with a NetworkPolicy that allows and logs all the connections made in the namespace.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You as a developer are responsible for creating and maintaining your application’s
+    resource manifests and thus, the NetworkPolicy resources required by your application.
+    It is up to you how to organize them, but it’s recommended to use descriptive
+    names and group multiple rules in a manifest per each application component. This
+    way, you will be able to fine-tune each component’s configuration. In the *Labs*
+    section, we have prepared for you a specific exercise where you will protect an
+    application by allowing only trusted access.
+  prefs: []
+  type: TYPE_NORMAL
+- en: NetworkPolicies allow you to thoroughly isolate all your application’s components,
+    and although they may be hard to implement, this solution does provide great granularity
+    and does not depend on the underlying infrastructure. You only require a Kubernetes
+    CNI that supports this feature.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we will review how service mesh solutions can provide more
+    complex security functionality by injecting small, lightweight proxies on all
+    your application’s Pods.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Service mesh
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: By implementing NetworkPolicies, we enforce some firewall-like connectivity
+    rules between our applications’ workloads, but this may not be enough. A service
+    mesh is considered an infrastructure layer that interconnects services and manages
+    how they will interact with each other. A service mesh is used to manage East-West
+    and North-South traffic to background Services, in some cases even substituting
+    the Ingress Controller if the service mesh solution is deployed in Kubernetes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The most popular service mesh solution is **Istio** (an open source solution
+    that is part of the **Cloud Native Computing Foundation** (**CNCF**)), although
+    other options worth mentioning include Linkerd, Consul Connect, and Traefik Mesh.
+    If you are running a cloud Kubernetes platform, you may have your own cloud provider
+    solution available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Service mesh solutions are capable of adding TLS communications, traffic management,
+    and observability to your applications without having to modify their code. If
+    you are looking for a transparent security and management layer, using a service
+    mesh solution may be perfect for you, but it also adds a high level of complexity
+    and some platform overhead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Service mesh solutions deploy a small proxy on all your application workloads.
+    These proxies intercept all your application’s network traffic and apply rules
+    to allow or disallow your application processes’ communications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The implementation and use of service meshes are out of the scope of this book
+    but it is worth investigating whether your Kubernetes administrators have deployed
+    a service mesh solution on your platform that may necessitate the implementation
+    of service mesh-specific resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As mentioned earlier in this section, NetworkPolicy resources isolate your application’s
+    workloads by disabling unauthorized communications, which may provide sufficient
+    security for a production environment. These resources are highly configurable,
+    and you are responsible for defining the required communications between your
+    application’s components and preparing the required YAML manifests to fully implement
+    all your application communications. In the following *Labs* section, we will
+    see some of the content learned in this chapter in action as we try publishing
+    the `simplestlab` application used in previous chapters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Labs
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we show you how to work through the implementation of the Ingress
+    resources for the `simplestlab` Tier-3 application, prepared for Kubernetes in
+    [*Chapter 9*](B19845_09.xhtml#_idTextAnchor202), *Implementing Architecture Patterns*,
+    and improved upon in [*Chapter 10*](B19845_10.xhtml#_idTextAnchor231), *Leveraging
+    Application Data Management in Kubernetes*. Manifests for all the resources have
+    been prepared for you in this book’s GitHub repository at [https://github.com/PacktPublishing/Containers-for-Developers-Handbook.git](https://github.com/PacktPublishing/Containers-for-Developers-Handbook.git)
+    and can be found in the `Chapter11` folder. Ensure you have the latest revision
+    available by simply executing `git clone` to download all its content, or use
+    `git pull` if you have already downloaded the repository before. All the manifests
+    and steps required for running the `simplestlab` application are located inside
+    the `Containers-for-Developers-Handbook/Chapter11/simplestlab` directory, while
+    all the manifests for Ingress and NetworkPolicy resources can be found directly
+    in the `Chapter11` folder.
+  prefs: []
+  type: TYPE_NORMAL
+- en: These labs will help you learn and understand how Ingress and NetworkPolicy
+    resources work in Kubernetes. You will deploy an Ingress Controller, publish the
+    `simplestlab` example application using the HTTP and HTTPS protocols, and create
+    some NetworkPolicy resources to allow only appropriate connectivity. The Ingress
+    Controller lab will work on Docker Desktop, Minikube, and Rancher, but for the
+    NetworkPolicy resources part, you will need to use an appropriate Kubernetes CNI
+    with support for such resources, such as Calico. Each Kubernetes desktop or platform
+    implementation manages and presents its own networking infrastructure to users
+    in a different way.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'These are the tasks you will find in this chapter’s GitHub repository:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will first deploy the Kubernetes NGINX Ingress Controller (if you don’t have
+    your own Ingress Controller in your labs platform).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We will deploy all the manifests prepared for the `simplestlab` application,
+    located inside the `simplestlab` folder. We will use `kubectl create -``f simplestlab`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Once all the components are ready, we will create an Ingress resource using
+    the manifest prepared for this task.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: In the GitHub repository, you will find instructions for deploying a more advanced
+    Ingress manifest with a self-signed certificate and encrypting the client communications.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: There is also a NetworkPolicy lab in the GitHub repository that will help you
+    understand how to secure your applications using this feature with a compatible
+    CNI (Calico).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: In the first task, we will deploy our own Ingress Controller.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Improving application access by deploying your own Ingress Controller
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'For this task, we will use Docker Desktop, which provides a good LoadBalancer
+    service implementation. These Service resources will attach the localhost IP address,
+    which will make it easy to connect to the published services. We will use the
+    cloud deployment of Kubernetes NGINX Ingress Controller ([https://kubernetes.github.io](https://kubernetes.github.io))
+    based on the LoadBalancer Service type, described in the following manifest: [https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.1/deploy/static/provider/cloud/deploy.yaml](https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.1/deploy/static/provider/cloud/deploy.yaml).
+    If you are using a completely bare-metal infrastructure, you can use the bare-metal
+    YAML ([https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.1/deploy/static/provider/baremetal/deploy.yaml](https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.1/deploy/static/provider/baremetal/deploy.yaml))
+    and follow the additional instructions at [https://kubernetes.github.io/ingress-nginx/deploy/baremetal/](https://kubernetes.github.io/ingress-nginx/deploy/baremetal/)
+    for NodePort routing.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Local copies of both YAML files are provided in the repository as `kubernetes-nginx-ingress-controller-full-install-cloud.yaml`
+    and `kubernetes-nginx-ingress-controller-full-install-baremetal.yaml`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once this is done, follow these steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will just deploy the cloud version, provided in the YAML as a series of
+    concatenated manifests. We just use `kubectl apply` to deploy the controller:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We can review the workload resources created:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Chapter11$ curl http://localhost
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: <html>
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: <head><title>404 Not Found</title></head>
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: <body>
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: <center><h1>404 Not Found</h1></center>
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: <hr><center>nginx</center>
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: </body>
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '–k argument to avoid certificate validation):'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE7]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: The Ingress Controller is now deployed and listening, and the `404` error indicates
+    that there isn’t an associated Ingress resource with the `localhost` host (in
+    fact there isn’t even a default one configured, but the Ingress Controller responds
+    correctly).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Publishing the simplestlab application on Kubernetes using an Ingress Controller
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In this lab, we will deploy `simplestlab`, a very simplified tier-3 application,
+    located in the `simplestlab` directory, and we’ll publish its frontend, the `lb`
+    component, without TLS encryption. You can follow these steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The manifests for the application are already written for you; we will just
+    have to use `kubectl` to create an appropriate namespace for the application and
+    then deploy all its resources:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Chapter11$ kubectl get all -n simplestlab
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: NAME                       READY   STATUS    RESTARTS   AGE
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: pod/app-5f9797d755-5t4nz   1/1     Running   0          81s
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: pod/app-5f9797d755-9rzlh   1/1     Running   0          81s
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: pod/app-5f9797d755-nv58j   1/1     Running   0          81s
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: pod/db-0                   1/1     Running   0          80s
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: pod/lb-5wl7c               1/1     Running   0          80s
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: NAME          TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)    AGE
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: service/app   ClusterIP   10.99.29.167    <none>        3000/TCP   81s
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: service/db    ClusterIP   None            <none>        5432/TCP   81s
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: service/lb    ClusterIP   10.105.219.69   <none>        80/TCP     80s
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: NAME                DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE
+    SELECTOR   AGE
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: daemonset.apps/lb   1         1         1       1            1            <none>          80s
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: NAME                  READY   UP-TO-DATE   AVAILABLE   AGE
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: deployment.apps/app   3/3     3            3           81s
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: NAME                             DESIRED   CURRENT   READY   AGE
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: replicaset.apps/app-5f9797d755   3         3         3       81s
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: NAME                  READY   AGE
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: lb component isn’t exposed. It is listening on port 80, but ClusterIP is used,
+    hence the Service is only available internally, cluster-wide.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We will now create an Ingress resource. There are two manifests in the `ingress`
+    directory. We will use `simplestlab.ingress.yaml`, which will be deployed without
+    custom TLS encryption:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We will just deploy the previously created manifest:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Chapter11$ curl -H "host: simplestlab.local.lab" http://localhost/'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: <!DOCTYPE html>
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: <html>
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: <head>
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: …
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: </head>
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: <body>
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: …
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: </body>
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: </html>
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: </body>
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: simplestlab application is now available and accessible.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We can change our `/etc/hosts` file (or equivalent MS Windows `c:\system32\drivers\etc\hosts`
+    file). Add the following line and open the web browser to access the `simplestlab`
+    application:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This requires root or Administrator access, hence it may be more interesting
+    to use `curl` with the `-H` or `--header` arguments to check the application.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can use an extension on your web browser that allows you to modify the headers
+    of your requests or an FQDN including [nip.io](http://nip.io), which will be used
+    in [*Chapter 13*](B19845_13.xhtml#_idTextAnchor287), *Managing the Application
+    Life Cycle*. For example, you can simply add the `simple-modify-headers` extension
+    if you are using MS Edge (you will find equivalent ones for other web browsers
+    and operating systems). Additional information for configuring this extension
+    is discussed in the GitHub `Readme.md` file for this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The application will be available at [http://localhost](http://localhost) (notice
+    that we defined the URL pattern as `http://locahost/*` in the `simple-modify-headers`
+    extension configuration):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![ Figure 11.21 – SIMPLE MODIFY HEADERS Edge extension configuration](img/B19845_11_21.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.21 – SIMPLE MODIFY HEADERS Edge extension configuration
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once the extension is configured, we can reach the `simplestlab` application
+    using [http://localhost](http://localhost):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 11.22 – The simplestlab application is accessible thanks to the Ingress
+    Controller](img/B19845_11_22.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 11.22 – The simplestlab application is accessible thanks to the Ingress
+    Controller
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the GitHub repository, you will find instructions to add TLS to the Ingress
+    resource to improve our application security and how to implement NetworkPolicy
+    resources using Calico as a CNI with Minikube.
+  prefs: []
+  type: TYPE_NORMAL
+- en: These labs have helped you understand how to improve the security of your applications
+    by isolating their components and exposing and publishing only those required
+    by the users and other applications’ components.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we learned how to publish our applications in Kubernetes for
+    our users and for other components deployed either internally in the same cluster
+    or externally. Different mechanisms for this were examined, but ultimately, it
+    is up to you to determine which of your applications’ components should be exposed
+    and accessible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Throughout this chapter, we reviewed some quick solutions for debugging and
+    publishing Service resources directly on our desktop computers with the `kubectl`
+    client. We also examined different Service types that could be useful for locally
+    accessing our remote applications on remote Kubernetes development clusters. We
+    discussed how LoadBalancer Services are part of the Kubernetes core and were prepared
+    for cloud platforms, due to which they may be difficult to implement on-premises,
+    and this is why the recommended option for delivering applications is to create
+    your own Ingress resource manifest. Ingress Controllers will help you to publish
+    applications on any Kubernetes platform. You will use Ingress resources to define
+    how applications will be published, and you may need to tweak their syntax according
+    to the Ingress Controller deployed in your Kubernetes platform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Toward the end of the chapter, we introduced the NetworkPolicy resource and
+    the service mesh concept, which offers the means to improve the security of our
+    applications by dropping any untrusted and undefined communications. This was
+    followed by some labs to test what we learned.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will review some useful mechanisms and tools for monitoring
+    and gathering performance data from our applications.
+  prefs: []
+  type: TYPE_NORMAL

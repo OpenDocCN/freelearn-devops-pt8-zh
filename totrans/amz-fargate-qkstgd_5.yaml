@@ -1,0 +1,269 @@
+- en: Using IAM
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Amazon ECS is integrated with, and makes use of, several other AWS services,
+    including Elastic Load Balancing and EC2\. ECS makes use of service-linked roles,
+    which are special types of roles associated with a service to provide access to
+    the required AWS services without additional configuration. ECS makes use of the
+    `AWSServiceRoleForECS` role to access other AWS services for managing EC2 network
+    interfaces, registering/deregistering instances from a load balancer, and registering
+    targets. A root user does not require any additional configuration to be able
+    to use ECS with Fargate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Problem: **An IAM user does not have permission to create or modify ECS resources
+    or invoke the ECS API by default. An IAM user also does not have permissions to
+    use the ECS Console or the AWS CLI.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Solution: **An IAM user must be granted permission to create the `AWSServiceRoleForECS`
+    role. An IAM policy may be created and associated with an IAM user to grant the
+    requisite permissions to use some of the other AWS services. Some of the AWS services
+    that may be required to run Amazon ECS include:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Calls to Amazon ECR to pull Docker images
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Calls to CloudWatch Logs to store container logs
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `AmazonECSTaskExecutionRolePolicy` policy is provided to grant permissions
+    for using the aforementioned ECS services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Some of the Elastic Load Balancing permissions are not included in the `AWSServiceRoleForECS`
+    role and an IAM policy may be required to be added to use Elastic Load Balancing.
+    The `AmazonEC2ContainerServiceRole` policy may be used to register/deregister
+    container instances with load balancers. The service auto scaling IAM role (`ecsAutoscaleRole`)
+    is required to configure auto scaling. An IAM user must add `ecsAutoscaleRole`,
+    which must include the `AmazonEC2ContainerServiceAutoscaleRole` policy. To be
+    able to use IAM roles for tasks, the Amazon EC2 Container Service Task Role policy
+    must be added.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `AmazonEC2ContainerServiceforEC2Role` policy is not required with the Fargate
+    launch type, as it is provided for the EC2 launch type only.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will learn about the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating an IAM User
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Adding a custom policy for Elastic Load Balancing
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Logging in as the IAM User
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The only prerequisite is an AWS account.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating an IAM user
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create an IAM user, log in as the root user and access the IAM Console at
+    [https://console.aws.amazon.com/iam](https://console.aws.amazon.com/iam):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Select users in the left-hand menu and click on Add user, as shown in the following
+    screenshot:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![](img/726b80e5-8c50-43ba-9b6c-bfce325ec8a5.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The Add user wizard gets launched, as shown next. First, specify the User name
+    (`dvohra`).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Select the AWS Management Console access option, which enables a password that
+    allows the IAM user to log in to the Console:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![](img/5f298732-c3c1-42f8-aa1e-1ea6c0c20ec8.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: For Console Password, select the Custom password option and specify a password
+    in the field provided. Select the Require password reset option, which requires
+    a user to create a new password at the next login. Users are automatically granted
+    the `IAMUserChangePassword` policy, which allows a user to change their password.
+    Click on Next.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Next, configure permissions. Click on Attach existing policy directly, as shown
+    here:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![](img/1f932f31-598c-40c1-9c0a-5844dbe829e5.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In the Policy type filter, search for ECS and select the two policies listed
+    next. `AmazonECS_FullAccess` provides administrative access to Amazon ECS resources. `AmazonECSTaskExecutionRole`
+    provides access to the other AWS resources that are required by ECS:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![](img/43ac42fa-a6b4-4e05-bf82-12ee8a13e130.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Search for the Config in Policy type filter and select the AWS Config policies
+    shown next. Click on Next:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![](img/ff1018ab-a1aa-4842-84a0-2cc50875516f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In Review, review the Permissions Summary, and the IAMUserChangePassword policy
+    should also be listed. Click on Create user. An IAM user gets added, as indicated
+    by the Success message. This IAM user gets listed in the users table as shown
+    here. We shall use the IAM user with Amazon Fargate in subsequent chapters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/aa0d4a34-2c35-4988-bfb4-34aaaff5f62b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Adding a custom policy for Elastic Load Balancing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The ECS policies available and selected do not include some permissions that
+    are required when creating an Elastic Load Balancer for an ECS service. We need
+    to add a custom policy to the IAM user so that the IAM user is able to configure
+    an Elastic Load Balancer. The following custom policy adds all the `elasticloadbalancing`
+    permissions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The custom policy may be added using one of the following options:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Create a custom policy prior to creating the user
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Add an inline policy after a user has been created
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We shall discuss the second option:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: To add the custom policy as an inline policy, click on the IAM user link for
+    IAM user dvohra (or another user) in the Users table. The IAM user detail gets
+    displayed.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'With the Permissions tab selected, click on Add inline policy, as shown in
+    the following screenshot:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![](img/84494607-09cd-4d91-9a06-00bd7e04eeb2.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The Create policy wizard gets started. Select the JSON tab and copy and paste
+    the custom policy listed earlier, as shown in the following screenshot:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![](img/5c17d330-01ea-40ac-bd39-46a2da756aed.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Click on Review policy. Specify a policy Name, as shown next.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Click on Create policy, as shown in the following screenshot:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![](img/815e76a1-3c50-446a-8a1a-320490b470bc.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The custom policy gets added to the IAM user permissions, as shown in the following
+    screenshot:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![](img/a0c8d8a7-6ab4-4764-bc28-5faef52eda2f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Logging in as the IAM user
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Next, having created an IAM user, log in as the IAM user to use Amazon Fargate:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To be able to log in as the IAM user just created, first Sign Out as the root
+    user:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![](img/66f7b9e2-44c3-4fac-a3ed-560615cb96ab.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'To sign in to the Console, copy the Console login link https://123456789.signin.aws.amazon.com/console,
+    which would be different for different users, as shown here. The link listed is
+    just an example link and cannot be used to log in:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![](img/a0a0dbce-e019-443a-89af-2d88dc32f20e.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Open a web browser with the Console login link. The Account ID is pre-specified
+    in the login form (not shown in following screenshot). Specify the IAM user name
+    and password and click on Sign In, as shown in the following screenshot:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![](img/0067302d-2627-4aaa-9274-90e80965b1ad.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Next, the form to change the password is provided. Because the option to change
+    the password at first login was selected, the IAM user must configure a new password.
+    Click on Confirm password change. The IAM user gets logged in as shown in the
+    following screenshot.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Select the Elastic Container Service to create an ECS service, as shown in
+    the following screenshot:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![](img/75db2f4a-5057-4621-b6dd-19278cc31969.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we discussed configuring an IAM user for ECS. The root user
+    does not require any permission configurations and has access to the ECS resources,
+    ECS Console, ECS API, and all the required AWS services. If an IAM user is to
+    be used with ECS, the required IAM policies must be added to the IAM user. To
+    use ECS with Elastic Load Balancing, a custom policy must be added. In the next
+    chapter, we shall discuss using an application load balancer with Fargate.
+  prefs: []
+  type: TYPE_NORMAL

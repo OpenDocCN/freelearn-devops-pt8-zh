@@ -1,0 +1,1441 @@
+- en: '10'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Leveraging Application Data Management in Kubernetes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Deploying applications in Kubernetes helps in managing resilience, **high availability**
+    (**HA**), and scalability by using replicated instances. But none of these features
+    can be used without knowing how your application actually works and how to manage
+    its data. In this chapter, we will review how to create and manage **Secrets**,
+    **ConfigMaps**, and different **volume** options. While Secret and ConfigMap resources
+    will be used to integrate different authentication options inside containers,
+    volumes are used to manage an application’s data, as we briefly introduced in
+    [*Chapter 8*](B19845_08.xhtml#_idTextAnchor170), *Deploying Applications with*
+    *the* *Kubernetes Orchestrator*. Applications can be either stateful, stateless
+    or – as is usually the case – a combination of both. We will learn in this chapter
+    about different options for managing data and separating it from the application’s
+    life cycle.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following main concepts are reviewed in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the data within your application
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Applying configurations using ConfigMaps
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Managing sensitive data using Secret resources
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Managing stateless and stateful data
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Enhancing storage management in Kubernetes with **PersistentVolume** (**PV**)
+    resources
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You can find the labs for this chapter at [https://github.com/PacktPublishing/Containers-for-Developers-Handbook/tree/main/Chapter10](https://github.com/PacktPublishing/Containers-for-Developers-Handbook/tree/main/Chapter10),
+    where you will find some extended explanations, omitted in the chapter’s content
+    to make it easier to follow. The *Code In Action* video for this chapter can be
+    found at [https://packt.link/JdOIY](https://packt.link/JdOIY).
+  prefs: []
+  type: TYPE_NORMAL
+- en: As the data used by your application is very important, we will first review
+    the different options we have and the resources we can use within Kubernetes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the data within your application
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '**Microservices architecture** improves the performance and resilience of your
+    applications by distributing functionalities in different pieces, allowing us
+    to scale them up or down and continue serving some functionalities even when some
+    components fail. But this distribution of functionalities entails the distribution
+    of the data associated with each component and somehow sharing it when more than
+    one component needs it. It is very important to also understand that your application
+    must allow scaling up without corrupting the data in case more than one replica
+    is accessing the same data. Running application components as containers will
+    help us distribute the processes, keeping the same data content in each replica,
+    and starting and stopping processes quickly. The container runtime will attach
+    defined volumes to the containers, but it doesn’t manage your application’s logic.
+    That’s why it is key to understand how data will be used when you are preparing
+    your applications for running in container-orchestrated environments.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Container orchestrators will provide you with mechanisms for injecting configurations
+    into your containers, maintaining these configurations synced within all container
+    replicas. These configurations can be used as either files within the containers
+    or environment variables. You must understand that if your application uses configurations
+    in clear text, you will not be able to protect them from attackers if they get
+    into your containers. This will always be the case, even if you encrypt your configurations
+    before they are injected into the containers. If your code reads the configuration
+    content in clear text, it will always be accessible because permissions will be
+    adequate to allow your processes to read the configurations, and the container
+    will use the main process user to attach any new processes (via `docker exec`
+    or `kubectl exec`). If you use environment variables, they will be easily readable
+    by any process running inside the container. But these things don’t mean that
+    your information is insecure inside containers. Different mechanisms, such as
+    RBAC, allow us to limit access to containers from the orchestrated platform, but
+    accessing cluster nodes will override the platform’s security. You should never
+    run commands from cluster nodes. Your container orchestrator administrators may
+    provide you with a complete **continuous deployment** (**CD**) solution, or you
+    may use your platform client (command line or graphical interface) to gain access.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Injecting data into an application’s containers can be accomplished by using
+    any of the following mechanisms:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`arguments` key to any Pod resource. You should never pass sensitive data using
+    this method.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Environment variables**: It is usual to include information by using environment
+    variables. Some coding languages even have standardized nomenclature for working
+    directly with variables; in any case, your application must be prepared to include
+    them. This method should also be avoided when including sensitive data unless
+    it is combined with Secret resources, as we will learn about in the next section.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**ConfigMaps**: These resources are the best option for adding configurations
+    to our workloads. We can use them to add files inside containers, knowing that
+    they will be available no matter which node runs the instance. The container orchestrator
+    will manage and sync any change in its content. They can also be used to set up
+    some variables with their values and use them as environment variables.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Secrets**: Secret resources are the appropriate method for managing sensitive
+    data in either Kubernetes or Docker Swarm platforms. However, there’s a big difference
+    in how they are packaged inside each platform. Docker Swarm encrypts their content,
+    and we aren’t even allowed to retrieve the content, while Kubernetes uses the
+    Base64 format for storing content within a cluster. Encryption for storing Secret
+    resources at rest in etcd can be enabled, but it is not enabled by default. This
+    only affects the etcd database, which shouldn’t be accessible to normal users,
+    but it may be useful to ask your Kubernetes administrators about such configuration
+    if you are worried about the data you keep in your Secret resources. It is quite
+    common to use Secret resources for either adding sensitive files, such as passwords,
+    authentication tokens, certificates, or even container image registry connection
+    strings, or to present variables to containers.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Volumes**: Volumes are not intended to be used for injecting data but for
+    storing it during the execution of the containers. They can be either ephemeral
+    or stateful, to persist data between executions. In Kubernetes, we consider volumes
+    as those storage resources integrated into the Kubernetes platform’s code. A lot
+    of cloud storage solutions were integrated from the beginning of its development
+    because it was part of the design, although host bind mounts, ephemeral directories,
+    NFS, and other on-premises solutions are also available. ConfigMap and Secret
+    resources are also Volumes, but we will treat them differently because of their
+    content.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**The downward API**: Although the downward API is considered a Volume resource,
+    we can think of it as a completely different concept due to its usage. You can
+    mount metadata information from the current namespace’s resources to be used in
+    your application by using the downward API, which automatically manages the required
+    requests to the Kubernetes API to retrieve it.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**PVs**: A PV is storage provisioned by the Kubernetes administrator to accommodate
+    a **PersistentVolumeClaim** (**PVC**) resource, which is a request for storage
+    for your application component. Whenever you create a PVC resource, it will be
+    bound to an existing PV resource if there is one free with the required size and
+    properties.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The concept of **Projected Volumes** also exists, which is a specific map of
+    different volumes integrated into the same directory inside a container. This
+    feature allows us to locate Secret and ConfigMap resources in the same directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will learn how to inject data and use it inside containers by using ConfigMaps
+    to include non-sensitive information.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Applying configurations using ConfigMaps
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we are going to learn how to use ConfigMap resources, mount
+    files inside containers or as environment variables, and present the information
+    for our application’s processes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The content of a ConfigMap resource is stored in the Kubernetes etcd key-value
+    store. Due to this, the content can’t exceed 1 MB in size. The manifest of these
+    resources doesn’t have a `spec` section. Instead, we can have either `data` or
+    `binaryData` (for Base64 content) keys for defining the content. The following
+    screenshot shows an example of a ConfigMap manifest:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.1 – ConfigMap resource manifest](img/B19845_10_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.1 – ConfigMap resource manifest
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the code in the presented screenshot, we have declared two types of configurations.
+    While `APP_VAR1` and `APP_VAR2` are defined in key-value format, the `appsettings`
+    section defines a complete configuration file that can be mounted. Notice the
+    pipe symbol (`|`) used to define the `appsettings` key. This allows us to include
+    all the subsequent content as the value for the key. You should be very careful
+    with the indentation of the YAML file to avoid any issues with the file content.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s see now how we will use these configurations in a Pod:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.2 – Pod resource manifest using a ConfigMap resource](img/B19845_10_02.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.2 – Pod resource manifest using a ConfigMap resource
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the Pod manifest shown in the preceding screenshot, we have presented two
+    mechanisms for using the information declared in a ConfigMap resource. We used
+    the key-value definitions in the `settings` ConfigMap as environment variables.
+    But the content of the `appsettings` key, defined in the `settings` ConfigMap
+    too, is presented as a volume in the `demo` container. In this case, a `/app/config/appsettings`
+    file will be created, with the content of the `appsettings` key. Notice that we
+    used the `ReadOnly` key to define that the mounted file will not be writable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this example, we didn’t use the simplest mechanism for mounting configuration
+    files. Let’s see how we simply add a complete configuration file, created with
+    `kubectl create configmap <CONFIGMAP_NAME> --from-file=<CONFIGURATION_FILE>`.
+    We will use the `appsettings.json` file as an example, with any content, and created
+    using `kubectl create cm` `appsettings –from-file=appsettings.json`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this case, we used the `subPath` key to set up the filename and complete
+    path for the configuration file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Configuration files can be updated at any time unless we have used the `immutable`
+    key (which defaults to `false`), in which case we will need to recreate the resource.
+    To modify the content or any of the allowed keys (use `kubectl explain configmap`
+    to review them), we can use any of the following methods:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Use `kubectl edit` to edit and modify its values online.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Patch the file by using `kubectl` `patch` ([https://kubernetes.io/docs/tasks/manage-kubernetes-objects/update-api-object-kubectl-patch](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/update-api-object-kubectl-patch)).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Replace the resource with a new manifest file by using `kubectl replace –f <MANIFEST_FILE>`.
+    This is the preferred option as all changes can be followed by storing the manifest
+    files (using **GitOps** methodology, as we will learn in [*Chapter 13*](B19845_13.xhtml#_idTextAnchor287),
+    *Managing the Application* *Life Cycle*).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: ConfigMap resources will be updated on your running workloads unless their values
+    are used in your containers as environment variables or mounted using the `subPath`
+    key, in which case this will not be done. It is very important to understand how
+    updates will be managed by Kubernetes in your application’s workloads. Even if
+    your configuration is updated, it depends on how your application uses it, when
+    it is loaded, and how these changes affect your container processes. If your processes
+    only read configurations when they start, you will need to recreate the application’s
+    Pods. Hence, the only way you can ensure that a new configuration is applied is
+    by recreating the containers. Depending on the workloads you used for your configuration,
+    you will just need to remove or scale your resources down/up to make the configuration
+    changes update.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can use `kubectl create cm <CONFIGMAP_NAME> --from-literal=KEY=VALUE` to
+    create ConfigMap resources with key-value resource types directly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can add annotations to our ConfigMap resources and update them to trigger
+    the update of your workloads. This will ensure that your Pods will be recreated,
+    hence the ConfigMap is updated immediately. By default, when a ConfigMap is updated,
+    Kubernetes will update the content on the Pods using this configuration at regular
+    intervals. This automatic update doesn’t work if you use the `subPath` key to
+    mount the content. However, notice that updating the content of the file does
+    not include the update of your application; it depends on how your application
+    works and how often the configuration is refreshed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kubernetes also allows us to include information in Pods at runtime. We will
+    use the downward API to inject Kubernetes data into Pods, which we will learn
+    about in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using the downward API to inject configuration data
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: We will use the downward API mount endpoints to inject information about the
+    current Pod resource. This way, we can import information such as the Pod’s name
+    (`metadata.name`), its annotations, labels, and service account, for example.
+    Information can be passed as environment variables or mounted as a volume file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Imagine a Pod with the following annotations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can mount this information in a Pod’s container with a volume definition
+    and the `mountPath` parameter inside it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice that we are injecting the annotations inside the `/etc/pod-annotations`
+    file. We can use either static data (added manually) or dynamic information, retrieved
+    from Kubernetes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let’s see how to include sensitive data by using Secrets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Managing sensitive data using Secret resources
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We should always avoid adding sensitive information to our application images.
+    Neither passwords, connection strings, tokens, certificates, nor license information
+    should be written inside container images; all this content must be included in
+    the runtime. Therefore, instead of using ConfigMap resources, which are stored
+    in clear text, we will use Secrets. Kubernetes Secret resource content is described
+    in `base64` format. They are not encrypted, and anyone with access to them can
+    read their data. This includes any user who can create a Pod in the same namespace,
+    as the Secret can be included and hence read. Only appropriate RBAC resource access
+    can ensure Secrets’ security. Therefore, it is important to understand that you
+    should avoid access to your Secret resources using appropriate Kubernetes **Roles**
+    and **RoleBindings** (Kubernetes RBAC). Also, by default, Kubernetes doesn’t encrypt
+    Secrets in etcd, hence access to the key-value data files at the filesystem level
+    shouldn’t be allowed. Secrets are namespaced resources, therefore we will be able
+    to manage Kubernetes access at the namespace level. Your Kubernetes administrators
+    should ensure the appropriate access at the cluster level.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will use Secret resources as **volumes** (presenting files such as certificates
+    or tokens), as **environment variables** (with their content hidden when you review
+    the online Pod resource’s manifest), or as **authentication** for accessing a
+    remote registry (on-premise or cloud service).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can use `kubectl create secret generic <SECRET_NAME> --from-file=<SENSITIVE_DATA_FILE>`
+    or `kubectl create secret generic <SECRET_NAME> --from-literal=SECRET_VARIABLE_NAME=SECRET_VALUE`.
+    Either the `--from-file` or `--from-literal` arguments can be used multiple times
+    to add multiple data keys. The following Secret resource types can be created:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`generic`: This is the most usual type and can be used to include any sensitive
+    file or value.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`tls`: This stands for `SSL_CERT_FILE` variable with its content or by using
+    the associated `.cert` and `.key` files in your configuration.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`docker-registry`: These resources can include `dockercfg` or `dockerconfigjson`
+    content. They will be used to configure a profile for pulling images from a registry.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Kubernetes, by default, creates a Secret for each service account automatically.
+    These Secret resources contain an associated token that can be used for interacting
+    with the Kubernetes API from your application’s components. This token is used
+    to authenticate and authorize your processes with Kubernetes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ask your Kubernetes administrators if you have some **ResourceQuota** resources
+    associated with your applications’ namespaces because Secrets, as with many other
+    resources, can be limited in their number. Hence, you may be limited when creating
+    lots of Secrets, and you have to think about the information included. The size
+    of Secret content is also limited to 1 MB, which will usually be more than enough
+    for delivering sensitive configurations. If you need more, you may need to use
+    appropriate Volumes or PVs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s look at a quick example. We used `kubectl create secret settings --from-literal=user=test
+    --from-literal=pass=testpass --from-file=mysecretfile --dry-run=client -o yaml`
+    to generate the following Secret manifest:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.3 – Secret manifest](img/B19845_10_03.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.3 – Secret manifest
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will now use the Secret values in a Pod as environment variables and mounted
+    as a volume:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.4 – Example of the usage of a Secret resource](img/B19845_10_04.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.4 – Example of the usage of a Secret resource
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the previous screenshot, we used `user` and `pass` two times. First, we
+    added their values as environment variables, but we also used them as volumes,
+    mounted inside `/etc/settings`. In this example, three files were created: `/etc/settings/user`,
+    `/etc/settings/pass`, and `/etc/settings/mysecretfile`. Each file’s content was
+    defined in the Secret. Notice that we defined the file permissions using the `defaultMode`
+    key, and we mounted the volumes in read-only mode. If we just need to mount a
+    Secret as a file and we require this file in a specific path, we use the `subPath`
+    key to define the name of the file. For example, if we used `kubectl create secret
+    generic example --from-file=mysecretfile`, we could mount it as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: We will never store Secret file manifests in clear text in our code repository.
+    You can use any third-party tool to encrypt its content before uploading it. On
+    the other hand, a better solution may be a solution such as `SealedSecret`, which
+    generates your Secret for you. In the `SealedSecret` manifests, the data is encrypted
+    and you can manage it in your repositories without any problems. The `SealedSecret`
+    entity works inside the Kubernetes cluster, hence your `SealedSecret` instance
+    is the only software that can decrypt your data (encrypted by using certificate
+    exchange). Your data will be safely encrypted, and it will be automatically decrypted
+    when needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can use more complex solutions such as **Hashicorp’s Vault** to manage your
+    Kubernetes Secret resources. This solution provides a lot of functionalities that
+    can help you manage sensitive data for multiple platforms, not only Kubernetes,
+    but it may require lots of hardware resources and management if you plan to have
+    a highly available environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Cloud providers have their own software tools for deploying sensitive data on
+    your Kubernetes cluster. They provide different access control integrations with
+    your cloud **Identity and Access Management** (**IAM**) and may be a better solution
+    if you plan to use a cloud platform for production. It is always interesting to
+    ask your Kubernetes administrators for the best solution for deploying your Secrets
+    in your environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Projected Volumes** allow us to mount multiple resources (only Secrets, ConfigMaps,
+    the downward API, or ServiceAccount tokens are allowed) into a container’s directory.
+    The following example shows how to mount a Secret, a container’s specifications,
+    and a ConfigMap resource:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.5 – Example of a Projected Volume](img/B19845_10_05.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.5 – Example of a Projected Volume
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we know how to inject configurations and sensitive data cluster-wide
+    using Kubernetes resources, we will continue by reviewing how to store data from
+    our applications. We will start with volumes, which are a storage solution included
+    in Kubernetes’ core.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Managing stateless and stateful data
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When we think about storing an application’s data, we must consider whether
+    the data should persist or whether it’s temporary. If the data must persist when
+    a Pod is recreated, we must take into account that data should be available cluster-wide
+    because containers may run on any worker host. Containers’ state isn’t stored
+    by Kubernetes. If your application manages its state by using files, you may use
+    volumes, but if this is not possible – for example, because multiple instances
+    work at the same time – we should implement a mechanism such as a database to
+    store its status and make it available to all instances.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Storage can be either filesystem-based, block-based, or object-based. This
+    also applies to Kubernetes data volumes, hence before moving forward on how Kubernetes
+    provides different solutions for volumes, let’s have a quick review of these storage-type
+    concepts:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Filesystem-based storage**: When we use filesystem-based storage (or file
+    storage), we manage it by saving all the data in a hierarchal structure of folders
+    and subfolders, provided by a local or remote operating system, where the files
+    are kept. We use access control lists to decide whether a user is able to read
+    or modify files’ content.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Filesystems are quite common and easy to use. We use them every day locally
+    in our workstation or remotely via NAS, **Common Internet File System** (**CIFS**),
+    or even with cloud-specific solutions. Filesystem storage works fine for a limited
+    number of files, with limited size, but it may be problematic with large files.
+    In these solutions, files are indexed and this limits usage when we have an enormous
+    number of files. It also doesn’t scale well, and it’s difficult to manage file
+    locks when multiple processes are accessing the same file remotely, although it
+    works very well for local storage.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '**Block storage**: Block storage (or block devices) is used by splitting your
+    data into small blocks of a defined size that can be distributed in different
+    physical local devices. Block devices can be used locally or remotely (SAN or
+    even cloud-provided solutions), and they may be used directly or formatted using
+    different filesystem options, depending on the underlying operating system. This
+    storage solution is faster than filesystems and can include HA and resilience
+    using distributed devices. But redundancy isn’t cheap as it is based on the duplication
+    of blocks. Applications must be prepared for working with block devices, and block
+    storage isn’t commonly used because it depends a lot on the infrastructure. It
+    is very efficient for virtualization and database solutions prepared for it.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Object storage**: Object storage is a solution that divides the data into
+    separate units that are stored in an underlying storage backend (block devices
+    or filesystems). We can use distributed backends, which improves resilience and
+    HA. Files are identified uniquely using IDs, and access to the data is easier
+    to manage by using ACLs. It also provides redundancy and versioning. It was first
+    developed for publishing storage on cloud providers but it is now very common
+    in data centers. It’s usually consumed via a REST API (HTTP/HTTPS), which makes
+    it easy to include in our applications. Many backup solutions are prepared for
+    object storage backends nowadays because they are suitable for storing large files
+    and an enormous number of items.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Kubernetes includes some drivers that will allow us to use the reviewed storage
+    solutions mounted as volumes, but we will use PVC resources for more advanced
+    results.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using volumes for storing data
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Volumes in Kubernetes are used by adding their definitions to the `.spec.volumes`
+    key. Kubernetes supports different types of volumes, and Pod resources can use
+    any number of volume types at the same time. We have temporal (or ephemeral) volumes
+    that will only exist during the Pod’s execution, while data may persist using
+    non-ephemeral volumes. All the volumes associated with a Pod can be mounted on
+    any mount point (directories from containers’ filesystems) on all the containers
+    running inside. Using these volumes, we can persist an application’s data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While the `.spec.volumes` key allows us to define the volumes to be included
+    in the Pod’s mount namespace, we will use `.spec.containers[*].volumeMounts` to
+    define in each container how and where the volumes should be used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s review some of the most popular volume types:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`emptyDir`: An `emptyDir` definition asks the kubelet component to create an
+    empty temporary directory on your host that will follow the associated container’s
+    life cycle. When the Pod is deleted, the containers free up this storage, and
+    kubelet removes it. By default, `emptyDir` type volumes are created on a host’s
+    filesystem but can use the `medium` subkey to define where the storage should
+    be created. Size can also be limited by using the `sizeLimit` key. It is important
+    to understand that these volumes are created on the hosts, hence you must be careful
+    about their content and size. Never use them for storing unlimited logs, for example.
+    And remember that they will be removed once the Pod is deleted/recreated.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`hostPath`: These volumes allow us to include a defined host’s storage inside
+    the Pods. This is an important security breach that must be avoided unless your
+    application needs to monitor or modify your host’s files. Different types of `hostPath`
+    volumes can be used by setting the `type` key. By default, a directory will be
+    created if doesn’t exist when the Pod starts, but we can create or use specific
+    files, sockets, block devices, or even special types such as `hostPath` volumes
+    should be limited, and you must inform your Kubernetes administrators about their
+    use in your workloads.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`iscsi`: If you are already using `hostPath`). It is not very common to use
+    `iscsi` volumes nowadays because it requires all the worker nodes to be completely
+    equal (disk devices’ names must be completely equal in all cluster hosts). You
+    can use node labels to specify where the workloads should run, but this makes
+    them too fixed to the underlying infrastructure.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`nfs`: NFS volume types allow us to include a remote NFS filesystem in a Pod.
+    The content of the mounted filesystem is maintained unless you remove it from
+    your Pod’s processes. We specify the server and the exposed path, and we can mount
+    it in read-only mode by setting the `readOnly` key to `true`. The following screenshot
+    shows a quick example displaying the required keys:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![Figure 10.6 – Manifest showing an NFS volume mounted in a Pod](img/B19845_10_06.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.6 – Manifest showing an NFS volume mounted in a Pod
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`PersistentVolumeClaim`: This is the most advanced volume definition and requires
+    a full section to describe its usage. We will learn how to use them in the next
+    subsection.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ephemeral`: These volumes may be considered similar to `emptyDir` because
+    they are designed to provide ephemeral storage while a Pod is running, but they
+    differ in that we can integrate PVC resources as ephemeral volumes or local storage.
+    The volumes can be empty or they can already have some content when they are attached
+    to the Pod.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A lot of cloud providers’ volumes have moved from Kubernetes core-based storage
+    to modern PVC management using external PV dynamic provisioners. Disassembling
+    the storage provisioning from the Kubernetes code allows hardware storage manufacturers,
+    cloud providers, and middleware software creators to prepare their own solutions
+    and evolve them out of the Kubernetes development cycle. We will now learn how
+    PV and PVC resources allow us to improve storage management on Kubernetes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Enhancing storage management in Kubernetes with PV resources
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A PV resource presents a unit of storage that can be used within Kubernetes.
+    PVs can be created manually or dynamically by a storage provisioning backend.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'While the volume definitions seen so far are declared namespace-wide, PV resources
+    are defined cluster-wide, by Kubernetes administrators. We use them to define
+    the storage capacity (size) using the `capacity.storage` key and the mode it will
+    be consumed using the `accessMode` key. Let’s quickly review these modes, because
+    our applications may need specific access to the data, especially when we run
+    multiple replicas of a process:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`ReadWriteOnce`: This mode presents the storage in write mode only for the
+    first Pod that attaches it. Other Pods (replicas or even defined in other different
+    workloads) can only have read access to the data.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ReadOnlyMany`: In this mode, all the Pods will mount the volume in read-only
+    mode.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ReadWriteMany`: This is the option to use when processes running in different
+    Pods need to write on a PV at the same time. You must ensure your application
+    manages the locks for writing your data without corrupting it.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You have to be aware that `accessMode` does not enforce write protection once
+    the volume is mounted. If you need to ensure that it is mounted in read-only mode
+    in some Pods, you must use the `readOnly` key.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Multiple access modes can be defined in a PV resource but it only uses one when
+    it is mounted. This helps the cluster to bind PVs, but it will fit the specifications
+    in each volume request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The mode also affects how applications will be updated by issuing a rolling
+    update. By default, Deployment resources will start a new Pod instance before
+    the old one is stopped to maintain the application working. But the `ReadWriteOnce`
+    access mode will only allow the old Pod to access the storage while the new one
+    will wait forever to attach it. In such situations, it may be interesting to change
+    the default rolling update behavior to ensure that the old processes stop completely
+    and free the volume before the new ones start with the storage attached.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To use an available PV, we will use a PVC resource that may be considered a
+    request for storage. These resources are defined namespace-wide because they will
+    be used by our workloads. You, as a developer, will ask for storage for your application,
+    defining a PVC with the required `capacity.storage` and `accessMode` keys. When
+    both options match an already created and free PV resource, they are bound and
+    the storage is attached to the Pod. In fact, the volumes are attached to the host
+    that runs the Pod, and kubelet makes it available inside the Pod.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Labels can be used to fix PVCs with a subset of PVs by using `selector.matchLabels`
+    and an appropriate label. The following screenshot shows an example of `PersistentVolume`
+    created as a local `hostPath` variable:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.7 – PV and PVC manifests](img/B19845_10_07.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.7 – PV and PVC manifests
+  prefs: []
+  type: TYPE_NORMAL
+- en: If the PVC is created, but there isn’t a PV available matching the PVC’s defined
+    requirements, it will stay unbound forever, waiting for a PV to be created or
+    free in the Kubernetes cluster.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When a Pod is using a PVC and it is bound to a PV, the storage can’t be removed
+    until the Pod frees it when the Pod is removed. The following screenshot shows
+    how a Pod uses a PVC:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.8 – Pod manifest using a PVC associated with a PV](img/B19845_10_08.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.8 – Pod manifest using a PVC associated with a PV
+  prefs: []
+  type: TYPE_NORMAL
+- en: PVs can be resized if the underlying filesystem is either `xfs`, `ext3`, or
+    `ext4`. Depending on the storage backend, we can clone the PV content or even
+    create snapshots, which may be very interesting for debugging purposes when a
+    problem is occurring in your application with a set of data or for backups.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Node affinity can be used to use specific cluster nodes with specific directories
+    or even disk devices and mount the PVs wherever the directory is present. You,
+    as a developer, should avoid node affinity unless your Kubernetes administrators
+    ask you to use this feature as it makes your workloads infrastructure-dependent.
+  prefs: []
+  type: TYPE_NORMAL
+- en: PVs can be provisioned either manually by your Kubernetes administrator or dynamically,
+    using a container storage interface integrated solution that will interact with
+    a storage backend to create the volumes for you. Multiple storage solutions can
+    coexist in your cluster, which may provide different storage capabilities. No
+    matter whether your platform uses dynamic provisioning or manually created volumes,
+    we may access faster backends, more resilient ones, or some with specific housekeeping.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is important to understand that matching a PVC to an appropriate PV can lead
+    to bad use of disk space. When a PVC asks for 5 Gi and a PV with a size of 10
+    Gi is available, they will be bound despite their size not matching. This means
+    we’ll use only 50% of the available space. That’s why dynamic provisioning is
+    so important, because it creates PVs with the exact size required and then they
+    are bound, hence the data fits perfectly in the provisioned storage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will use StorageClass resources to classify the PVs by their capabilities.
+    Kubernetes administrators will associate created PV resources to any of the configured
+    StorageClass resources. A default StorageClass may be defined to associate all
+    PVs without a `spec.storageClassName` key. Whenever we create a PVC resource,
+    we can either define a specific StorageClass or wait for the cluster to assign
+    a PV from the default StorageClass to our claim.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we know about the basic concepts of storage management, we can take
+    a quick look at the provisioning and decommissioning of storage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Provisioning and decommissioning storage
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Kubernetes does not manage how PVs are created or destroyed in storage backends.
+    It just interacts with their interfaces via a REST API to retrieve and follow
+    the changes and states of the storage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Dynamic provisioning** requires some Kubernetes administration work. Kubernetes
+    administrators will deploy **Container Storage Interface** (**CSI**) solutions
+    and attach them to specific StorageClass resources, making them available for
+    users. Each StorageClass resource includes its own parameters for invoking the
+    provisioner, hence different PV resources will be created, depending on the mechanism
+    used to create them.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following screenshot shows two StorageClass resources using a `kubernetes.io/gce-pd`
+    API endpoint) for creating standard and SSD (fast hard drives) PVs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.9 – StorageClass manifests for standard and SSD storage](img/B19845_10_09.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.9 – StorageClass manifests for standard and SSD storage
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Notice the `reclaimPolicy` key, which manages the behavior of the provisioner
+    when a Pod frees a PV and this is reused:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A `Retain` policy will not modify the content of the PV, therefore we need to
+    remove it from the provisioner backend manually when the data isn’t needed anymore.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A `Recycle` policy will basically delete all the content of the volume (such
+    as issuing `rm -rf /volumedata/*` from a Pod mounting the PV). This is only supported
+    in NFS and `hostPath` provisioners.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A `Delete` policy will completely delete the PV and its content by asking the
+    provisioner API to delete the associated volume.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using PV and PVC resources allows us to prepare our application’s workloads
+    to work on any Kubernetes infrastructure. We will just modify `StorageClassName`
+    to fit any of the StorageClasses present in the deployment platform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will now review some labs that will help us better understand some of the
+    content of this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Labs
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we will use some of the resources presented to improve our
+    `simplestlab` application. We will include sensitive data in a Secret resource,
+    NGINX configurations in a ConfigMap resource, and a simple StorageClass resource
+    to implement a PV resource and a PVC resource to present storage for our StatefulSet
+    resource.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The code for all the labs is available in this book’s GitHub repository at [https://github.com/PacktPublishing/Containers-for-Developers-Handbook.git](https://github.com/PacktPublishing/Containers-for-Developers-Handbook.git).
+    Ensure you have the latest revision available by simply executing `git clone https://github.com/PacktPublishing/Containers-for-Developers-Handbook.git`
+    to download all its content or `git pull` if you have already downloaded the repository.
+    All the manifests and the steps required for adding storage to the `simplestlab`
+    application are located inside the `Containers-for-Developers-Handbook/Chapter10`
+    directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This section will show you how to implement different volume solutions on the
+    `simplestlab` tier-three application, prepared for Kubernetes in [*Chapter 9*](B19845_09.xhtml#_idTextAnchor202),
+    *Implementing* *Architecture Patterns*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'These are the tasks you will find in the [*Chapter 10*](B19845_10.xhtml#_idTextAnchor231)
+    GitHub repository:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will improve the security of the `simplestlab` application by adding Secret
+    resources on any sensitive data required by the application. We will review each
+    application component, create the required Secret resources, and modify the component’s
+    manifests to include the newly created resources. This includes some database
+    initialization scripts required for the database component.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We will also prepare different ConfigMap resources for the `lb` application’s
+    component and verify how these changes impact the application behavior.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'You can use one of the following Kubernetes desktop environments:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Docker Desktop
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Rancher Desktop
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Minikube
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The labs will work on any of them, and of course, on any other Kubernetes environment.
+    You may find issues with their default storage class, but there are some comments
+    on the files that may be changed. We’ll start with improving the `simplestlab`
+    application on Kubernetes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `simplestlab` application is a very simple tier-3 application (a load balancer
+    could present additional static content but it is not added for the purposes of
+    the labs). To make it more secure, we’re going to add Secret resources for defining
+    all the required user authentications.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The application is composed of three components:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'A `db` component: Postgres database'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'An `app` component: Application backend in Node.js'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'An `lb` component: NGINX fronted for static content'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We have included in their manifests some of the storage solutions learned in
+    this chapter.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Let’s look at the database component first. As we are already using a StatefulSet
+    resource, a PVC resource is configured, but the `postgres` user password was presented
+    in the database container in clear text. We added a Secret resource to include
+    this password, and we also included a complete database initialization script
+    that will allow us to prepare the database. In the previous labs, this component
+    was initialized with the script included in the container image. In this case,
+    we can manage how the database for the application will be created by modifying
+    this script and replacing the Secret. You must know that we can’t use this mechanism
+    to modify a previously initialized database. That’s why we expect to deploy this
+    component from scratch.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'These are two Secret manifests created:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '`dbcredentials.secret.yaml`, the content of which is shown here:'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_PRE
+- en: '`initdb.secret.yaml`: This Secret is created by including the content of `init-demo.sh`
+    script:'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_PRE
+- en: $ kubectl create secret generic initdb \
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: --from-file=init-demo.sh --dry-run=client \
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: -o yaml |tee initdb.secret.yaml
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'apiVersion: v1'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'data:'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'init-demo.sh: IyEvYmluL2Jhc2gKc2V0IC1lCgpwc3FsIC12IE9OX0VSUk9SX1NUT1A9MSAt....pZCkKICAgICk7CiAgICBBTFRFUiBUQUJMRSBoaXRzIE9XTkVSIFRPIGRlbW87CkVPU1FMCg=='
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'kind: Secret'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'metadata:'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'creationTimestamp: null'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'name: initdb'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'In both cases, the values are encoded in Base64 format. They aren’t encrypted,
+    as we can verify:'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'apiVersion: apps/v1'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'kind: StatefulSet'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'metadata:'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'name: db'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'labels:'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'component: db'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'app: simplestlab'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'spec:'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'replicas: 1'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '...'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'volumes:'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '- name: initdb-secret'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'secret:'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'secretName: initdb'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'optional: true'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'containers:'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '- name: database'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'image: docker.io/frjaraur/simplestdb:1.0'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '...'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'env:'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '- name: POSTGRES_PASSWORD'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'valueFrom:'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'secretKeyRef:'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'name: dbcredentials'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'key: POSTGRES_PASSWORD'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '- name: PGDATA'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'value: /data/postgres'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'volumeMounts:'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '- name: postgresdata'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'mountPath: /data'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '- name: initdb-secret'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'mountPath: "/docker-entrypoint-initdb.d/"'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'readOnly: true'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '...'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'volumeClaimTemplates:'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '- metadata:'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'name: postgresdata'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'spec:'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'accessModes: [ "ReadWriteOnce" ]'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '#storageClassName: "csi-hostpath-sc"'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'resources:'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'requests:'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'storage: 1Gi'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We create all the components for the database:'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_PRE
+- en: The service wasn’t modified at all.
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'We check if the user was created by connecting to the database server and showing
+    its users:'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We can now review the PVC, created by using a template (because it is a StatefulSet)
+    and the associated PV:'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'A StorageClass resource is defined in Docker Desktop and we use it by default:'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_PRE
+- en: $ kubectl create secret generic appcredentials \
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: --from-literal=dbhost=db \
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: --from-literal=dbname=demo \
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: --from-literal=dbuser=demo \
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: --from-literal=dbpasswd=d3m0
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: secret/appcredentials created
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Let’s review the changes included to load the database authentication in the
+    application:'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_PRE
+- en: The full manifest file can be found in the `Chapter10/app.deployment.yaml` file.
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'We have just included all the required environment variables from the Secret
+    created before. We deploy the app manifests:'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We now verify the content included in the containers:'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_PRE
+- en: We can now continue with the frontend component. In the previous versions of
+    this application’s deployment, we were already using a ConfigMap resource for
+    configuring the NGINX load balancer.
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'This is the content of the ConfigMap resource with these special configurations
+    for our NGINX load balancer:'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We deploy all the `lb` manifests:'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We review the status of all the application’s components and the configuration
+    applied to the NGINX component:'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'And now, we can reach our application in any Kubernetes cluster host’s port
+    32000\. Your browser should access the application and show something like this
+    (if you’re using Docker Desktop, you will need to use [http://localhost:32000](http://localhost:32000)):'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![Figure 10.10 – simplestlab application web GUI](img/B19845_10_10.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.10 – simplestlab application web GUI
+  prefs: []
+  type: TYPE_NORMAL
+- en: With this final step, you deployed completely the three components of the `simplestlab`
+    application. You will find additional steps in the `Chapter10` folder in the GitHub
+    repository to add a new app component instance and modify the load balancer component
+    to reach this new backend.
+  prefs: []
+  type: TYPE_NORMAL
+- en: These labs will help you understand how Secret resources improve the security
+    of an application and how to implement different volume types for different application
+    needs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we reviewed how we can manage data in a Kubernetes cluster,
+    which is currently the most popular container orchestrator, and you will probably
+    use it for most of your projects. We learned how to include configurations and
+    sensitive data in our application’s containers, and how we can manage stateless
+    and stateful storage using different Kubernetes resources. At the end of the chapter,
+    we learned how we can use dynamic provisioning of data volumes for our applications,
+    which really fits in the microservices model, where automation is crucial for
+    abstracting resources from the underlying infrastructure. This chapter is very
+    important because it has taught you how to manage data in microservices and container-based
+    environments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will follow this up in the next chapter, in which we will learn how to publish
+    our applications using best security practices, isolating all backend components
+    from users and other applications.
+  prefs: []
+  type: TYPE_NORMAL

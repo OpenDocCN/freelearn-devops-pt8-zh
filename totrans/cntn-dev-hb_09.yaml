@@ -1,0 +1,1659 @@
+- en: '9'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Implementing Architecture Patterns
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Kubernetes is the most popular container orchestrator in production. This platform
+    provides different resources that allow us to deploy our applications with high
+    resilience and with their components distributed cluster-wide while the platform
+    itself runs with high availability. In this chapter, we will learn how these resources
+    can provide different application architecture patterns, along with use cases
+    and best practices to implement them. We will also review different options for
+    managing application data and learn how to manage the health of our applications
+    to make them respond to possible health and performance issues in the most effective
+    way. At the end of this chapter, we will review how Kubernetes provides security
+    patterns that improve application security. This chapter will give you a good
+    overview of which Kubernetes resources will fit your applications’ requirements
+    most accurately. The following topics will be covered in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Applying Kubernetes resources to common application patterns
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding advanced Pod application patterns
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Verifying application health
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Resource management and scalability
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Improving application security with Pods
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You can find the labs for this chapter at [https://github.com/PacktPublishing/Containers-for-Developers-Handbook/tree/main/Chapter9](https://github.com/PacktPublishing/Containers-for-Developers-Handbook/tree/main/Chapter9),
+    where you will find some extended explanations that have been omitted in this
+    chapter’s content to make it easier to follow. The *Code In Action* video for
+    this chapter can be found at [https://packt.link/JdOIY](https://packt.link/JdOIY).
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will start this chapter by reviewing some of the resource types that were
+    presented in [*Chapter 8*](B19845_08.xhtml#_idTextAnchor170), *Deploying Applications
+    with the Kubernetes Orchestrator*, and present some common use cases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Applying Kubernetes resources to common application patterns
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The Kubernetes container orchestrator is based on resources that are managed
+    by different controllers. By default, our applications can use one of the following
+    to run our processes as containers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Pods
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: ReplicaSets
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: ReplicaControllers
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Deployments
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: StatefulSets
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: DaemonSets
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Jobs
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: CronJobs
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: This list shows the standard or default resources that are allowed on every
+    Kubernetes installation, but we can create custom resources to implement any non-standard
+    or more specific application behavior. In this section, we are going to learn
+    about these standard resources so that we can decide which one will fit our application’s
+    needs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Pods
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Pods are the minimal unit for deploying workloads on a Kubernetes cluster. A
+    Pod can contain multiple containers, and we have different mechanisms for doing
+    this.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following applies to all the containers running inside a Pod by default:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: They all share the network namespace, so they all refer to the same localhost
+    and run with the same IP address.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: They are all scheduled together in the same host.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: They all share the namespaces that can be defined at the container level. We
+    will define resource limits (using cgroups) for each container, although we can
+    also define resource limits at the Pod level. Pod resource limits will be applied
+    for all the containers.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Volumes attached to a Pod are available to all containers running inside.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: So, we can see that Pods are groups of containers running together that share
+    kernel namespaces and compute resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You will find a lot of Pods running a single container, and this is completely
+    fine. The distribution of containers inside different Pods depends on your application’s
+    components distribution. You need to ask yourself whether or not some processes
+    must run together. For example, you can put together two containers that need
+    to communicate fast, or you may need to keep track of files created by one of
+    them without sharing a remote data volume. But it is very important to understand
+    that all the containers running in a Pod scale and replicate together. This means
+    that multiple replicas of a Pod will execute the same number of replicas of their
+    containers, and thus your application’s behavior can be impacted because the same
+    type of process will run multiple times, and it will also access your files at
+    the same time. This, for example, will break the data in your database or may
+    lead to data inconsistency. Therefore, you need to decide wisely whether or not
+    your application should distribute your application’s containers into different
+    Pods or run them together.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kubernetes will keep track of the status of each container running inside a
+    Pod by executing the Pod’s defined probes. Each container should have its own
+    probes (different types of probes exist, as we will learn in the *Verifying application
+    health* section). But at this point, we have to understand that the health of
+    all the containers inside a Pod controls the overall behavior of the Pod. If one
+    of the containers dies, the entire Pod is set as unhealthy, triggering the defined
+    Kubernetes event and resource’s behavior. Thus, we can execute multiple Service
+    containers in parallel or prepare our application by executing some pre-processes
+    that can, for example, populate some minimal filesystem resources, binaries, permissions,
+    and so on. These types of containers, which run before the actual application
+    processes, are called `initContainers`, which is the key that’s used to define
+    them) sequentially before any other container; therefore, if any of these initial
+    containers fail, the Pod will not run as expected.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Kubernetes 1.25 release introduced `kubectl debug` action followed by the
+    name of the Pod to which your terminal should attach (shared kernel namespaces).
+    We will provide a quick example of this in the *Labs* section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s review how we write the manifest required for creating a Pod:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.1 – Pod manifest](img/B19845_09_1.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.1 – Pod manifest
+  prefs: []
+  type: TYPE_NORMAL
+- en: All the manifests for Kubernetes have at least the `apiVersion`, `kind`, and
+    `metadata` keys, and these are used to define which API version will be used to
+    reach the associated API server path, which type of resource we are defining,
+    and information that uniquely describes the resource within the Kubernetes cluster,
+    respectively. We can access all the resource manifest information via the Kubernetes
+    API by using the JSON or YAML keys hierarchy; for example, to retrieve a Pod’s
+    name, we can use `.metadata.name` to access its key. The properties of the resource
+    should usually be written in the `spec` or `data` section. Kubernetes roles, role
+    bindings (in cluster and namespaces scopes), Service accounts, and other resources
+    do not include either `data` or `spec` keys for declaring their functionality.
+    And we can even create custom resources, with custom definitions for declaring
+    their properties. In the default workload resources, we will always use the `spec`
+    section to define the behavior of our resource.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Notice that in the previous code snippet, the `containers` key is an array.
+    This allows us to define multiple containers, as we already mentioned, and the
+    same happens with initial containers; we will define a list of containers in both
+    cases and we will need at least the image that the container runtime must use
+    and the name for the container.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can use `kubectl explain pod.spec.containers --recursive` to retrieve all
+    the existent keys under the `spec` section for a defined resource. The `explain`
+    action allows you to retrieve all the keys for each resource directly from the
+    Kubernetes cluster; this is important as it doesn’t depend on your `kubectl` binary
+    version. The output of this action also shows which keys can be changed at runtime,
+    once the resource has been created in the cluster.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is important to mention here that Pods by themselves don’t have cluster-wide
+    auto-healing. This means that when you run a Pod and it is considered unhealthy
+    for whatever reason (any of the containers is considered unhealthy) in a host
+    within the cluster, it will not execute on another host. Pods include the `restartPolicy`
+    property to manage the behavior of Pods when they die. We can set this property
+    to `Always` (always restart the container’s Pods), `OnFailure` (only restart containers
+    when they fail), or `Never`. A new Pod will never be recreated on another cluster
+    host. We will need more advanced resources for managing the containers’ life cycle
+    cluster-wide; these will be discussed in the subsequent sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Pods are used to run a test for an application or one of its components, but
+    we never use them to run actual Services because Kubernetes just keeps them running;
+    it doesn’t manage their updates or reconfiguration. Let’s review how ReplicaSets
+    solve these situations when we need to keep our application’s containers up and
+    running.
+  prefs: []
+  type: TYPE_NORMAL
+- en: ReplicaSets
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'A ReplicaSet is a set of Pods that should be running at the same time for an
+    application’s components (or for the application itself if it just has one component).
+    To define a ReplicaSet resource, we need to write the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A `selector` section in which we define which Pods are part of the resource
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The number of replicas required to keep the resource healthy
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A Pod template in which we define how new Pods should be created when one of
+    the Pods in the set dies
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Let’s review the syntax of these resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.2 – ReplicaSet manifest](img/B19845_09_2.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.2 – ReplicaSet manifest
+  prefs: []
+  type: TYPE_NORMAL
+- en: As you can see, the `template` section describes a Pod definition inside the
+    ReplicaSet’s `spec` section. This `spec` section also includes the `selector`
+    section, which defines what Pods will be included. We can use `matchLabels` to
+    include exact label-key pairs from Pods, and `matchExpressions` to include advanced
+    rules such as the existence of a defined label or its value included in a list
+    of strings.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Selectors from ReplicaSet resources apply to running Pods too. This means that
+    you have to take care of the labels that uniquely identify your application’s
+    components. ReplicaSet resources are namespaced, so we can use `kubectl get pods
+    -–show-labels` before actually creating a ReplicaSet to ensure that the right
+    Pods will be included in the set.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the Pod template, we will define the volumes to be attached to the different
+    containers created by the ReplicaSet, but it is important to understand that these
+    volumes are common to all the replicas. Therefore, all container replicas will
+    attach the same volumes (in fact, the hosts where they run mount the volumes and
+    the kubelet makes them available to the Pods’ containers), which may generate
+    issues if your application does not allow such a situation. For example, if you
+    are deploying a database, running more than one replica that’s attaching the same
+    volume will probably break your data files. We should ensure that our application
+    can run more than one replicated process at a time, and if not, ensure we apply
+    the appropriate `ReadWriteOnce` mode flag in the `accessMode` key. We will deep
+    dive into this key, its importance, and its meaning for our workloads in *Chapter
+    10*, *Leveraging Application Data Management* *in Kubernetes*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The most important key in ReplicaSets is the `replicas` key, which defines the
+    number of active healthy Pods that should be running. This allows us to scale
+    up or down the number of instances for our application’s processes. The names
+    of the Pods associated with a ReplicaSet will follow `<REPLICASET_NAME>-<POD_RANDOM_UNIQUE_GENERATED_ID>`.
+    This helps us understand which ReplicaSet generated them. We also can review the
+    ReplicaSet creator by using `kubectl get pod –o yaml`. The `metadata.OwnerReferences`
+    key shows the ReplicaSet that finally created each Pod resource.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can modify the number of replicas of a running ReplicaSet resource using
+    any of the following methods:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Editing the running ReplicaSet resource directly in Kubernetes using `kubectl`
+    `edit <REPLICASET_NAME>`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Patching the current ReplicaSet resource using `kubectl patch`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Using the `scale` action with `kubectl`, setting the number of replicas: `kubectl
+    scale rs --replicas <``NUMBER_OF_REPLICAS> <REPLICASET_NAME>`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Although changing the number of replicas works automatically, other changes
+    don’t work so well. In the Pod template, if we change the image to use for creating
+    containers, the resource will show this change, but the current associated Pods
+    will not change. This is because ReplicaSets do not manage their changes; we need
+    to work with Deployment resources, which are more advanced. To make any change
+    available in a ReplicaSet, we need to recreate the Pods manually by just removing
+    the current Pods (using `kubectl delete pod <REPLICASET_POD_NAMES>`) or scaling
+    the replicas down to zero and scaling up after all are deleted. Any of these methods
+    will create fresh new replicas, using the new ReplicaSet definition.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can use `kubectl delete pod --selector <LABEL_SELECTOR>`, with the current
+    ReplicaSet selectors that were used to create them, to delete all associated Pod
+    resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: ReplicaSets, by default, don’t publish any Service; we need to create a Service
+    resource to consume the deployed containers. When we create a Service associated
+    with a ReplicaSet (using the Service’s label selector with the appropriate ReplicaSet’s
+    labels), all the ReplicaSet instances will be accessible by using the Service’s
+    `ClusterIP` address (default Service mode). All replicas get the same number of
+    requests because the internal load balancing provides round-robin access.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will probably not use ReplicaSets as standalone resources in production as
+    we have seen that any change in their definition requires additional interaction
+    from our side, and that’s not ideal in dynamic environments such as Kubernetes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before we look at Deployments, which are advanced resources for deploying ReplicaSets,
+    we will quickly review ReplicationControllers, which are quite similar to ReplicaSets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: ReplicationControllers
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The ReplicationController was the original method for Pod replication in Kubernetes,
+    but now, it has been almost completely replaced by ReplicaSet resources. We can
+    consider a ReplicationController as a less configurable ReplicaSet. Nowadays,
+    we don’t directly create ReplicationControllers as we usually create Deployments
+    for deploying application’s components running on Kubernetes. We learned that
+    ReplicaSets have two options for selecting associated labels. The `labelSelector`
+    key can be either a simple label search (`matchLabels`) or a more advanced rule
+    that uses `matchExpressions`. ReplicationController manifests can only look for
+    specific labels in Pods, which makes them simpler to use. The Pod template section
+    looks similar in both ReplicaSets and ReplicaControllers. However, there is also
+    a fundamental difference between ReplicationControllers and ReplicaSets. We can
+    execute application upgrades by using rolling-update actions. These are not available
+    for ReplicaSets but upgrades are provided in such resources thanks to the use
+    of Deployments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deployments
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: We can say that a Deployment is an advanced ReplicaSet. It adds the life cycle
+    management part we missed by allowing us to upgrade the specifications of the
+    Pods by creating a new ReplicaSet resource. This is the most used workload management
+    resource in production. A Deployment resource creates and manages different ReplicaSets
+    resources. When a Deployment resource is created, an associated ReplicaSet is
+    also dynamically created, following the `<DEPLOYMENT_NAME>-<RS_RANDOM_UNIQUE_GENERATED_ID>`
+    nomenclature. This dynamically created ReplicaSet will create associated Pods
+    that follow the described nomenclature, so we will see Pod names such as `<DEPLOYMENT_NAME>-<RS_RANDOM_UNIQUE_GENERATED_ID>-<POD_
+    RANDOM_UNIQUE_GENERATED_ID>` in the defined namespace. This will help us follow
+    which Deployment generates which Pod resources. Deployment resources manage the
+    complete ReplicaSet life cycle. To do this, whenever we change any Deployment
+    template specification key, a new ReplicaSet resource is created and this triggers
+    the creation of new associated Pods. The Deployment resource keeps track of all
+    associated ReplicaSets, which makes it easy to roll back to a previous release,
+    without the latest resource modifications. This is very useful for releasing new
+    application updates. Whenever an issue occurs with the updated resource, we can
+    go back to any previous version in a few seconds thanks to Deployment resources
+    – in fact, we can go back to any previous existing ReplicaSet resource. We will
+    deep dive into rolling updates in [*Chapter 13*](B19845_13.xhtml#_idTextAnchor287),
+    *Managing the Application* *Life Cycle*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following code snippet shows the syntax for these resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.3 – Deployment manifest](img/B19845_09_3.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.3 – Deployment manifest
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `strategy` key allows us to decide whether our new containers try to start
+    before the old ones die (the `RollingUpdate` value, which is used by default)
+    or completely recreate the associated ReplicaSet (the `Recreate` value), which
+    is needed when only one container can access attached volumes in write mode at
+    the time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will use Deployments to deploy stateless or stateful application workloads
+    in which we don’t require any special storage attachment and all replicas can
+    be treated in the same way (all replicas are the same). Deployments work very
+    well for deploying web Services with static content and dynamic ones when session
+    persistence is managed in a different application component. We can’t use Deployment
+    resources to deploy our application containers when each replica has to attach
+    its own specific data volume or when we need to execute processes in order.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will now learn how StatefulSet resources help us solve these specific situations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: StatefulSets
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: StatefulSet resources are designed to manage stateful application components
+    – those where persistent data must be unique between replicas. These resources
+    also allow us to provide an order to different replicas when processes are executed.
+    Each replica will receive a unique ordered identifier (an ordinal number starting
+    from 0) and it will be used to scale the number of replicas up or down.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following code snippet shows an example of a StatefulSet resource:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.4 – StatefulSet manifest](img/B19845_09_4.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.4 – StatefulSet manifest
+  prefs: []
+  type: TYPE_NORMAL
+- en: The preceding code snippet shows `template` sections for both the Pod resources
+    and the volume resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The names for each Pod will follow `<STATEFULSET_NAME>-<REPLICA_NUMBER>`. For
+    example, if we create a `database` StatefulSet resource with three replicas, the
+    associated Pods will be `database-0`, `database-1`, and `database-2`. This name
+    structure is also applied to the volumes defined in the StatefulSet’s `volumeClaimTemplates`
+    template section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Notice that we also included the `serviceName` key in the previous code snippet.
+    A headless Service (without `ClusterIP`) should be created to reference the ReplicaSet’s
+    Pods in the Kubernetes internal DNS, but this key tells Kubernetes to create the
+    required DNS entries. For the example presented, the first replica will be announced
+    to the cluster DNS as `database-0.database.NAMESPACE.svc.<CLUSTER_NAME>`, and
+    all other replicas will follow the same name schema. These names can be integrated
+    into our application to create an application cluster or even configure advanced
+    load-balancing mechanisms other than the default (used for ReplicaSets and Deployments).
+  prefs: []
+  type: TYPE_NORMAL
+- en: When we use StatefulSet resources, Pods will be created in order, which may
+    introduce extra complexity when we need to remove some replicas. We will need
+    to guarantee the correct execution of processes that may resolve dependencies
+    between replicas; therefore, if we need to remove a StatefulSet replica, it will
+    be safer to scale down the number of replicas instead of directly removing it.
+    Remember, we have to prepare our application to manage unique replicas completely,
+    and this may need some application process to remove an application’s cluster
+    component, for example. This situation is typical when you run distributed databases
+    with multiple instances and decommissioning one instance requires database changes,
+    but this also applies to any ReplicaSet manifest updates. You have to ensure that
+    the changes are applied in the right order and, usually, it is preferred to scale
+    down to zero and then scale up to the required number of replicas.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the StatefulSet example presented in the preceding code snippet, we specified
+    a `volumeClaimTemplate` section, which defines the properties that are required
+    for a dynamically provisioned volume. We will learn how dynamic storage provisioning
+    works in [*Chapter 10*](B19845_10.xhtml#_idTextAnchor231), *Leveraging Application
+    Data Management in Kubernetes*, but it is important to understand that this `template`
+    section will inform the Kubernetes API that every replica requires its own ordered
+    volume. This requirement for dynamic provisioning will usually be associated with
+    the use of `StorageClass` resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once these volumes (associated with each replica) are provisioned and used,
+    deleting a replica (either directly by using `kubectl delete pod` or by scaling
+    down the number of replicas) will never remove the associated volume. You can
+    be sure that a database deployed via a ReplicaSet will never lose its data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The ReplicaSet’s associated volumes will not be automatically removed, which
+    makes these resources interesting for any workload if you need to ensure that
+    data will not be deleted if you remove the resource.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can use StatefulSet to ensure that a replicated Service is managed uniquely.
+    Software such as Hashicorp’s Consul runs clusterized on several predefined Nodes;
+    we can deploy it on top of Kubernetes using containers, but Pods will need to
+    be deployed in order and with their specific storage as if they were completely
+    different hosts. A similar approach has to be applied in database Services because
+    the replication of their processes may lead to data corruption. In these cases,
+    we can use StatefulSet replicated resources, but the application should manage
+    the integration between the different deployed replicas and the scaling up and
+    down procedure. Kubernetes just provides the underlying architecture that guarantees
+    the data’s uniqueness and the replica execution order.
+  prefs: []
+  type: TYPE_NORMAL
+- en: DaemonSets
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: A DaemonSet resource will execute exactly one associated Pod in each Kubernetes
+    cluster Node. This ensures that any newly joined Node will get its own replica
+    automatically.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following code snippet shows a DaemonSet manifest example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.5 – DaemonSet manifest](img/B19845_09_5.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.5 – DaemonSet manifest
+  prefs: []
+  type: TYPE_NORMAL
+- en: As you may have noticed, we use label selectors to match and associate Pods.
+    In the preceding example, we also introduced the `tolerations` key. Let’s quickly
+    introduce how `NoSchedule` (only Pods with appropriate tolerations for the Node
+    are allowed), `PreferNoSchedule` (Pods will not run on the Node unless no other
+    one is available), or `NoExecute` (Pods will be evicted from the Node if they
+    don’t have the appropriate tolerations). Taints and tolerations must match, and
+    this allows us to dedicate Nodes for certain tasks and avoid the execution of
+    any other workloads on them. The kubelet will use dynamic taints to evict Pods
+    when issues are found on a cluster Node – for example, when too much memory is
+    in use or the disk is getting full. In our example, we add a toleration to execute
+    the DaemonSet Pods on Nodes with the `node-role.kubernetes.io/control-plane=NoSchedule`
+    taint.
+  prefs: []
+  type: TYPE_NORMAL
+- en: DaemonSets are often used to deploy applications that should run on all Nodes,
+    such as those running as software agents for monitoring or logging purposes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Although it isn’t too common, it is possible to use static Pods to run Node-specific
+    processes. This is the mechanism that’s used by Kubernetes kubeadm-based Deployments.
+    Static Pods are Pods associated with a Node, executed directly by the kubelet,
+    and thus, they are not managed by Kubernetes. You can identify these Pods by their
+    name because they include the host’s name. Manifests for executing static Pods
+    are located in the `/etc/kubernetes/manifests` directory in kubeadm clusters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this point, we have to mention that none of the workload management resources
+    presented so far provide a mechanism to run a task that shouldn’t be maintained
+    during its execution time. We will now review Job resources, which are specifically
+    created for this purpose.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Jobs
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: A Job resource is in charge of executing a Pod until we get a successful termination.
+    The Job resource also tracks the execution of a set of Pods using template selectors.
+    We configure a required number of successful executions and the Job resource is
+    considered *Completed* when all the required Pod executions are successfully finished.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In a Job resource, we can configure parallelism for executing more than one
+    Pod at a time and being able to reach the required number of successful executions
+    faster. Pods related to a Job will remain in our Kubernetes cluster until we delete
+    the associated Job or remove them manually.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A Job can be suspended, which will delete currently active Pods (in execution)
+    until we resume it again.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can use Jobs to execute one-time tasks, but they are usually associated with
+    periodic executions thanks to `CronJob` resources. Another common use case is
+    the execution of certain one-time tasks from applications directly in the Kubernetes
+    cluster. In these cases, your application needs to be able to reach the Kubernetes
+    API internally (the `kubernetes` Service in the `default` namespace) and the appropriate
+    permissions for creating Jobs. This is usually achieved by associating a namespaced
+    `Role`, which allows such actions, with the `ServiceAccount` resource that executes
+    your application’s Pod. This association is established using a namespaced `RoleBinding`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following code snippet shows a `Job` manifest example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.6 – Job manifest](img/B19845_09_6.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.6 – Job manifest
+  prefs: []
+  type: TYPE_NORMAL
+- en: Here, we defined the number of successful completitions and the number of failures
+    that will set the Job as failed by setting the `completions` and `backoffLimit`
+    keys. At least three Pods must exit successfully before the limit of four failures
+    is reached. Multiple Pods can be executed in parallel to speed up the completion
+    by setting the `parallelism` key, which defaults to `1`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The *TTL-after-finished* controller provides a `ttlSecondsAfterFinished` key.
+    Since this key is based on a date-time reference, it is key to maintain our clusters’
+    time according to our time zone.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Jobs are commonly used within CronJobs to define tasks that should be executed
+    at certain periods – for example, for executing backups. Let’s learn how to implement
+    CronJobs so that we can schedule Jobs periodically.
+  prefs: []
+  type: TYPE_NORMAL
+- en: CronJobs
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'CronJob resources are used to schedule Jobs at specific times. The following
+    code snippet shows a `CronJob` manifest example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.7 – CronJob manifest](img/B19845_09_7.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.7 – CronJob manifest
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To be able to review logs from executed Pods (associated with the Jobs created),
+    we can set `failedJobsHistoryLimit` and `successfulJobsHistoryLimit` to the desired
+    number of Jobs to keep to be able to review the Pods’ logs. Notice that we planned
+    the example Job daily, at 00:00, using the common *Unix Crontab* format, as shown
+    in the following schema:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.8 – Unix Crontab format](img/B19845_09_8.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.8 – Unix Crontab format
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `schedule` key defines when the Job will be created and associated Pods
+    will run. Remember to always quote your value to avoid problems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: CronJob resources use the Unix Crontab format, hence values such as `@hourly`,
+    `@daily`, `@monthly`, or `@yearly` can be used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: CronJobs can be suspended, which will affect any new Job creation if we change
+    the value of the `suspend` key to `true`. To enable the CronJob again, we need
+    to change this key to `false`, which will continue with the normal scheduling
+    for creating new Jobs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A common use case for CronJobs is the execution of backup tasks for applications
+    deployed on Kubernetes. With this solution, we avoid opening internal applications
+    externally if user access isn’t required.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we understand the different resources we can use to deploy our workloads,
+    let’s quickly review how they will help us provide resilience and high availability
+    to our applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ensuring resilience and high availability with Kubernetes resources
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Pod resources provide resilience out of the box as we can configure them to
+    always restart if their processes fail. We can use the `spec.restartPolicy` key
+    to define when they should restart. It is important to understand that this option
+    is limited to the host’s scope, so a Pod will just try to restart on the host
+    on which it was previously running. Pod resources do not provide high availability
+    or resilience cluster-wide.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Deployments, and therefore ReplicaSets, and StatefulSets are prepared for applying
+    resilience cluster-wide because resilience doesn’t depend on hosts. A Pod will
+    still try to restart on the Node where it was previously running, but if it is
+    not possible to run it, it will be scheduled to a new available one. This will
+    allow Kubernetes administrators to perform maintenance tasks on Nodes moving workloads
+    from one host to another, but this may impact your applications if they are not
+    ready for such movements. In other words, if you only have one replica of your
+    processes, they will go down for seconds (or minutes, depending on the size of
+    your image and the time required by your processes to start), and this will impact
+    your application. The solution is simple: deploy more than one replica of your
+    application’s Pods. However, it is important to understand that your application
+    needs to be prepared for multiple replicated processes working in parallel.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: StatefulSets’ replicas will never use the same volume, but this isn’t true for
+    Deployments. All the replicas will share the volumes, and you must be aware of
+    that. Sharing static content will work like a charm, but if multiple processes
+    are trying to write the same file at the same time, you may encounter problems
+    if your code doesn’t manage concurrency.
+  prefs: []
+  type: TYPE_NORMAL
+- en: DaemonSets work differently and we don’t have to manage any replication; just
+    one Pod will run on each Node, but they will share volumes too. Because of the
+    nature of such resources, it is not common to include shared volumes in these
+    cases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: But even if our application runs in a replicated manner, we can’t ensure that
+    all the replicas die at the same time without configuring a **Pod disruption policy**.
+    We can configure a minimum number of Pods to be available at the same time, ensuring
+    not only resilience but also high availability. Our application will have some
+    impact, but it will continue serving requests (high availability).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To configure a disruption policy, we must use `PodDisruptionBudget` resources
+    to provide the logic we need for our application. We will be able to set up the
+    number of Pods that are required for our application workload under all circumstances
+    by configuring the `minAvailable` or `maxUnavailable` keys. We can use integers
+    (the number of Pods) or a percentage of the configured replicas. `PodDisruptionBudget`
+    resources use selectors to choose between the Pods in the namespace (which we
+    already use to create Deployments, ReplicaSets, and more). The following code
+    snippet shows an example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this example, a minimum of two Pods with the `app=webserver` label are being
+    monitored. We will define the number of replicas in our Deployment, but the `PodDisruptionBudget`
+    resource will not allow us to scale down below two replicas. Therefore, two replicas
+    will be running even if we decide to execute `kubectl drain node1` (assuming,
+    in this example, that the `webserver` Deployment matches the `app=webserver` Pod’s
+    labels and `node1` and `node2` have one replica each). `PodDisruptionBudget` resources
+    are namespaced, so we can show all these resources in the namespace by executing
+    `kubectl` `get poddisruptionbudgets`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the following section, we will review some interesting ideas for solving
+    common application architecture patterns using Pod features.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding advanced Pod application patterns
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we are going to discuss some interesting patterns using simple
+    Pods. All the patterns we are going to review are based on the special mechanisms
+    offered by Kubernetes for sharing kernel namespaces in a Pod, which allow containers
+    running inside to mount the same volumes and interconnect via localhost.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Init containers
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: More than one Pod can run inside a container. Pods allow us to isolate different
+    application processes that we want to maintain separately in different containers.
+    This helps us, for example, to maintain different images that can be represented
+    by separated code repositories and build workflows.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Init containers run before the main application container (or containers, if
+    we run more in parallel). These init containers can be used to set permissions
+    on shared filesystems presented as volumes, create database schemas, or any other
+    procedure that helps initialize our application. We can even use them to check
+    dependencies before a process starts or even provision required files by retrieving
+    them from an external source.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can define many init containers, and they will be executed in order, one
+    by one, and all of them must end successfully before the actual application containers
+    start. If any of the init containers fails, the Pod fails, although these containers
+    don’t have associated probes for verifying their state. The processes executed
+    by them must include verification if something goes wrong.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is important to understand that the total CPU and memory resources consumed
+    by a Pod are calculated from the initialization of the Pod, hence init containers
+    are checked. You keep the resource usage between the defined limits for your Pod
+    (which includes the usage of all the containers running in parallel).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Sidecar containers
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '`kubectl patch`) to modify the running Deployment resource manifest.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Some modern monitoring applications, designed to integrate into Kubernetes,
+    also use sidecar containers to deploy an application-specific monitoring component,
+    which retrieves application metrics and exposes them as a new Service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next few patterns we are going to review are based on this sidecar container
+    concept.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ambassador containers
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The **Ambassador** applications pattern is designed to offload common client
+    connectivity tasks, helping legacy applications implement more advanced features
+    without changing any of their old code. With this design, we can improve the application’s
+    routing, communications security, and resilience by adding additional load balancing,
+    API gateways, and SSL encryption.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can deploy this pattern within Pods by adding special containers, designed
+    for delivering light reverse-proxy features. In this way, Ambassador containers
+    are used for deploying service mesh solutions, intercepting application process
+    communications, and securing the interconnection with other application components
+    by enforcing encrypted communications and managing application routes, among other
+    features.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adaptor containers
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The **Adaptor** container pattern is used, for example, when we want to include
+    monitoring or retrieve logs from legacy applications without changing their code.
+    To avoid this circumstance, we can include a second container in our application’s
+    Pod to get the metrics or the logs from our application without modifying any
+    of its original code. This also allows us to homogenize the content of a log or
+    send it to a remote server. Well-prepared containers will redirect processes’
+    standard and error output to the foreground, and this allows us to review their
+    log, but sometimes, the application can’t redirect the log or more than one log
+    is created. We can unify them in one log or redirect their content by adding a
+    second process (the Adaptor container), which formats (adding some custom columns,
+    date format, and so on) and redirects the result to the standard output or a remote
+    logging component. This method does not require special access to the host’s resources
+    and it may be transparent for the application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Prometheus** is a very popular open source monitoring solution and is extended
+    in Kubernetes environments. Its main component will poll agent-like components
+    and retrieve metrics from them, and it’s very common to use this Adaptor container
+    pattern to present the application’s metrics without modifying its standard behavior.
+    These metrics will be exposed in the application Pod in a different port, and
+    the Prometheus server will connect to it to obtain its metrics.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s learn how containers’ health is verified by Kubernetes to decide the Pod’s
+    status.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Verifying application health
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we are going to review how application Pods are considered
+    healthy. Pods always start in the `Pending` state and continue to the `Running`
+    state once the main container is considered healthy. If the Pod executes a Service
+    process, it will stay in this `Running` state. If the Pod is associated with a
+    Job resource, it may end successfully (the `Succeeded` state) or fail (the `Failed`
+    state).
+  prefs: []
+  type: TYPE_NORMAL
+- en: If we remove a Pod resource, it will go to `Terminating` until it is completely
+    removed from Kubernetes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: If Kubernetes cannot retrieve the Pod’s status, its state will be `Unknown`.
+    This is usually due to communication issues between the hosts’ kubelet and the
+    API server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Kubernetes reviews the state of the containers to set the Pod’s state, and
+    containers can be either `Waiting`, `Running`, or `Terminated`. We can use `kubectl
+    describe pod <POD_NAME>` to review the details of these phases. Let’s quickly
+    review these states:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`Waiting` represents the state before `Running`, where all the pre-container-execution
+    processes appear. In this phase, the container image is pulled from the registry
+    and different volume mounts are prepared. If the Pod can’t run, we can have a
+    `Pending` state, which will indicate a problem with deploying the workload.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Running` indicates that the containers are running correctly, without any
+    issues.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `Terminated` state is considered when the containers are stopped.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If the Pod was configured with a `restartPolicy` property of the `Always` or
+    `OnFailure` type, all the containers will be restarted on the node where they
+    stopped. That’s why a Pod resource does not provide either high availability or
+    resilience if the node goes down.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s review how the Pod’s status is evaluated in these phases thanks to the
+    execution of **probes**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the execution of probes
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The kubelet will execute probes periodically by executing some code inside
+    the containers or by directly executing network requests. Different probe types
+    are available depending on the type of check we need for our application’s components:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`exec`: This executes a command inside the container and the kubelet verifies
+    whether this command exits correctly.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`httpGet`: This method is probably the most common as modern applications expose
+    Services via the REST API. This check’s response must return 2XX or 3XX (redirects)
+    codes.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`tcpSocket`: This probe is used to check whether the application’s port is
+    available.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`grpc`: If our application is consumed via modern **Google Remote Procedure
+    Calls** (**gRPCs**), we can use this method to verify the container’s state.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Probes must return a valid value to consider the container healthy. Different
+    probes can be executed one after another through the different phases of their
+    lives. Let’s consider the different options available to verify whether the container’s
+    processes are starting or serving the application itself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Startup probes
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '`Always` or `OnFailure` in its `restartPolicy` key.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will set up these probes if our processes take a lot of time before they
+    are ready – for example, when we start a database server and it must manage previous
+    transactions in its data before it is ready, or when our processes already integrate
+    some sequenced checks before the final execution of the main process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Liveness probes
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '`restartPolicy` value. They are used when it’s hard to manage the failure of
+    your main process within the process itself. It may be easier to integrate an
+    external check via the `livenessProbe` key, which verifies whether or not the
+    main process is healthy.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Readiness probes
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '`selector` section will not mark this Pod as ready for requests until this
+    probe ends successfully. The same happens when the probe fails; it will be removed
+    from the list of available endpoints for the Service resource.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Readiness probes are key to managing traffic to the Pods because we can ensure
+    that the application component will correctly manage requests. This probe should
+    always be set up to improve our microservices’ interactions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are common keys that can be used at the `spec.containers` level that will
+    help us customize the behavior of the different probe types presented. For example,
+    we can configure the number of failed checks required to consider the probe as
+    failed (`failureThreshold`) or the period between the execution of a probe type
+    (`periodSeconds`). We can also configure some delay before any of these probes
+    start by setting the `initialDelaySeconds` key, although it is recommended to
+    understand how the application works and adjust the probes to fit our initial
+    sequence. In the *Labs* section of this chapter, we will review some of the probes
+    we’ve just discussed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we know how Kubernetes (the kubelet component) verifies the health
+    of the Pods starting or running in the cluster, we must understand the *stop*
+    sequence when they are considered `Completed` or `Failed`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Termination of Pods
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: We can use the `terminationGracePeriodSeconds` key to set how much time the
+    kubelet will wait if the Pod’s processes take a long time to end. When a Pod is
+    deleted, the kubelet sends it a `SIGTERM` signal, but if it takes too long, the
+    kubelet will send a `SIGKILL` signal to all container processes that are still
+    alive when the `terminationGracePeriodSeconds` configured time is reached. This
+    time threshold can also be configured at the probe level.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To remove a Pod immediately, we can force and change this Pod-level defined
+    grace period by using `kubelet delete pod <POD_NAME> --force` along with `--grace-period=0`.
+    Forcing the deletion of a Pod may result in unexpected consequences for your applications
+    if you don’t understand how it works. The kubectl client sends the `SIGKILL` signal
+    and doesn’t wait for confirmation, informing the API server that the Pod is already
+    terminated. When the Pods are part of a StatefulSet, this may be dangerous as
+    the Kubernetes cluster will try to execute a new Pod without confirming whether
+    it has already been terminated. To avoid these situations, it is better to scale
+    down to the replicas and scale up to do a full restart.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Our applications may need to execute some specific processes to manage the interactions
+    between different components when we update some of them, or even if they fail
+    with an error. We can include some triggers when our containers start or stop
+    – for example, to reconfigure a new master process in a clusterized application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Container life cycle hooks
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Containers within a Pod can include a **life cycle hook** in their specifications.
+    Two types are available:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**PostStart** hooks can be used to execute a process *after* a container is
+    created.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**PreStop** hooks are executed *before* the container is terminated. The grace
+    period starts when the kubelet receives a stop action, so this hook may be affected
+    if the defined process takes too long.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Pods can be scaled up or down manually whenever our application needs it and
+    it’s supported, but we can go further and manage replicas automatically. The following
+    section will show us how to make it possible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Resource management and scalability
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: By default, Pods run without compute resource limits. This is fine for learning
+    how your application behaves, and it can help you define its requirements and
+    limits.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Kubernetes cluster administrators can also define quotas that can be configured
+    at different levels. It is usual to define them at the namespace level and your
+    applications will be confined with limits for CPU and memory. But these quotas
+    can also identify some special resources, such as GPUs, storage, or even the number
+    of resources that can be deployed in a namespace. In this section, we will learn
+    how to limit resources in our Pods and containers, but you should always ask your
+    Kubernetes administrators if any quota is applied at the namespace level to prepare
+    your deployments for such compliance. More information about resource quota configurations
+    can be found in the Kubernetes official documentation: [https://kubernetes.io/docs/concepts/policy/resource-quotas](https://kubernetes.io/docs/concepts/policy/resource-quotas).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will use the `spec.resources` section to define the limits and requests
+    associated with a Pod. Let’s look at how they work:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`spec.resources.requests.memory` and `spec.resources.requests.cpu`, respectively),
+    we can define the minimum resources required in any cluster host to run our Pod.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`spec.resources.limits.memory` and `spec.resources.limits.cpu` to configure
+    the maximum memory and number of CPUs allocable, respectively.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Resources can be defined either at the Pod or container level and they must
+    be compliant with each other. The sum of all the container resource limits must
+    not exceed the Pod values. If we omit the Pod resources, the sum of the defined
+    container resources will be used. If any of the containers do not contain a resource
+    definition, the Pod limits and requests will be used. The container’s equivalent
+    key is `spec.containers[].resources`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Memory limits and requests will be configured in bytes and we can use suffixes
+    such as `ki`, `Mi`, `Gi`, and `Ti` for multiples of 1,000, or `k`, `M`, and `T`
+    for multiples of 1,024\. For example, to specify a limit of 100 MB of memory,
+    we will use `100M`. When the limited memory allowed is reached, `OOMKiller` will
+    be triggered in the execution host and the Pod or container will be terminated.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For the CPU, we will define the number of CPUs (it doesn’t matter whether they
+    are physical or virtual) to be allowed or requested, if we are defining a request
+    limit. When the CPU limit is reached, the container or Pod will not get more CPU
+    resources, which will probably make your Pod to be considered unhealthy because
+    checks will fail. CPU resources must be configured in either integers or fractionals,
+    and we can add `m` as a suffix to represent millicores; hence, 0.5 CPUs can also
+    be written as `500m`, and 0.001 CPUs will be represented as `1m`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: When we are using Linux nodes, we can request and limit huge page resources,
+    which allows us to define the page size for memory blocks allocated by the kernel.
+    Specific key names must be used; for example, `spec.resources.limits.hugepages-2Mi`
+    allows us to define the limit of memory blocks allocated for 2 MiB huge pages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Your administrators can prepare for some `LimitRange` resources, which will
+    define constraints for the limits and requests associated with your Pod resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we know how we can limit and ask for resources, we can vertically scale
+    a workload by increasing its limits. Horizontal scaling, on the other hand, will
+    require the replication of Pods. We can now continue and learn how to dynamically
+    and horizontally scale Pods related to a running workload.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Vertical Pod autoscaling** is also available as a project inside Kubernetes.
+    It is less popular because vertical scaling impacts your current Deployments or
+    StatefulSets as it requires scaling the number of resources on your running replicas
+    up or down. This makes them hard to apply and it is better to fine-grain resources
+    in your applications and use horizontal Pod autoscaling, which does not modify
+    current replica specifications.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Horizontal Pod autoscaling
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '**HorizontalPodAutoscaler** works as a controller. It scales Pods up or down
+    when the load associated with the workload is increased or decreased. Autoscaling
+    is only available for Deployments (by scaling and modifying their ReplicaSets)
+    and StatefulSets. To measure the consumption of resources associated with a specific
+    workload, we have to include a tool such as **Kubernetes Metrics Server** in our
+    cluster. This server will be used to manage the standard metrics. This can be
+    easily deployed using its manifests at [https://github.com/kubernetes-sigs/metrics-server](https://github.com/kubernetes-sigs/metrics-server).
+    It can also be executed as a pluggable add-on if you are using Minikube on your
+    laptop or desktop computer.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will define a `HorizontalPodAutoscaler` (`hpa`) resource; the controller
+    will retrieve and analyze the metrics for a workload resource specified in the
+    `hpa` definition.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Different types of metrics can be used for the `hpa` resource, although the
+    most common is the Pod’s CPU consumption.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Metrics related to Pods can be defined and thus the controller checks their
+    metrics and analyzes them using an algorithm that combines these metrics with
+    cluster available resources and Pod states ([https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/#algorithm-details](https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/#algorithm-details))
+    and then decides whether or not the associated resource (Deployment or StatefulSet)
+    should be scaled.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To define an `hpa` resource, we will set up a metric to analyze and a range
+    of replicas to use (max and min replicas). When this value is reached, the controller
+    reviews the current replicas, and if there’s still room for a new one, it will
+    be created. `hpa` resources can be defined in either imperative or declarative
+    format. For example, to manage a minimum of two Pods and a maximum of 10 when
+    more than 50% of the CPU consumption is reached for the current Pods, we can use
+    the following syntax:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: When a resource’s CPU consumption is more than 50%, then a replica is created,
+    while one replica is decreased when this metric is below that value; however,
+    we will never execute more than 10 replicas or less than two.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can review the manifest that’s used for creating any resource by adding `–o
+    yaml`. The manifest will be presented and we will be able to verify its values.
+    As an example, we can use `kubectl autoscale deploy webserver --cpu-percent=50
+    --min=2 --max=10 -``o yaml`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If we want to review values before creating the resource, we can add the `--dry-run=client`
+    argument to only show the manifest, without actually creating the resource.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As `hpa` resources are namespaced, we can get all the already deployed `hpa`
+    resources by executing `kubectl get` `hpa -A`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With that, we have seen how Kubernetes provides resilience, high availability,
+    and autoscaling facilities out of the box by using specific resources. In the
+    next section, we will learn how it also provides some interesting security features
+    that will help us improve our application security.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Improving application security with Pods
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In a Kubernetes cluster, we can categorize the applications’ workloads distributed
+    cluster-wide as either privileged or unprivileged. Privileged workloads should
+    always be avoided for normal applications unless they are strictly necessary.
+    In this section, we will help you define the security of your applications by
+    declaring your requirements in your workload manifests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Security contexts
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In a security context, we define the privileges and security configuration
+    required for a Pod or the containers included in it. Security contexts allow us
+    to configure the following security features:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`runAsUser`/`runAsGroup`: These options manage the `userID` and `groupID` properties
+    that run the main process with containers. We can add more groups by using the
+    `supplementalGroups` key.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`runAsNonRoot`: This key can control whether we allow the process to run as
+    `root`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`fsGroup`/`fsGroupChangePolicy`: These options manage the permissions of the
+    volumes included within a Pod. The `fsGroup` key will set the owner of the filesystems
+    mounted as volumes and the owner of any new file. We can use `fsGroupChangePolicy`
+    to only apply the ownership change if the permissions don’t match the configured
+    `fsGroup`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`seLinuxOptions`/`seccompProfile`: These options allow us to overwrite default
+    SELinux and `seccomp` settings by configuring special SELinux labels and a special
+    `seccomp` profile.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`capabilities`: Kernel capabilities can be added or removed (`drop`) to only
+    allow specific kernel interactions (containers share the host’s kernel). You should
+    avoid unnecessary capabilities in your applications.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`privileged`/`AllowPrivilegeEscalation`: We can allow processes inside a container
+    to be executed as `privileged` (with all the capabilities) by setting the `privileged`
+    key to `true` or to be able to gain privileges, even if this key was set to `false`,
+    by setting `AllowPrivilegeEscalation` to `true`. In this case, container processes
+    do not have all capabilities but they will allow internal processes to run as
+    if they had the `CAP_SYS_ADMIN` capability.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`readOnlyRootFilesystem`: It is always a very good idea to run your containers
+    with their root filesystem in read-only mode. This won’t allow processes to make
+    any changes in the container. If you understand the requirements of your application,
+    you will be able to identify any directory that may be changed and add an appropriate
+    volume to run your processes correctly. It is quite usual, for example, to add
+    `/tmp` as a separate temporal filesystem (`emptyDir`).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Some of these keys are available at the container or Pod level or both. Use
+    `kubectl explain pod.spec.securityContext` or `kubectl explain pod.spec.containers.securityContext`
+    to retrieve a detailed list of the options available in each scope. You have to
+    be aware of the scope that’s used because Pod specifications apply to all containers
+    unless the same key exists under the container scope – in which case, its value
+    will be used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s review the best settings we can prepare to improve our application security.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Security best practices
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The following list shows some of the most used settings for improving security.
+    You, as a developer, can improve your application security if you ensure the following
+    security measures can be enabled for your Pods:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`runAsNonRoot` must always be set to `true` to avoid the use of `root` on your
+    containers. Ensure you also configure `runAsUser` and `runAsGroup` to IDs greater
+    than `1000`. Your Kubernetes administrators can suggest some IDs for your application.
+    This will help control application IDs cluster-wide.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Always drop all capabilities and enable only those required by your application.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Never use privileged containers for your applications unless it is strictly
+    necessary. Usually, only monitoring- or kernel-related applications require special
+    privileges.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Identify the filesystem’s requirement for your application and always set `readOnlyRootFilesystem`
+    to `true`. This simple setting improves security, disabling any unexpected changes.
+    Required filesystems can be mounted as volumes (many options are available, as
+    we will learn in [*Chapter 10*](B19845_10.xhtml#_idTextAnchor231), *Leveraging
+    Application Data Management* *in Kubernetes*).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Ask your Kubernetes administrators whether there are some SELinux settings you
+    should consider to apply them on your Pods. This also applies to `seccomp` profiles.
+    Your administrators may have configured a default profile. Ask your administrators
+    about this situation to avoid any system call issues.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Your administrators may have been using tools such as Kyverno or OPA Gatekeeper
+    to improve cluster security. In these cases, they can enforce security context
+    settings by using **admission controllers** in the Kubernetes cluster. The use
+    of these features is outside the scope of this book but you may ask your administrators
+    about the compliance rules required to execute applications in your Kubernetes
+    platform.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In the next section, we will review how to implement some of the Kubernetes
+    features we learned about in this chapter by preparing the multi-component application
+    we used in previous chapters ([*Chapter 5*](B19845_05.xhtml#_idTextAnchor118),
+    *Creating Multi-Container Applications*, and [*Chapter 7*](B19845_07.xhtml#_idTextAnchor147),
+    *Orchestrating with Swarm*) to run on Kubernetes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Labs
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This section will show you how to deploy the `simplestlab` three-tier application
+    in Kubernetes. Manifests for all its components have been prepared for you while
+    following the techniques and Kubernetes resources explained in this chapter. You
+    will be able to verify the usage of the different options and you will able to
+    play with them to review the content and best practices described in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The code for these labs is available in this book’s GitHub repository at [https://github.com/PacktPublishing/Containers-for-Developers-Handbook.git](https://github.com/PacktPublishing/Containers-for-Developers-Handbook.git).
+    Ensure you have the latest revision available by simply executing `git clone`
+    [https://github.com/PacktPublishing/Containers-for-Developers-Handbook.git](https://github.com/PacktPublishing/Containers-for-Developers-Handbook.git)
+    to download all its content, or `git pull` if you’ve already downloaded the repository
+    before. All the manifests and the steps required for running `simplestlab` are
+    located inside the `Containers-for-Developers-Handbook/Chapter9` directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the labs in GitHub, we will deploy the `simplestlab` application, which
+    is used in previous chapters, on Kubernetes by defining appropriate resource manifests:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The **database** component will be deployed using a StatefulSet resource
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The **application backend** component will be deployed using a Deployment resource
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The **load balancer** (or **presenter**) component will be deployed using a
+    DaemonSet resource
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'In their manifests, we have included some of the mechanisms we learned about
+    in this chapter for checking the component’s health, replicating their processes,
+    and improving their security by disallowing their execution as the root user,
+    among other features. Let’s start by reviewing and deploying the database component:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will use a StatefulSet to ensure that replicating its processes (scaling
+    up) will never represent a problem to our data. It is important to understand
+    that a new replica starts empty, without data, and joins the pool of available
+    endpoints for the Service, which will probably be a problem. This means that in
+    these conditions, the Postgres database isn’t scalable, so this component is deployed
+    as a StatefulSet to preserve its data even in the case of a manual replication.
+    This example only provides resilience, so do not scale this component. If you
+    need to deploy a database with high availability, you will need a distributed
+    database such as MongoDB. The full manifest for the database manifest can be found
+    in `Chapter9/db.satatefulset.yaml`. Here is a small extract from this file:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Here, we defined a template for the Pods to create and a separate template
+    for the VolumeClaims (we will talk about them in [*Chapter 10*](B19845_10.xhtml#_idTextAnchor231)).
+    This ensures that each Pod will get its own volume. The volume that’s created
+    will be mounted in the database container as the `/data` filesystem and its size
+    will be 1,000 MB (1 Gi). No other container is created. The `POSTGRES_PASSWORD`
+    and `PGDATA` environment variables are set and passed to the container. They will
+    be used to create the password for the Postgres user and the patch for the database
+    data. The image that’s used for the container is `docker.io/frjaraur/simplestdb:1.0`
+    and port `5432` will be used to expose its Service. Pods only expose their Services
+    internally, in the Kubernetes network, so you will never be able to reach these
+    Services from remote clients. We specified one replica and the controller will
+    associate the pods with this StatefulSet by searching for Pods with `component=db`
+    and `app=simplestlab` labels. We simplified the database’s probes by just checking
+    a TCP connection to port `5432`. We defined a security context at the Pod’s level,
+    which will apply to all the containers by default:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: The database processes will run as `10000:10000` `user:group`, hence they are
+    secure (no root is required). We could have gone further if we set the container
+    as read-only but in this case, we didn’t as Docker’s official Postgres image;
+    however, it would have been better to use a full read-only filesystem.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The Pod will get an IP address, though this may change if the Pod is recreated
+    for any reason, which makes Pods’ IP addresses impossible to use in such dynamic
+    environments. We will use a Service to associate a *fixed* IP address with a Service
+    and then with the endpoints of the Pods related to the Service.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'The following is an extract from the Service manifest (you will find it as
+    `Chapter9/db.service.yaml`):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This Service is associated with the Pods by using a selector (the `components=db`
+    and `app=simplestlab` labels) and Kubernetes will route the traffic to the appropriate
+    Pods. When a TCP packet reaches the Service’s port, `5432`, it is load balanced
+    to all the available Pod’s endpoints (in this case, we will just have one replica)
+    in port `5432`. In both cases, we used port `5432`, but you must understand that
+    `targetPort` refers to the container port, while the port key refers to the Service’s
+    port, and they can be completely different. We are using a headless Service because
+    it works very well with StatefulSets and their resolution in round-robin mode.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'With the StatefulSet definition and the Service, we can deploy the database
+    component:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'The application (backend component) is deployed as a `Deployment` workload.
+    Let’s see an extract of its manifest:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: You can find the complete manifest in the `Chapter9/app.deployment.yaml` file.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'For this component, we defined three replicas, so three Pods will be deployed
+    cluster-wide. In this component, we are using the `docker.io/frjaraur/simplestapp:1.0`
+    image. We’ve configured two security contexts, one at the Pod’s level:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'The second is for enforcing the use of a read-only filesystem for the container:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Here, we prepared `readinessProbe` using `httpGet` but we still keep `tcpSocket`
+    for `livenessProbe`. We coded `/healthz` as the application’s health endpoint
+    for checking its healthiness.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'In this component, we added a resource section for the app container:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: In this case, we asked Kubernetes for at least 10 millicores of CPU and 20M
+    of memory. The `limits` section describes the maximum CPU (20 millicores) and
+    memory (30Mi). If the memory limit is reached, Kubelet will trigger the OOM-Killer
+    procedure and it will kill the container. When the CPU limit is reached, the kernel
+    does not provide more CPU cycles to the container, which may lead the probes to
+    fail and hence the container will die. This component is stateless and it is running
+    completely in read-only mode.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the full YAML file manifest, you will see that we are using the environment
+    variables for passing sensitive data. Always avoid passing sensitive data in environment
+    variables as anyone with access to your manifest files will be able to read it.
+    We will learn how to include sensitive data in [*Chapter 10*](B19845_10.xhtml#_idTextAnchor231),
+    *Leveraging Application Data Management* *in Kubernetes*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will also add a Service for accessing the `app` `Deployment` workload:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We create both Kubernetes resources:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Let’s see an extract from the DaemonSet manifest:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Notice that we added `/var/cache/nginx` and `/tmp` as `emptyDir` volumes, as
+    mentioned previously. This component will be also stateless and run in read-only
+    mode, but some temporal directories must be created as `emptyDir` volumes so that
+    they can be written to without allowing the full container’s filesystem.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'The following security contexts are created:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'At the Pod level:'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'At the container level:'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Finally, we have the `Service` definition, where we will use a `NodePort` type
+    to quickly expose our application:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Now, let’s deploy all the `lb` component (frontend) manifests:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '![Figure 9.9 – simplestlab application web GUI](img/B19845_09_9.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.9 – simplestlab application web GUI
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can find additional steps for scaling up and down the application backend
+    component in the `Chapter9` code repository. The labs included in this chapter
+    will help you understand how to deploy an application using different Kubernetes
+    resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we learned about the resources that can help us deploy application
+    workloads in Kubernetes. We took a look at the different options for running replicated
+    processes and verifying their health to provide resilience, high availability,
+    and auto-scalability. We also learned about some of the Pod features that can
+    help us implement advanced patterns and improve the overall application security.
+    We are now ready to deploy our application using the best patterns and apply and
+    customize the resources provided by Kubernetes, and we know how to implement appropriate
+    health checks while limiting resource consumption in our platform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will deep dive into the options we have for managing
+    data within Kubernetes and presenting it to our applications.
+  prefs: []
+  type: TYPE_NORMAL

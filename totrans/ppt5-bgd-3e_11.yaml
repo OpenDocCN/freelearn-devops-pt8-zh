@@ -1,0 +1,1101 @@
+- en: Chapter 11. Orchestrating cloud resources
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '|   | *Rest is not idleness, and to lie sometimes on the grass under trees
+    on a summer''s day, listening to the murmur of the water, or watching the clouds
+    float across the sky, is by no means a waste of time.* |   |'
+  prefs: []
+  type: TYPE_TB
+- en: '|   | --*John Lubbock* |'
+  prefs: []
+  type: TYPE_TB
+- en: In this chapter you'll learn how to use the `puppetlabs/aws` module to create
+    and manage Amazon AWS cloud instances, and associated resources such as subnets,
+    security groups, and VPCs. You'll also learn how to build your entire cloud infrastructure
+    directly from Hiera data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Orchestrating cloud resources](img/8880_11_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Introducing the cloud
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Before exploring the advantages of cloud computing, perhaps we should define
+    what it is. In the pre-cloud days, if you needed computing power, you bought an
+    actual, physical computer. But from the customer''s point of view, we don''t necessarily
+    want a computer: we just want to compute. We would like to be able to buy as much
+    or as little compute resource as we happen to need at a given time, without paying
+    a large fixed cost for a dedicated computer.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Enter **virtualization**. A single physical server can provide a large number
+    of virtual servers, each of which is (in theory) completely isolated from the
+    others. The hosting provider builds a platform (consisting of many physical servers
+    networked together) which provides, from the customer's point of view, a large
+    intangible **cloud** of virtual compute resources (hence the term).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Automating cloud provisioning
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Creating new cloud instances is cheaper and easier than buying physical hardware,
+    but you still have choices to make: how much CPU or memory the instance has, how
+    much disk space, what kind of disks (physical, solid-state, network-attached storage),
+    what operating system should be installed, whether the instance has a public IP
+    address, what firewall rules it should have, and so on.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you've read the book this far in the book, you should now recognize this
+    as a **configuration management** problem. You will also probably have some idea
+    what I'm going to recommend in order to solve it, but first let's look at a few
+    of the available options.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using CloudFormation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'CloudFormation is a template language specific to **Amazon Web Services** (**AWS**).
+    It describes AWS resources in a declarative way, rather like Puppet resources.
+    You upload your CloudFormation template to the AWS portal (or API), apply it,
+    and AWS will create all the resources specified. The following example shows a
+    snippet of CloudFormation code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Frankly, it's not much fun to program in. While it may technically be infrastructure
+    as code, it's pretty basic. Nonetheless, it still represents an advance on manually
+    setting up AWS infrastructure with a web browser.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using Terraform
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Terraform is a rather more sophisticated tool for provisioning cloud resources.
+    It allows you to describe your resources in a declarative way, like CloudFormation,
+    but at a slightly higher level of abstraction, which is not AWS-specific. The
+    following example shows what Terraform code looks like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Terraform is a promising technology, but it's fair to say it's at an early stage
+    of development.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using Puppet
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Stand-alone tools for managing cloud infrastructure are fine, but if we're doing
+    everything else with Puppet, it seems a shame to introduce a whole new tool just
+    for that. So could we use Puppet to manage cloud resources instead?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fortunately, Puppet provides an excellent Forge module (`puppetlabs/aws`) which
+    does exactly this. In the rest of this chapter, we'll work through some examples
+    of how to use `puppetlabs/aws` to manage AWS cloud resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting up an Amazon AWS account
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: If you already have an AWS account, skip to the next section. Otherwise, you
+    can follow these instructions to set up a new account and get the credentials
+    you need to start building infrastructure with Puppet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating an AWS account
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Follow these steps to create a new AWS account:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Browse to the following URL:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[https://aws.amazon.com/](https://aws.amazon.com/)'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Click **Sign In to the Console**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Follow the instructions to create and verify your account.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: To manage AWS resources using Puppet, we will create an additional AWS user
+    account specifically for Puppet, using Amazon's **Identiy and Access Management**
+    (**IAM**) framework. We'll see how to do this in the following sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating an IAM policy
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Before we create the user account for Puppet, we need to grant specific permissions
+    for the things it needs to do, such as read and create EC2 instances. This involves
+    creating an **IAM policy**, which is a set of named permissions you can associate
+    with a user account.
+  prefs: []
+  type: TYPE_NORMAL
+- en: IAM policies are expressed as a JSON-format document. There is a policy JSON
+    file in the example repo, named `/examples/iam_policy.json`. Open this file and
+    copy the contents, ready to paste into your web browser.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Follow these steps to create the policy and associate it with the Puppet user:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the AWS console, select **Services** | **IAM**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Select **Policies**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Click **Create Policy**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: On the **Create Policy** screen, select **Create Your Own Policy**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Enter **Policy Name** (for example, `puppet`).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: In the **Policy Document** textbox, paste the text you copied from the `iam_policy.json`
+    file.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Click **Create Policy** at the bottom to save this.![Creating an IAM policy](img/8880_11_02.jpg)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Creating an IAM user
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To create the Puppet IAM user and associate it with the policy, follow these
+    steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Sign in to the AWS console.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Select **Services** | **IAM** | **Users**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Click **Add user**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Enter the username you want to use for this account (for example, `puppet`).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: In the **Access type** section, select **Programmatic access**.![Creating an
+    IAM user](img/8880_11_03.jpg)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Click **Next: Permissions**.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Create **Attach existing policies** **directly**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Type `puppet` in the **Policy Type** search box and press *Enter*.![Creating
+    an IAM user](img/8880_11_04.jpg)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'You should see the policy we created in the previous section, so check the
+    box next to it and click **Next: Review**.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Check that the settings are correct and click on **Create user**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: When you finish creating the IAM user and policy, you should see the **Success**
+    screen, which lists your access credentials. Copy the access key ID and the secret
+    access key (click **Show** to see the secret access key). You will need these
+    credentials for the next steps (but keep them safe).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Storing your AWS credentials
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Follow these steps to configure your VM for access to AWS with your newly-generated
+    credentials:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On your Vagrant VM, run the following command to create the directory to hold
+    your credentials file:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Create a file named `/home/ubuntu/.aws/credentials` with the following contents
+    (substitute your Access Key ID and Secret Access Key values from the AWS console
+    screen):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Creating the file manually is fine for this example, but for production use,
+    you should manage the credentials file with Puppet using encrypted Hiera data,
+    as shown in the *Managing secret data* section in [Chapter 6](ch06.html "Chapter 6. Managing
+    data with Hiera"), *Managing data with Hiera*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready to use puppetlabs/aws
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the following sections, we'll see how to generate an SSH key pair to connect
+    to your EC2 instances, and also install the `puppetlabs/aws` module with its dependencies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a key pair
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: You'll need an SSH key pair in order to connect to any EC2 instances you create.
+    We will generate and download your key pair in this section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the AWS console, go to the **EC2** section and select **Key pairs** under
+    **Network & Security** in the left pane.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Click the **Create Key Pai**r button.![Creating a key pair](img/8880_11_05.jpg)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: You will be prompted for the name of your key pair. Enter `pbg` for this example.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A file named `pbg.pem` will be automatically downloaded by your browser. Move
+    this file to your `~/.ssh` directory on your own computer (or copy it to the `ubuntu`
+    user's `~/.ssh` directory on the Vagrant VM, if you'd rather access your AWS instances
+    from there).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Set the correct permissions on the key file with the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Installing the puppetlabs/aws module
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Follow these steps to install the `puppetlabs/aws` module:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you''ve already set up the `r10k` module management tool, as shown in [Chapter
+    7](ch07.html "Chapter 7. Mastering modules"), *Mastering modules*, the required
+    module will already be installed. If not, run the following commands to install
+    it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: Installing the AWS SDK gem
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The `puppetlabs/aws` module requires a couple of gems, which we can install
+    easily using Puppet, with the following manifest (`aws_sdk.pp`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Notice the `provider => puppet_gem` in that example? You might remember from
+    [Chapter 4](ch04.html "Chapter 4. Understanding Puppet resources"), *Understanding
+    Puppet resources*, that `puppet_gem` installs a Ruby gem in Puppet's context (as
+    opposed to the system Ruby context, which is completely separate). Gems which
+    are required by Puppet modules need to be installed in this way or Puppet won't
+    be able to load them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Apply the manifest with the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Create the `/home/ubuntu/.aws/config` file with the following contents:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Creating EC2 instances with Puppet
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Although you can manage many different types of AWS resources with Puppet, the
+    most important is the EC2 instance (the virtual server). In this section, we'll
+    see how to create your first EC2 instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Choosing an Amazon Machine Image (AMI)
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In order to run an EC2 instance, which is to say an AWS virtual machine, you
+    need to choose which virtual machine to run out of the many thousands available.
+    Each virtual machine snapshot is called an **Amazon Machine Image** (**AMI**)
+    and has a unique ID. It's this ID that you will add to your Puppet manifest to
+    tell it what kind of instance to start.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It doesn''t matter much for the purposes of this example which AMI you choose,
+    but we''ll be using an official Ubuntu image. To find one, follow these steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Browse to the following URL:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[https://cloud-images.ubuntu.com/locator/ec2/](https://cloud-images.ubuntu.com/locator/ec2/)'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: In the **Search** box, enter `us-east-1 xenial`
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: You should see a list of Ubuntu Xenial AMIs in the `us-east-1` region, of various
+    instance types, looking something like the following screenshot:![Choosing an
+    Amazon Machine Image (AMI)](img/8880_11_06.jpg)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Find an AMI in the list whose **Instance Type** is `ebs-ssd`. In the preceding
+    screenshot, the third AMI in the list (`ami-26d6d131`) is suitable.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The hexadecimal code in the `AMI-ID` column, starting `ami-` is the AMI ID.
+    Make a note of this for later. Click the link to see the AWS instance type selection
+    page, and check that the AMI you've selected has a label saying **Free tier eligible**;
+    these AMIs do not incur charges. If you start an instance of a non-free-tier AMI,
+    you will be charged for it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating the EC2 instance
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Now we have chosen a suitable AMI, we're ready to create an EC2 instance with
+    Puppet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before we can do that, however, we need to make a couple of changes to the
+    AWS settings, so follow these steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the AWS console, select **VPC** from the **Services** menu.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Select **Your VPCs** in the left pane.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: There will be only one VPC listed. Click in the **Name** field and set its name
+    to `default-vpc`
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Select **Subnets** in the left pane.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: There will be several subnets listed, one for each availability zone. Find the
+    one associated with the `us-east-1a` availability zone.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Click the subnet's **Name** field and set the name to `default-subnet`
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Why do we have to set names for the VPC and subnet before running the example?
+    The `puppetlabs/aws` module refers to resources by their 'name', which is an arbitrary
+    string, rather than their ID, which is a long hexadecimal code like the AMI ID.
+    Although AWS creates a default VPC and subnet for you automatically, it doesn't
+    assign them a name, which means we can't refer to them in Puppet code until we've
+    set names for them. It doesn't matter what the names actually are so long as the
+    name in your Puppet code is the same as the name assigned in the AWS control panel.
+    We'll find out more about what VPCs and subnets do, and how to use them, later
+    in the chapter.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'Edit the file `/examples/aws_instance.pp`, and change the value of `$ami` in
+    the first line to the AMI ID you picked earlier (in our example, `ami-26d6d131`):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Save the file, and run the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'You should see some output from Puppet like the following:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: If you check the **EC2** section of the AWS console, you should see that your
+    new instance's status is **Initializing**, and it will soon be ready to use.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Accessing your EC2 instance
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Once the status of the newly-launched instance has changed from **Initializing**
+    to **Running** (you may need to click the refresh button on the AWS console),
+    you can connect to it using SSH and the key file you downloaded earlier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the AWS console, look for the **Public IP** address of the instance and copy
+    it.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'From your own machine (or from the Vagrant VM if you copied the `pbg.pem` file
+    to it) run the following command (replace `YOUR_INSTANCE_IP` with the public IP
+    of the instance):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Now that you have SSH access to the instance, you can bootstrap it with Puppet
+    in the same way as for physical nodes, or just install Puppet and Git manually
+    and check out the manifest repo. (We'll develop a complete, automated bootstrap
+    process in [Chapter 12](ch12.html "Chapter 12. Putting it all together"), *Putting
+    it all together*.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Congratulations! You've just created your first EC2 instance with Puppet. In
+    the next section, we'll look at the code and examine the resources in detail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: VPCs, subnets, and security groups
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Let's go through the example manifest and see how it works. But first, we need
+    to know something about AWS resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An EC2 **instance** lives inside a **subnet**, which is a self-contained virtual
+    network. All instances within the subnet can communicate with each other. Subnets
+    are partitions of a **Virtual Private Cloud** (**VPC**), which is a private internal
+    network specific to your AWS account.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An instance also has a **security group**, which is a set of firewall rules
+    governing network access to the instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When you create an AWS account, you get a default VPC, divided into subnets
+    for each AWS **availability zone** (**AZ**). We are using the default VPC and
+    one of the default subnets for the example instance, but since we also need a
+    security group, we create that first in Puppet code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The ec2_securitygroup resource
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The first part of the example manifest creates the required `ec2_securitygroup`
+    resource (`aws_instance.pp`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: First of all, an `ec2_securitygroup` has a title (`pbg-sg`) which we will use
+    to refer to it from other resources (such as the `ec2_instance` resource). It
+    also has a `description`, which is just to remind us what it's for.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is part of a `region` and a `vpc`, and has an array of `ingress` rules. These
+    are your firewall rules. Each firewall port or protocol you want to allow needs
+    a separate ingress rule.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Each ingress rule is a hash like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `protocol` specifies the type of traffic (`tcp`, `udp`, and so on).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `port` is the port number to open (`22` is the SSH port, which we'll need
+    in order to log in to the instance).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, the `cidr` key specifies the range of network addresses to allow access
+    to. (`0.0.0.0/0` means 'all addresses'.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: The ec2_instance resource
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The `ec2_instance` resource, as you''d expect, manages an individual EC2 instance.
+    Here''s the relevant section of the example manifest (`aws_instance.pp`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: First, `ensure => present` tells AWS that the instance should be running. (You
+    can also use `running` as a synonym for `present`.) Setting `ensure => absent`
+    will terminate and delete the instance (and any ephemeral storage attached to
+    it).
+  prefs: []
+  type: TYPE_NORMAL
+- en: EC2 instances can also be in a third state, `stopped`. Stopped instances preserve
+    their storage and can be restarted. Because AWS bills by the instance-hour, you
+    don't pay for instances that are stopped, so it's a good idea to stop any instances
+    that don't need to be running right now.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The instance is part of a `region` and a `subnet`, and has one or more `security_groups`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `image_id` attribute tells AWS which AMI ID to use for the instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `instance_type` attribute selects from AWS's large range of types, which
+    more or less correspond to the computing power of the instance (different types
+    vary in memory size and the number of virtual CPUs, and a few other factors).
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we're inside a private network, instances will not be reachable from the
+    Internet unless we assign them a public IP address. Setting `associate_public_ip_address`
+    to `true` enables this feature. (You should set this to `false` unless the instance
+    actually needs to expose a port to the Internet.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, the instance has a `key_name` attribute which tells AWS which SSH key
+    we are going to use to access it. In this case, we're using the key we created
+    earlier in the chapter, named `pbg`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Before going on to the next example, terminate your instance to avoid using
+    up your free hours. You can do this by selecting the instance in the AWS control
+    panel and clicking **Actions** | **Instance State** | **Terminate**, or reapplying
+    your Puppet manifest with the instance's `ensure` attribute set to `absent`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Managing custom VPCs and subnets
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the previous example, we used the pre-existing default VPC and subnet to
+    create our instance. That's fine for demonstration purposes, but in production
+    you'll want to use a dedicated VPC for your Puppet-managed resources, to keep
+    it separate from any other resources in your AWS account, and from other Puppet-managed
+    VPCs. You could, for example, have a staging VPC and a production VPC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By default, a new VPC has no access to the Internet; we'll also need an **Internet
+    gateway** (which routes Internet traffic to and from the VPC) and a **route table**
+    (which tells a given subnet to send non-local traffic to the gateway). The `puppetlabs/aws`
+    module provides Puppet resources to create and manage each of these entities.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating an instance in a custom VPC
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In this section, we'll use a more sophisticated example manifest to create a
+    new VPC and subnet, with an associated Internet gateway and route table, then
+    add a security group and EC2 instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Follow these steps to apply the manifest:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Edit the file `/examples/aws_vpc.pp` and change the value of `$ami` in the
+    first line to the AMI ID you picked earlier (in our example, `ami-26d6d131`):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Save the file and run the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'You should see some output from Puppet like the following:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: If you check the **EC2** section of the AWS console, you should see that your
+    new instance status is **Initializing**, and it will soon be ready to use.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The ec2_vpc resource
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Let''s look at the example manifest in detail. Here''s the `ec2_vpc` resource
+    (`aws_vpc.pp`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: The VPC requires a `region` attribute and `cidr_block`, which is the range of
+    network addresses that the VPC will use. (Actually, this isn't required, as AWS
+    will allocate you one at random if you don't specify it. We specify one here just
+    for the demonstration.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: It doesn't matter what your network range actually is, as it's entirely internal.
+    However, it's good practice to use one of the address ranges officially assigned
+    to private networks, such as `10.x.y.z`. To make it less likely that your range
+    will conflict with any other assigned in your organization, pick a random number
+    for `x` (we've used `99` in the example).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The ec2_vpc_internet_gateway resource
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'We saw earlier that a VPC, by default, is not connected to the Internet. There
+    are various ways to get Internet traffic into the VPC, including VPNs and Amazon
+    **Elastic** **Load Balancers** (**ELB**), but for this example, we''ll use an
+    `ec2_vpc_internet_gateway` resource, which looks like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: The gateway has a title (`pbg-igw`), and it is associated with a particular
+    `region` and `vpc`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The ec2_vpc_routetable resource
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Having provisioned an `ec2_vpc_internet_gateway`, we now need to set up a route
+    table to determine which traffic to send to it. Here is the `ec2_vpc_routetable`
+    resource from the example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: As usual, a route table has a title, `region`, and `vpc`. It also has an array
+    of one or more routes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A **route** is like a road sign for network packets. It says, "if you're heading
+    for this destination, take this junction." Each route in the array is a hash containing
+    a `destination_cidr_block` and `gateway` key.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first route in our example is for local traffic (destined for the `10.99.0.0/16`
+    network, which is the network we assigned to our VPC):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: This tells traffic for the `10.99.0.0/16` network that it is local; that is,
+    there's no need to use a gateway, because it's already on the desired network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The second route is for all other traffic:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: The network address `0.0.0.0/0` matches all possible network addresses (traffic
+    for `10.99.0.0/16` will already have been filtered out by the previous route,
+    so we are left with all other traffic, which must be for the Internet). The designated
+    gateway is `pbg-igw`, which is the `ec2_vpc_internet_gateway` we created earlier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So this route table equates to the following instructions for routing traffic:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Traffic for `10.99.0.0/16`, stay on this network
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: All other traffic, please proceed to the `pbg-igw` gateway
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: These routes will suffice for a single VPC; if you have a more complicated network
+    setup in AWS, you will need a more complicated route table, but the principles
+    will be the same.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The ec2_vpc_subnet resource
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: A subnet, as we've seen, is a subdivision of the VPC network, which enables
+    you to logically partition your VPC for different groups of resources. For example,
+    you might have one subnet which is accessible from the Internet for public-facing
+    nodes, and another for internal resources such as database or log servers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the example we just have one subnet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: It has a title, `vpc`, and `region`. Because it is a subdivision of the VPC
+    network, it also needs a `cidr_block` specifying exactly which part of the network
+    address space it occupies. This must be a subdivision of the network address you
+    assigned to the containing VPC, as indeed it is in this example.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A subnet exists within an AWS availability zone (equivalent to a data center).
+    These are named after their region; for example, the `us-east-1` region has availability
+    zones `us-east-1a`, `us-east-1b`, and so on. This allows you to provision redundant
+    resources in different availability zones, so that if one should fail, the other
+    can take over. For this example, however, we're using just one availability zone,
+    `us-east-1a`, which we pass to the `availability_zone` attribute.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By default, resources in a subnet can only communicate within the subnet. To
+    allow traffic in and out of the subnet, we need to associate it with `route_table`.
+    By using the `pbg-rt` route table we created earlier, we can send Internet traffic
+    via the `pbg-igw` gateway.
+  prefs: []
+  type: TYPE_NORMAL
+- en: And that's it. The `ec2_securitygroup` and `ec2_instance` resources are more
+    or less the same as in our earlier example, except for using the new subnet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Other AWS resource types
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Puppet is not limited to managing EC2 instances; the `puppetlabs/aws` module
+    also supports ELB load balancers, Cloudwatch alarms, auto scaling groups, Elastic
+    IPs, DHCP, VPNs, IAM users and policies, RDS databases, S3 storage buckets, SQS
+    queues, Route 53 DNS management, and the **EC2 Container Service** (**ECS**).
+    Due to constraints of space, time, and energy, I have not provided examples for
+    all of these, but you can consult the module''s admirably comprehensive documentation
+    at this URL:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://forge.puppet.com/puppetlabs/aws](https://forge.puppet.com/puppetlabs/aws)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Provisioning AWS resources from Hiera data
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: There's nothing wrong with managing AWS resources directly in the code, as we've
+    done in the previous examples, but we can do just a little bit better.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In [Chapter 6](ch06.html "Chapter 6. Managing data with Hiera"), *Managing
+    data with Hiera*, we saw how to create Puppet resources directly from Hiera data.
+    In that example (*Building resources from Hiera hashes*), we stored all the users
+    for our infrastructure in a Hiera hash called `users`, and then used the `each`
+    keyword to iterate over that hash, creating a user resource for each user. Here''s
+    the example code again (`hiera_users2.pp`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: The magic `*` character (the **attribute splat operator**) tells Puppet to use
+    the contents of the `$attrs` hash as the attributes of the resource.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The advantage of describing resources as Hiera data is that when we come to
+    add a new user, or change the details for an existing user, we don't need to touch
+    Puppet code at all. Everything is defined in Hiera.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Iterating over Hiera data to create resources
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Alert readers may be wondering, "Couldn't we do the same thing with all these
+    AWS resources? Can we just define everything in a Hiera hash and have Puppet iterate
+    over it to create the resources?"
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Indeed we can. The manifest to create all these resources is surprisingly concise
+    (`aws_hiera.pp`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To apply the manifest, follow these steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Edit the Hiera data file `aws.yaml` and change the value of the `ami:` setting
+    in the first line to the AMI ID you picked earlier (in our example, `ami-26d6d131`):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Save the file and run the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: If you've already run the previous example and the AWS resources are still present,
+    you'll see no output from Puppet, because the resources are exactly the same.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Remember, if the state of the system is already the same as the desired state
+    expressed in the manifest, Puppet will do nothing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you want to prove to yourself that the example manifest really works, delete
+    the resources using the AWS control panel (or use Puppet to delete them by changing
+    `present` to `absent` in the Hiera data) and reapply the manifest.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you compare the manifest to that from the Hiera users example, you can see
+    that instead of a single loop, it consists of two nested loops. The outer loop
+    iterates over the contents of the `$aws_resources` hash:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Each key of the `$aws_resources` hash is the name of a Puppet resource type.
+    Here''s the first one (from `hiera_aws.yaml`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So the first time round this loop, the value of `$r_type` will be `ec2_vpc`,
+    and the value of `$resources` will be this hash:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now we enter the inner loop, which creates all the resources of type `$r_type`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As it happens, there is only one `ec2_vpc` resource, so the first time round
+    the inner loop, the value of `$r_title` will be `pbg-vpc`, and the value of `$attrs`
+    will be this hash:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So Puppet will create this resource:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is identical to the `ec2_vpc` resource in the previous example, and as
+    we go round the outer loop we will create the other resources in the same way.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'What''s `Resource[$r_type]`? This is a bit of Puppet wizardry. The problem
+    is that we need to declare a Puppet resource whose type we don''t know yet; it
+    will be supplied by the `$r_type` variable. You might at first try using a syntax
+    like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: Unfortunately, Puppet doesn't allow this syntax, but there is a way to get round
+    the problem. The abstract data type `Resource` matches any resource type (you
+    can read more about Puppet data types in [Chapter 8](ch08.html "Chapter 8. Classes,
+    roles, and profiles"), *Classes, roles, and profiles*).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can make `Resource` more specific by including the actual resource type
+    in square brackets: `Resource[''ec2_vpc'']`. This is valid syntax for declaring
+    a resource.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So this is how we declare a resource whose type comes from a variable:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now that your AWS resources are described by Hiera data, it should be much easier
+    to maintain and extend them as you use Puppet in production.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Cleaning up unused resources
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To close down your EC2 instance, and thus avoid using up your free hours or
+    being billed for the instance, edit your Hiera data to set `ensure: absent` on
+    the `ec2_instance` resource:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: When you reapply the manifest, Puppet will stop the instance. You can leave
+    other resources in place, as they don't incur charges.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we've introduced the basic idea of cloud computing, and looked
+    at some options for managing cloud resources, including CloudFormation and Terraform,
+    before meeting the `puppetlabs/aws` module.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We've worked through the process of creating an AWS account, setting up an IAM
+    user and policy, generating credentials and SSH keys, installing the AWS SDK gem,
+    and choosing a suitable AMI (Amazon Machine Image).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using Puppet, we've created an EC2 instance and security group, and seen how
+    to connect to the running instance with SSH. Going further, we've created a whole
+    VPC from scratch, complete with subnets, Internet gateway, route table, security
+    group, and EC2 instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Lastly, we've seen how to build all these cloud resources directly from Hiera
+    data, which is the most flexible and powerful way to describe Puppet resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next and final chapter, we'll draw together ideas and techniques from
+    all the previous chapters in this book to create a complete, working example Puppet
+    infrastructure which you can use as a basis for your own.
+  prefs: []
+  type: TYPE_NORMAL

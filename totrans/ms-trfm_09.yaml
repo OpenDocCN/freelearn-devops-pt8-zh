@@ -1,0 +1,889 @@
+- en: '9'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Go Serverless with AWS – Building Solutions with AWS Lambda
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we will turn the page to the final installment of our three-part
+    series on **Amazon Web Services** (**AWS**). Having previously built solutions
+    on AWS using **Virtual Machines** (**VMs**) in [*Chapter 7*](B21183_07.xhtml#_idTextAnchor365)
+    and then in containers in [*Chapter 8*](B21183_08.xhtml#_idTextAnchor402), our
+    journey now leads us to an exploration of what building a truly serverless solution
+    looks like on AWS.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While the foundational concepts and practices from the preceding chapters will
+    help us, some aspects of the solution are completely absent here. Namely, we don’t
+    need to worry about any operating system configuration, whether it be in Packer
+    or Docker.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Our attention now turns to adapting our application code to **Lambda**’s application
+    model. While this necessitates changes to our application code to align with Lambda’s
+    approach, it also presents opportunities to enhance scalability and efficiency
+    without the burden of managing servers. This shift in focus promises a more streamlined
+    and efficient process. We’ll spend a bit more time adjusting our application code
+    to conform than provisioning new services using Terraform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This chapter covers the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Laying the foundation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Designing the solution
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Building the solution
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Automating the deployment
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Laying the foundation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Our story continues through the lens of Söze Enterprises, founded by the enigmatic
+    Turkish billionaire Keyser Söze. Our team has been hard at work building the next-generation
+    autonomous vehicle orchestration platform. Our initial strategy involved minimizing
+    change to allow the team to focus on driving features into our product. However,
+    our elusive CEO had other ideas and pushed us to adopt container technology to
+    make our product more flexible and scalable going forward. Working with Keyser,
+    there is never a dull moment, but managing such radical change so quickly can
+    be frustrating.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Meanwhile, in Davos, Switzerland, with the World Economic Forum in full swing,
+    Keyser has a chance encounter at the espresso bar with Werner Vogels, with whom
+    he immediately hits it off. When Werner gets a glimpse of Keyser’s immense vision
+    for the autonomous vehicle platform, he casually suggests that maybe Keyser shouldn’t
+    concern himself with infrastructure at all and that leveraging AWS’s serverless
+    offerings could free him from the shackles of infrastructure management to allow
+    him to focus on his grand vision.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Thanks to Werner’s insights and Keyser’s whimsical decision-making, our team
+    veers deeper into AWS, explicitly transitioning from Amazon **Elastic Kubernetes
+    Service** (**EKS**) to AWS Lambda for serverless computing. This might require
+    a complete re-think of our application architecture, but it could free us from
+    the significant operational overhead of managing low-level infrastructure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Designing the solution
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In this section, we will look at the overall design of our solution, given
+    the shift from VM- and container-based architectures toward serverless architectures.
+    Serverless has the quintessential objective of eliminating heavy infrastructure
+    from the stack at its core. Therefore, we will look for ways to shed any AWS services
+    requiring significant fixed costs, such as EC2 instances or EKS clusters, and
+    replace them with serverless options. This change in our operational context and
+    technology landscape will require us to rethink our solution’s design, implementation,
+    and deployment strategy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.1 – Logical architecture for the autonomous vehicle platform](img/B21183_09_1.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.1 – Logical architecture for the autonomous vehicle platform
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Our application’s architecture doesn’t change significantly, but we will be
+    using different Azure services to host it. In this case, we’ll be using Azure
+    Storage to host the application’s frontend and Azure Functions to host the application’s
+    backend:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.2 – Source control structure of our repository](img/B21183_09_2.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.2 – Source control structure of our repository
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this solution, we’ll have four parts of our code base. The first two are
+    the Terraform code that provisions the environment and the GitHub Actions code
+    that executes the deployment process. Then we have the two code bases for our
+    application’s frontend and backend.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Cloud architecture
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In [*Chapter 7*](B21183_07.xhtml#_idTextAnchor365), our cloud-hosting solution
+    was a set of dedicated EC2 instances. In [*Chapter 8*](B21183_08.xhtml#_idTextAnchor402),
+    it was a set of shared EC2 instances managed by our Kubernetes cluster’s node
+    pool. Using VMs, whether standalone VMs or ones that are part of a Kubernetes
+    node pool, has the most sunk cost.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In [*Chapter 8*](B21183_08.xhtml#_idTextAnchor402), our entire solution was
+    executed on containers that allowed the front- and backends to coexist as a set
+    of containers on the same VMs. This saved some money, but we still needed servers
+    to host the workload. In this chapter, we will have a new objective: to take advantage
+    of the power of the cloud by leveraging cloud-native services that abstract the
+    underlying infrastructure from us and allow us to truly only pay for what we use.
+    AWS’s serverless offerings will be crucial to us in this endeavor.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Frontend
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: In previous chapters, we hosted our frontend on public-facing servers that returned
+    the HTML and JavaScript that composed our web application. However, we still require
+    a cloud-hosted solution to host the files and respond to requests in both solutions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, due to the nature of the web application running within the end user’s
+    browser, we don’t need to use cloud-hosted VMs to host what are essentially flat
+    files. We can use simple cloud storage to host the frontend as a static website
+    and rely on the cloud platform to shoulder the burden of returning the web content.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On AWS, we can use **Simple Storage Service** (**S3**). This service allows
+    us to host static web content that is internet-accessible. S3 handles all the
+    load balancing, SSL termination, and scaling up to meet huge spikes in demand:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.3 – S3 handles web page requests, Lambda handles REST API requests](img/B21183_09_3.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.3 – S3 handles web page requests, Lambda handles REST API requests
+  prefs: []
+  type: TYPE_NORMAL
+- en: In order to do this, we’ll need an S3 bucket. We will need to enable public
+    internet access to its contents. This will require a combination of S3 and IAM
+    configuration. All S3 buckets have an internet-accessible public domain. When
+    we activate the static websites feature of S3, internet traffic gets routed to
+    content hosted in our bucket.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This will give us a huge advantage because S3 has no sunk costs. Creating an
+    S3 bucket costs you absolutely zero dollars per month. Like other serverless offerings,
+    it uses a set of micro-transactions to measure your activity and charge you for
+    precisely what you use. In S3, this can be a bit complicated, as several measurements
+    incur costs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Metric** | **Unit** | **Scale** | **Price** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Storage | GB | 1,000 | $0.023 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Read transactions | Transactions | 10,000 | $0.0004 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Write transactions | Transactions | 10,000 | $0.005 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Other operations | Transactions | 10,000 | $0.01 |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 9.1 – AWS S3’s micro-transactional pricing
+  prefs: []
+  type: TYPE_NORMAL
+- en: The preceding table shows all the costs you will run into when using AWS to
+    host your static websites. The prices listed are accurate for AWS’s US West (Oregon)
+    region at the time of writing. Prices may have changed by the time you read this,
+    so it’s best to check the latest prices for the most accurate cost estimation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I included these prices to make a point. We can host a static website on a three-node
+    Kubernetes cluster for approximately $300 a month, or on AWS S3 for less than
+    $0.01 a month. Which approach would you choose?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Backend
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Like our frontend, in previous chapters, our backend was also hosted on VMs
+    in two different ways: dedicated VMs and shared VMs within the node pool on our
+    Kubernetes cluster.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unlike the frontend, our backend doesn’t have the option of running entirely
+    client-side inside the end user’s web browser. In the backend, we have custom
+    code that needs to run on a server. Therefore, we need to find a solution to host
+    these components without all the overhead of a fleet of VMs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can use Lambda Functions on AWS to accomplish this. AWS Lambda is a managed
+    service that allows you to deploy your code without paying the sunk costs for
+    any of the underlying VMs. Like S3, it has its micro-transactional pricing model
+    that charges you for precisely what you use:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Metric** | **Unit** | **Scale** | **Price ($)** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Execution time | GB/s | 1 | $0.0000166667 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Total executions | Transactions | 1,000,000 | $0.020 |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 9.2 – AWS Lambda’s micro-transactional pricing
+  prefs: []
+  type: TYPE_NORMAL
+- en: The preceding table shows the costs associated with deploying your code to Lambda
+    Functions. The first thing you’ll probably notice is that, like S3, these prices
+    are extremely low and measure a very small amount of activity on the platform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For example, the execution time metric has a unit of GB/s, which is the amount
+    of memory that your Lambda Function uses per second in GB. Given that it measures
+    at a per-second interval, you don’t have to run your Lambda Functions very long
+    to rack up quite a few of these. The execution time cost can be adjusted based
+    on how much memory you allocate. You can choose to allocate any amount of memory
+    between 128 MB and 10 GB.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'While straightforward, the total executions metric is subject to AWS Lambda’s
+    built-in constraints, including execution time limits. For example, each of these
+    executions is limited to 15 minutes. Suppose you are trying to respond to requests
+    from a web application. In that case, you probably won’t want to design your Lambda
+    Function to take 15 minutes anyway, as this would be a poor experience for the
+    end users of the web browser. In this scenario, you would want your Lambda Function
+    to return in no more than a few seconds. However, Lambda Functions can be employed
+    for many different tasks besides responding to HTTP requests from a browser. In
+    these situations, you must carefully design your Lambda solution to stay within
+    this execution time limitation. This may require you to think about how to split
+    up the work so that it can be processed more parallelly by hundreds, if not thousands,
+    of instances of your Lambda Function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.4 – The backend’s architecture using Lambda](img/B21183_09_4.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.4 – The backend’s architecture using Lambda
+  prefs: []
+  type: TYPE_NORMAL
+- en: Previously, our ASP.NET REST API was set up using a traditional ASP.NET project
+    that used controllers to implement the REST API endpoints. However, when transitioning
+    to Lambda Functions, we would expect the code base to be structured much differently.
+    To host our REST API as Lambda Functions, we need to conform to the framework
+    that Lambda dictates. As a result, the ASP.NET controller classes must be refactored
+    to conform to this standard. In the next section, we’ll delve into the code that
+    makes this possible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deployment architecture
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Now that we have a good idea of what our cloud architecture for our solution
+    on AWS will look like, we need to devise a plan for provisioning our environments
+    and deploying our code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In [*Chapter 7*](B21183_07.xhtml#_idTextAnchor365), when we deployed our application
+    to VMs, we baked our compiled application code into a VM image using Packer. Similarly,
+    in [*Chapter 8*](B21183_08.xhtml#_idTextAnchor402), when we deployed our application
+    to containers on our Kubernetes cluster, we baked our application code into container
+    images using Docker. With serverless, this completely changes because AWS’s serverless
+    offerings completely abstract away the operating system. This means that all we
+    are responsible for is producing a compatible deployment package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating the deployment package
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'As we discussed in the previous section, our application has two components:
+    the frontend and the backend. Each has a different deployment target. For the
+    frontend, we are going to be deploying as a static website to AWS S3, while the
+    backend is going to be deployed as an AWS Lambda Function. Since both are .NET
+    projects, we will be using both .NET and AWS platform-specific tools in order
+    to create deployment packages and deploy them to their target AWS services. The
+    following diagram shows the process we will go through in order to provision our
+    environment, package our application code, and deploy it to the target environment
+    out in AWS:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.5 – The resource deployment pipeline to build our .NET application
+    code for deployment to AWS](img/B21183_09_5.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.5 – The resource deployment pipeline to build our .NET application
+    code for deployment to AWS
+  prefs: []
+  type: TYPE_NORMAL
+- en: For the frontend, this means enabling the feature to deploy our ASP.NET Blazor
+    web application as a web assembly. This will allow the frontend to be hosted as
+    a static website running completely client-side without server-side rendering.
+    This is only possible because of the way we have designed our front-end web application,
+    which uses HTML, CSS, and JavaScript to interact with server-side REST APIs. It’s
+    important to note that ASP.NET Blazor supports both hosting options. Still, we
+    chose to go down the client-side-only path and eliminate any dependency on server-side
+    page rendering. As a result, when we use the .NET CLI to publish our ASP.NET Blazor
+    project, it will emit a folder containing static web content. Then, using the
+    AWS CLI, we can upload the contents of this folder to our S3 bucket to complete
+    the deployment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using the .NET CLI, we will publish our project for the backend, which emits
+    all the files necessary for the AWS Lambda service to recognize and execute our
+    Lambda Function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once this is done, we must zip this folder into a ZIP archive. Finally, we can
+    use the AWS CLI to deploy this ZIP archive to our Lambda Function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we have a solid plan for how we will implement both the cloud architecture
+    using AWS and the deployment architecture using GitHub Actions, let’s start building!
+    In the next section, we’ll break down the HashiCorp Configuration Language code
+    we use to implement the Terraform and modify the application code to conform to
+    AWS Lambda’s framework.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building the solution
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Now that we have a solid design for our solution, we can begin building it.
+    As discussed in the previous section, since we’ll be using AWS serverless offerings
+    such as AWS S3 and Lambda Functions to host our application, we will need to make
+    some changes to our application code. We never had to do this in *Chapters 7*
+    and *8*, as we were able to deploy our application to the cloud by packaging it
+    in either a VM image (using Packer) or a container image (using Docker). Therefore,
+    we need to write some Terraform code and update our application code in C# to
+    build our solution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Terraform
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'As we discussed in our design, our solution consists of two application components:
+    the frontend and the backend. Each has its own code base of application code that
+    needs to be deployed. In previous chapters, we also had the operating system configuration.
+    Now that we are using serverless offerings, this is no longer our responsibility,
+    as the platform will take care of it for us.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Much of the Terraform setup is very similar to what we have done in previous
+    chapters, so we will only focus on new resources needed for our solution. If you
+    want to work with the complete solution, you can check the full source code for
+    this book, which is available on GitHub.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Frontend
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'First, we need to provision an AWS S3 bucket to which we can deploy our frontend.
+    The S3 bucket is one of the most common Terraform resources to be provisioned,
+    as many other AWS services use S3 buckets for different purposes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'However, we need to configure our S3 bucket a bit differently by using a couple
+    of additional resources. First, we need to configure public access using the `aws_s3_bucket_public_access_block`
+    resource. Then we need to configure our static website using the `aws_s3_bucket_website_configuration`
+    resource:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The configuration is pretty simple, but it is critical for enabling our S3
+    bucket to be accessible over the internet. By altering our configuration here,
+    we could also opt to host static websites that are not accessible over the internet.
+    This might be ideal for intranet websites that we only want accessible when on
+    a private network:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: This configures the S3 bucket to specify the default web page when it redirects
+    web traffic to the content stored within our bucket. The `index.html` page aligns
+    with what our ASP.NET Blazor web application uses by default.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Lastly, we need to configure `aws` provider is to use a Data Source resource
+    to generate IAM policy documents that can then be attached to other provisioned
+    resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding data source emits the correct policy document, which we can use
+    when configuring the S3 bucket’s policy using an `aws_s3_bucket_policy` resource:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Backend
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Lambda Functions are deployed to an `aws_lambda_function` resource, but the
+    most important thing to set up first is the IAM role you will use for your Lambda
+    Function. This will be how we allow our Lambda Function access to other resources
+    on AWS, such as secrets and logging. It is also how we allow it to communicate
+    with databases and other services our application code needs to communicate with:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We will start with an IAM policy document for the `sts:AssumeRole` permissions
+    and scope it to Lambda Functions. Then we define the IAM role and use this as
+    the `assume_role_policy`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can grant more permissions later by defining additional policies and attaching
+    them to this IAM role; more on that later. Now, it’s time to provision our Lambda
+    Function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: As in the previous two chapters, we must consistently tag our AWS resources
+    with the `application` and `environment` tags. These tags organize our deployment
+    into an AWS resource group for easier centralized management.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A key attribute here is `runtime`, which in our case is .NET 6\. Depending
+    on your technology stack, this will, of course, vary. However, perhaps the most
+    important attribute is `handler`. This is also the trickiest one to set, as it
+    needs to be carefully aligned with our application code. The `handler` is a path
+    to a component in our application code. In .NET, this path is made up of three
+    parts: the namespace, the fully qualified class name, and the method name.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can also use an optional nested block to set additional environment variables
+    to help configure the Lambda Function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: This can be a useful way to pass in configuration to Lambda, which is output
+    by other Terraform resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Logging
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'As we’ve seen, AWS uses IAM policies to grant access to other foundational
+    services on the platform. This is necessary for even things such as logging:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the preceding code, we are creating a policy that allows our Lambda Function
+    to write to CloudWatch.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, we must attach this policy to the IAM role that we created for our
+    Lambda Function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is what it looks like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.6 – IAM policy to grant access to CloudWatch logging](img/B21183_09_6.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.6 – IAM policy to grant access to CloudWatch logging
+  prefs: []
+  type: TYPE_NORMAL
+- en: This will allow us to use CloudWatch to see what’s happening inside our application
+    code every time our Lambda Function is executed, which is critical for troubleshooting
+    and debugging.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Secrets management
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: We saw that we could set environment variables on our Lambda Function. Still,
+    if we want better control over our secrets, we may want to use AWS Secrets Manager
+    to manage them and then configure our Lambda Function to access them from there.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For example, we’ll set up a password using the `random_password` resource from
+    the `random` utility provider that we reviewed in [*Chapter 3*](B21183_03.xhtml#_idTextAnchor185).
+    Sometimes AWS services generate secrets on your behalf and sometimes they allow
+    you to specify your own. In that situation, the `random_password` resource can
+    be very useful:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding code declares a password that we will use as our secret. Then
+    we need to create a Secrets Manager `secret` to hold this secret:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding code generates the secret, but you must store secret values in
+    the `aws_secretsmanager_secret_version` sub-resource:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: There are additional features that can be enabled to handle automatic rotation
+    and custom encryption that you could also consider.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now that our secret has been created and stored in Secrets Manager, we must
+    create an IAM policy to grant our Lambda Function access:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: We will use `aws_iam_role_policy_attachment` to attach the policy to the Lambda
+    Function’s IAM role just as we did for the permissions to log to CloudWatch. If
+    you need to use additional secrets, you can continue to add them to the resource
+    array where `secret_sauce` has been added.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.7 – Resource IAM policy to grant access to Secrets Manager secrets](img/B21183_09_7.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.7 – Resource IAM policy to grant access to Secrets Manager secrets
+  prefs: []
+  type: TYPE_NORMAL
+- en: As you can see, the Lambda Function has a much simpler deployment. We don’t
+    need a virtual network or any other surrounding resources we provisioned in previous
+    chapters to get off the ground. For most applications, the built-in security of
+    Lambda Functions and Secrets Manager is sufficient. If we wanted to enable private
+    networking because our application has to follow some regulatory compliance, we
+    could do that. However, it is not required.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Application code
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: AWS Lambda is inherently event-based. Each Lambda Function is triggered by a
+    different type of event. The AWS Lambda service provides many different event
+    types to trigger your Lambda Function from a wide variety of other AWS services.
+    This makes it easy to design Lambda Functions that can respond to all sorts of
+    activities within your AWS environment. For the purposes of this book, we’ll focus
+    on the Application Load Balancer only. If you are interested in this topic, I’d
+    recommend that you check out all the other options that AWS Lambda has—they are
+    quite extensive.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.8 – Resource ASP.NET MVC Controller class anatomy](img/B21183_09_8.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.8 – Resource ASP.NET MVC Controller class anatomy
+  prefs: []
+  type: TYPE_NORMAL
+- en: In a traditional ASP.NET REST API solution, you have Controller classes embodying
+    a specific route and methods that implement different operations at that route.
+    The Controller class must be decorated with an `ApiController` attribute that
+    informs the ASP.NET runtime that this class should be used to process incoming
+    web requests at the route specified in the `Route` attribute.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Each method is decorated with an attribute that denotes which HTTP verb the
+    method should respond to. In the preceding example, we used `HttpGet`, but there
+    are corresponding attributes for each supported HTTP verb. The method can take
+    strongly typed parameters that can be part of the route, query string, or request
+    body. The method returns an `IActionResult` by default, which allows us to return
+    different data structures depending on the outcome of the request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To implement a REST API using Lambda Functions, we need to implement a class
+    using the SDK Lambda function. This requires us to slightly adjust how we implement
+    both our class and our method. We will employ different class and method attributes
+    to achieve a similar outcome: defining an endpoint that responds to web requests
+    at a specific route.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The Lambda Function class is not decorated with any attributes. A method should
+    take in a request object and an `ILambdaContext` object. This method should also
+    return a corresponding response object. Depending on the type of event you are
+    designing your Lambda Function to respond to, you will need to use different classes
+    for the request and response objects. AWS has published some libraries to encapsulate
+    common structures of these various types to make them easier to build:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.9 – Resource AWS Lambda Function class anatomy](img/B21183_09_9.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.9 – Resource AWS Lambda Function class anatomy
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this book, we are using the Application Load Balancer; therefore, we used
+    the `Amazon.Lambda.ApplicationLoadBalancerEvents` library to provide a standard
+    implementation of our request and response objects. As you can see, we are taking
+    in an `ApplicationLoadBalancerRequest` and returning an `ApplicationLoadBalancerResponse`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If we want to implement a more complex Lambda Function that supports different
+    functionalities or operations, we can implement our routing logic around the `ApplicationLoadBalancerRequest`
+    object’s `Path` and `HttpMethod` properties. These correspond to the ASP.NET framework’s
+    route and HTTP verb attributes that decorate each controller class and its methods.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we can see, the cloud architecture radically simplifies. However, one trade-off
+    is that our backend code needs to be adapted to the AWS Lambda framework. This
+    will require development and testing efforts to transform our code base into this
+    new hosting model. This starkly contrasts with what we explored in previous chapters,
+    where we hosted on VMs or containerized and hosted on a Kubernetes cluster. While
+    conforming to the AWS Lambda application model does take work, its benefits are
+    twofold. First, it allows us to take advantage of a close-to-zero sunk cost. Second,
+    it allows us to fully abstract the underlying infrastructure from us and let the
+    AWS platform take care of scalability and high availability. This allows us to
+    focus more on the functionality of our solutions than on the plumbing required
+    to keep the lights on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we have implemented Terraform to provision our solution and made changes
+    to our application code to conform it to the AWS Lambda framework, in the next
+    section, we’ll dive into YAML and Bash. We will also implement GitHub Actions
+    workflows.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Automating the deployment
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As discussed in the previous section, serverless offerings such as AWS Lambda
+    and S3 abstract the operating system configuration away. Therefore, when we deploy,
+    we simply need an application package that is compatible with the target platform.
+    In this section, we’ll create an automation pipeline using GitHub Actions to provision
+    our application to its new serverless home in AWS.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Terraform
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The first thing that we need to do is to provision our environment to AWS.
+    This is going to be extremely similar to the way we did this in the previous chapters.
+    In [*Chapter 7*](B21183_07.xhtml#_idTextAnchor365), we needed to ensure that our
+    VM images were built and available before we executed Terraform because the Terraform
+    code base referenced the VM images when it provisioned the VMs. With our VM architecture,
+    application deployment happens before Terraform provisions the environment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.10 – Packer-produced VM images are a prerequisite for Terraform](img/B21183_09_10.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.10 – Packer-produced VM images are a prerequisite for Terraform
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In [*Chapter 8*](B21183_08.xhtml#_idTextAnchor402), we provisioned our Kubernetes
+    cluster using AWS EKS without such a prerequisite. In fact, the application deployment
+    occurred after the Kubernetes cluster was online. This means that with container-based
+    architecture, application deployment happens after Terraform provisions the environment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.11 – Docker-produced container images are provisioned to Kubernetes
+    after Terraform executes](img/B21183_09_11.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.11 – Docker-produced container images are provisioned to Kubernetes
+    after Terraform executes
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When using AWS’s serverless offerings, the deployment process mirrors what
+    we saw when deploying our application as containers to Kubernetes. Just like with
+    this approach, we need to build a deployment artifact for AWS’s serverless offerings.
+    For the frontend, that means simply generating the static web content. For the
+    backend, that means generating a Lambda Functions ZIP archive. These artifacts
+    share a similar purpose to the Docker images in that they are a target service-compatible
+    way of packaging our application for deployment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.12 – The .NET CLI produces deployment artifacts that are provisioned
+    to AWS after Terraform executes](img/B21183_09_12.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.12 – The .NET CLI produces deployment artifacts that are provisioned
+    to AWS after Terraform executes
+  prefs: []
+  type: TYPE_NORMAL
+- en: As you can see, the serverless deployment looks very similar to the approach
+    used with the container-based architecture. That’s because AWS is fulfilling the
+    role that Kubernetes played when using a serverless approach. AWS just has custom
+    tools to facilitate the deployment of the application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deployment
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Now that Terraform has provisioned the AWS infrastructure that we need for our
+    serverless solution, we need to take the final step of deploying both the deployment
+    artifacts to the appropriate locations in AWS.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will use .NET and AWS custom tools to produce and deploy the artifacts to
+    these target locations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Frontend
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: As we saw in other chapters, our .NET application code needs to follow a continuous
+    integration process, whereby the code is built and tested using automated unit
+    testing and other built-in quality controls. Nothing changes there except that
+    we need to add some special handling to the deployment artifact that these processes
+    produce in order to make sure it is available to our GitHub Action’s job that
+    deploys the workload to the appropriate location.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `dotnet publish` command outputs the deployment artifact of the .NET application
+    code. This output for the ASP.NET Blazor web application is a folder container:
+    a collection of loose files with HTML, JavaScript, and CSS in it. In order to
+    pass all of these files efficiently from one GitHub Actions job to another, we
+    need to zip them up into a single file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now that the static web content has been zipped into a ZIP archive, we will
+    use the `upload-artifact` GitHub action to save this file to GitHub Actions. This
+    will make the file available for future jobs that are executed within the pipeline:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Future jobs can simply download the artifact using a corresponding `download-artifact`
+    GitHub action and the same name that was used to upload it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Since the ASP.NET Blazor web application will be hosted as static web content
+    on our AWS S3 bucket, we need to ensure that we unzip it before uploading the
+    contents. If we were to upload the ZIP archive to S3, the web application wouldn’t
+    work correctly because all the web content would be trapped inside the archive
+    file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now that the static web content has been unzipped to the staging directory,
+    we can use the `aws s3 sync` command to deploy all of the files in the folder
+    to the S3 bucket:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: Backend
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: To deploy the Lambda Function, the exact same process is followed to pass the
+    artifact from the GitHub Actions job that builds the deployment artifact to the
+    job that actually deploys it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The only difference is that we will use the `aws lambda update-function-code`
+    command to provision a ZIP archive to the Lambda Function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: Unlike how we provisioned the frontend, we don’t need to unzip the deployment
+    package for the Lambda Function. AWS Lambda expects our application code to be
+    bundled into a ZIP archive.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That’s it! Now our application has been fully deployed to AWS S3 and Lambda!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we embarked on an ambitious journey, transitioning from a .NET
+    solution that was previously architected on VMs and Kubernetes using Amazon EKS
+    to a fully serverless architecture utilizing AWS Lambda Functions. This transformative
+    step involved converting our traditional .NET REST API into a suite of Lambda
+    Functions and hosting the frontend as a static website on Amazon S3, marking a
+    significant evolution in our cloud-native development journey for our fictional
+    company’s autonomous vehicle fleet operations platform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we conclude this chapter, we have built three distinct solutions on AWS,
+    spanning VMs, Kubernetes, and now serverless architectures. We’ve also demonstrated
+    our ability to navigate and leverage AWS’s diverse capabilities to meet our evolving
+    needs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking ahead, we are poised to embark on a new chapter of our cloud journey
+    with Microsoft Azure. Under the guidance of our elusive and visionary CEO, Keyser
+    Söze, who has now forged a partnership with Microsoft, we stand at the threshold
+    of exploring similar architectures in the Azure ecosystem. With our sights now
+    set on Azure, I invite you to continue our journey as we enter this alternate
+    universe, ready to tackle new challenges and uncover new possibilities on a completely
+    different cloud platform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Part 4: Building Solutions on Azure'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Armed with the conceptual knowledge of Terraform and architectural concepts
+    that transcend the implementation details of the major public cloud platforms,
+    we’ll explore building solutions on Microsoft Azure with three cloud computing
+    paradigms: virtual machines, containers with Kubernetes, and serverless with Azure
+    Functions.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This part has the following chapters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[*Chapter 10*](B21183_10.xhtml#_idTextAnchor474), *Getting Started on Azure
+    – Building Solutions with Azure Virtual Machines*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 11*](B21183_11.xhtml#_idTextAnchor509), *Containerize on Azure –
+    Building Solutions with Azure Kubernetes Service*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 12*](B21183_12.xhtml#_idTextAnchor543), *Go Serverless on Azure –
+    Building Solutions with Azure Functions*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

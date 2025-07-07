@@ -1,0 +1,1823 @@
+- en: Security and Identity
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Federating with your AWS account
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating SSL certificates
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Active Directory as a service
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating users
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating instance roles
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Cross-account user roles
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Storing secrets
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Introduction
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Security is one of the most critical areas of using the cloud. It's important
+    to get it right because good security practices reinforce themselves, leading
+    to a virtuous cycle of capabilities and control.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are many tools and AWS services to ensure that your cloud-based infrastructure
+    is as secure—if not more secure—than your own resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: AWS IAM is the backbone of security in AWS. It provides incredibly granular
+    levels of permissions to allow (and deny) specific users access to your resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Federating with your AWS account
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This recipe will show you how to federate identities from your Active Directory
+    and use AD groups and IAM roles to provide different levels of access to multiple
+    AWS accounts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At a high level, we're going to have an AWS account that is designated as an
+    Auth Account. Users will log in to this account and be assigned a role. This role
+    will have next to no privileges because we don't want them doing anything in the
+    **Auth Account**. However, they will be able to use role switching to access another
+    AWS account; we'll call this the **App Account**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is a reasonably common pattern whereby users will have access to a number
+    of AWS accounts and use role switching to jump between them—all using credentials
+    that are verified against an AD backend and a level of access that is derived
+    from AD groups.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/image_08_001.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Federation
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'You''ll need the following before we can proceed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: An instance of Simple AD. Refer to the *Active Directory as a service* recipe.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The name of an access URL, which your users will use to log in (that is, [https://bluthcorp.awsapps.com](https://bluthcorp.awsapps.com)).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Two AWS accounts. One of these will be your *Auth* *Account*, the other will
+    be your *App* *Account*.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A Windows server in your VPC, joined to your Simple AD domain, with Remote Server
+    Admin Tools installed so we can manage groups and users.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'If you launch the Windows server using the launch wizard, it will give you
+    the option of joining the domain at boot time. Note that the server will need
+    to be running with an instance role that will have the following two AWS Managed
+    Policies: AmazonEC2RoleForSSM and AmazonSSMReadOnlyAccess.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'This recipe is split up in to five parts:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Active Directory configuration
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Auth Account policy configuration
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Auth Account role configuration
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Simple AD Directory configuration
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: App Account role configuration
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Active Directory configuration
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Our first task will be to create the necessary groups in Active Directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Go ahead and create a group called `AWSPowerUser`, as shown in the following
+    screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_002.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Do the same for the `AWSReadOnly` group:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_003.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'We''re now going to create a couple of users. The first one is `Lucille`, as
+    shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_004.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The next user will be `Buster`. Let''s add him now:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_005.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: '`Lucille` is going to be our power user, so we''ll add her to the `AWSPowerUser`
+    group:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_006.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'We don''t really trust `Buster` at all. True to his name, he''s prone to breaking
+    things. Let''s add him to the `AWSReadOnly` group:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_007.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Auth Account policy configuration
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We now we need to create a policy in our Auth Account. Remember that this is
+    the account that the users `Lucille` and `Buster` will initially log in to when
+    visiting the AWS console. We actually want to give them extremely limited access
+    to this account. In fact, the only thing we're going to let them do is attempt
+    to switch to a role in the application account.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Visit the IAM console in the Auth Account and create a new policy:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: AWS refers to this type of policy as a *Customer Managed Policy*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/image_08_008.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Call this policy `AllowAssumeRole`. Give it a description to help you remember
+    what it''s for. Then apply the following policy document. You are going to want
+    to make sure the account number of the App Account is added to your policy:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: '![](img/image_08_009.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Auth Account policy config
+  prefs: []
+  type: TYPE_NORMAL
+- en: Auth Account role configuration
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Now we''re going to create two roles. These roles will correspond to the groups
+    we defined in Active Directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`AWSPowerUser`: `CanAssumePowerUser`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`AWSReadOnly`: `CanAssumeReadOnly`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Start by creating the `CanAssumePowerUser` role first:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_010.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'We want this role to be an AWS Directory Service role, so be sure to select
+    it before proceeding:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_011.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Attach the `AllowAssumeRole` policy we have already created to this role:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Hint: You can filter the roles using the search box to make finding them easier.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/image_08_012.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Click Create Role to confirm:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_013.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Now go ahead and do exactly the same for the `CanAssumeReadOnly` role. Again,
+    attach the `AllowAssumeRole` policy we created earlier:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_014.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Simple AD configuration
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We now need to go through the process of enabling user accounts in the directory
+    to log in to the AWS management console.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Point your browser to the AWS Directory Service Console and edit the configuration
+    of your Simple AD directory. Enter the access URL you''ve chosen:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_015.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'We now want to enable the AWS Management Console for this service. Click on
+    it to proceed to the next step:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_016.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'We''ve already created roles and assigned a policy to them. So select Use Existing
+    Role, as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_017.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Start with the `CanAssumePowerUser` role. We need to map it to the `AWSPowerUser`
+    group we created in AD (the one `Lucille` resides in):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_018.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Search for `AWSPowerUser` and then proceed to the next step:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_019.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'You now need to repeat these steps for the `CanAssumeReadOnly` role. Map it
+    to the `AWSReadOnly` role we created in AD:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_020.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: App Account role configuration
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'It''s now time to configure our application account. In it, we need to create
+    some new roles and then set up a trust relationship between those new roles and
+    the roles we created in our Auth Account:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Start by going to the IAM console in the Auth Account and creating a new role.
+    This role will be `PowerUserRole`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_021.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'This role will be of the Role for Cross-Account Access kind. Make sure to select
+    this type:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_022.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'You''ll be prompted to enter an AWS Account ID. This is the account ID of the
+    Auth Account:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_023.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'For this role, we are going to use the AWS Managed Policy for `PowerUserAccess`,
+    so go ahead and attach this policy now:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_024.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Click Create Role on the confirmation page and we''re ready for the next step:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_025.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'AWS will automatically create a trust relationship on our behalf. Unfortunately,
+    it''s not quite right, so we need to edit it:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_026.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'We want anyone who has the `CanAssumePowerUser` role in our Auth Account to
+    be able to assume `PowerUserRole` in our App Account. So we need to make a small
+    change to the trust relationship like so (remember to replace the account IDs
+    with your own):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: '![](img/image_08_027.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Repeat these steps by creating a role called `ReadOnlyRole` and attach the
+    AWS Managed `ReadOnlyAccess` policy to it:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_028.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Again, we want to update the trust policy. Here we''re going to allow both
+    `CanAssumePowerUser` and `CanAssumeReadOnly` to switch to the `ReadOnlyRole`.
+    This will be useful for administrators who would want to avoid accidents while
+    clicking around the console:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: '![](img/image_08_029.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: App Account role config
+  prefs: []
+  type: TYPE_NORMAL
+- en: That was our final step. It's now time to test it out.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How it works...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Visit the access URL you assigned to your Simple AD directory (for example, [https://bluthcorp.awsapps.com/console](https://bluthcorp.awsapps.com/console)).
+    Log in with the credentials of the user `Lucille` so we can test out our `PowerUserRole`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_030.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'If you click around the AWS console, you''ll notice you don''t really have
+    access to do anything at all. This is because you''re currently bound by a policy
+    that only allows you to assume a role (in the application account). So, let''s
+    try doing that. Click on your account name in the top-right corner and choose
+    Switch Role:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_031.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'On the next page, you want to enter the account ID of the application account
+    and the role you wish to assume: `PowerUserRole`. Clicking Switch Role here will
+    log you in to the application account under `PowerUserRole`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_032.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'You should now have an active session under `PowerUserRole` in the application
+    account. You''ll recall that we assigned a `PowerUserAccess` policy to this role.
+    So you should be free to do almost anything in this account using the profile
+    of the user, `Lucille` (notable exceptions being IAM and organizations management).
+    If you click on your name again, you''ll see details about which role was assigned
+    to you when you logged in and which role is currently active:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_033.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Try switching to the `ReadOnlyRole`. Verify that you aren''t able to create
+    any resources, perhaps by trying to create a new EC2 key pair or by creating an
+    empty security group:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_034.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Log out and go back to the access URL for Simple AD. Sign in with the credentials
+    of the user, `Buster`. Again, you''ll see you don''t have access to do much in
+    the Auth Account:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_035.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'You should be able to switch to the `ReadOnlyRole` in the application account.
+    Try it now to make sure it works. You can use the Role History shortcut to avoid
+    typing in the account number and role name again:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_036.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Finally, try switching `Buster` to `PowerUserRole` in the application account.
+    `Buster` definitely shouldn''t have access to it and you should see an error page
+    that looks like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_037.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: There's more...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Exactly the same setup can be achieved with your existing Active Directory
+    installation, even if it resides outside AWS in your data center. You will need
+    to swap out Simple AD for AD Connector:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_038.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Federation with AD Connector
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can also use ADFS and SAML 2.0 to enable federation to AWS from your existing
+    AD installation. This would negate the need for users to log in to the console
+    using a `*.awsapps.com` domain and would also negate the need for an Auth account.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: See also
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The *Active Directory as a service* recipe
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating SSL certificates
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: SSL-based communications are now becoming the de facto standard—insecure methods
+    are no longer *good enough*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: AWS provides the **AWS Certificate Manager** (**ACM**) service to provision
+    AWS-backed SSL certificates that you can use with your AWS resources, such as
+    **Elastic Load Balancers** (**ELBs**) and CloudFront.
+  prefs: []
+  type: TYPE_NORMAL
+- en: ACM is free to use! There's nothing to pay for the certificates themselves.
+    You pay for the underlying resources you use with them as normal.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Run the CLI command, including the domain name you want the certificate for
+    (you can use `*` as a wildcard):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can now see the request in the ACM console, but note the request is pending:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_039.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Check your domain administration e-mail(s). You will receive a confirmation
+    of the request that will look like the following message:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_040.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Once you approve the request, you will be given a confirmation message:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_041.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'You can now see that the certificate is ready to use in the AWS ACM console:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_042.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Use the Identifier value to apply the certificate to your resources:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/image_08_043.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: How it works...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Using the CLI tool is the quickest and easiest way to create a certificate request.
+    Create the certificate in the region you plan to use it in; that is where your
+    ELB(s) are located.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you plan to use your certificate with CloudFront, you must create it in the
+    `us-east-1 region`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After the request has been created, AWS will confirm the request is valid by
+    sending approval e-mails to various standard e-mail addresses, based on conventions
+    and the WHOIS information for your domain. Approval e-mails will be sent to the
+    following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The domain registrant
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The technical contact
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The administrative contact
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'And the following addresses:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`administrator@<your-domain>`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`hostmaster@<your-domain>`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`postmaster@<your-domain>`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`webmaster@<your-domain>`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`admin@<your-domain>`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You must accept at least one of the approvals before you can use your certificate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once approved, you can use the Identifier value in the configuration of your
+    other resources, such as EC2 ELB(s) and CloudFront distributions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There's more...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: While ACM makes getting SSL certificates for your application trivial, there
+    are a few limitations to be aware of.
+  prefs: []
+  type: TYPE_NORMAL
+- en: EC2 instances
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You'll notice in the documentation that only ELBs and CloudFront are supported
+    by ACM certificates. You cannot put an ACM certificate directly on an EC2 instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While this is a limitation, in practice it's not a big issue. Generally, you
+    wouldn't want to expose your instances to the Internet directly—they should be
+    behind an ELB/ALB for security, performance, and management reasons. If you are
+    serving static assets, CloudFront is going to be much more secure, and performs
+    better at a lower cost.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Importing certificates
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You can import your own certificates in to ACM, so that they can be used with
+    your ELB(s) and CloudFront. This might be done because you have already purchased
+    a certificate from a third-party provider, or require a particular signing authority.
+  prefs: []
+  type: TYPE_NORMAL
+- en: CloudFormation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You can also request certificates as part of the CloudFormation stack. This
+    is great for ensuring each of your resources has a specific certificate, unique
+    to each deployment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is a sample snippet of CloudFormation YAML to create a certificate, similar
+    to the preceding example in this recipe:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Active Directory as a service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This recipe will show you how to deploy an AWS **Simple Active Directory** (**Simple
+    AD**) service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Simple AD is powered by Samba 4 and is a Microsoft Active Directory compatible
+    managed service. It will work with many applications that require Active Directory
+    support and provides a large range of the commonly used Active Directory features,
+    including the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: User accounts
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Single sign-on (Kerberos)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Group memberships
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Domain joining
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'It also integrates with other services provided by AWS, such as the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: AWS Management Console
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: WorkMail
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: WorkDocs
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: WorkSpaces and WorkSpaces Application Manager
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: AWS manages backup and restoration of the directory for you in the form of daily
+    snapshots and the ability to perform point-in-time recovery.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Features that aren''t supported include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Trust relationships with other AD domains
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: DNS dynamic updates
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Schema extensions
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: MFA
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: LDAPS
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: PowerShell AD cmdlets
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Transfer of FSMO roles
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The ideal scenario for Simple AD usage is when you don't require advanced AD
+    features and you're supporting less than 5,000 users. If either of these isn't
+    true, you will want to look at AWS' fully fledged Microsoft Active Directory service.
+    Brace yourself for some added complexity and much higher cost if you choose this
+    path, however.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Before going ahead, we''ll need the following pieces of info:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The FQDN for your directory (for example, [http://megacorp.com/](http://megacorp.com/)).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'A password for administering your directory. This password corresponds to the
+    `Administrator` user that will be created on your behalf. Note that the password
+    needs to be between 8-64 characters and will also need to contain one character
+    from three of the following four groups:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Lowercase letters
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Uppercase letters
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Numbers
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Non-alphanumeric characters
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The ID of the VPC we're deploying to.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The IDs of two subnets in this VPC. These subnets need to be in different Availability
+    Zones.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The size of the directory you'd like to deploy. You can choose between *Small*
+    and *Large*.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A domain controller is going to be deployed in each of the two subnets you've
+    chosen. They'll be communicating between each other on a fairly large number of
+    ports. Ideally, these subnets would exist in the same *tier* in your VPC and by
+    extension would not have any NACLs which would stop the controllers from talking
+    with each other.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If, for some reason, you're restricting traffic using NACLs within your VPC
+    tiers, you will want to refer to the AWS docs for a list of which ports to allow.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For more details, visit [http://docs.aws.amazon.com/directoryservice/latest/admin-guide/prereq_simple.html](http://docs.aws.amazon.com/directoryservice/latest/admin-guide/prereq_simple.html).
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Create a new CloudFormation template file. We''ll start by populating it with
+    `Parameters` that correspond to all the requirements we mentioned before:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, we define our `Resources`. Even though two Simple AD domain controllers
+    are being deployed, we only need to create one resource here:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can now go ahead and run this template in the CloudFormation web console,
+    or via the CLI like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'It will take several minutes to create the directory. Once the Status becomes
+    Active, you may proceed with further setup and integration tasks. Your directory
+    listing page will eventually show a directory listing that looks similar to this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/image_08_044.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Clicking on the directory ID will reveal more detailed information about your
+    directory, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/image_08_045.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: There's more...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The password for the `Administrator` account can't be retrieved or reset. Be
+    sure to keep this password somewhere safe.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You may notice an additional security group appear in your EC2 console. This
+    group is necessary for the directory controllers (although you won't see these
+    appear as EC2 instances in your console).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The directory will contain an account with the prefix `AWSAdminD-`. This account
+    is necessary for AWS to perform maintenance tasks such as backup and FSMO role
+    transfers. Removing this account or changing its password is almost certainly
+    a bad idea.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: See also
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The *Building a secure network* recipe in [Chapter 7](de50c1bf-fc87-4674-9719-c55280a6b60d.xhtml),
+    *Networking*.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating users
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before we introduce this recipe, we need to talk briefly about **Identity and
+    Access Management** (**IAM**). It's free and is enabled on every account. It allows
+    you to create groups and users and allows you to control exactly what they can
+    and can't do using policy assignment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By default, groups and users will have no permissions until you assign them
+    either an *AWS Managed Policy* or a *Customer Managed Policy* (one which you manage).
+    You'll want to use AWS Managed Policies as much as possible to avoid having to
+    create and maintain your own.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There's a third kind of policy called an **Inline Policy**. Use this sparingly.
+    In fact, the only time we typically see it is in CloudFormation templates.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You pretty much never want to assign a policy directly to a user. If you go
+    down this path, you'll create a lot of work for yourself in the future. Instead,
+    you want to apply policies to groups and then assign users to those groups. Fortunately,
+    it's a pretty easy process and we're about to walk you through it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The IAM dashboard provides a URL that your IAM users can use to log in to the
+    web console (if you've assigned them a password and given them access to do so).
+    You can also customize this *IAM sign-in link* if necessary. Don't forget to give
+    this URL to any IAM users you create so they know where to go to sign in.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It will look something like this until you customize it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`https://<account-id>.signin.aws.amazon.com/console`'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, jump right in. There's no excuse for not using IAM. Start today!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: All you need to proceed is the CLI tools installed with a profile which can
+    call the AWS IAM API. If you don't have this, you can follow along with the recipe
+    steps using the AWS web console instead as the process is the same.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Create a new group by running this CLI command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output looks like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The group doesn''t have permissions to do anything yet, so you''ll need to
+    attach a policy to it. You can do it with this command (which unfortunately doesn''t
+    provide any feedback if it successfully runs):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can find the **Amazon Resource Name** (**ARN**) for the policy you''d like
+    to attach in the AWS IAM web console. You can also run the following CLI command
+    to get a list of policies:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In this example, we''re dealing with `PowerUsers` so we want to attach the
+    following ARN, which maps to the AWS Managed Policy for power users:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now we can go ahead and create a new user by running this CLI command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You''ll get a response that looks like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you wish to give this user access to the web console, you''ll need to create
+    a login profile for them. You can do it like so:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Forcing a password reset here is probably good practice. The API should respond
+    to you like so:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To give the API access to the user, they''ll need a set of API keys. Generate
+    them with this command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output will look something like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: Access keys can only be retrieved once. There is no way to fetch them again
+    after they've been generated and shown to you. If you lose your access keys, you'll
+    have to regenerate a new set of keys.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'This user still doesn''t have any permissions to do anything; this is because
+    they don''t yet belong to a group. Let''s add them to the group we created in
+    step 1:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Note that unfortunately this command doesn''t return any output either. You
+    can verify whether or not this worked by running this command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You should see something like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: There's more...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'This pretty much covers the basics of how to create IAM groups and users and
+    assign policies to them. Here are some of the IAM tips and gotchas we''ve run
+    into over the years:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Users can exist in more than one group. Use this to your advantage.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Groups, however, cannot exist within other groups.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Users can have more than one set of API keys. This is necessary when they need
+    to perform key rotation.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You can (and should) define a strong password policy for your IAM users.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `PowerUserAccess` policy is good but does not allow IAM access. At first
+    this might not seem to be a problem; however, if you are bound by this policy
+    you will encounter issues when running CloudFormation stacks that create IAM roles
+    for EC2 instances, for example.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: IAM is a global service, meaning that users and groups are global, not region-specific.
+    By default, a user can use AWS services in any region.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: EC2 key pairs are region-specific and not specific to an IAM user. In other
+    words, IAM users don't have SSH keys associated with them.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Your IAM username and password (and access keys) won't provide you with SSH
+    or RDP access to running instances. Credentials for these services are managed
+    separately.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You can assign up to 10 policies to a group or user.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You should also consider enabling MFA on IAM user accounts for added security.
+    This is used primarily for accessing the web console but you can also configure
+    your policies so that MFA will be required for API calls too. You can choose between
+    hardware and software tokens. A good rule of thumb is to use software tokens for
+    IAM users and hardware tokens for root logins. MFA via SMS is due to arrive soon
+    and is currently in public preview.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: See also
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The *Federating with your AWS account* recipe
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The *Cross-account user roles* recipe
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating instance roles
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This recipe is reasonably short but it contains a really important concept to
+    anyone who is new to the AWS platform. Understanding and utilizing IAM roles for
+    EC2 will significantly reduce your exposure to lost credentials and probably help
+    you sleep a little better at night too. In a nutshell, instance roles help you
+    get AWS credentials off your servers and out of your code base(s).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Roles contain one or more policies. We're going to create a role that has some
+    AWS Managed Policies as well as an Inline Policy. As the name would suggest, an
+    AWS Managed Policy is a policy that is created and fully controlled by AWS. The
+    Inline Policy is going to be created by us and will be embedded in our role definition.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The AWS Managed Policies we'll use will allow read-only access to the S3 and
+    EC2 APIs. The Inline Policy we'll create will allow write access to CloudWatch
+    logs. We'll talk through why you would or wouldn't choose a Managed Policy later
+    in this recipe.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Create a new CloudFormation template file and add the first `Resource`. This
+    is going to be our role that contains references to the managed policies, and
+    also our Inline Policy:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We now need to create an `InstanceProfile` resource. A profile encapsulates
+    a single IAM role and, roughly speaking, that''s all it''s used for. A profile
+    can contain only a single IAM role, so it''s not clear why AWS has built this
+    extra layer of abstraction; presumably they have plans to give profiles of other
+    properties aside from roles:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For convenience, we''ll add some `Outputs` that will provide the profile name
+    and ARN to us after the stack is created:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can now create your instance role CloudFormation web console or via the
+    CLI like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: This role can now be assigned to your EC2 instances. The *Feeding log files
+    in to CloudWatch logs* recipe in [Chapter 5](http://Management%20Tools), *Management
+    Tools*, shows how you can define a role and assign it to an EC2 instance at launch
+    using CloudFormation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How it works...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'How on earth does this solve the problem of hardcoded AWS API keys? Well, something
+    really interesting happens when you assign a role to an EC2 instance. The metadata
+    for that instance will return a set of short-lived API keys. You can retrieve
+    these keys by sending an HTTP request to the metadata URL (this is a service EC2
+    instances can use to fetch information about themselves):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`http://169.254.169.254/latest/meta-data/iam/security-credentials/<role name>`'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The output of a curl request to this URL will look something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: If you take the `AccessKeyId` and `SecretAccessKey` returned in the response,
+    you can use them to query the AWS API. The policies applied to the instance based
+    on the role assigned to it will determine exactly what API actions the instance
+    is able to perform using these keys.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The really fun part is that you don't have to worry too much about handling
+    these keys at all (although it's really useful to know how all this works under
+    the hood). For example, the AWS CLI tools will automatically fetch these keys
+    for you prior to running any CLI commands. The same goes for the AWS SDKs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Take a scenario where your developers are building an application that needs
+    to fetch files from S3\. As long as they are using the AWS SDK to do this and
+    the application is running on an EC2 instance that has been assigned a role containing
+    a policy that allows files to be fetched from S3, then no credentials are required
+    by the application whatsoever! The SDK will take care of the queries to the metadata
+    service for you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The AWS SDKs are available for almost every widely used language, so there's
+    no excuse for keeping hardcoded AWS credentials in config files or source code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You will see your instances roles listed in the IAM console under the `Roles`
+    section:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/image_08_046.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Clicking on the role will reveal further details, such as the policies that
+    have been assigned to it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/image_08_047.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: There's more...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: IAM is a global service. This means that the roles and policies you create will
+    be available in every region.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You'll find all the available AWS Managed Policies in the AWS web console. There's
+    quite a few of them so don't be afraid to use the search bar.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: There's a third kind of policy called a Customer Managed Policy. These are policies
+    which are managed by you and will appear in the AWS console amongst the AWS Managed
+    Policies.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: As of February 2017, it is possible to attach an IAM role to an existing/running
+    EC2 instance. This previously wasn't the case and the role could only be assigned
+    at the time the instance launched.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: AWS automatically and periodically rotates the credentials returned by the metadata
+    service.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It's not always appropriate to use an AWS Managed Policy. For example, if a
+    server needs to write to CloudWatch logs, it may be tempting to assign it the
+    AWS Managed Policy that provides full access. If you do this, however, you'll
+    also be giving the server access to delete log groups and streams. This is almost
+    certainly undesirable. You'll want to inspect the policies before you apply them
+    and defer to an Inline or Customer Managed Policy where appropriate. The principle
+    of least privilege applies here.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: See also
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The *Feeding log files in to CloudWatch logs* recipe in [Chapter 5](2ac3ef94-1ec2-4473-84ef-76cad8517270.xhtml),
+    *Management Tools*
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Cross-account user roles
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Using multiple accounts to provision your resources (for example, development
+    and production environments) provides a form of *blast radius* protection—even
+    in a worst-case scenario, any issues or damages are limited to the account they
+    occur in, not your entire AWS presence.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating and assuming roles across accounts is the best way to manage access
+    to multiple accounts. Specific roles provide a clear and explicit declaration
+    of permissions that can be easily reviewed, and revoked if needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This recipe provides a way to scale your access across many accounts, without
+    compromising your security.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This recipe assumes you already have two AWS accounts created and ready to go.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In one account (the **source** account, referred to as *Account A*) you will
+    need an IAM user.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While you will need to use your account's root credentials to set up the first
+    role in an account, *do not* use them on a day-to-day basis. The root account
+    has permissions to do anything in your account, and should only be used when necessary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Start a new template with a version and description:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The template will take one parameter—the source account that can assume the
+    role:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The role itself will consist of the trust role and a sample policy:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: This role has full access to the target account.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, we create an output that will make it easy to retrieve the target
+    role ARN:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: Save the template with a known name, for example `08-target-account-role.yaml`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Deploy the role to the target account (that is, **Account B**) by using the
+    CLI tool:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Get (just) the target role ARN from the outputs of your CloudFormation stack:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In your source account (that is, **Account A**) confirm that you can assume
+    the target role by manually invoking the CLI tool:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'While cross-account roles are extremely useful for administering multiple AWS
+    accounts, they''re not the most intuitive thing to configure. Here''s a diagram
+    that illustrates the resources and their interactions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/image_08_048.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The first few steps of this recipe are simply creating the **Target IAM Role**
+    in a clear and repeatable way using CloudFormation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You must explicitly call out the AWS account number that will be allowed to
+    assume this role. If you want to allow multiple accounts to assume the role, simply
+    add more statements to the `AssumeRolePolicyDocument` property of the role.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The sample policy created in this template gives full access to the target account
+    (because the `Action` and `Resource` are both set to `*`). You should adjust this
+    as appropriate for your needs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defining an output value that returns the IAM role's ARN will make it easier
+    to get the generated ID later in the recipe.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We then launch the template in the target account. As this template creates
+    IAM resources, you must supply the `--capabilities CAPABILITY_IAM` argument. If
+    you don't have any existing IAM users that can launch it, use the AWS web console
+    (after logging in with your root credentials). This means you don't need to bother
+    creating IAM users in the target account.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once you have deployed the template, you will no longer need to log in to the
+    account manually—you can just assume the newly created role from the trusted (source)
+    account. Using an IAM role in the target account means that your day-to-day access
+    does not require multiple passwords, which takes work to manage and store securely.
+    You only need to have one password—the password of your source IAM user.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After the stack has finished creating (which shouldn't take long, as it's only
+    creating one resource), you can quickly extract the target role's ARN with a `describe-stacks`
+    call, combined with a specifically-crafted `--query` argument. The JMESPath query
+    `Stacks[0].Outputs[0].OutputValue` gets the `OutputValue` property of the first
+    output in the first stack returned, which we know will be the target role ARN
+    because there is only one output in the template.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, the sample `assume-role` command will return the credentials for the
+    target role (that is, `ACCESS_KEY_ID` and `SECRET_ACCESS_KEY`). You can then use
+    this in an API call, via the CLI tool or one of the SDKs. Keep in mind that these
+    tokens will be short-lived.
+  prefs: []
+  type: TYPE_NORMAL
+- en: See the next section for a more convenient way to use the credentials with the
+    CLI tool by creating profiles.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There's more...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Just as there are multiple ways to use roles, there are multiple ways to utilize
+    cross-account roles.
+  prefs: []
+  type: TYPE_NORMAL
+- en: AWS CLI profiles
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: One of the easiest ways to use a cross-account role is configuring it as a profile
+    for the AWS CLI tool to use. This means you can quickly and easily switch accounts
+    just by changing the profile you use when executing your commands.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To do this, you must define the target role in the CLI configuration file. With
+    this configuration, it is assumed that your `default` profile is in the source
+    account (that is, Account A).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Add the following snippet to the `~/.aws/config` file on Linux and Mac computers,
+    and `C:\Users\[USERNAME]\.aws\config` file on Windows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To use switch roles, all you need to do is pass the `--profile` argument along
+    with your command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: See also
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The *Creating users* recipe.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Storing secrets
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A common mistake new administrators make when getting started with Infrastructure-as-Code
+    is committing secrets (passwords, access keys, and so on) in their repositories.
+    While this makes their infrastructure repeatable, it also makes it much more likely
+    their credentials will be compromised. Once something is in version control, it's
+    hard and annoying to remove it (that's the point of version control!). Even if
+    you do remove it, it's almost impossible to know if it has already been viewed/copied
+    by someone unintended.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this recipe, we will introduce and use the open source tool, **Unicreds**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Unicreds is a Golang port of the Python tool, Credstash: [https://github.com/fugue/credstash](https://github.com/fugue/credstash).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: While the functionality is very similar, Unicreds has the benefit of being cross-platform
+    and dependency-free!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since this pattern is completely backed by AWS services, it removes the need
+    to manage (and worry about) password vaults, shared passwords, and committing
+    sensitive information to SCM.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You might even use Unicreds to store non-secret information, because it provides
+    a convenient way to store and share settings without the need to run or maintain
+    any servers!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You must have Unicreds present on your target system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As it is written in Golang, it is easily distributed as a standalone binary
+    application—no installer or dependencies are required.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Releases for all platforms are available at [https://github.com/Versent/unicreds/releases](https://github.com/Versent/unicreds/releases).
+  prefs: []
+  type: TYPE_NORMAL
+- en: These commands assume your default profile has the permission to create KMS
+    keys and DynamoDB tables. You can override the profile used by passing the `--profile`
+    argument with all of the commands in the recipe. You must also have your AWS region
+    setting configured.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Create a KMS key, and take note of the Key ID returned:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Create an alias for the key:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Unicreds uses the `alias/credstash` alias to make it compatible with Credstash.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Set up the resources required by Unicreds:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Store a secret using the `put` command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Get the secret using the `get` command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Here is a high-level diagram that illustrates the components involved in theses
+    Unicreds commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/image_08_049.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: We start this recipe by creating the key that will be used to encrypt the secrets
+    in KMS. Note that we never get to see this key—it only exists in KMS. All you
+    can do is request that KMS encrypts or decrypts data with it for you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is possible to import your own key in to KMS (so that you could decrypt the
+    secrets outside of AWS if you needed to), but this is not required for Unicreds
+    to work. The `create-key` command returns the GUID for the key, which will be
+    used in the following steps.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Aliases make it much easier to deal with KMS keys. You can use them in most
+    commands in place of the full key ARN. More importantly, it makes it obvious which
+    key you are dealing with so that you can quickly, easily, and confidently assign
+    access permissions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The default alias for the key used with Unicreds is `alias/credstash`. While
+    this might seem a bit confusing at first, it means that Unicreds is backward-compatible
+    with Credstash. You can choose your own alias; you will simply need to override
+    it when you give your other commands (such as `setup`, `put`, and so on).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `setup` command creates the required resources in your AWS account. This
+    effectively means creating a DynamoDB table to store the secrets in.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once everything is set up, you can start storing secrets using Unicreds. In
+    this example, the secret is stored with the (highly original) key `foo` and the
+    value `bar`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this stage, you can go to DynamoDB in the AWS console and see the stored
+    value in the `credential-store` table. You can also change the name of the DDB
+    table used when you run the `credstash setup` command, if you want to.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once there's a secret stored, you can retrieve it with the `get` command. It's
+    important to remember that there's no need to do this from the same machine you
+    stored it from. As long as the AWS user/role has sufficient permission to use
+    the KMS service and access the DDB table, they will be able to retrieve the secret.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There's more...
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Unicreds leverages the built-in functionality of AWS, so you get an enterprise-grade
+    solution without the overhead of needing to run your own servers. Here are some
+    other useful things you can do to make your secrets even more secure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Key aliases
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Creating multiple KMS keys—and referring to them with unique aliases—is a great
+    way to limit the access to put/get secrets to specific applications or teams.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Instead of using the default `alias/credstash` alias, you could give a team
+    their own alias and be confident that they aren't going to see or write to anyone
+    else's secrets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Secret reader role
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Due to the fine-grained nature of IAM permissions, you can easily segment the
+    type of different access roles get to your AWS resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With the following IAM policy, you can ensure that the user/role can only read
+    secret values (using a specific key and table), but they can never set or change
+    them:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: Secret writer role
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The flip side to the secret reader role is the secret writer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Add this snippet to the relevant IAM policy section of a role to give it the
+    ability to set secret values, but not retrieve them:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: The put-file command
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'You can put entire files in to storage with Unicreds. Just use the `put-file`
+    command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: Versioning
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: While storing your secrets securely is a great start, it is still good practice
+    to change/rotate your passwords, keys, and other secrets regularly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unicreds has built-in support for versioning, which means you can update your
+    secrets while still keeping records of previous versions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When you put to the same secret name multiple times, Unicreds will automatically
+    create new versions for the values. You can get a specific version of secret by
+    providing a version argument with a `get` or `put` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: See also
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The *Creating users* recipe
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

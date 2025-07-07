@@ -1,0 +1,956 @@
+- en: Chapter 5. Networking in LXC with the Linux Bridge and Open vSwitch
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To enable network connectivity for a newly built container we need a way to
+    connect the virtual network interfaces from the container's network namespace
+    to the host and provide routing to either other containers or the Internet, if
+    needed. Linux provides a software bridge that allows us to *wire* LXC containers
+    together in a variety of ways, as we'll explore in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are two popular software bridge implementations – the Linux bridge provided
+    by the `bridge-utils` package and the Open vSwitch project. These extend the basic
+    functionality of the Linux bridge even further, by separating the control and
+    management planes of the switch, allowing for the control of the traffic flow
+    and providing for hardware integration among other things.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By default, when we build a container from the provided templates, the template
+    script sets up networking by configuring a software bridge on the host OS using
+    **Network Address Translation** (**NAT**) rules in `iptables`. In this mode, the
+    container gets its IP address from a `dnsmasq` server that LXC starts. However,
+    we have full control on what bridge, mode, or routing we would like to use, by
+    means of the container's configuration file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we''ll explore the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing and configuring the Linux bridge
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Installing and creating an Open vSwitch switch
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Configuring networking in LXC using NAT, direct connect, VLAN, and other modes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Software bridging in Linux
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Connecting LXC or any other type of virtual machine such as KVM or Xen, the
+    hypervisor layer, or in the case of LXC, the host OS, requires the ability to
+    bridge traffic between the containers/VMs and the outside world. Software bridging
+    in Linux has been supported since the kernel version 2.4\. To take advantage of
+    this functionality, bridging needs to be enabled in the kernel by setting **Networking
+    support** | **Networking options** | **802.1d Ethernet Bridging** to yes, or as
+    a kernel module when configuring the kernel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To check what bridging options are compiled in the kernel, or available as
+    modules, run the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On Ubuntu and CentOS systems, the bridging is available as kernel modules.
+    To verify that they are loaded, run the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To obtain more information about the `bridge` kernel module, execute the following
+    command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: If you are using a distribution that does not have the bridge compiled in the
+    kernel, or available as a module, or if you would like to experiment with different
+    kernel options, you'll need the kernel source first.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To install it on Ubuntu, you can do this by running the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On CentOS, install the kernel source with `yum`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To use the `ncurses` menu for configuring the kernel, run the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: Navigate to **Networking support** | **Networking options** | **802.1d Ethernet
+    Bridging** and select either **Y** to compile the bridging functionality in the
+    kernel, or **M** to compile it as a module.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The kernel configuration menu looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Software bridging in Linux](img/image_05_001.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Once you make the selections, build the new kernel package and install it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: To use the new kernel, install the packages and reboot.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: For more information on how to compile and install the Linux kernel from source,
+    refer to your distribution's documentation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Linux bridge
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The built-in Linux bridge is a software layer 2 device. OSI layer 2 devices
+    provide a way of connecting multiple Ethernet segments together and forward traffic
+    based on MAC addresses, effectively creating separate broadcast domains.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s start by installing the latest version from source on Ubuntu:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: From the preceding output, we can see that we first cloned the `git` repository
+    for the `bridge-utils` project and then compiled the source code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To compile the bridging software on CentOS, the process is similar to what
+    we did in the previous section; first we install the prerequisite packages, then
+    configure and compile, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Invoking the `brctl` command without any parameters shows what operations are
+    available:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: The Linux bridge and the LXC package on Ubuntu
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Let''s install the LXC package and dependencies. To check the latest available
+    package version from the repositories you have configured on your system, run
+    the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output is from an Amazon EC2 instance, showing that the latest LXC version
+    is `2.0.4-0ubuntu1~ubuntu14.04.1`. Let''s install it and observe the output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice how the package installs and configures the `dnsmasq` service, due to
+    package dependencies in the `lxc1.postinst` script part of the `lxc` package.
+    This is quite convenient on Ubuntu, but if the distribution you are running does
+    not support that, or you are compiling LXC from source, you can always install
+    that manually. You only need to do this if you prefer `dnsmasq` to assign IP addresses
+    to your containers dynamically. You can always configure the LXC containers with
+    static IP addresses.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'From the preceding output, we can also observe that the package started the
+    `lxc-net` service. Let''s look into that by checking its status:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Also, take a look at the `init` configuration file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can see that the `init` script starts the `lxc-net` service. Let''s see
+    what this provides:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: From the first few lines of the preceding script we can see that it sets up
+    LXC networking defaults, such as the name of the Linux bridge and the subnet that
+    will be assigned by the `dnsmasq` service. It also points us to the default LXC
+    network file that we can use to override those options.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s take a look at the default `lxc-net` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'LXC on Ubuntu is packaged in such a way that it also creates the bridge for
+    us:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice the name of the bridge—`lxcbr0`—is the one specified in the `/etc/default/lxc-net`
+    file and the `/usr/lib/x86_64-linux-gnu/lxc/lxc-net` script.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Linux bridge and the LXC package on CentOS
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Unfortunately, not all Linux distributions package LXC with the extra functionality
+    of building the bridge, and configuring and starting `dnsmasq`, as we saw in the
+    earlier section with Ubuntu. Building LXC from source, as described in [Chapter
+    2](ch02.html "Chapter 2. Installing and Running LXC on Linux Systems"), *Installing
+    and Running LXC on Linux Systems*, or using the CentOS packages, will not automatically
+    create the Linux bridge, or configure and start the `dnsmasq` service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s explore this in more detail on CentOS, by building an LXC container
+    named `bridge`, using the `centos` template:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s check if a bridge was created after the `lxc` package was installed
+    and the container was built:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If we try to start the container, we''ll get the following errors:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding output shows that the container is trying to connect to a bridge
+    named `virbr0`, which does not exist. The name is defined in the following file
+    and then assigned to the container''s configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In order to successfully start the container, we''ll have to first create the
+    bridge that LXC expects:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then start the container again and check the bridge:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `vethB6CRLW` interface is the virtual interface that the LXC container
+    presents to the host and connects to the `virbr0` bridge port:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding output displays the current configuration for the virtual interface
+    of the `bridge` container we built earlier, as seen by the host OS.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using dnsmasq service to obtain an IP address in the container
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The `dnsmasq` service that was started after installing the `lxc` package on
+    Ubuntu should look similar to the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Note, the `dhcp-range` parameter matches what was defined in the `/etc/default/lxc-net`
+    file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s create a new container and explore its network settings:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Notice the name of the virtual interface that was created on the host OS – `veth366R6F`,
+    from the output of the `lxc-info` command. The interface should have been added
+    as a port to the bridge. Let''s confirm this using the `brctl` utility:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Listing all interfaces on the host shows the bridge and the virtual interface
+    associated with the container:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Notice the IP address assigned to the `lxcbr0` interface—it''s the same IP
+    address passed as the `listen-address` argument to the `dnsmasq` process. Let''s
+    examine the network interface and the routes inside the container by attaching
+    to it first:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The IP address assigned to the `eth0` interface by `dnsmasq` is part of the
+    `10.0.3.0/24` subnet and the default gateway is the IP of the bridge interface
+    on the host. The reason the container automatically obtained an IP address is
+    its interface configuration file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: As the preceding output shows, `eth0` is configured to use DHCP. If we would
+    rather use statically assigned addresses, we only have to change that file and
+    specify whatever IP address we would like to use. Using DHCP with `dnsmasq` is
+    not required for LXC networking, but it can be a convenience.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s change the range of IPs that `dnsmasq` offers, by not assigning the
+    first one hundred IPs in the `/etc/default/lxc-net` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After restarting `dnsmasq`, observe the new DHCP range passed as the `dhcp-range`
+    parameter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: The next time we build a container using the Ubuntu template, the IP address
+    that will be assigned to the container will start from `100` for the fourth octet.
+    This is handy if we want to use the first `100` IPs for manual assignment, as
+    we'll see next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Statically assigning IP addresses in the LXC container
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Assigning an IP address inside the container is not any different than configuring
+    a regular Linux server. While attached to the container, run the following commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To make the change persistent, edit the file as follows, then stop and start
+    the container:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s use the `brctl` utility to see what MAC addresses the bridge knows about:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice how this is the MAC of the `veth366R6F` virtual interface and the bridge,
+    as listed by `ifconfig` on the host from the earlier output.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Overview of LXC network configuration options
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Let''s examine the network configuration for the `br1` container we built earlier:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: An impoing to note is the `lxc.network.hwaddr` option. It is the MAC of `eth0`
+    inside the container that was dynamically generated for us. All of the configuration
+    options can be changed, before or after the creation of the container.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following table describes briefly what network configuration options are
+    available to the container:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Option** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lxc.network.type` | The type of network virtualization to be used |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lxc.network.link` | The interface on the host |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lxc.network.flags` | An action to perform on the interface |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lxc.network.hwaddr` | Sets a MAC address on the container''s interface |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lxc.network.mtu` | Sets the **Maximum Transfer Unit** (**MTU**) for the
+    container''s interface |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lxc.network.name` | Specifies the interface name |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lxc.network.ipv4` | The IPv4 address to be assigned to the container |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lxc.network.ipv4.gateway` | The IPv4 address to be used as the default gateway
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lxc.network.ipv6` | The IPv6 address to be assigned to the container |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lxc.network.ipv6.gateway` | The IPv6 address to be used as the default gateway
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lxc.network.script.up` | Specifies a script to be executed after creating
+    and configuring the network |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lxc.network.script.down` | Specifies a script to be executed before destroying
+    the network |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 5.1
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+- en: We'll explore most of the options from this table in more detail, later in this
+    chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Manually manipulating the Linux bridge
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Let's finish our exploration of the Linux bridge by showing a few examples of
+    how to manually work with it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can start by showing the bridge on the host by running the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To delete the bridge, the interface needs to be brought down first:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, let''s create a new bridge and add one of the containers'' interfaces
+    to it that is exposed on the host OS, `veth366R6F`, in this example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The bridge has been created, but the interface associated with it needs to
+    be brought up as the error, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, let''s assign an IP address to the bridge that the containers can
+    use as their default gateway:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: Open vSwitch
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '**Open vSwitch** (**OVS**) is a software switch that allows for more advanced
+    network configurations, such as policy routing, **Access Control Lists** (**ACLs**),
+    **Quality of Service** (**QoS**) policing, traffic monitoring, flow management,
+    VLAN tagging, GRE tunneling, and more. OVS can be used as an alternative to the
+    Linux bridge. In the next chapter, we''ll build a software-defined network using
+    OVS and GRE tunnels to isolate a group of LXC containers, but for now, let''s
+    demonstrate how to install and configure it in a way similar to the Linux bridge.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s start by installing the package on Ubuntu:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'OVS uses a kernel module that should be loaded:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, let''s confirm there are no switches configured:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The following processes are started after installing the package:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `ovsdb-server` is a database engine that uses JSON RPC and can run independent
+    of OVS. The `ovsdb-server` accepts connections from the `ovs-vswitchd` daemon,
+    which in turn can create and modify bridges, ports, network flows, and so on.
+    As a quick example, we can list the databases managed by the `ovsdb-server` process
+    and the various tables it contains:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `ovs-vswitchd` process is the main OVS application that controls all switches
+    on the host OS.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now it''s time to create a switch and name it `lxcovs0`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, assign an IP address and attach the container''s virtual interface to
+    it, by creating a port:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `veth366R6F` interface belongs to the `br1` container we built earlier
+    in this chapter. To test connectivity, attach to the container, and change the
+    IP address and default gateway to be the port of the OVS network:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To avoid conflict with the Linux bridge, ensure the bridge is destroyed and
+    the kernel module is unloaded:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: Connecting LXC to the host network
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'There are three main modes of connecting LXC containers to the host network:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using a physical network interface on the host OS, which requires one physical
+    interface on the host for each container
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using a virtual interface connected to the host software bridge using NAT
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Sharing the same network namespace as the host, using the host network device
+    in the container
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The container configuration file provides the `lxc.network.type` option as
+    we saw earlier in Table 5.1\. Let''s take a look at the available parameters for
+    that configuration option:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Parameter** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `none` | The container will share the host''s network namespace. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `empty` | LXC will create only the loopback interface. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `veth` | A virtual interface is created on the host and connected to interface
+    inside the container''s network namespace. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `vlan` | Creates a VLAN interface linked to the device specified with `lxc.network.link`.
+    The VLAN ID is specified with the `lxc.network.vlan.id` option. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `macvlan` | Allows a single physical interface to be associated with multiple
+    IPs and MAC addresses. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `phys` | Assigns a physical interface from the host to the container, using
+    the `lxc.network.link` option. |'
+  prefs: []
+  type: TYPE_TB
+- en: Let's explore the network configurations in more details.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring LXC using none network mode
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In this mode, the container will share the same network namespace as the host.
+    Let''s configure the `br1` container we created in the beginning of this chapter
+    for that mode:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Stop and start the container for the new network options to take effect, and
+    attach to the container:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s check the interface configuration and network routes inside the container:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs: []
+  type: TYPE_PRE
+- en: Not surprisingly, the network interfaces and routes inside the container are
+    the same as those on the host OS, since both share the same root network namespace.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s check the network connectivity while attached to the container:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs: []
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Stopping the container in this mode will cause the host OS to shutdown, so be
+    careful.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring LXC using empty network mode
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The `empty` mode only creates the loopback interface in the container. The
+    configuration file looks similar to the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE54]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Restart the container and attach to it, so we can verify the loopback interface
+    is the only device present:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE55]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s check the interface configuration and network routes inside the container:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE56]'
+  prefs: []
+  type: TYPE_PRE
+- en: As expected, only the loopback interface is present and no routes are configured.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring LXC using veth mode
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The NAT mode is the default network mode when creating containers using the
+    LXC template scripts or the libvirt userspace tools. In this mode, the container
+    can reach the outside world using IP masquerading with `iptables` rules applied
+    on the host. All examples we saw in previous chapters use the `veth` mode.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this mode, LXC creates a virtual interface on the host named something like
+    `veth366R6F`. This is one end of the virtual connection from the container and
+    it should be connected to the software bridge. The other end of the connection
+    is the interface inside the container, by default named `eth0`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following diagram helps visualize the network configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Configuring LXC using veth mode](img/image_05_002.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: LXC in veth mode
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The container configuration is displayed here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE57]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `lxc.network.link` option specifies the network device on the host the virtual
+    interface should connect to, in this case, the `lxcovs0` OVS switch that was created
+    earlier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Notice the `iptables` masquerade rule that was applied on the host:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE58]'
+  prefs: []
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: If for some reason the `iptables` rule is not present, or you would like to
+    build a container that is on a different subnet, adding a new rule can be done
+    with the `iptables -t nat -A POSTROUTING -s 10.3.0.0/24 -o eth0 -j MASQUERADE`
+    command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring LXC using phys mode
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In this mode, we specify a physical interface from the host with the `lxc.network.link`
+    configuration option, which will get assigned to the network namespace of the
+    container and then make it unavailable for use by the host.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following diagram helps visualize the network configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Configuring LXC using phys mode](img/image_05_003.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: LXC in phys mode
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s take a look at the configuration file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE59]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We specify `phys` as the mode of networking, `eth1` as the interface from the
+    host that will be moved in the container''s namespace, and the IP and MAC addresses
+    of `eth1`. Let''s take a look at all network interfaces on the host first:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE60]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Notice that the `eth1` interface is present on the host. Let''s restart the
+    `br1` container and list the host interfaces again:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE61]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `eth1` interface is not showing on the host anymore. Let''s attach to the
+    container and examine its interfaces:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE62]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `eth1` interface is now a part of the container, with the same IP and MAC
+    address as the original `eth1` interface from the host, because we explicitly
+    specified them in the container's configuration file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If we need to have multiple containers using the `phys` mode, then we'll need
+    that many physical interfaces, which is not always practical.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring LXC using vlan mode
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `vlan` network mode allows us to create a **Virtual LAN** (**VLAN**) tagged
+    interface inside the container's network namespace. A VLAN is a broadcast domain
+    that is isolated at the data link layer from the rest of the network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `lxc.network.link` configuration option specifies the interface the container
+    should be linked to from the host and `lxc.network.vlan.id` is the tag that will
+    be applied to the network traffic by the container's interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This mode is useful when there are multiple containers running on hosts and
+    the traffic needs to be isolated between subsets of containers, thus creating
+    a logical network separation. We demonstrated similar concepts with VLAN tags
+    when we talked about network namespaces in [Chapter 1](ch01.html "Chapter 1. Introduction
+    to Linux Containers"), *Introduction to Linux Containers*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To create a container that will be tagging Ethernet packets, the configuration
+    should look similar to the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE63]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We specify a VLAN ID of `100` and `eth1` as the interface the container will
+    be paired with. Restart the container and attach to it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE64]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s examine the `eth0` interface from the container and ensure it''s configured
+    to tag packets with a VLAN ID of `100`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE65]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Notice how the `eth0` interface is named `eth0@if3`. Here, `if3` means that
+    the container''s interface is paired with the host interface that has an ID of
+    `3`, in our case `eth1`. We can see that by running the following command on the
+    host:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE66]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now you can configure `eth0` inside the container to be part of the same subnet
+    as the `eth1` interface on the host.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring LXC using macvlan mode
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The `macvlan` network mode allows for a single physical interface on the host
+    to be associated with multiple virtual interfaces having different IP and MAC
+    addresses. There are three modes that `macvlan` can operate in:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Private**: This mode disallows communication between LXC containers'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Virtual Ethernet Port Aggregator** (**VEPA**): This mode disallows communication
+    between LXC containers unless there''s a switch that works as a reflective relay'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Bridge**: This mode creates a simple bridge (not to be confused with the
+    Linux bridge or OVS), which allows containers to talk to each other, but it isolates
+    them from the host.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Let''s configure the `br1` container to use `macvlan` in `bridge` mode:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE67]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The device that we specify with `lxc.network.link` is the bridged interface
+    we are going to create next:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE68]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With the `macvlan` bridged interface up, we can start the container and examine
+    its network interfaces:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE69]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice the `if3` ID of the `eth0` interface in the container matches the `eth1`
+    ID on the host. We can now assign an IP address to the `eth0` interface from the
+    same subnet as `eth1` on the host and be able to reach other containers in the
+    same subnet. This mode is similar to using the Linux bridge or OVS, but without
+    the overhead of each. Also notice that the containers will not be able to communicate
+    with the host directly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, you became familiar with the Linux Bridge and learned how to
+    connect LXC containers to it. We also looked at Open vSwitch as an alternative
+    to the Linux bridge. We then explored the various network configuration options
+    that LXC presents and saw few examples.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We ended the chapter by demonstrating how to connect LXC to the host network
+    and to other containers using, NAT, VLAN, direct connect, and more advanced nodes
+    such as MAC VLAN.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we are going to put all the knowledge you gained so far
+    into practice, by building a highly available and scalable application deployment
+    using LXC and HAProxy.
+  prefs: []
+  type: TYPE_NORMAL

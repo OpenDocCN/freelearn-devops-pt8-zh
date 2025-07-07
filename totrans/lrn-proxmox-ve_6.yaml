@@ -1,0 +1,710 @@
+- en: Chapter 6. Networking with Proxmox VE
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In [Chapter 5](ch05.html "Chapter 5. Working with Virtual Disks"), *Managing
+    Virtual Disks*, we looked at one of the most flexible, and therefore complex components
+    of virtualization: secondary storage. That flexibility and concomitant complexity
+    is because we were attentive to performance and tuning I/O throughput to do the
+    best we can in the face of the overhead implicit in this kind of virtualization.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This chapter gives the same attention to another opportunity to optimize I/O
+    throughput: *the vNIC configuration of the virtual machine*.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since vNIC optimization involves coordinating fewer moving parts, we're going
+    to use this opportunity to address networking with Proxmox VE in a broader context—beyond
+    just the optimization of the virtual machine, and to the design of networks that
+    include Proxmox VE guests and hosts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Throughout, we'll (strive to) maintain coherent focus on the Proxmox VE's networking
+    model and the possibilities that model opens up for us. We'll cover the topic
+    with enough detail to conjure up possibilities for enterprise network deployment.
+    At the same time, we'll walk through configurations that make more sense in a
+    small office context more consistent with our hardware.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We''ll proceed as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Proxmox VE network model
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Configuring virtual machine guests
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Proxmox VE network model
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This section provides a high-level overview of the Proxmox VE network model.
+    It covers subjects relevant to both Proxmox VE guests as well as hosts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In Proxmox VE 4.0, two fundamental guest network configurations are supported:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Bridged
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Masquerading with NAT
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The following subsection contrasts these two configuration models and establishes
+    effective, sensible use cases for each.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The remainder of the subsection addresses Proxmox VE host configuration concerns:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Routed configuration
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: VLAN support
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: NIC bonding
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Bridged configuration
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Bridged networking connects a Proxmox VE guest to a network using the host's
+    Ethernet adapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Bridged configuration](img/B01784_06_01-1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Visualizing bridged configuration
+  prefs: []
+  type: TYPE_NORMAL
+- en: Virtual machines and containers with bridged connections behave precisely as
+    if they're connected to the physical network. Indeed, each virtual server has
+    a virtual NIC (or vNIC) that appears to the network with a discreet and unique
+    MAC (media access control address) and IP address consistent with the physical
+    network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is the default network configuration for Proxmox VE virtual servers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As in the preceding illustration, it may be helpful to think of a bridged connection
+    as analogous to attaching a physical machine to a simple network switch.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In *Mastering Proxmox*, two contrasting diagrams help illustrate how bridged
+    networking works to provide an alternative to a more traditional infrastructure
+    without virtualization. First, let''s look at a traditional campus infrastructure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Bridged configuration](img/B01784_06_02-1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Visualizing a traditional campus infrastructure
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next diagram, also from *Mastering Proxmox*, represents a campus with a
+    virtualized network infrastructure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Bridged configuration](img/B01784_06_03-1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Visualizing the same campus with a Proxmox VE virtualized network infrastructure
+  prefs: []
+  type: TYPE_NORMAL
+- en: NAT configuration
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In some cases, you may want to hide a virtual server behind the PVE host's true
+    IP address and masquerade traffic using **network address translation** (**NAT**).
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this scenario, the virtual machine or container has full access to network
+    resources, but is not directly accessible from outside nodes. If a bridged connection
+    is thought of as a kind of switch, NAT virtual servers may be thought of as being
+    behind a router that partitions a public network from a private network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With virtualization solutions and applications for workstations, such as Oracle's
+    VirtualBox or VMware Workstation, NAT virtual machines make so much sense; they're
+    fantastic for creating development and testing environments. They have full access
+    to the LAN but, unless ports are forwarded, they cannot be accessed by the other
+    nodes on the LAN. This is precisely what we want in the development and testing
+    environments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, it may be hard at first to come up with a use case for virtual servers
+    hosted by Proxmox VE, since the services wouldn't be available to users on the
+    physical network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here''s an example where NATing virtual servers is an ideal solution: several
+    web servers are working together to provide optimal service availability. Each
+    is listening on ports 80 and 443 (conventionally, HTTP and HTTPS respectively).
+    For efficiency and efficacy, traffic is proxied through a load balancer.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As illustrated here, both bridging and NATing are used for the scenario described
+    previously:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![NAT configuration](img/B01784_06_04-1024x930.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: An example use case of using NAT and bridged configurations with virtual servers
+    and Proxmox VE
+  prefs: []
+  type: TYPE_NORMAL
+- en: Routed configuration
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: If your Proxmox VE instance is hosted by a cloud service, the bridged configuration
+    described previously should not work. With an eye toward security, most hosting
+    providers disable networking when they detect multiple MAC addresses on a single
+    interface ([https://pve.proxmox.com/wiki/Network_Model](https://pve.proxmox.com/wiki/Network_Model)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As a result, the bridged configuration provided here would likely not be functional:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: A common solution is having a single interface configured with a public, static
+    IP (`192.168.10.2` for this example). Using a bridge, additional IP blocks are
+    provided for the Proxmox VE guests (assume `10.10.10.1` with a subnet mask of `255.255.255.0`
+    for this example).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The configuration for a routed solution scenario might look something like
+    this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: The configurations offered are published on the Proxmox VE wiki page at [https://pve.proxmox.com/wiki/Network_Model#Routed_Configuration](https://pve.proxmox.com/wiki/Network_Model#Routed_Configuration).
+  prefs: []
+  type: TYPE_NORMAL
+- en: In addition, helpful information is incidentally provided in the Proxmox forum
+    thread at [http://forum.proxmox.com/threads/2034-Routed-setup](http://forum.proxmox.com/threads/2034-Routed-setup).
+  prefs: []
+  type: TYPE_NORMAL
+- en: VLAN support
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Proxmox VE supports VLANs in the network infrastructure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: A VLAN (or virtual LAN) is now understood as a group of network devices that
+    are configured to communicate as if they were attached to the same physical network,
+    when they are, in fact, located on any number of different LAN segments. In other
+    words, on a campus where physical media intended for a single LAN are available,
+    VLANs logically partition that monolithic physical network into a number of logical,
+    or virtual LANs. Thus, based on logical connections rather than physical ones,
+    VLANs provide an opportunity for enormous flexibility.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The procedure for joining a Proxmox VE host is outlined here; this process
+    requires editing the text file at `/etc/network/interfaces`. Have the VLANs already
+    set up in your infrastructure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Create the bonded interfaces for each of the VLANs.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Edit your `bridge_ports` interfaces to match the VLANs you are using for management.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Rename your `vmbr` devices so that they reflect your VLAN.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: After ensuring that the switch port that is plugged into the PVE machine is
+    trunked using the dot1q encapsulation, restart the interface: `/etc/init.d/networking
+    restart`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Check your work using the `ifconfig` command.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The details are extremely contingent on the logical organization of the network;
+    however, the Proxmox VE wiki has a guide with detailed examples at [https://pve.proxmox.com/wiki/Vlans](https://pve.proxmox.com/wiki/Vlans).
+  prefs: []
+  type: TYPE_NORMAL
+- en: NIC bonding
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Proxmox VE supports NIC bonding (or NIC teaming) out of the box, and it's configured
+    very much as it would be on any Debian-based host.
+  prefs: []
+  type: TYPE_NORMAL
+- en: NIC bonding is a strategy used primarily to increase fault tolerance on a PVE
+    server. Bonded NICs that appear to have the same physical device have the same
+    MAC address. Linux includes a kernel module called bonding to allow users to bond
+    multiple network interfaces into a single channel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: To learn more about NIC bonding with GNU/Linux and the pitfalls to avoid, please
+    visit Charlie Schulting's article *Understanding NIC Bonding with Linux* at [http://www.enterprisenetworkingplanet.com/linux_unix/article.php/3850636/Understanding-NIC-Bonding-with-Linux.htm](http://www.enterprisenetworkingplanet.com/linux_unix/article.php/3850636/Understanding-NIC-Bonding-with-Linux.htm)
+    (posted November 2, 2009). Linux Journal published another great resource called
+    "Bond, Ethernet Bond" in 2011: [http://www.linuxjournal.com/article/10931](http://www.linuxjournal.com/article/10931).
+  prefs: []
+  type: TYPE_NORMAL
+- en: To learn more about bonding with Debian, the GNU/Linux distribution upon which
+    Proxmox VE is built, visit the Debian wiki at [https://wiki.debian.org/Bonding](https://wiki.debian.org/Bonding).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Proxmox VE wiki has an article on making the best use of bonding at [https://pve.proxmox.com/wiki/Bonding](https://pve.proxmox.com/wiki/Bonding).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The simplest resource for configuring a Proxmox VE host to take advantage of
+    bonding is an official Proxmox tutorial on YouTube at [https://www.youtube.com/watch?v=-8SwpgaxFuk](https://www.youtube.com/watch?v=-8SwpgaxFuk).
+    You'll find that, unlike VLAN configuration, bonding can be configured from the
+    management interface alone; there's no immediate need to edit files from the command
+    line.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Network configuration for virtual servers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Equipping a virtual machine or container with a vNIC can be a simple matter
+    handled completely through the management interface during the initial configuration
+    or subsequently as circumstances demand.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, it can also be a fairly complex matter that requires modification of
+    configuration files from the command line on the host, in the VM or container,
+    or both.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this section, we''ll explore the simplest scenario: providing connectivity
+    to VMs through the web-based management interface.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Providing basic connectivity
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Here, we will focus on providing our virtual machines with basic connectivity
+    and incorporate them into a flat network. We'll work first with VMs and then with
+    containers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Of VMs and vNICs
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: In [Chapter 4](ch04.html "Chapter 4. Creating Virtual Machines"), *Creating
+    Virtual Machines*, we glossed over the configuration of the virtual network interface
+    in the name of efficiency. Here, we'll discuss options provided by the VM creation
+    wizard in the administrative interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Bridge configuration
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: First, let's configure a VM intended to be used with Debian 8 that's using a
+    bridged connection. As previously described, a bridge configuration will integrate
+    the VM into the LAN, making it fully available to other nodes, addressable with
+    a unique IP, and identifiable by its MAC address. It's analogous to plugging a
+    new physical machine into a network switch on the physical network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Recall from [Chapter 4](ch04.html "Chapter 4. Creating Virtual Machines"), *Creating
+    Virtual Machines*, that the **Create: Virtual Machine** dialog has eight tabs
+    in total and that the **Network** tab is the seventh—the final tab before reviewing
+    and committing your configuration for the new VM.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here are the steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Download the Debian 8 netinst image and upload it to the Proxmox VE host using
+    any of the methods described in [Chapter 4](ch04.html "Chapter 4. Creating Virtual
+    Machines"), *Creating Virtual Machines*.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Access the Proxmox VE administrative interface at `https://<my-ip-addr>:8006`
+    and create a new VM, specifying the netinst image in the CD/DVD tab of the **Create:
+    Virtual Machine** wizard.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: For this VM, the defaults on most tabs will be fine. On the **OS** tab, choose
+    the **Linux 3.x/2.6 Kernel** option at the top right of the tab; on the **CPU**
+    tab, ensure **Type** is set to **Default (kvm64)**. As discussed in the previous
+    chapter, we'll choose **VIRTIO** as our **Bus/Device** on the **Hard Disk** tab
+    with the **Cache** option set to **No cache**.![Bridge configuration](img/B01784_06_05.png)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Configuring the hard disk
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: On the **Network** tab, we'll choose **Bridged mode** in the left column. The
+    virtio paravirtualization driver increases performances not only for storage IO,
+    but also for network IO. Since virtio drivers are incorporated into GNU/Linux,
+    we're going to take advantage of this support by choosing virtio (paravirtualized)
+    as the NIC model in the right column of the **Network** tab.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: When you're all set, review your configuration on the **Confirm** tab and click
+    on **Finish** to commit to the VM's creation.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Remember, you're not stuck with VNC options through the **Console** tab. Select
+    the VM, select the **Hardware** tab, and double-click on **Display** to select
+    **SPICE**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Bridge configuration](img/B01784_06_06.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Configuring the display for use with SPICE console option
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Note that the **Hardware** tab also indicates that the configured vNIC for
+    the VM has now been assigned a MAC. If you select **Network Device** and click
+    on the **Edit** button, you should see a similar dialog to the one illustrated
+    here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Bridge configuration](img/B01784_06_07.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Configuring the Network Device
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, get ready to start the installation, select the VM, click on **Start**,
+    and drop the **Console** menu down to select **SPICE**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this point, follow the on-screen instructions to install Debian 8 to suit
+    your taste. You'll have the option to use graphical installation—the screenshots shared
+    in this section will be from that installation mode.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Bridge configuration](img/B01784_06_08.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Networking works
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'At this stage, you have confirmation that your virtual machine has connectivity:
+    if you glance at the management interface, you''ll also see network activity:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Bridge configuration](img/B01784_06_09.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Network confirmed as working
+  prefs: []
+  type: TYPE_NORMAL
+- en: Proceed through the installation until you are asked to specify packages to
+    install. At that point, let's select just enough for a proof-of-concept of bridge
+    configuration. Select **web server**, **SSH server**, and **standard system utilities**;
+    click on **Continue** to complete the installation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Bridge configuration](img/B01784_06_10.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Selecting packages to install
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With all the virtual pieces in place, when you click on **Continue**, you should
+    be able to watch the progress as it downloads packages from the Internet and gives
+    them a default installation and configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Bridge configuration](img/B01784_06_11.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Given a bridge configuration, when the installation is complete and the machine
+    reboots, it'll be available at a dynamically assigned IP. You should be able to
+    confirm this by accessing the machine via SSH or accessing Apache's default web
+    page using your browser and pointing to port 80 on the machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the other hand, nothing is confirmed without the IP address.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unfortunately, the dynamically assigned IP isn't immediately available through
+    the administration interface; we can find it through a scan, or we can simply
+    use the console and ask in a terminal session.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Bridge configuration](img/B01784_06_12.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Using ifconfig to discover the dynamically assigned IP address of the guest
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The preceding illustration shows the results of `ifconfig` in the new virtual
+    machine: `inet addr`, the IPv4 address is 192.168.1.50\. Users can now use any
+    machine with a browser or SSH client to control the new web server, for example `ssh
+    rik@192.168.1.50`, or `http://192.168.1.50` in this case:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Bridge configuration](img/B01784_06_13.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Successful Apache2 access from the LAN
+  prefs: []
+  type: TYPE_NORMAL
+- en: We've successfully created a virtual web server available everywhere on our
+    flat LANs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As long as we keep using a dynamic IP, the address will not be reliable. Configuring
+    a static IP address in a VM is not different from doing so on a physical machine.
+    It depends on privileged access and knowing the routine and your network configuration;
+    you'll need to have an available IP address in mind, and know your subnetwork
+    mask, preferred DNS servers, and gateway. You'll also want your root credentials
+    on hand.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before you make changes, `/etc/network/interfaces` will look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Bridge configuration](img/B01784_06_14.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Interfaces configuration from the CLI
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With my target configuration in mind, I can use `nano /etc/network/interfaces`
+    to edit the configuration file to match it, as illustrated here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Bridge configuration](img/B01784_06_15.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Editing /etc/network/interfaces in the guest
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After writing out and rebooting, the web page should be available at the specified
+    address, in this case `http://192.168.1.250`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Bridge configuration](img/B01784_06_16.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The Apache 2 default page
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Use the `ifconfig` command to review the configuration of the network interfaces:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Bridge configuration](img/B01784_06_17.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In a home or small office setting, we simply forward a port on the WAN side
+    to port 80 on the VM, and it will be accessible to the world.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this subsection, we worked through an example of bridge configuration by
+    creating a disposable Debian web and SSH server. We saw that using a bridge configuration,
+    our virtual server is available to any node on the LAN, and potentially to the
+    world.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the following subsection, we'll quickly demonstrate NAT configuration with
+    a pretty narrow use case.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using NAT configuration
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: Let's adapt our Debian 8 guest. Instead of a virtual server, let's turn it into
+    a desktop machine that's hidden from the rest of the LAN but accessible to users
+    with access rights via PVE's web-administration console.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Log in to the administrative interface, select the Debian VM we created in the
+    preceding subsection, shut it down, and select its **Hardware** tab.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Select the **Network Device** line and click on the **Delete** button to remove
+    the interface.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Click on the **Add** button and select **Network device**, as illustrated here.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'In the **Add: Network Device** dialog, select **NAT mode** in the left column
+    and choose **VirtIO (paravirtualized)** from the **Model** drop-down menu.![Using
+    NAT configuration](img/B01784_06_18.png)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Setting up a network device with NAT configuration
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Enter the VM with the console, and return the interface's configuration to its
+    prior state by entering `nano /etc/network/interfaces` and editing the file as
+    it appears here:![Using NAT configuration](img/B01784_06_19.png)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Setting up a network device with NAT configuration
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Restart networking with `/etc/init.d/networking restart`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Confirm your new address by entering `ifconfig` to see results similar to those
+    illustrated here:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Using NAT configuration](img/B01784_06_20.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Results of ifconfig
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this point, the VM is accessible only to the Proxmox VE host and cunningly
+    masqueraded behind its IP address.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's access it and configure the VM for virtual desktop access through **SPICE**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Make sure the Debian 8 VM machine is selected.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Drop down the **Console** menu and select **SPICE**. You should be prompted
+    to log in to a terminal session. Login with the root credentials.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: At the prompt, enter `tasksel` and press  **Enter** to launch the package configuration
+    tool.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: In the menu, select the **GNU/Linux Desktop** you'd like to try; in the following
+    screenshot, **LXDE** is selected specifically because it is lightweight and our
+    drive space is minimal.![Using NAT configuration](img/B01784_06_21.png)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The package configuration before adding the desktop environment
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![Using NAT configuration](img/B01784_06_22-1024x559.png)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: The package configuration after choosing LXDE desktop environment
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: After the package installation completes, restart the VM with `reboot` or `shutdown
+    -r now`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Welcome to the LXDE desktop environment; log in with the credentials you created
+    for the first user during the installation of Debian earlier in the chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Going immediately to a browser, we can determine that we have access to services
+    on the LAN as well as the Internet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Using NAT configuration](img/image_06_023.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Accessing LAN from the VM with NAT configuration
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Using NAT configuration](img/B01784_06_24-1024x766.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Accessing the Internet from a NAT-configured VM
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, returning to the physical workstation, we find that we have no access
+    to the VM without going first through the Proxmox host.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Instead, we can access the new desktop through the console, and manage permissions
+    with the feature-rich rights-management system Proxmox VE provides to restrict
+    or permit access to VMs by specific users or groups (see [https://pve.proxmox.com/wiki/User_Management](https://pve.proxmox.com/wiki/User_Management)
+    to explore the rich rights management system in PVE).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We conclude having explored the Proxmox VE network model and worked through
+    some configurations for virtual machines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Along the way, our attention turned once more to virtio paravirtualization drivers—not
+    for storage, as in the prior chapter, but rather for network IO. To briefly reiterate,
+    virtio paravirtualization drivers for KVM-QEMU virtual machines help optimize
+    efficiency by taking some of the sting out of the resource overhead associated
+    with virtualization. Proxmox VE doesn't default to virtio, however; it defaults
+    instead to the option with the greatest compatibility. In the case of vNICs, that
+    default is Intel's E1000 NIC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we'll take a somewhat abstracted look at security threats
+    and countermeasures specific to virtual machines, containers, and their hosts.
+    We'll take our first look at the firewall features built in to the Proxmox VE
+    administrative interfaces, and we'll work to realize some of the countermeasures
+    proposed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That being said, let's harden our Proxmox VE hosts and guests!
+  prefs: []
+  type: TYPE_NORMAL

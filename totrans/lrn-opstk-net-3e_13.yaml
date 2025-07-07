@@ -1,0 +1,1861 @@
+- en: Load Balancing Traffic to Instances
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The Neutron load-balancing-as-a-service plugin, known as LBaaS v2, provides
+    users with the ability to load balance traffic to applications running on virtual
+    instances in the cloud. Neutron provides an API to manage load balancers, listeners,
+    pools, members, and health monitors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover some fundamental load balancing concepts, including
+    the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Listeners, pools, and pool members
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Load balancing algorithms
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Health Monitors
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Session Persistence
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Neutron uses drivers to interact with hardware or software load balancers. In
+    Pike, the reference driver deploys HAProxy within network namespaces. HAProxy
+    is a free, open source load balancer that is available for most Linux-based operating
+    systems. Octavia is another open source load balancing solution that is compatible
+    with the LBaaS v2 API. Rather than use network namespaces, however, Octavia spins
+    up and manages a fleet of virtual machines, containers, or bare-metal servers
+    known as amphorae that act as load balancers. This allows Octavia to scale horizontally
+    and on-demand. Deploying Octavia and other third-party drivers from vendors such
+    as F5, Citrix, Radware, and more is possible, but outside the scope of this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will work through the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Integrating load balancers into the network
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Installing and configuring the LBaaS v2 agent
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating a load balancer
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Demonstrating load balanced traffic to instances
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Fundamentals of load balancing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A load balancer is an object that represents a virtual IP and is associated
+    with a Neutron port. A virtual IP is often exposed to the internet and mapped
+    to a domain name to provide access to an internet-facing load balanced service.
+    Virtual IPs can also be created for services limited to internal clients. Traffic
+    to the virtual IP is distributed among pool members and provides scaling and resiliency
+    to the application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are four major components to a load balancer in Neutron:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Pool Member(s)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Pool
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Health Monitor
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Listener(s)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A pool member is a Layer 4 object that represents the IP address and listening
+    port of a service or application. For example, a pool member might be a web server
+    with a configured IP address of 192.168.0.2 listening on TCP port 80.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A pool is a group of pool members that typically serve identical content. A
+    pool composed of web servers may resemble the following membership:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Server A:192.168.0.2:80
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Server B:192.168.0.4:80
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Server C:192.168.0.6:80
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A health monitor is an object that represents a health check operation against
+    pool member(s) that run(s) at a defined interval. When the health monitor fails,
+    the pool member is marked DOWN and is removed from the pool until it passes a
+    subsequent check. In the meantime, traffic is directed to healthy members.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A listener is an object that represents a Layer 4 port associated with the Virtual
+    IP that listens for incoming connections to the VIP. Load balancers can listen
+    for connections on multiple ports, and each port is defined by a listener.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following diagram demonstrates the relationship between these objects:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/dab08903-e6b5-4d98-85bb-467db8178f19.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Load balancing algorithms
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In version 2 of the LBaaS API, the following load balancing algorithms can
+    be applied to a pool:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Round robin
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Least connections
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Source IP
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With the round robin algorithm, the load balancer passes each new connection
+    to the next server in line. Over time, all connections will be distributed evenly
+    across all machines being load balanced. Round robin is the least resource-intensive
+    algorithm and has no mechanism to determine when a machine is being overwhelmed
+    by connections. To avoid overwhelming a pool member, all members should be equal
+    in terms of processing speed, connection speed, and memory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With the least connections algorithm, the load balancer passes a new connection
+    to a server that has the least number of current connections. It is considered
+    a dynamic algorithm, as the system keeps track of the number of connections attached
+    to each server and balances traffic accordingly. Pool members of higher capabilities
+    will likely receive more traffic, as they are able to process connections quicker.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With the source IP algorithm, all connections originating from the same source
+    IP address are sent to the same pool member. Connections are initially balanced
+    using the round robin algorithm and are then tracked in a table for future lookup
+    with subsequent connections from the same IP address. This algorithm is useful
+    in cases where the application requires clients to persist to a particular server
+    for all requests, such as an online shopping cart that stores session information
+    on the local web server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Monitoring
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The LBaaS v2 API supports multiple monitor types, including TCP, HTTP, and HTTPS.
+    The TCP monitor tests connectivity to pool members at Layer 4, while HTTP and
+    HTTPS monitors tests the health of pool members based on Layer 7 HTTP status codes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Session persistence
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: LBaaS v2 supports session persistence on virtual IPs. Session persistence is
+    a method of load balancing that forces multiple client requests of the same protocol
+    to be directed to the same node. This feature is commonly used with many web applications
+    that do not share application states between pool members.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The types of session persistence supported with the HAProxy driver include
+    the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`SOURCE_IP`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`HTTP_COOKIE`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`APP_COOKIE`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Using the `SOURCE_IP` persistence type configures HAProxy with the following
+    settings within the backend pool configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first time a client connects to the virtual IP, HAProxy creates an entry
+    in a sticky table based on the client's IP address and sends subsequent connections
+    from the same IP address to the same backend pool member. Based on the configuration,
+    up to 10,000 sticky entries can exist in the sticky table. This persistence method
+    can cause load imbalance between pool members if users connect from behind a proxy
+    server that misidentifies multiple clients as a single address.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using the `HTTP_COOKIE` persistence type configures HAProxy with the following
+    settings within the backend pool configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first time a client connects to the virtual IP, HAProxy balances the connection
+    to the next pool member in line. When the pool member sends its response, HAProxy
+    injects a cookie named SRV into the response before sending it to the client.
+    The value of the SRV cookie is a unique server identifier. When the client sends
+    subsequent requests to the virtual IP, HAProxy strips the cookie from the request
+    header and sends the traffic directly to the pool member identified in the cookie.
+    This persistence method is recommended over source IP persistence, as it is not
+    reliant on the IP address of the client. However, it may not be compatible with
+    all clients.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using the `APP_COOKIE` persistence type configures HAProxy with the following
+    settings within the backend pool configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: When an application cookie is defined in a backend configuration, HAProxy will
+    check server responses for the cookie, stores its value in a table, and associates
+    it with the server's identifier. Up to 56 characters from the value will be retained.
+    On subsequent client connections, HAProxy will look for the cookie in the client's
+    request. If a known value is found, the client is directed to the pool member
+    associated with the value. Otherwise, the round-robin load balancing algorithm
+    is applied. Cookies are automatically removed from memory when they have gone
+    unused for a duration longer than three hours.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Integrating load balancers into the network
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When using the HAProxy driver, load balancers are implemented in one-arm mode.
+    In one-arm mode, the load balancer is not in the path of normal traffic to the
+    pool members. The load balancer has a single interface for ingress and egress
+    traffic to and from clients and pool members.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A logical diagram of a load balancer in one-arm mode can be seen here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/60cfdec5-8b3c-4f89-9c46-e38e1941d9e3.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In the preceding diagram a load balancer is configured in one-arm mode and resides
+    in the same subnet as the servers it is balancing traffic to.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Because a load balancer in one-arm mode is not the gateway for pool members
+    it is sending traffic to, it must rely on the use of source NAT to ensure return
+    traffic from the members to the client is sent back through the load balancer.
+    An example of the traffic flow can be seen in the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/5c860b6a-cf64-436a-a20a-62af77724aeb.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In the preceding diagram, the load balancer receives a request from the client
+    and forwards it to web1\. The load balancer will modify the source IP of the request
+    to its own address, 192.168.200.12, before forwarding the request to the pool
+    member. This ensures that the member sends the response back to the load balancer,
+    which will then rewrite the destination IP as the client address. If the server
+    were to send the response directly to the client, the client would reject the
+    packet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Neutron configures HAProxy to send an `HTTP ``X-Forwarded-For` header to the
+    pool member, which allows the member to see the original client address. Without
+    this header, all traffic will be identified as coming from the load balancer,
+    which may skew application reporting data and persistence efforts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Alternatives to one-arm mode include routed mode and transparent mode. In routed
+    mode, the load balancer acts as a gateway between the client and pool member.
+    The source addresses of packets do not need to be manipulated in most cases, as
+    the load balancer servers as the gateway for pool members.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In transparent mode, the load balancer acts as a network bridge between two
+    VLANs configured with the same subnet(s). Using this mode allows users to introduce
+    a load balancer to the network with minimal disruption, as pool members do not
+    need to change their gateway.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There is currently no way to change the way an HAProxy-based load balancer is
+    integrated into the network. Some third-party drivers, however, may not be limited
+    to one-arm mode and may function in any mode.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Network namespaces
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Neutron relies on network namespaces to provide individual load balancers when
+    using the HAProxy driver. Every load balancer has a corresponding network namespace.
+    Load balancers are scheduled to LBaaS v2 agents in the environment that are responsible
+    for creating a corresponding network namespace and appropriate configuration.
+    Namespaces used for load balancers are prefaced with `qlbaas` in the `ip netns
+    list` output.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing LBaaS v2
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `neutron-lbaasv2-agent` service typically runs on one or more network nodes.
+    In this environment, the service will be installed on `controller01`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Issue the following command on the controller node to install the LBaaS v2
+    agent and its dependencies, including HAProxy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Configuring the Neutron LBaaS agent service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Neutron stores the LBaaS v2 agent configuration in the `/etc/neutron/lbaas_agent.ini` file.
+    The most common configuration options will be covered in the upcoming sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defining an interface driver
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Just like the previously installed agents, the Neutron LBaaS v2 agent must
+    be configured to use an interface driver that corresponds to the chosen networking
+    driver. In this configuration, there are two options:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Linux bridge
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Open vSwitch
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Update the Neutron LBaaS agent configuration file node at `/etc/neutron/lbaas_agent.ini` on
+    the controller to use one of the following drivers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For Linux bridge:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For Open vSwitch:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this book, we specified that the controller node runs the Linux bridge agent.
+    Therefore, the LBaaS v2 agent should be configured to use the Linux bridge interface
+    driver.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defining a device driver
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To manage a load balancer, the Neutron LBaaS v2 agent must be configured to
+    use a device driver that provides the interface between the Neutron API and the
+    programming of the load balancer itself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Update the Neutron LBaaS v2 agent configuration file node at `/etc/neutron/lbaas_agent.ini` on
+    the controller to use the HAProxy device driver:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Defining a user group
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Depending on the operating system in use, including Ubuntu 16.04 LTS, which
+    is used throughout this book, the LBaaS v2 agent may need to be configured to
+    operate HAProxy with a certain user group name. On the `controller01` node, update
+    the LBaaS v2 configuration file with the following configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: Configuring Neutron
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In addition to configuring the LBaaS agent, Neutron must be configured to use
+    an LBaaS service plugin and driver before the API can be utilized to create LBaaS
+    objects.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defining a service plugin
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'On the `controller01` node, add the LBaaS v2 service plugin to the existing `service_plugins` list
+    found in the Neutron configuration file at `/etc/neutron/neutron.conf`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: Be sure to append to the existing list of plugins, rather than replacing the
+    list content, to avoid issues with the API and existing network objects.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defining a service provider
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Since the Kilo release of OpenStack, many advanced service configuration options
+    have moved out of the main Neutron configuration file into their own files. On
+    the controller01 node, create or update the Neutron LBaaS configuration file at `/etc/neutron/neutron_lbaas.conf`
+    and define the HAProxy service provider driver for LBaaS:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: Updating the database schema
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before restarting the Neutron API server to provide the LBaaS API, the database
+    schema must be updated to support load balancing objects.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the `controller01` node, run the following command to run database migrations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Restarting the Neutron LBaaS agent and API service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Once the database migration is complete, the neutron-lbaasv2-agent and neutron-server services
+    must be restarted for the changes to take effect. Issue the following commands
+    on the controller node to restart the services:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Use the `openstack network agent list` command to verify that the agent is
+    running and has checked in:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/8bf33b2d-d86a-4ae1-8a58-19d45d29593f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: If you encounter any issues, be sure to check the LBaaS v2 agent log found at
+    `/var/log/neutron/neutron-lbaasv2-agent.log` before proceeding.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Load balancer management in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Neutron offers a number of commands that can be used to create and manage listeners,
+    virtual IPs, pools, members, and health monitors for load balancing purposes.
+    As of the Pike release of OpenStack, however, load balancer-related commands are
+    not available in the openstack client. Instead, the neutron client or API should
+    be used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The workflow to create a basic load balancer is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Create a load balancer object
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Create and associate a pool
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Create and associate pool member(s)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Create and associate health monitor(s) (optional)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Create and associate a listener
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Managing load balancers in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'A load balancer is an object that occupies a Neutron port and has an IP assigned
+    from a subnet that acts as a Virtual IP. The following commands are used to manage
+    load balancer objects in the CLI:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Load Balancer Management Commands** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-loadbalancer-create` | Creates a load balancer |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-loadbalancer-delete` | Deletes a given load balancer |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-loadbalancer-list` | Lists load balancers that belong to a given tenant
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-loadbalancer-list-on-agent` | Lists the load balancers on a load balancer
+    v2 agent |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-loadbalancer-show` | Shows information of a given load balancer |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-loadbalancer-stats` | Retrieves stats for a given load balancer |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-loadbalancer-status` | Retrieves the status for a given load balancer
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-loadbalancer-update` | Updates a given load balancer |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-agent-hosting-loadbalancer` | Gets the lbaas v2 agent hosting a load
+    balancer |'
+  prefs: []
+  type: TYPE_TB
+- en: Creating load balancers in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create a load balancer, use the `neutron lbaas-loadbalancer-create` command
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `--tenant-id` argument is optional and can be used to associate the load
+    balancer with a project other than the creator.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--description` argument is optional and can be used to provide a description
+    for the load balancer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--name` argument is optional and can be used to specify a name for the
+    load balancer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--admin-state-down` argument is optional and can be used to set the load
+    balancer in a DOWN state at creation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--provider` argument is optional and can be used to specify the load balancer
+    provider driver in lieu of the default. The default provider in this environment
+    is HAProxy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--vip-address` argument is optional and can be used to specify a particular
+    IP address for the VIP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `VIP_SUBNET` argument is used to specify the subnet from which the load
+    balancer VIP will be procured.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deleting load balancers in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To delete a load balancer, use the `neutron lbaas-loadbalancer-delete` command
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `LOADBALANCER` argument specifies the name or ID or the load balancer to
+    delete. Multiple load balancers can be deleted simultaneously using a space-separated
+    list.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Listing load balancers in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To list all load balancers, use the `neutron lbaas-loadbalancer-list` command
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: Showing load balancer details in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To show the details of a load balancer, use the `neutron lbaas-loadbalancer-show`
+    command shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `LOADBALANCER` argument specifies the name or ID or the load balancer to
+    show.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Showing load balancer statistics in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To show the statistics of a load balancer, use the `neutron lbaas-loadbalancer-stats`
+    command shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `LOADBALANCER` argument specifies the name or ID or the load balancer to
+    show.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Showing the load balancer's status in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To show the status of a load balancer, use the `neutron lbaas-loadbalancer-status`
+    command shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `LOADBALANCER` argument specifies the name or ID or the load balancer to
+    show.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Updating a load balancer in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To update the attributes of a load balancer, use the `neutron lbaas-loadbalancer-update` command
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `--description` argument is optional and can be used to update the description
+    of the load balancer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--name` argument is optional and can be used to update the name of a load
+    balancer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `LOADBALANCER` argument specifies the name or ID or the load balancer to
+    update.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Managing pools in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A pool is a set of devices, such as web servers, that are grouped together to
+    receive and process traffic. When traffic is sent to a virtual IP, the load balancer
+    sends the request to any of the servers that are members of that pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following commands are used to manage load balancer pools in the CLI:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Pool Commands** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-pool-create` | Creates a pool |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-pool-delete` | Deletes a given pool |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-pool-list` | Lists pools that belong to a given tenant |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-pool-show` | Shows the information of a given pool |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-pool-update` | Updates a given pool |'
+  prefs: []
+  type: TYPE_TB
+- en: Creating a pool in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create a pool, use the `neutron lbaas-pool-create` command shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `--tenant-id` argument is optional and can be used to associate the pool
+    with a project other than the creator. The tenant or project ID specified should
+    match the respective load balancer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--description` argument is optional and can be used to provide a description
+    for the pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--name` argument is optional and can be used to set a name for the pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--lb-algorithm` argument is required and is used to specify the load balancing
+    algorithm used to distribute traffic among the pool members. Possible options
+    include `ROUND_ROBIN`, `LEAST_CONNECTIONS`, and `SOURCE_IP`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--admin-state-down` argument is optional and can be used to set the pool
+    in a DOWN state upon creation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--listener` argument is optional and is used to associate the pool with
+    a listener.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--loadbalancer` argument is optional and can be used to specify the associated
+    load balancer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--protocol` argument is required and is used to specify the protocol for
+    balancing. Possible options include HTTP, HTTPS, and TCP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--session-persistence` argument is optional and is used to specify the
+    session persistence method and/or cookie type.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deleting a pool in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To delete a pool, use the `neutron lbaas-pool-delete` command shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `POOL` argument specifies the name or ID or the pool to delete. Multiple
+    pools can be deleted simultaneously using a space-separated list.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Listing pools in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To list all pools, use the `neutron lbaas-pool-list` command shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: Showing pool details in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To show the details of a pool, use the `neutron lbaas-pool-show` command shown
+    here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `POOL` argument specifies the name or ID or the pool to show.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Updating a pool in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To update a pool, use the `neutron lbaas-pool-update` command shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `--admin-state-up` argument is optional and can be used to change the state
+    of a pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--session-persistence` argument is optional and is used to modify the session
+    persistence method and/or cookie type.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--no-session-persistence` argument is optional and is used to remove session
+    persistence from the pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--description` argument is optional and can be used to update the description
+    of the pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--name` argument is optional and can be used to update the name of the
+    pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--lb-algorithm` argument is optional and is used to modify the load balancing
+    algorithm used to distribute traffic among the pool members.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `POOL` argument specifies the name or ID or the pool to update.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Managing pool members in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The following commands are used to manage pool members in the CLI:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Pool Member Command** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-member-create` | Creates a member |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-member-delete` | Deletes a given member |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-member-list` | Lists members that belong to a given pool |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-member-show` | Shows information of a given member |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-member-update` | Updates a given member |'
+  prefs: []
+  type: TYPE_TB
+- en: Creating pool members in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create a pool member, use the `neutron lbaas-member-create` command as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `--tenant-id` argument is optional and can be used to associate the pool
+    member with a project other than the creator. The tenant or project ID specified
+    should match the respective load balancer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--name` argument is optional and can be used to set the name of the pool
+    member.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--weight` argument allows you to associate a weight with the pool member.
+    When set, a pool member may receive more or less traffic than other members in
+    the same pool. For example, a pool member with a weight of 2 will receive twice
+    the amount of traffic as a pool member with a weight of 1\. A pool member with
+    a weight of 3 will receive three times the traffic as a pool member with a weight
+    of 1, and so on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--admin-state-down` argument is optional and can be used to set the pool
+    member DOWN on creation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--subnet` argument is required and is used to specify the subnet of the
+    pool member.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--address` argument is required and is used to specify the IP address of
+    the pool member. The IP address must fall within the specified subnet CIDR.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--protocol-port` argument is required and is used to specify the listening
+    port of the application being balanced. For example, if you are balancing HTTP
+    traffic, the listening port specified would be 80\. For SSL traffic, the port
+    specified would be 443\. In most cases, the VIP associated with the pool will
+    utilize the same application port number.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `POOL` argument is required and associates the pool member with the specified
+    pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deleting pool members
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To delete a pool member, use the `neutron lbaas-member-delete` command shown
+    here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `MEMBER` argument specifies the name or ID of the pool member to delete
+    from the specified pool. Multiple pool members can be deleted simultaneously using
+    a space-separated list.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Listing pool members
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To obtain a list of pool members for a particular pool, use the `neutron lbaas-member-list` command
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: Showing pool member details
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To show the details of a pool member, use the `neutron lbaas-member-show` command
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `MEMBER` argument represents the ID or name of the member of the specified
+    pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Updating a pool member
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To update the attributes of a pool member, use the `neutron lbaas-member-update`
+    command as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `--admin-state-up` argument is optional and can be used to change the state
+    of a pool member.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--name` argument is optional and can be used to update the name of the
+    pool member.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--weight` argument is optional and can be used to update the weight of
+    the pool member.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `MEMBER` argument is required and represents the ID or name of the member
+    of the specified pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Managing health monitors in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: LBaaS in Neutron provides the ability to monitor the health of pool members
+    as a method of ensuring the availability of an application. If a pool member is
+    not in a healthy state, Neutron can pull a member out of rotation, limiting the
+    impact of issues between the client and the application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following commands are used to manage health monitors in the CLI:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Health Monitor Commands** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-healthmonitor-create` | Creates a health monitor |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-healthmonitor-delete` | Deletes a given health monitor |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-healthmonitor-list` | Lists health monitors that belong to a given
+    tenant |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-healthmonitor-show` | Shows the information of a given health monitor
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-healthmonitor-update` | Updates a given health monitor |'
+  prefs: []
+  type: TYPE_TB
+- en: Creating a health monitor in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create a health monitor, use the `neutron lbaas-healthmonitor-create` command
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `--tenant-id` argument is optional and can be used to associate the health
+    monitor with a project other than the creator. The tenant or project ID specified
+    should match the respective load balancer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--delay` argument is required and is used to specify the period between
+    each health check sent to members (in seconds). A common starting value is 5 seconds.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--name` argument is optional and can be used to set the name of the health
+    monitor.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--timeout` argument is required and is used to specify the number of seconds
+    for a monitor to wait for a connection to be established. The value must be less
+    than the delay value.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--http-method` argument is optional and is used in conjunction with `--expected-codes` and `--url-path`.
+    It is used to specify the type of HTTP request being made. Common types include
+    `GET` and `POST`. The default value is `GET`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--url-path` argument is optional and is used in conjunction with `--expected-codes`
+    and `--http-method`. When specified, the system will perform an HTTP request defined
+    by `--http-method` for the URL against the pool member. The default value is root
+    or /.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--max-retries` argument is required and is used to specify the maximum
+    number of consecutive failures before a pool member is marked as DOWN. A common
+    starting value is 3 retries.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--expected-codes` argument is optional and allows you to specify the HTTP
+    status code(s) that indicate that a pool member is working as expected when the
+    monitor sends an HTTP request to the pool member for the specified URL. For example,
+    if a `GET` request for a URL is sent to a pool member, the server is expected
+    to return a 200 OK status upon successful retrieval of the page. If 200 is listed
+    as an expected code, the monitor would mark the pool member as UP. As a result,
+    the pool member would be eligible to receive connections. If a 500 status code
+    were returned, it could indicate that the server is not properly processing connections.
+    The health monitor would mark the pool member as DOWN and temporarily remove it
+    from the pool. The default value is 200.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `--type` arguments is required and is used to specify the type of monitor
+    being configured. The four types include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'PING: The simplest of all monitor types, PING uses ICMP to confirm connectivity
+    to pool members.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The PING type is not supported by the HAProxy driver and results in the same
+    behaviour as the TCP monitor type.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'TCP: This instructs the load balancer to send a TCP SYN packet to the pool
+    member. Upon receiving a SYN ACK back, the load balancer resets the connection.
+    This type of monitor is commonly referred to as a half-open TCP monitor.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'HTTP: This instructs the monitor to initiate an HTTP request to a pool member
+    based on the `expected_codes`, `url_path`, and `http_method` attributes described
+    here.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'HTTPS: This instructs the monitor to initiate an HTTPS request to a pool member
+    based on the `expected_codes`, `url_path`, and `http_method` attributes described
+    here.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `--pool` argument is required and is used to associate the health monitor
+    with the given pool. Only one health monitor per pool is allowed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deleting a health monitor in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To delete a health monitor, use the `neutron lbaas-healthmonitor-delete` command
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `HEALTHMONITOR` argument specifies the name or ID of the health monitor
+    to delete. Multiple health monitors can be deleted simultaneously using a space-separated
+    list.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Listing health monitors in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To obtain a list of health monitors, use the `neutron lbaas-healthmonitor-list` command
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: Showing health monitor details
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To show the details of a health monitor, use the `neutron lbaas-healthmonitor-show`
+    command shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: The details returned include delay, expected codes, HTTP method, max retries,
+    pools, timeout, type, and URL path.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Updating a health monitor
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To update the attributes of a health monitor, use the `neutron lbaas-healthmonitor-update`
+    command as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: Updateable attributes include delay, expected codes, HTTP method, max retries,
+    timeout, and URL path.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Managing listeners in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The following commands are used to manage listeners in the CLI:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Listener Commands** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-listener-create` | Creates a listener |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-listener-delete` | Deletes a given listener |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-listener-list` | Lists listeners that belong to a given tenant |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-listener-show` | Shows the information of a given listener |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lbaas-listener-update` | Updates a given listener |'
+  prefs: []
+  type: TYPE_TB
+- en: Creating listeners in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create a listener, use the `neutron lbaas-listener-create` command shown
+    here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `--tenant-id` argument is optional and can be used to associate the listener
+    with a project other than the creator. The tenant or project ID specified should
+    match the respective load balancer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--description` argument is optional and can be used to provide a description
+    for the listener.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--connection-limit` argument is optional and can be used to limit connections
+    per second to the listener. The default is unlimited (-1).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--default-pool` argument is optional and sets the default pool for the
+    listener.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--admin-state-down` argument is optional and can be used to set the listener
+    in a DOWN state at creation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--name` argument is optional and can be used to set a name for the listener.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--loadbalancer` argument is optional and can be used to specify the associated
+    load balancer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--protocol` argument is required and is used to specify the protocol for
+    the listener. Options include `TCP`, `HTTP`, `HTTPS`, and `TERMINATED_HTTPS`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--protocol-port` argument is required and is used to specify the port for
+    the listener.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deleting listeners in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To delete a load balancer, use the `neutron lbaas-loadbalancer-delete` command
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `LISTENER` argument specifies the name or ID or the listener to delete.
+    Multiple listeners can be deleted simultaneously by using a space-separated list.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Listing listeners in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To list all listeners, use the `neutron lbaas-listener-list` command shown
+    here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: Showing listener details in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To show the details of a listener, use the `neutron lbaas-listener-show` command
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `LISTENER` argument specifies the name or ID or the listener to show.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Updating a listener in the CLI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To update the attributes of a listener, use the `neutron lbaas-listener-update` command
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `--description` argument is optional and can be used to update the description
+    of the listener.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--connection-limit` argument is optional and can be used to update the
+    connection limit.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--default-pool` argument is optional and can be used to update the default
+    pool of the listener.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--name` argument is option and can be used to set a name for the listener.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--admin-state-up` argument is optional and can be used to set the listener's
+    state.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `LISTENER` argument specifies the name or ID or the listener to update.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building a load balancer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To demonstrate the creation and use of load balancers in Neutron, this section
+    is dedicated to building a functional load balancer based on the following scenario:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '"A project has a simple Neutron network architecture composed of a router attached
+    to both an external provider network and internal tenant network. The user would
+    like to load balance HTTP traffic between two instances, each running a web server
+    on port 80\. Each instance has been configured with an index.html page containing
+    a unique server identifier."'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A diagram of the requested topology can be seen here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/8aa9cedf-40b5-493b-90c6-04f97553c8ba.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: This demonstration assumes that two instances named web1 and web2 have been
+    deployed in the environment and are connected to a project network. The network
+    is connected to a Neutron router that provides outbound access and inbound access
+    via floating IPs. Concepts explained in earlier chapters can be used to build
+    this topology.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To eliminate the installation and configuration of a web server, you can mimic
+    the behavior of one by using the `SimpleHTTPServer` Python module on the instances,
+    as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: Repeat the mentioned commands for the second instance, substituting web2 for
+    web1 in the `index.html` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a load balancer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The first step to building a functional load balancer is to first create the
+    load balancer object. With the neutron client, create a load balancer object with
+    the following attributes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Name: `LB_WEB`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Subnet ID: <Subnet ID of the pool members>'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following command can be used:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output will resemble the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/3d4d2c64-d28d-4b8f-8ba0-f259384caab8.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: When a load balancer is created, OpenStack assigns an IP address known as a
+    virtual IP, or VIP. The VIP will be used by clients to access the load-balanced
+    application. Creating a load balancer object is only the first step in load balancing
+    traffic to instances.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a pool
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Pools are associated with load balancers and are objects that represent a collection
+    of instances that receive traffic sent to the VIP. With the neutron client, create
+    a pool with the following attributes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Name: `WEB_POOL`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Load balancing method: `ROUND_ROBIN`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Protocol: HTTP'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Subnet ID: <Subnet ID where pool members reside>'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following command can be used:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output will resemble the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/049eaf3f-adae-4d27-9606-6d77c7bccd9a.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Creating pool members
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The next step to building a functional load balancer is to create and associate
+    pool members with the pool. Pool members are objects that represent a backend
+    application listening on a particular IP and port.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this environment, there are two instances eligible for use in the pool:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/dd9ee459-1bf2-4b0e-a02e-be71c659f30c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'With the neutron client, create pool members with the following attributes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Name** | **Address** | **Port** | **Pool** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| web1 | 192.168.200.9 | 80 | `POOL_WEB` |'
+  prefs: []
+  type: TYPE_TB
+- en: '| web2 | 192.168.200.7 | 80 | `POOL_WEB` |'
+  prefs: []
+  type: TYPE_TB
+- en: 'The following screenshot demonstrates the process of creating the first pool
+    member:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/d71cf013-196f-4168-801d-2d076d78c99c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Repeat the process shown in the preceding screenshot to create the second pool
+    member, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/289f753e-3452-43b3-b99c-253a9470f246.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The `neutron lbaas-member-list` command can be used to return the pool members
+    for the `POOL_WEB` pool:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/ac020f8d-26ce-4856-aee4-55879eb625f2.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Creating a health monitor
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To provide high availability of an application to clients, it is recommended
+    to create and apply a health monitor to a pool. Without a monitor, the load balancer
+    will continue to send traffic to members that may not be available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using the `neutron lbaas-healthmonitor-create` command, create a health monitor
+    with the following attributes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Name: `MONITOR_WEB`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Delay: `5`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Max retries:`3`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Timeout: `4`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Type: `TCP`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Pool: `POOL_WEB`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![](img/c5a28c88-67c5-495b-895d-7a3182eb08d0.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Creating a listener
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The last step in creating a function load balancer is to create the listener.
+    Using the `neutron lbaas-listener-create` command, create a listener with the
+    following attributes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Name: `LISTENER_WEB`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Port: `80`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Protocol: `HTTP`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Pool: `POOL_WEB`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![](img/82c57729-641d-4686-8e3d-90c168536365.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Multiple listeners can be created for each load balancer, allowing users to
+    balance traffic for multiple protocols and applications on the same Virtual IP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The LBaaS network namespace
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'A listing of the network namespaces on the host running the LBaaS v2 agent
+    reveals a network namespace that corresponds to the load balancer we just created:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/fb08f1d1-2b03-40c5-aff6-5dcc35912979.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The IP configuration within the namespace reveals an interface that corresponds
+    to the subnet of the virtual IP:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/b1346693-1084-42d0-9372-ec3b44c0ca3c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Neutron creates an HAProxy configuration file specific to every load balancer
+    that is created by users. The load balancer configuration files can be found in
+    the `/var/lib/neutron/lbaas/v2/` directory on the host(s) running the LBaaS v2
+    agent.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The configuration file for this load balancer built by Neutron can be seen
+    in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/5b03b7e2-6369-4d0d-b303-896c46cec8f0.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Confirming load balancer functionality
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'From within the `qlbaas` namespace, confirm direct connectivity to `web1` and
+    `web2` by using curl:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/b7beb5f0-3f0f-46d3-86bd-690126021913.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'By connecting to the VIP address rather than the individual pool members, you
+    can observe the default round-robin load balancing algorithm in effect:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/b2d15168-8d9e-465e-9fad-b384eb413ea4.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: With round-robin load balancing, every connection is evenly distributed among
+    the two pool members.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Observing health monitors
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'A packet capture on `web1` reveals that the load balancer is performing TCP
+    health checks every 5 seconds:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/9c8d2ceb-a751-430d-ada7-f234b6e4d829.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In the preceding output, the load balancer is initiating a connection every
+    5 seconds and performing the health check prescribed by the health monitor: "a
+    GET request: against/".'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To observe the monitor removing a pool member from eligibility, stop the web
+    service on `web1` and observe the packet captures on `web1` and logs on the `controller`
+    node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/000019a5-b95f-4dfa-92db-e685f8aa2bfd.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In the preceding output, the web service is stopped and connections to port
+    `80` are refused. Immediately following the third failure, the load balancer marks
+    the pool member as `DOWN`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/bb02ad35-3f36-4c76-9b98-0ddc49c545a4.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'While `web1` is down, all subsequent connections to the VIP are sent to `web2`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e5ed0060-1ecb-4989-812d-e365583f7a0e.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'After restarting the web service on `web1`, the load balancer places the server
+    back in the pool upon the next successful health check:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/f8d45c44-ce0e-4145-a7ef-f17523058617.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Connecting to the virtual IP externally
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To connect to a virtual IP externally, a floating IP must be associated with
+    the VIP since the virtual IP exists within a subnet behind the router and is not
+    reachable directly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using the `openstack floating ip create` command, assign a floating IP to be
+    used with the virtual IP:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/af964d0b-5353-41db-8b15-86234e9603b7.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'A test from a workstation to the floating IP confirms external connectivity
+    to the load balancer and its pool members:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/9d5cf858-b4d5-4ef0-87d6-398ec2ca1221.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: If the connection is not successful, be sure to confirm security groups allow
+    connections to port 80.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Load balancer management in the dashboard
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Out of the box, the LBaaS panels for load balancer management in Horizon are
+    not installed. To install the panels, perform the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the controller node, install the `python-neutron-lbaas-dashboard` package:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, update the OpenStack Dashboard configuration file at `/etc/openstack-dashboard/local_settings.py`
+    to enable the panels. Search for `enable_lb` in the `OPENSTACK_NEUTRON_NETWORK`
+    dictionary and change the value from False to True:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Lastly, restart the Apache service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once the panels have been installed and activated, load balancers can be managed
+    from the Project panel by clicking on Network | Load Balancers in the menu on
+    the left-hand side of the screen:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/1d8086f0-e818-4d13-beea-0c61960ca6b7.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In Horizon, load balancers are created and managed as a single entity that includes
+    pool, members, and monitors. This is unlike LBaaS v1, where members and monitors
+    may have been managed separately in their own panel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a load balancer in the dashboard
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create a load balancer, perform the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Click on the Create Load Balancer button within the Load Balancers panel. A
+    wizard will appear that resembles the one shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/add02b45-07c5-4816-9403-ba6677215122.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'From the Load Balancer Details panel, you can enter a name for the load balancer,
+    a description, an IP address, and select the respective subnet for the Virtual
+    IP:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/764a655d-6ccc-457e-b3f0-2559648c02d4.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'From the Listener panel, you can enter a name for the listener, a description,
+    and choose the protocol and port:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/a9f8919c-a7a7-440b-a440-d26b2ab09761.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'From the Pool Details panel, you can enter a name for the pool, a description,
+    and select the load balancing method:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/65fc8a79-4c9e-4aaa-b98c-2c8e0edf7f95.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'From the Pool Members panel, you can select the pool members that will make
+    up the pool:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/2e8fd671-c741-4e2c-b301-92c63595c928.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Click the Add button next to the pool member to add it to the pool:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/3c61baa6-9c5c-4161-be50-354d71015fa9.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'From the Monitor Details panel, you can set the monitor type, interval, retries,
+    and timeout values:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/74b97bfc-d11a-4a03-aef1-74eb09915024.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Once the load balancer has been configured, click the blue Create Load Balancer
+    button to complete the wizard. The load balancer will appear in the list of load
+    balancers:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/6ddcf652-12e8-4001-b769-2f78b16b7fa7.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Assigning a floating IP to the load balancer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To assign a floating IP to a load balancer within the Horizon dashboard:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Click the arrow under the Actions menu next to the load balancer and select
+    Associate Floating IP:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/ba43f384-9fa6-4e67-9072-dda1382b23fd.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'A wizard will pop up that allows you to select an existing floating IP or a
+    network from which a new one can be created:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/b858df0d-e6d9-4117-84f3-c4aaf758a99a.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Once a floating IP or network has been chosen, click on the blue Associate button
+    to associate the floating IP with the virtual IP of the load balancer.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The load balancer details will be updated to reflect the new floating IP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Load-balancing-as-a-Service provides users with the ability to scale their application
+    programmatically through the Neutron API. Users can balance traffic to pools consisting
+    of multiple application servers and can provide high availability of their application
+    through the use of intelligent health monitors. The LBaaS v2 API even supports
+    SSL offloading with certificates managed by Barbican, another OpenStack project,
+    as well as certificate bundles and SNI support.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The HAProxy driver offers functionality that can address basic load balancing
+    needs, but may not be enough for most production environments. The load balancers
+    are not highly-available and may present a weakness in the application's network
+    architecture. The use of Octavia over the HAProxy driver is recommended for production-grade
+    clouds and is compatible with the LBaaS v2 API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: More information on Octavia and how it may be implemented can be found at the
+    following URL: [https://docs.openstack.org/octavia/pike/reference/introduction.html](https://docs.openstack.org/octavia/pike/reference/introduction.html).
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will take a look at a few other advanced Neutron features,
+    including 802.1q VLAN tagging (vlan-aware-vms) and BGP speaker functionality.
+  prefs: []
+  type: TYPE_NORMAL

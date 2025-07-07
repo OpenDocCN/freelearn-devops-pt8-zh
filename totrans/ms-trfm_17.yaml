@@ -1,0 +1,962 @@
+- en: '17'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Managing Production Environments with Terraform
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'It is fitting that the capstone of this book is managing your environments
+    with Terraform as that is probably the most important operational aspect of our
+    solutions’ infrastructure: managing it. All too often, infrastructure as code
+    is used as an expedient way to turn meters and blast solutions into the cloud
+    without a thought given to what would happen the next day and every other day
+    going forward.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: This *day 1 ops* mindset is rampant, and while understandable from a psychological
+    standpoint, the people working with infrastructure as code are inherently builders.
+    We love building new things and are constantly looking for ways to improve how
+    we do so. But I would argue that one of the most important (and often neglected)
+    design considerations for infrastructure-as-code solutions is not scalability,
+    performance, security, or even high availability—it’s operability.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Can we effectively operate our environments without outages and delays that
+    can impact the health of our environments and ultimately the commitments we make
+    to our customers? If the answer is no, then we have failed as infrastructure-as-code
+    developers, cloud engineers, and cloud architects.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we will look at how we can infuse infrastructure as code with
+    processes and techniques empowered by Terraform to achieve these goals.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The chapter covers the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Operations models
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Applying changes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Breakfixing
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Operating models
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In this section, we’ll delve into the different operating models that fit common
+    usage patterns for teams and organizations employing Terraform to provision and
+    manage their infrastructure. Let’s start with the basics of Terraform operations:
+    **state management**. We’ll then explore how teams can incorporate Terraform into
+    their operating models. Depending on a team’s role within an organization and
+    the cloud infrastructure they are managing, the team’s dynamics may vary. This
+    can also affect how they collaborate with other parts of the organization that
+    may or may not use Terraform in their workflow.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: State management
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When starting to manage long-lived environments using Terraform, whether they
+    are just for development, testing, or actual production workloads, the foundational
+    change to your operating model is the introduction of **Terraform state**. We
+    discussed Terraform state in [*Chapter 1*](B21183_01.xhtml#_idTextAnchor039) of
+    this book when we delved into Terraform’s architecture, so we already know the
+    value it brings as the arbiter of what the environment should look like, but creating
+    state and managing it is part of the day-to-day operations of managing environments
+    with Terraform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Just say no to manual state manipulation
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: As we have established, Terraform state files are essentially just JSON text
+    files that contain an inventory of the resources as they were provisioned during
+    the last Terraform Apply. It might be tempting to manually manipulate the state
+    file just by opening it up in a text editor and changing things around. However,
+    this is ill advised. The Terraform CLI has many commands that provide a safe way
+    to perform state manipulation operations, and HashiCorp is even starting to aggressively
+    roll out HashiCorp Configuration Language features to enable state manipulation
+    through the code base itself rather than bespoke administrator tinkering through
+    the CLI. Besides transitioning from an imperative approach to a declarative one,
+    it also has the added benefit for module authors to make version upgrade paths
+    more seamless by building a safe way to update without costly blue-green deployments
+    or implementing short-term *fixes* that become long-term problems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Access control
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Due to Terraform’s nature of being this extensible chameleon of an infrastructure-as-code
+    tool that adapts to each target platform through its provider plugins, it also
+    adapts to the target platforms by way of the backend provider that is used. By
+    default, Terraform uses the local filesystem for the state, but this, of course,
+    is not used when managing long-lived environments. As we discussed, when we implemented
+    the solution across each of the three cloud platforms covered in this book, we
+    used a different backend provider to store the state on the corresponding cloud.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In AWS, we used the `s3` backend, which stored our state on AWS’s `azurerm`
+    backend, and on Google Cloud Platform, when we used the `gcs` backend, Terraform
+    stored the state files on the corresponding storage service for each of these
+    cloud platforms. Like AWS, the other cloud platforms implement similar access
+    controls to prevent unprivileged access. On Azure, this takes the form of Azure
+    **Role-Based Access Controls** (**RBACs**) specified at either the resource group
+    or the subscription level. On Google Cloud, this takes the form of access control
+    lists that are driven at the project level.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Encryption
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: In addition to identity-based access controls that we can apply on the cloud
+    services that are hosting our Terraform state files, we can also employ built-in
+    capabilities of these services to leverage various levels of encryption. The simplest
+    level is the built-in transparent data encryption that protects us if the cloud
+    provider has a physical data breach. This is a nice insurance policy but it’s
+    one of the more unlikely attack vectors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The more likely way our Terraform state files will become vulnerable is if we
+    have leaky identity and access management controls. One method for adding an additional
+    layer of security is by leveraging encryption of the data within the storage service
+    itself. When you do this, access to the files is not enough; you need access to
+    the encryption keys themselves.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On AWS, this is done using AWS **Key Management Service** (**KMS**), which allows
+    you to create and manage your own keys that can be used to encrypt your Terraform
+    state files. Similar capabilities exist on both Azure and Google Cloud. On Azure,
+    you would employ customer-managed keys created in Azure Key Vault, and on Google,
+    you would employ the same approach but, of course, use the equivalent Google Cloud
+    service called Google Cloud KMS. If you want a cloud-agnostic approach, you could
+    leverage a multi-cloud key management solution such as HashiCorp Vault.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Backup
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: In the previous chapter, we looked at how to import an existing environment
+    into Terraform and saw that even while there are built-in tools to do this, it
+    can be tedious and error-prone. Unfortunately, the only thing keeping your environment
+    in the classification of environments *managed by Terraform* is the state file.
+    If you lose your state file or if it becomes corrupted or out of sync beyond all
+    recollection, your clean environment that was provisioned by Terraform could very
+    easily become an orphaned environment, no longer managed by Terraform and requiring
+    you to consider your options when it comes to importing or re-provisioning.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Don’t let that happen! You should keep backups of your state files. Most of
+    the Terraform backends that we looked at support this out of the box in several
+    different ways. First, it does this by enabling version tracking so you actually
+    have a versioned history of the state file within the storage service itself.
+    This is a very convenient and cost-effective way to help you overcome small issues
+    such as human error or transient deployment failures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, you should also consider more advanced cross-region replication features
+    of the cloud storage service hosting your Terraform state backend to help you
+    in case of a broader outage. Terraform state going temporarily offline or unavailable
+    doesn’t impact your solution’s availability, but it does impact your ability to
+    exert control in the environment in the case of an outage. So, it’s important
+    to think about implementing cross-region replication and a backup strategy to
+    ensure all scenarios are covered.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Organization
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: One of the easiest things you can control is where your Terraform workspaces
+    are stored. It doesn’t take a whole bunch of bells and whistles to protect your
+    state files if you properly segment your Terraform workspaces and work within
+    the security boundaries that your cloud has to offer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On AWS, you may want to create more S3 buckets and place those buckets in different
+    AWS accounts to ensure there isn’t secret leakage due to overly benevolent IAM
+    policies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Likewise, on Azure, more storage accounts can be provisioned and placed in Azure
+    subscriptions to isolate them more effectively against overly generous subscription-level
+    permissions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On Google Cloud, consider carefully what project the Google Cloud Storage service
+    should be provisioned within and opt for an isolated project for Terraform state.
+    This will ensure that the application and its administrators don’t necessarily
+    have access to the secrets that may be in the Terraform state file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Standalone application
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'For most of this book, we have been operating as a small team at the elusive
+    billionaire magnate Keyser Söze’s firm building a next-generation fleet operations
+    platform. In these scenarios, we worked across multiple clouds and implemented
+    our solution using three different cloud computing paradigms along the way:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 17.1 – Small team operating model for a small team deploying a standalone
+    application](img/B21183_17_1.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.1 – Small team operating model for a small team deploying a standalone
+    application
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this scenario, we saw an application development team that was working on
+    a typical N-tier architecture application. The team consisted of probably 6-8
+    people who were software developers or software testers. The ultimate goal was
+    not to provision infrastructure but to facilitate a release process for the application
+    software the team is developing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In these types of teams, it’s not uncommon for both the application code and
+    the infrastructure as code to be maintained within the same source code repository.
+    This simple approach recognizes the natural dependencies between the infrastructure
+    and the application as a result of the deployment process. The presence of well-known
+    secrets is provisioned by the infrastructure as code but referenced by the application
+    during its initialization. Keeping it all in our source code repository allows
+    us to minimize the mechanics of making changes that cascade across the infrastructure
+    and application code base in a single feature branch, pull request, and ultimately
+    merge into `main`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We have a single Terraform root module that we use to deploy our environments,
+    and we alter the input variables to configure it appropriately for different instances
+    of the environment: `DEV` and `PROD`. This allows us to manage a multitude of
+    environments simply by changing which workspace we point at either using the `terraform
+    workspace` command or by changing the backend key that we use to partition the
+    workspace within the backend.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The solution that we built and deployed was an end-to-end solution with multiple
+    architectural components that made up the entire application—in this case, an
+    application with a web frontend and a REST API as its backend, which is not an
+    uncommon scenario. Because our solution was so simple, we were able to operate
+    in a completely self-contained manner. This isn’t always the case, as we’ll see
+    later, in larger teams and larger environments—particularly in the enterprise.
+  prefs: []
+  type: TYPE_NORMAL
+- en: During the solution development that we did in *Chapters 7* through *15*, we
+    didn’t really address how those environments would be managed in production. In
+    a normal product development process, we would need to provision multiple environments
+    for various purposes and manage our release life cycle across these environments
+    until we finally ship the product by deploying it into production.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we saw along this journey, in addition to the subtle and sometimes not-so-subtle
+    differences between cloud platforms, depending on the cloud computing paradigm,
+    we would use different mediums for packaging our application deployment, which
+    sometimes allowed us to integrate the deployment artifact into our Terraform configuration
+    by referencing the virtual machine image or the container image; but sometimes,
+    as with serverless, we had to implement an additional standalone deployment procedure
+    that would execute after Terraform provisioned our environments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Shared infrastructure
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Unlike the application development team that we followed along on their journey
+    through the multiverse of cloud platforms and cloud computing paradigms, there
+    is an entire engineering group that isn’t building application code, but they
+    are still heavy users of Terraform. These teams manage an organization’s shared
+    infrastructure. These teams might be made up of traditional infrastructure engineers
+    who may have managed the on-premises virtualization environment, network security,
+    or other similar realms within IT infrastructure. Depending on the size of the
+    organization, this can be a big job, spanning many teams and organizations, each
+    with its own scope and realm of responsibilities, or it could be a single team:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 17.2 – Shared infrastructure team operating model for a shared infrastructure
+    team deploying infrastructure that supports one or more application teams within
+    an organization](img/B21183_17_2.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.2 – Shared infrastructure team operating model for a shared infrastructure
+    team deploying infrastructure that supports one or more application teams within
+    an organization
+  prefs: []
+  type: TYPE_NORMAL
+- en: This operating model differs from a simple project with stand-alone application
+    development in that there are some inherent dependencies between what this team
+    and other teams in the organization provision. Those external teams draw their
+    dependencies without committing to any type of operating model that conforms to
+    the shared infrastructure team’s. Therefore, these teams might not be using Terraform
+    or any automation for that matter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The environments that they are managing could be a shared network, centralized
+    monitoring and logging, databases, data lakes, data warehouses, or even pools
+    of shared compute, such as Kubernetes clusters. In most scenarios, they won’t
+    have their own application code, but they will often have their own deployment
+    packages—whether these are virtual machine or container images of their own creation
+    or third-party **Commercial Off-the-Shelf** (**COTS**) software packages provided
+    to them by software vendors through either a commercial or open source relationship.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In large organizations, virtual machine and container image repositories themselves
+    are usually built and managed as shared infrastructure that is built and maintained
+    by a platform team to be reused across the organization.
+  prefs: []
+  type: TYPE_NORMAL
+- en: These workloads will likely also have multiple environments but may not have
+    as many as an application development team and may opt to delineate environments
+    simply by a non-production/production dimension. This approach enables maximum
+    reuse for non-production workloads and reduces the overhead of further fragmenting
+    the shared infrastructure for every use case that dependent teams might have.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The deployment process is simplified due to the absence of application code,
+    but shared infrastructure teams should carefully consider how to organize their
+    Terraform workspaces to minimize friction between the external teams, which draw
+    dependencies on them. This is where blast radius plays an important role in the
+    design and segmentation of shared infrastructure workloads into discrete and manageable
+    Terraform workspaces.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Shared services
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Finally, the most complex operating model is that of a **shared service**.
+    In this scenario, we are combining aspects of both our standalone application
+    and our shared infrastructure. Shared services not only have the application code
+    base that they need to build and deploy but also have other teams within the organization
+    that draw dependencies on them. However, unlike the shared infrastructure team,
+    where those dependencies might be at the network or configuration layer, shared
+    services often have dependencies at the application interface layer, embedded
+    within the message-based protocols that the two systems use for interoperability.
+    The shared services team is likely made up of developers and testers responsible
+    for maintaining one (or more) services within a portfolio of microservices:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 17.3 – Shared services team](img/B21183_17_3.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.3 – Shared services team
+  prefs: []
+  type: TYPE_NORMAL
+- en: Shared services teams are commonplace at large organizations and, as a result,
+    often operate in an environment where they may draw their own dependencies on
+    both other shared services and shared infrastructure teams within their organization.
+    This helps reduce the scope of responsibility of the shared services team as they
+    can shed responsibilities that are picked up by shared infrastructure teams operating
+    lower-level infrastructure, such as the wide area network, security, and logging
+    and monitoring, as well as higher-level infrastructure such as Kubernetes or even
+    shared Kafka or Cassandra clusters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While the distribution of this responsibility helps focus a shared services
+    team’s energy on the development and maintenance of their service, it also creates
+    additional coordination effort to synchronize changes and release processes as
+    well as versioning compatibility between both downstream and upstream services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we’ve looked at several different operating models for using Terraform
+    to manage existing environments, we’ll take a deeper look at some of the common
+    operations that you’ll need to perform as you manage your environments. No matter
+    what your team looks like and what type of workload you are managing with Terraform,
+    these scenarios are bound to come up!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Applying changes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When we manage a long-lived environment, it’s inevitable that we will have to
+    eventually make changes to that environment—whether they are large or small. Change
+    happens. It can be a change related to our solution itself, or it can be a change
+    needed due to upgrades to our tools and the underlying platform itself. It can
+    be expected—such as planned releases—or unexpected—such as zone or regional outages.
+    In this section, we’ll look at all of the different types of changes that often
+    happen to our environments and how we should best handle them while managing our
+    environments using Terraform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Patching
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When using Terraform, there are several places within our code that we will
+    need to make conscious decisions about what versions of what components we want
+    to use. These places include the version of Terraform’s executable and the providers
+    and modules that you use within your configuration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Upgrading the Terraform executable
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The first thing we need to consider is what version of Terraform we want to
+    use. This may seem surprising—I mean, why wouldn’t you always want to use the
+    latest and greatest version of Terraform? However, there are some pretty important
+    reasons why upgrading the version of Terraform you are using is something you
+    should be careful about when managing existing systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The version of Terraform you are using could impact the versions of the providers
+    you are using that are supported, which could result in cascading upgrade requirements
+    that may require you to take on more change in your code base than you were originally
+    planning.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While new versions of Terraform often bring exciting new features, capabilities,
+    and bug fixes, they can also bring deprecations and backward incompatibilities.
+    This is something that HashiCorp has historically done an excellent job of managing,
+    minimizing the impact of the change, but it is nonetheless something to keep an
+    eye on as it does occasionally happen. The most recent example of where the version
+    of Terraform had major implications was with version `0.12` of Terraform. In this
+    situation, if you were using the `aws` provider, if you upgraded to version `0.12`
+    of Terraform, you would need to upgrade to version `2.20.0` of the `aws` provider.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The version of Terraform is often referenced in the `required_versions` block
+    of both root modules and reusable modules alike. Therefore, you should also evaluate
+    the upgrade’s implications on your Terraform-managed environments and any modules
+    that you are referencing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Upgrading providers
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Like Terraform itself, each of the providers we use to provision resources to
+    various clouds and other platforms has its own version. This compounds the issues
+    we experienced when upgrading Terraform itself across every provider we use within
+    our Terraform solutions. However, most Terraform deployments use the provider
+    for one cloud platform but also might include other providers for different control
+    planes that the solution targets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The cloud platforms, in particular, are problematic just because they move so
+    fast and are so far-reaching. For example, the AWS, Azure, and Google Cloud resource
+    providers have over 700, 600, and 400 different resource types, respectively!
+    Now, you probably won’t be using all of those resource types in one of your Terraform
+    solutions, but with so many different resource types offered by a provider, there
+    is an opportunity for change anytime one of those services adds a new feature.
+    Hence, they change frequently, with new versions of the provider released weekly
+    and sometimes even faster!
+  prefs: []
+  type: TYPE_NORMAL
+- en: It’s a good idea to be purposeful about upgrading the versions of your providers.
+    While you shouldn’t necessarily follow the provider’s weekly release cadence,
+    it’s best not to let the version of your provider stagnate, as this just builds
+    up technical debt until it becomes an emergency. Emergencies can arise in one
+    of two ways. First, you could be leveraging deprecated resources, blocks, or attributes
+    within your configuration that will eventually have their support removed. Second,
+    you might want to take advantage of a new feature or capability of one of the
+    resources you are using, but it’s unsupported in your current version.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Upgrading modules
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Modules are another place where you need to think about versions. When you reference
+    a module from the Terraform Registry, you explicitly set the version you want
+    to use. If you are using modules stored in other, less structured locations, such
+    as Git repositories, you should be careful to reference them using a specific
+    tag.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The impact of upgrading a module version, like each of the resource types within
+    a provider, depends on the breaking changes—or lack thereof—within the module’s
+    new version. Sometimes, modules can differ radically between versions, and this
+    can result in a significant negative impact on consumers of these modules who
+    naively upgrade, assuming everything will work out okay.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For modules, Terraform Plan is usually sufficient to detect whether there is
+    a major change being introduced, but when provider and module version changes
+    overlap, it is often a good idea to perform test deployments in order to verify
+    upgrades. This can be done for any type of change you are trying to introduce
+    into the environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Refactoring
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: As we develop more advanced configurations, we can often find ourselves in a
+    situation where there are components of our module—whether it’s a root module
+    or a reusable module—that can ideally be extracted into their own module because
+    they implement a repeatable pattern that could be reusable in a more granular
+    context in other modules and other deployments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is in these situations that we will likely need to move resources from one
+    module to another. If we do this within our code, any new environments that we
+    provision immediately can reap the benefits, but our existing environments will
+    suffer because they will detect the change. The resource that we moved from one
+    module to another will now have an entirely new path when Terraform does its plan.
+    From Terraform’s perspective, the resource at the old location was deleted, and
+    a new resource needs to be created at the new location. This drop-create motion
+    creates a tremendous amount of disruption when managing existing environments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Like with the importing of resources, we have two methods for moving resources.
+    There is the `terraform state mv` command-line operation and the `moved` block,
+    the latter of which we can define in our HCL configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The command-line operation is quite simple and is structured how you would
+    expect:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `SOURCE` and `DESTINATION` command-line parameters correspond to the `moved`
+    block’s `from` and `to` attributes, respectively.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s look at a specific example. In the chapters where we built solutions
+    using Kubernetes, we saw several resources get repeated with nearly identical
+    configurations for both the frontend and backend components of our application
+    architecture. These resources were `kubernetes_deployment`, `kubernetes_service`,
+    and `kubernetes_config_map`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 17.4 – Visible repeating pattern of resources](img/B21183_17_4.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.4 – Visible repeating pattern of resources
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before we can refactor this solution, we need to create a module that will
+    replace the three repeating resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 17.5 – Refactor step 2 – construct a reusable module that can be configured
+    to replace each of the instances of the repeating pattern](img/B21183_17_5.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.5 – Refactor step 2 – construct a reusable module that can be configured
+    to replace each of the instances of the repeating pattern
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now that the module has been created, we need to create an instance of the
+    module in the root module and delete the previous resources within the repeating
+    pattern:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 17.6 – Refactor step 3 – replace the loose resources with module references
+    and moved blocks](img/B21183_17_6.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.6 – Refactor step 3 – replace the loose resources with module references
+    and moved blocks
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, we create `moved` blocks that will facilitate Terraform recognizing
+    that the resources don’t need to be destroyed and recreated because they have
+    already been provisioned but the path has changed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Planning for failure
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Sometimes, the unexpected happens and part of our infrastructure is impacted
+    due to an outage of some kind on the target cloud platform. In these situations,
+    we need to be able to react and bring change to our existing environments in order
+    to minimize the damage or recover from the outage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Active-passive
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'First, let us look at the active-passive workload deployed within a single
+    Terraform workspace:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 17.7 – Active-passive workload deployed within a single Terraform
+    workspace](img/B21183_17_7.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.7 – Active-passive workload deployed within a single Terraform workspace
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is what it looks like during an outage:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 17.8 – Active-passive workload when disaster strikes!](img/B21183_17_8.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.8 – Active-passive workload when disaster strikes!
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The application and database in US West are unavailable. Luckily, we have the
+    database in US East that we were replicating to. However, we need to create an
+    online environment to start serving our customers using this database:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 17.9 – Recovery step 1: Provision a new environment in a different
+    region](img/B21183_17_9.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 17.9 – Recovery step 1: Provision a new environment in a different region'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We use Terraform to provision a new environment in a new Terraform workspace.
+    We configure the new root module to use the US East as the primary region and
+    the secondary region as another healthy region nearby, in this case, US Central.
+    This environment is healthy, but it’s missing our data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 17.10 – Recovery step 2: Replicate data from the old environment to
+    the new environment](img/B21183_17_10.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 17.10 – Recovery step 2: Replicate data from the old environment to
+    the new environment'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We reconfigure our new workspace to reference the *old* database by importing
+    it into the state, essentially replacing the new empty database with the old database.
+    This will also likely cause a replacement of the replication configuration to
+    start replication from the old database to the new disaster recovery database
+    in the US Central region:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 17.11 – Recovery step 3: Cut over to new environment and decommission
+    the old environment entirely](img/B21183_17_11.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 17.11 – Recovery step 3: Cut over to new environment and decommission
+    the old environment entirely'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, the old disaster recovery database in US East is our main production database,
+    and we have a new disaster recovery site in US Central in case we need to perform
+    this same operation again. At this point, we are ready to resume service with
+    our customers by allowing traffic back to our application. The database will be
+    up to date because of the previous replication that was in place from US West
+    to US East. There might be minor data loss for some customers during the small
+    window when the requests were recorded in US West but may not have made it over
+    to US East through the replication.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Active-active
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Now, here’s an active-active deployment in a single Terraform workspace without
+    using any modules:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 17.12 – Active-active deployment in a single Terraform workspace without
+    using any modules](img/B21183_17_12.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.12 – Active-active deployment in a single Terraform workspace without
+    using any modules
+  prefs: []
+  type: TYPE_NORMAL
+- en: To achieve higher levels of system availability, we can opt for an active-active
+    cross-region deployment. In this situation, we will have two instances of our
+    application deployed across two regions and replication between the databases.
+    This will ensure that in case of an outage in one region, our customers will continue
+    to be served by routing traffic to the healthy region.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the preceding approach, we created our multi-region deployment in a single
+    Terraform workspace, which means both regions will be updated on a single Terraform
+    application. This can be problematic because if one region is down, then half
+    of our deployment will potentially be unresponsive, thus impacting our ability
+    to enact change across the entire environment. This could impact our ability to
+    failover, increase capacity, or adjust auto-scale settings in the unaffected region.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In order to start moving away from deploying all of our regions into a single
+    Terraform workspace, it is a good idea to encapsulate an entire regional deployment
+    into a single reusable module. In doing so, we make it much easier to segment
+    our Terraform workspaces across regions and easily add additional regions as we
+    scale out:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 17.13 – Module design to encapsulate our application deployment within
+    a single region](img/B21183_17_13.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.13 – Module design to encapsulate our application deployment within
+    a single region
+  prefs: []
+  type: TYPE_NORMAL
+- en: The module will have everything that needs to be deployed into a single region.
+    In addition, there may be optional components, such as the database replication
+    configuration, which may not need to be enabled depending on whether this region
+    is the primary or one of the secondary endpoints. Therefore, our module needs
+    to take two input variables. First, there is the region that this instance of
+    our application will be deployed into. Then, there is a feature flag to enable
+    or disable database replication. This will be enabled when the region is our primary,
+    but it will be disabled when it is set up as a secondary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This is an example; your mileage may vary depending on the database or technologies
+    that you are using, but it’s important to recognize that it is a common scenario
+    in such modules to leverage feature flags to allow the customization of each instance
+    of the module to fulfill its specific role:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 17.14 – Active-active deployment in a single Terraform workspace using
+    modules to provision each region](img/B21183_17_14.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.14 – Active-active deployment in a single Terraform workspace using
+    modules to provision each region
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we have our module, we can use it within our single Terraform workspace
+    to provision both regions. This approach allows for additional regions to be provisioned
+    quite easily within a single Terraform Apply, but it is susceptible to operational
+    impact when an outage occurs. If you have designed your failover mechanism and
+    secondary regions to be self-sufficient, then this approach may not be unreasonable,
+    but just remember that you may lose the ability to perform Terraform Apply operations
+    during the outage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Even when performing a targeted apply, it will execute a plan across the entire
+    workspace. So, even though, in theory, a targeted `terraform apply` will only
+    change resources that you target because it has to perform a full plan, if the
+    control plane you are targeting is impacted in certain regions or zones, then
+    you will be unable to do so.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 17.15 – Active-active with separate workspaces](img/B21183_17_15.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.15 – Active-active with separate workspaces
+  prefs: []
+  type: TYPE_NORMAL
+- en: Transitioning to completely separate workspaces for each region can help you
+    maintain control over your environments through Terraform because you will be
+    performing a `terraform apply` operation within the context of each region. This
+    adds additional operational overhead during steady state as it creates additional
+    Terraform workspaces to manage and additional mechanics when performing day-to-day
+    maintenance of your environment, so many might still opt for a single workspace
+    to manage multi-region environments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we saw in this section, even when change is planned, things can be challenging.
+    There are changes to the modules we build and consume in our solutions, there
+    are changes to the design and capabilities of the cloud services we employ, which
+    translates into changes within the individual resources we use, and finally, there
+    are changes to the Terraform executable itself. And these are only changes that
+    we plan and control! Additional changes can come in the form of unexpected outages
+    within the availability zones or regions where our solutions are deployed. In
+    the next section, we’ll look at how we can respond to unexpected errors and perform
+    some routine **breakfixing**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Breakfixing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Now that we’ve looked at the change we know is coming, and the change that we
+    know is coming but we can’t control when, we need to take a look through a more
+    tactical lens to help us respond to the inevitable *little* bumps along the way
+    of our journey of managing existing environments with Terraform. These are going
+    to be smaller issues that are not massively impactful but can definitely become
+    a burden if we are ill prepared. But once you get used to them—and how to respond—they
+    become easy to manage!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Apply-time failures
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: While `terraform plan` provides us with excellent intelligence on what changes
+    (or lack thereof) need to be made to our environments, sometimes things can go
+    wrong in unexpected ways during the `terraform apply` operation even for the most
+    well-intentioned plan. There are some things that you can do to try to stay ahead
+    of these issues and lessen the frequency of encountering them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we know, Terraform executes under an identity on whatever cloud platform
+    we are targeting, and as a result, whatever permissions or privileges that identity
+    has—so does Terraform. Being aware of what permissions Terraform’s identity has
+    and what your code is doing well helps you identify whether there are gaps that
+    will result in authorization failures, as these are often implicit and hard to
+    detect by Terraform. Some cloud platforms even require you to explicitly enable
+    entire categories of cloud services before you use them. As we saw in *Chapters
+    13* through *15*, Google Cloud is notorious for this and we were required to enable
+    each of the relevant Google Cloud APIs within our Google Cloud project before
+    we could even attempt to provision something. On Azure, most common services are
+    enabled by default, but some more obscure resource providers need to be explicitly
+    enabled.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Beyond simply enabling the services you want to use, all cloud platforms implement
+    default quotas that will restrict how much you can provision within certain contexts.
+    These contexts are usually region- or SKU-based. They provide joint protection
+    for the cloud platform from a capacity planning standpoint but also for us as
+    customers to prevent us from accidentally provisioning extremely expensive resources
+    or too many of one kind of resource. Quotas are not the only limits imposed by
+    the cloud platforms, there are often resource limits set for each service within
+    a given deployment context, such as within an AWS account, an Azure subscription,
+    or a Google Cloud project.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In addition to quotas and service limits, often, when working with cloud services
+    that employ private networking, you may run into issues if network settings are
+    misconfigured, such as incorrect virtual network and subnet configurations, or
+    security group rules that prevent resources from being created or accessed. Sometimes,
+    Terraform operates on a cloud service’s data plane, which might become unavailable
+    when you configure it with private networking. Ensure that Terraform has the proper
+    private networking in place to have a line of sight for necessary data planes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Other issues can arise with implicit resource dependencies that Terraform can’t
+    determine through the configuration and plan. This can occur when a resource relies
+    on another resource, but that relationship or dependency is not known to Terraform
+    through direct references between the resources within the configuration. There
+    could also be conflicts with existing resources, such as trying to create resources
+    that already exist with the same name or other settings that can’t exist in more
+    than one resource within the given scope—be it at a networking level or at the
+    cloud platform’s control plane level.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Operations might take longer than expected, and other transient platform errors
+    lead to timeouts. Timeouts can result in the resources eventually being successfully
+    provisioned, but because it happened after the operation timed out, Terraform
+    won’t know about it. This can happen when large resources are being provisioned
+    or when there are network delays.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Removing from state
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In the previous section, we discussed apply-time failures and their impact on
+    Terraform infrastructure management. Another common situation that can arise when
+    managing environments with Terraform is the need to remove a resource from the
+    state. As we’ve discussed in previous chapters, this can be achieved both imperatively
+    using the `terraform state rm` command or declaratively by using the `removed`
+    block in your HashiCorp Configuration Language code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One such scenario is when you need to decommission resources. If you manually
+    delete a resource outside of Terraform, it needs to be removed from the state
+    file to prevent errors during the next `terraform apply`. Similarly, if a resource
+    is accidentally imported into the wrong location in your Terraform configuration,
+    it can be removed before re-importing it correctly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When working in a team, if someone else has already removed a resource but your
+    local state file is not yet updated, resolving the discrepancy may involve removing
+    the resource from your state file. Cleaning up orphaned resources is another important
+    use case. If a resource becomes orphaned (no longer managed by Terraform) due
+    to manual changes or configuration errors, it can be removed from the state file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another place where you may need to remove resources is during the refactoring
+    process. Of course, as we’ve discussed, it’s more common to move resources in
+    this scenario, but there are cases where removal might be necessary as well, such
+    as splitting a large configuration into smaller modules; that is, resources might
+    need to be removed from the state file before re-importing them into their new
+    locations. Additionally, if a resource needs to be replaced with a new one (for
+    example, due to a change in the resource’s configuration that requires recreation),
+    the old resource might be removed from the state file before creating the new
+    one. During testing or debugging, temporarily removing resources from the state
+    file can help isolate issues or test specific scenarios. If you’re consolidating
+    multiple similar resources into a single resource (e.g., merging several security
+    groups into one), the old resources might be removed from the state file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Importing into state
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In [*Chapter 16*](B21183_16.xhtml#_idTextAnchor665), we delved into the intricacies
+    of importing existing environments that were provisioned outside of Terraform.
+    As we continue our exploration of managing existing environments in this chapter,
+    we will encounter situations where importing resources becomes essential for breakfixing
+    within environments already under Terraform’s management.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One common situation where importing resources becomes necessary, even in environments
+    initially provisioned with Terraform, is when transient errors occur during the
+    `terraform apply` process. These errors can lead to a peculiar state where resources
+    are provisioned but reported as unhealthy to Terraform, causing the `terraform
+    apply` process to fail. However, these resources may eventually finish provisioning
+    or be recovered by the cloud platform later. In such instances, we are faced with
+    the decision to delete these resources and rerun `terraform apply` or import them
+    into the state.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Importing resources in this context serves as a form of breakfixing, akin to
+    patching up a leak in a well-oiled machine. It allows us to reconcile the discrepancies
+    between the actual state of our cloud environment and Terraform’s understanding
+    of it, much like how we would address apply-time failures by ensuring proper permissions,
+    quotas, and network configurations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another scenario where importing might be necessary is when dealing with resources
+    that have been manually or by an automated process created or modified outside
+    of Terraform. This can lead to a drift between the Terraform state and the actual
+    infrastructure, similar to how unexpected changes in cloud service limits or network
+    settings can cause issues. This can arise from human operators working outside
+    the bounds of our infrastructure-as-code process, or it could arise from automated
+    systems enforcing enterprise governance standards. By importing the newly created
+    or modified resources back into the Terraform state, we can realign our configuration
+    with the current state of the infrastructure, ensuring that subsequent Terraform
+    operations proceed smoothly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we explored how to manage existing environments using Terraform.
+    We began with a comprehensive examination of the various operating models employed
+    by teams with differing roles and responsibilities within organizations of varying
+    sizes. We investigated how these teams integrate Terraform into their day-to-day
+    operations—from managing a simple standalone application to navigating the complexities
+    of shared infrastructure services, such as a centralized network, and addressing
+    the nuances of building shared services that intertwine across the enterprise.
+    We discussed the challenges of interdependencies experienced with shared infrastructure,
+    coupled with their own application development release processes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A significant portion of this chapter was dedicated to simply applying changes
+    to our existing environments. This included the seemingly mundane process of upgrading
+    our Terraform tools—ranging from the Terraform executable itself to the Terraform
+    providers we use and the modules we consume within our solutions. We also discussed
+    the refactoring that may be necessary with our own code and addressed how to handle
+    unplanned changes—such as when disaster strikes. This discussion was akin to preparing
+    for a storm; just as one would secure their windows and doors, we explored how
+    to use Terraform to prepare our environments for when we needed to take action
+    during an outage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We concluded the chapter by discussing the more common break-fixing scenarios
+    that you will encounter in your day-to-day operations of managing existing environments
+    with Terraform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we’ll be looking to close out the book by discussing some
+    important things to consider as you take your next steps in mastering Terraform.
+  prefs: []
+  type: TYPE_NORMAL

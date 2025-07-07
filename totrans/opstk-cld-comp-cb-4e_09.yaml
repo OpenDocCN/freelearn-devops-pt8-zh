@@ -1,0 +1,1638 @@
+- en: Chapter 9. OpenStack Orchestration Using Heat and Ansible
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introduction – orchestrating with OpenStack
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating your first stack with Heat
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Launching your stack with Heat
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Viewing the resources and output of a stack created with Heat
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Deleting a Heat stack
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Updating a Heat stack
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Installing and configuring Ansible for OpenStack
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using Ansible to launch instances
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using Ansible to orchestrate software installation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using Ansible to orchestrate software installations across multiple instances
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using Ansible to fully orchestrate the creation of a web server and load balancer
+    stack
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Introduction – orchestrating with OpenStack
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: OpenStack is chosen as a platform for many reasons, but one that frequently
+    tops the list is orchestration. Without an element of orchestration in your OpenStack
+    environment, you have a powerful turbo engine car that is just used for the school-run.
+    As with any cloud environment, there are various tools to help with your orchestrated
+    workloads, but out of the box, OpenStack provides Heat, the orchestration engine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With Heat, you can define rich environments in a template, such as a multi-tier
+    web application, which allows users consistency in launching these relatively
+    complex deployments. I view the Heat orchestration templates (known as **HOT**
+    (**Heat Orchestration Template**) – get it?) as a recipe that is written in **YAML**
+    (**Yet Another Markup Language**). You define your ingredients that make up the
+    environment. In a cooking recipe, this would be listing the amount of chocolate,
+    flour, and sugar that is required for something like a cake. In a HOT ()file,
+    this is the parameters section. You define the flavor of instances, the images
+    used, and what networks the instances should launch against.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Like any good recipe, you can override these defaults—so if you fancy experimenting
+    with jam instead of chocolate sauce, or varying the amount of sugar required—you
+    can adjust these. Also, with Heat you do this in an environment file. This file
+    is laid out as though you're assigning values to the parameters. For example,
+    an input parameter in the HOT file might be `image_name`, and in an environment
+    file, you assign `image_name=ubuntu-image`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next section in the HOT file is the largest and most complex as it is the
+    method section of the recipe – the "how all the ingredients create a cake" section.
+    In Heat, this is the start of the resources section. The resources section describes
+    how the instances interact with each other. For example, a load balancer might
+    get created during the Heat run that includes three web servers. The load balancer
+    resources would have a method to attach these three unknown web servers to the
+    load balance pool for that resource to be complete.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The final section is the output section. In a cooking recipe, you'd be taking
+    the cake out of the oven. In OpenStack, this will be the end result—your multi-tier
+    web application. However, with OpenStack and the nature of launching a number
+    of instances into an environment that may not have even had a network created
+    at that point, it would be hard to know the IP addresses that have been used,
+    which may be needed in order to access the deployed stack. So, for this, we have
+    the output section where a user of OpenStack can interrogate the stack and get
+    useful information so that the launched stack is usable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, we are not limited to using the Heat orchestration engine within OpenStack
+    when it comes to instance and application life cycle management. As introduced
+    in [Chapter 1](part0014_split_000.html#DB7S2-189e69df43a248268db97cde1b1a8e47
+    "Chapter 1. Installing OpenStack with Ansible"), *Installing OpenStack with Ansible*,
+    Ansible is a great example of a platform independent tool that we can use to help
+    orchestrate tasks. Using Ansible modules specific to the target environment, such
+    as OpenStack, we can launch instances and perform software installations in a
+    structured way that may suit users of both OpenStack and other cloud environments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The basic structure of Ansible is quite straightforward. In its simplest form,
+    it has a notion of playbooks, plays, and tasks. If you study the OpenStack-Ansible
+    playbooks that were described in [Chapter 1](part0014_split_000.html#DB7S2-189e69df43a248268db97cde1b1a8e47
+    "Chapter 1. Installing OpenStack with Ansible"), *Installing OpenStack with Ansible*
+    you'll get an insight into advanced features not covered in this chapter, which
+    allow you to extend your OpenStack-based cloud environments into fully orchestrated
+    masterpieces!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating your first stack
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: With Heat, we can create a wide variety of templates from spinning up basic
+    instances, to creating complete environments for an application. In this section,
+    we will show the basics of Heat by spinning up an instance and attaching it to
+    an existing Neutron network, and assigning a floating IP to it. Heat templates
+    describe the resources being used, the type and size of the instances, the network
+    an instance will be attached to, among other pieces of information required to
+    run that environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we will show you how to use a HOT file to spin up two web servers
+    running Apache, connected behind a third instance running HAProxy acting as the
+    load balancer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Ensure that you are logged onto a correctly configured OpenStack client and
+    can access the OpenStack environment. Refer to [Chapter 2](part0024_split_000.html#MSDG1-189e69df43a248268db97cde1b1a8e47
+    "Chapter 2. The OpenStack Client"), *The OpenStack Client*, for details of setting
+    up your environment to use Heat.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In this section, we will download a HOT file called `cookbook.yaml`, which
+    will describe our instance and the network to attach it to:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, we download the HOT file from the Cookbook GitHub repository:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Heat takes input parameters from the command line, or from an environment file,
+    which get passed to the template. These parameters are seen at the top of the
+    HOT file, as shown here:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'As can be seen, we expect to pass in various parameters when we launch this
+    template. Ensure that we have these details by running the following commands:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'The `openstack network list` output may look like the following:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00166.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'With the information at hand, we create an environment file that will be used
+    to store our parameters that we will pass to the HOT file when we launch the stack.
+    Create `cookbook-env.yaml` in the same directory as `cookbook.yaml` with the following
+    contents based on the output of the previous commands (adjust to suit your environment):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Heat Orchestration Templates (HOT) are YAML files that describe our environment,
+    or "Stacks" as they''re known. The basic templates generally have the following
+    structure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`description:`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`parameters:`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`resources:`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`outputs:`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `description:` section has a number of words that helps a user understand
+    what is expected to occur when the template is used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `parameters:` section defines the input variables, for example, the type
+    of image(s) to be used, the network(s) to attach the instances on, and the key
+    pair name to associate with the instances. Parameters are arbitrary and can contain
+    any information needed to execute the template properly. The parameters: section
+    works directly with the information found in the accompanying environment file
+    (as specified by the `--environment` parameter). Each parameter must either have
+    a default value or be specified in the environment file for the stack to launch
+    successfully.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `resources:` section is usually the biggest section as it describes the
+    environment. It can describe the instances that will be used, the naming of them,
+    which networks to attach, and essentially how all of the elements relate to each
+    other and how the environment is orchestrated. Explanations of how best to write
+    these resources are beyond the scope of this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `outputs:` section refers to the "return" values from running the stack.
+    For example, a user will need to know how to access a particular stack that has
+    just been created. Random IPs and hostnames can all be assigned as normal operation
+    of running stacks, so being able to interrogate the right information in order
+    to access the environment is a must.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Launching your stack with Heat
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To launch a Heat stack we need three things: a *name* for the stack, the *template*
+    (HOT) that describes the deployment, and finally, the *environment file* that
+    fills in the blanks of the input parameters.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Ensure that you are logged on to a correctly configured OpenStack client and
+    can access the OpenStack environment. Refer to [Chapter 2](part0024_split_000.html#MSDG1-189e69df43a248268db97cde1b1a8e47
+    "Chapter 2. The OpenStack Client"), *The OpenStack Client*, for details of setting
+    up your environment to use OpenStack.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'If you get the `openstack: ''stack'' is not an openstack` command, refer to
+    `openstack --help`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Ensure that the `python-heatclient` package is installed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`sudo -H pip install python-heatclient`'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Also ensure that you have downloaded the example `cookbook.yaml` Heat template
+    and have created the environment file, as described in the previous recipe.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In this section, we will download a HOT file called `cookbook.yaml`, which
+    will describe our instance and the network to attach it to:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will launch the stack with the following commands:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '**Tip**: You can use the `-t` flags instead of `--template`, and `-e` instead
+    of `--environment`.'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'This will produce an output like the following:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00167.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'To view a list of stacks, execute the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will bring back a list of stacks currently running:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00168.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: Note **Stack Status**. A successful launch is when it is marked as **CREATE_COMPLETE**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Launching a stack is simple. We will specify the HOT file with the `--template`
+    parameter, and then we will specify the inputs that get described in the template
+    in a file that we specify with the `--environment` parameter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The syntax is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Note that the name of the stack must be unique in your project.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Viewing the resources and output of a stack created with Heat
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A stack is an orchestrated set of services, where the user launching the stack
+    shouldn't care too much about what IP addresses were assigned. However, the application
+    stack has been launched to serve a purpose and therefore it is helpful to know
+    how to access it! To access the environment, the user interrogates the "outputs"
+    of the stack, which were defined as part of the template. In this example, we
+    are concerned about how to access the website running behind the HAProxy server.
+    The HAProxy server has been assigned a floating IP from the GATEWAY_NET network,
+    and it is assumed that this is how the application will be accessed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Ensure that you are logged on to a correctly configured OpenStack client and
+    can access the OpenStack environment. Refer to [Chapter 2](part0024_split_000.html#MSDG1-189e69df43a248268db97cde1b1a8e47
+    "Chapter 2. The OpenStack Client"), *The OpenStack Client*, for details of setting
+    up your environment to use Heat.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To view the application stack and get information about how to access it, carry
+    out the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can view more details of a stack using the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will bring back a number of details about the created stack:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00169.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'A section in the template references *outputs*. Outputs allow a user to interrogate
+    these values so that they can access the running stack. Without this, the user
+    would have to do more digging into the running systems to find out what IP addresses
+    were assigned to the instances that make up the stack. To see a list of outputs
+    associated with our running stack, execute the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will bring back the following output:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00170.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'To view a particular value, such as the public IP (*floating IP*) assigned
+    to our HAProxy instance, we can access the websites that are running on private
+    addresses behind the load balancer. To do so, issue the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This gives the IP address that we would then use to access this particular
+    service set up as a stack:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00171.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: In this example application stack, we can then use the `http://192.168.100.108/`
+    address, which will send the request to either of the web servers that are running,
+    configured as part of this HAProxy load balancer demonstration.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'A stack is designed to take a number of inputs, performs some actions, and
+    produces a number of instances running an application ready for service. However,
+    this hands-off approach means a lot of decisions are automatically dictated by
+    OpenStack—predominantly because the instances get served from DHCP-enabled subnets.
+    In order to find out the state of the stack and information about how to access
+    the stack, a user would interrogate the **outputs**, which were described in the
+    template. In the example template, the output section looks like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The outputs that have more information are labelled as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`webserver1_private_ip`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`webserver2_private_ip`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`haproxy_public_ip`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'In this recipe, we specifically targeted `haproxy_public_ip`, as this is how
+    we would access the web service that we created. We issued the following command
+    to do this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: Deleting a Heat stack
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To delete a running Heat stack we will make a simple call as shown in this recipe.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Ensure that you are logged on to a correctly configured OpenStack client and
+    can access the OpenStack environment. Refer to [Chapter 2](part0024_split_000.html#MSDG1-189e69df43a248268db97cde1b1a8e47
+    "Chapter 2. The OpenStack Client"), *The OpenStack Client* for details of setting
+    up your environment to use OpenStack.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In this section, we'll show how to delete a stack.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To delete a running stack named `myStack`, issue the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: You will be prompted to confirm this deletion, as shown here. Type `y` to continue
+    destroying the stack:![How to do it...](img/00172.jpeg)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'You can check on the status of the deletion by listing the created stacks:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will bring back an empty list if there is no stack to show or the following
+    during deletion:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00173.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In very much the same way that we can launch a stack easily, deleting one is
+    achieved by simply specifying which stack we want to destroy and using the `stack
+    delete` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you prefer to destroy a stack without confirmation, use the following syntax:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: Updating a Heat stack
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Our running Stack is based on templates, so this allows us to modify our application
+    stack by altering the inputs. If we wanted to change the size of a flavor, or
+    the key used, you can trigger a rebuild of the instances in the stack by altering
+    the inputs and issuing the `stack update` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Ensure that you are logged on to a correctly configured OpenStack client and
+    can access the OpenStack environment. Refer to [Chapter 2](part0024_split_000.html#MSDG1-189e69df43a248268db97cde1b1a8e47
+    "Chapter 2. The OpenStack Client"), *The OpenStack Client*, for details of setting
+    up your environment to use OpenStack.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In this section, we'll modify the environment file to change a flavor from `m1.tiny`
+    to `m1.large`. (Ensure that you have a valid flavor with this name before continuing!)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We first edit the environment file, called `cookbook-env.yaml`, to show the
+    changes we want to make to our running stack:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Ensure that the stack is running without issues by viewing the resources:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will bring back an output like the following:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00169.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'We will now use the updated environment file to modify the running stack:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Tip: We''re using the parameter **--existing** to avoid specifying the template
+    and environment file again.'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'This will bring back an output like the following, showing the update has started:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00174.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'Also we can view the state of the stack once this has been completed, to show
+    the reflected change:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will bring back an output like the following (note that the flavor has
+    changed from `m1.tiny` to `m1.large`). Also note that the IP addresses have not
+    changed:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00175.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The OpenStack Orchestration service, Heat, is designed to follow a template
+    to provide a running service to end users. Everything is automated from start
+    to finish. This crucial feature allows us to update a running stack, effectively
+    redeploying the stack with updates, which runs through the fully automated routine
+    to restore the service, on the same IP addresses, but with the required changes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The syntax for updating the stack is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In our example, we omitted the `--environment` and `--template` parameters
+    as we made the required change to our stack directly in the environment file used
+    originally. This allowed for a simpler syntax:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: Installing and configuring Ansible for OpenStack
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Ansible has relatively few prerequisites that are not installed on most Linux-
+    and macOS-based systems. However, there are a few steps to follow before we can
+    use Ansible for managing our OpenStack environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Ensure that you are logged on to a correctly configured OpenStack client and
+    can access the OpenStack environment. Refer to [Chapter 2](part0024_split_000.html#MSDG1-189e69df43a248268db97cde1b1a8e47
+    "Chapter 2. The OpenStack Client"), *The OpenStack Client*, for details of setting
+    up your environment to use OpenStack.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The version of Ansible 2.x requires Python 2.6 or 2.7\. Most modern Linux distributions
+    and macOS/OS X have this already installed. If you were able to successfully execute
+    the `openstack` commands as described in [Chapter 2](part0024_split_000.html#MSDG1-189e69df43a248268db97cde1b1a8e47
+    "Chapter 2. The OpenStack Client"), *The OpenStack Client*, then you're good to
+    go here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You may need to install Shade. Shade is a simple client library for interacting
+    with OpenStack clouds. Red Hat and CentOS environments don''t have this installed
+    by default. Install it with the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Be aware that Shade may pull in other dependencies that may break your environment.
+    It is suggested that you use a **virtual environment** (**venv**) to avoid this
+    issue.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: As we're performing this on our client machine, ensure that you have the necessary
+    permissions to install software. When ready, carry out the following steps depending
+    on your chosen operating system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ubuntu
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'For Ubuntu, we can use the Ansible PPA as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, ensure that we can add **PPA** (**Personal Package Archives**) by installing
+    the following tool:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Next, we will add the PPA:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Finally, we will run the installation:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: macOS/OS X (and for those wanting to use pip)
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'For macOS, we can use pip as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Ensure that `pip` is available:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Next, use `pip` to install Ansible:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Verifying the installation
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'To verify the installation, issue the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This should produce an output like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Verifying the installation](img/00176.jpeg)'
+  prefs: []
+  type: TYPE_IMG
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In order for us to be able to use Ansible to manage our OpenStack environment,
+    we must ensure that we have a good working Ansible set up. The preceding steps
+    merely helped us install Ansible onto our client using the tools available for
+    that operating system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using Ansible to launch instances
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Launching an instance using Ansible is a convenient, platform agnostic method.
+    While we have to specify how to do this for OpenStack, as a particular task, an
+    Ansible playbook could be extended to allow a user to use the same Ansible command
+    to launch an instance on any cloud. This recipe is a very basic introduction to
+    the use of Ansible with OpenStack.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Ensure that you are logged on to a correctly configured OpenStack client and
+    can access the OpenStack environment that has Ansible installed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Ansible executes tasks in what is known as a playbook. In this example, we
+    will create a simple task that launches a specific instance called `cookbook1`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first step is to create the Ansible playbook for our tasks that will launch
+    our instance. Create the following file called `launch-instance.yml` on your client,
+    in a directory of your choosing:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Once that has been described, we will simply run that particular task using
+    the `ansible-playbook` command, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will bring back the familiar Ansible output like the following:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00177.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: Note
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: This is a `localhost` task, so the warning can be ignored.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'We can verify that an instance was launched in OpenStack by viewing the server
+    listing as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will bring back an output like the following:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00178.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: Note that the task automatically assigned a public floating IP address from
+    the `GATEWAY_NET` network. This is an important detail as Ansible can do much
+    more than just launch instances. If we want to be able to install and configure
+    instances, Ansible must be able to SSH from the client to the running instance.
+    Private tenant networks are generally not accessible; therefore, Ansible would
+    use the public routed network to access the instance, just like you would if you
+    were to SSH to it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Launching an instance using Ansible uses the `os_server` Ansible module. This
+    is available from Ansible 2.0 onwards. The `os_server` module takes a number of
+    parameters that describe the usual parameters you would expect when launching
+    instances using the command line.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that we didn't specify any authentication details as part of the task.
+    This is because this module interprets our shell environment variables, just like
+    we would use when executing OpenStack client tools.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You will notice that one of the entries in the task denotes the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: This has a specific intent in Ansible, as Ansible is designed to give state
+    consistency of running that task, despite how many times that task may get run.
+    This simple statement basically says that this instance must be present. If not,
+    it will launch that instance. Once it has launched, it satisfies that predicate.
+    In the Ansible output, you will see that the overall run says **ok=1 changed=1**.
+    This means that it changes the state of this environment. In other words, it launched
+    the instance (which is a change of state).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'However, if we run the task again, we get the following subtle change in the
+    output denoting that the task didn''t need to run to satisfy the fact the instance
+    needed to be "present" (that is, running):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![How it works...](img/00179.jpeg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Note that the task executed successfully, but didn't need to change anything
+    as denoted by the **changed=0** output in the **PLAY RECAP** line.
+  prefs: []
+  type: TYPE_NORMAL
+- en: See also
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Visit [http://docs.ansible.com/ansible/latest/os_server_module.html](http://docs.ansible.com/ansible/latest/os_server_module.html)
+    for more information
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: For those who do not want to source environment variables into their playbooks
+    using the `source openrc` method, visit [https://docs.openstack.org/shade/latest/](https://docs.openstack.org/shade/latest/)
+    to set up a `clouds.yaml` cloud environment file
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using Ansible to orchestrate software installation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Launching an instance using Ansible doesn''t provide a user much beyond consistency,
+    in that a playbook describes the end state of the environment: every time a user
+    runs the task, it will either need to launch that specific instance to ensure
+    that it is present, or it will skip that task because the instance is already
+    running. However, we can achieve a lot more with Ansible beyond just launching
+    a virtual machine. In this recipe, we will launch another instance that will install
+    and start Apache.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Ensure that you are logged on to a correctly configured OpenStack client and
+    can access the OpenStack environment that has Ansible installed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Ansible executes playbooks of tasks. In this example, we will extend the task
+    that launches a specific instance to allow Ansible to then connect to that instance
+    and install Apache:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We start off by extending the Ansible playbook introduced in the previous recipe
+    to include the creation of *security group rules* (this is to ensure that Ansible
+    can access to the instance on port `22`, and we are ultimately able to access
+    the running web server on port `80`). Create the file called `orchestrate-instance.yml`
+    with the following contents:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Once we have our **security groups** configured, we can then ensure that these
+    security group rules are included in the **task** that launches the instance.
+    We also ensure that we include a new entry called `register`. This allows us to
+    set a variable associated with this instance that we can then refer to in other
+    tasks. Carry on editing this file with the following tasks:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Next, we will add in a task that adds this particular instance to an internal
+    in-memory inventory that we can then access later on in the playbook. As part
+    of this inventory, we''re telling Ansible that when the particular inventory item
+    is accessed, when Ansible wants to connect to it (via `ssh`), it will use a particular
+    IP address (in our case, the public floating IP). Carry on editing the file and
+    add this next entry as shown as follows. As we are using YAML, ensure that the
+    spacing matches for each element. For example, this additional `- name: Add instance
+    to Inventory` block must match the same column as the previous block `- name:
+    Deploy an instance`, as it is a task that is part of the same play:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Next, we will add in a new play that tells Ansible to wait for this instance
+    to complete its boot process. As Ansible uses SSH to perform its tasks, it makes
+    sense to only continue when the SSH daemon is running and accepting connections.
+    Ensure that your private key running the Ansible task matches the public key portion
+    described in `key_name:`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Note that this is a new play and task, so ensure that this entry begins at the
+    start of the line at column 0.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This final set of tasks perform the steps inside the running instance; this
+    next task performs the installation of Apache on this running instance. Ansible
+    knows to operate on this instance because this set of tasks is performed against
+    the `webservers` group of hosts. We registered this new group, in the in-memory
+    inventory, in the task in step 2.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The `pre_tasks:` section is *optional* and may not be needed in all circumstances.
+    The example in this book was created using an Ubuntu 16.04 image. Ubuntu 16.04
+    doesn't install Python 2 by default, however this particular Ansible `apt` module,
+    that will ultimately install Apache, expects to execute Python 2 code in order
+    to work. So, we do an initial `raw` command, that doesn't execute any Python,
+    to run some shell script to set some things up for us. This example is also further
+    complicated if you are using the accompanying Vagrant environment, which the instances
+    do not have direct access to the internet. So, as part of the `pre_tasks:` section,
+    we also configure a proxy server for APT to use.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Hint: This playbook can also be found at [https://raw.githubusercontent.com/OpenStackCookbook/vagrant-openstack/master/orchestrate-instance.yml](https://raw.githubusercontent.com/OpenStackCookbook/vagrant-openstack/master/orchestrate-instance.yml).'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'Once this file has been created, save and exit. Then run the following commands
+    which will launch an instance and install Apache:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This will bring back the familiar Ansible output like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00180.jpeg)'
+  prefs: []
+  type: TYPE_IMG
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: What we did here was extending the original, simple *playbook* that launched
+    a single instance, and adding in subsequent *tasks* that allow us to install some
+    software onto that instance once it has completed its boot process. The important
+    details of how this is achieved are described here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the first *play*, named `Launch instance on OpenStack`, we first configure
+    some tasks to set up our security group rules. By default, there are no incoming
+    connections allowed, and Ansible uses SSH to perform its tasks, so we have to
+    at least ensure that TCP port 22 is open. We also configure rules appropriate
+    for the service that we are installing. In this case, we are running Apache, so
+    we open up TCP port 80\. Once the security groups are configured, we then have
+    a *task* named `Deploy an instance`. We ensure this instance is launched with
+    the appropriate security groups that we have just configured, and we also register
+    that instance in a variable named `nova_cookbook`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Ansible uses an **inventory** of data to allow subsequent plays and tasks to
+    access details that Ansible have performed in your environment, and so the next
+    *task*, named `Add instance to Inventory` places a *host* named `cookbook1` into
+    a **host group** called `webservers`. And for this particular *host*, named `cookbook1`,
+    in the group `webservers`, we are setting the variable that Ansible would use
+    to access that instance as the floating IP address assigned: `(ansible_ssh_host={{
+    nova_cookbook.server.accessIPv4 }}`. As you can see, we are using our registered
+    variable, `nova_cookbook`, to access some information that Ansible has stored
+    about that instance. It is important that we use the floating IP because the private
+    tenant network is not routable from our client, and therefore Ansible would not
+    be able to connect to perform the Apache install.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next *play* named `Wait for port 22 to be ready` basically has a *task*
+    that waits for SSH to be running. This signals that the instance is ready for
+    use, and therefore we are able to SSH into this to run further Ansible commands.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The last one is the *play* that has *tasks* that perform the install of Apache.
+    As described earlier, we have placed an optional set of `pre_tasks` into this
+    section to overcome the fact that Ubuntu 16.04 doesn't come with the necessary
+    prerequisite Python packages needed for Ansible to run. We have also set an optional
+    APT proxy here too, so feel free to remove and adjust this section according to
+    the image and environment you are operating with.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The last set of *tasks* in this *play* basically ensure that Apache is installed
+    and runs. Here you could then add in additional tasks to pull in Apache configuration
+    data from GitHub, or install additional packages, thus completing the set up of
+    this instance from a single Ansible command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using Ansible to orchestrate software installations across multiple instances
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: So far, we created playbooks that first launched an instance, and then we extended
+    this in the previous recipe to subsequently install Apache onto the running instance.
+    This recipe describes a playbook that can launch any number of instances, and
+    install Apache onto each of those instances.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Ensure that you are logged on to a correctly configured OpenStack client and
+    can access the OpenStack environment that has Ansible installed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: We will extend the previous recipe's playbook to add flexibility to include
+    a variable number of instances.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The basic structure was provided in the previous recipe, so the only **play**
+    we need to adjust is the first one that launches the instances, called `Launch
+    instances on OpenStack`. This complete *play* is shown as follows, where we introduce
+    a variable called `count`, which we have set to `2`, and we also introduce the
+    `with_sequence` section, which forms our loop that will execute that *task* the
+    specified number of *count* times. Note that we also include the count value as
+    part of the instance name:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'The next set of plays copy what was described in the previous recipe, such
+    as waiting for the instance''s SSH to be available and subsequently installing
+    Apache, and is shown here for completeness:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Note
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The `pre_tasks:` section is optional. Your use will vary on any implicit restrictions
+    imposed on the image or environment you are using. This was described in the previous
+    recipe on its use here:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Assuming the file that you have created is called `multi-orchestrate-instances.yml`,
+    you execute this with the following:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will bring back an output like the following. This produces more output
+    than the other plays so far, so only the last part is shown:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00181.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'We have included a few extra items in this playbook that extends the previous
+    playbook that installs Apache to a newly launched instance. These are described
+    here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We introduce a variable called `count`, to which we assign the value `2`. This
+    variable is limited to the scope of this particular play (named `Launch instances
+    on OpenStack`). This variable is used to form a loop, as indicated by this attribute
+    assigned to the `os_server` call:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This basically states: run the `os_server` module task when `count = 1`, and
+    when `count = 2`. As we are in a sequence, we have access to the value of `count`,
+    in a variable called `item`. We use this to append to the `name` variable of the
+    instance allowing us to end up with `cookbook1` and `cookbook2` with the following
+    syntax:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: Using Ansible to fully orchestrate the creation of a web server and load balancer
+    stack
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The previous recipes launched instances into an existing environment, including
+    existing networks, images and keys, for example. However, using Ansible for orchestration
+    of OpenStack environments brings a full suite of modules that can be used to operate
+    more than just Nova. For example, we can use Ansible to control Glance, Neutron,
+    Cinder, and so on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this recipe, we only assume that a user is able to authenticate into a project.
+    We don't assume that any networks exist, or even any images exist. We can get
+    Ansible's view of the world to ensure that images and networks are present, and
+    if not—create them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that this recipe is intended to introduce you to the wonderful world of
+    Ansible. The example is to show the creation of a stack from start to finish.
+    Optimizing Ansible playbooks is beyond the scope of this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Ensure that you are logged on to a correctly configured OpenStack client and
+    can access the OpenStack environment that has Ansible installed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Carry out the following steps to launch an environment that ensures an image
+    is available for use, sets the correct security groups, creates new networks and
+    routers, and finally installs Apache onto two web servers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can assume a blank OpenStack project, but we want to ensure that we have
+    the appropriate running instances and services. We first include tasks as part
+    of our `Create OpenStack Cloud Environment` play that first downloads an Ubuntu
+    16.04 image and then loads into OpenStack. Start off by creating the `full-stack.yml`
+    file with the following contents:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Next, we will create the *private tenant network and router*. We only assume
+    that a shared provider network already exists. In this instance, we assume this
+    provider network—that provides floating IP addresses—is called `GATEWAY_NET`.
+    Carry on editing the file to include the following *tasks* as part of the same
+    `Create OpenStack Cloud Environment` play:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Note
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '*Optional (if using the Vagrant environment)*. Currently, the `os_router` module
+    is unable to insert static routes into a router, so if you have a requirement
+    to utilize static routes into your Ansible controlled playbooks, a workaround
+    is to execute an `openstack` command instead as shown as follows. If you are using
+    the *Vagrant* lab that accompanies this book, you may need to provide static routes
+    to your router in order for traffic to flow from the physical host to the VirtualBox/VMware
+    environment. If you require this, add in the following *task* (edit to suit your
+    environment). In this instance, the physical host running the Vagrant environment
+    has an IP of 192.168.100.1 and allows traffic to flow from the physical host to
+    the instances that have a floating IP from a `192.168.100.0/24` provider network.
+    This provider network here is the `GATEWAY_NET` referred to in this example:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Next, we configure the security groups. Remember that Ansible uses SSH to connect
+    to servers, and by default, cloud images prevent any incoming connections. So
+    one of the rules should be for allowing incoming SSH connections. We also need
+    to configure security group rules for the intended service that is to run on the
+    instances. In this case, we''re running Apache and HAProxy on TCP Port 80, so
+    that also needs to be set up here:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Note
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: As we are running Ansible from one specific host, we can further secure the
+    Ansible SSH security group rule by limiting the access from a single IP address,
+    and not a general 0.0.0.0/0 range.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'We can now launch the instances. Carry on editing this file to add in the tasks
+    to launch multiple web servers and a single HAProxy instance as follows. Note
+    that the chosen network, image, and security groups match what we created in the
+    preceding tasks:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'As we have seen, we need to wait for SSH to be available before Ansible should
+    continue, so we add in a *wait* until this is so. Note that we apply this play
+    to both the `webservers` and `haproxy` *hosts* groups:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'With the instances up and running, the final tasks are concerned with installation
+    and configuration of the services that run on the instances. We will first install
+    Apache on our web servers. This play is applied to our `webservers` hosts, so
+    these tasks will run for each of them:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'As our plays have `gather_facts` set to `False` (because the *image* we''re
+    using doesn''t have the Python libraries expected to run Ansible out of the box,
+    which would mean that the Ansible task that gathers facts about a running instance
+    would immediately fail), we will launch a separate task in a new play that just
+    populates the Ansible inventory of facts, knowing we installed the prerequisite
+    Python 2 libraries in the preceding play. We need this information to populate
+    the HAProxy configuration file later on:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: We can now install and configure HAProxy. This gets applied to our *haproxy*
+    group of hosts (of which there is only one server, named *haproxy*). As part of
+    this play, we will reference a HAProxy configuration file template. We will create
+    this in the next step.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Ansible provides pre-defined, and extensively tested roles that can be used
+    for the installation of software. The guide below is for example purposes only.
+    In reality, you would utilize roles from [https://galaxy.ansible.com/](https://galaxy.ansible.com/).
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'Carry on building out this `full-stack.yml` playbook file with the following
+    contents:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Before we can continue executing our playbook, we need to create the HAProxy
+    configuration template file as specified in the previous step. The configuration
+    pointed to a template file named `haproxy.cfg.j2` in the `templates` directory.
+    Create this directory from the current working directory where you are editing
+    the `full-stack.yml` file:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE54]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Populate the `haproxy.cfg.j2` file with the following contents:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE55]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Note
+  prefs:
+  - PREF_IND
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The `server {{ hostvars[host]...check` line is all on a single line.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'The `templates/haproxy.cfg.j2` file also refers to some variables that we have
+    not yet declared to Ansible, such as `haproxy_app_name` and `haproxy_algorithm`.
+    These are in a `group_var` file specific to our `haproxy` group. To create this
+    group variable file, we need to create a `group_vars/haproxy` directory, with
+    a file called `main.yml` that lists these variables. From the same directory as
+    our `full-stack.yml` file, carry out the following steps:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE56]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Populate the `group_vars/haproxy/main.yml` file with the following contents:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE57]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We are now ready to run our `full-stack.yml` playbook to create our environment
+    similar to the one described by the Heat example. Execute the following commands:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE58]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This will produce an output similar to the following. Due to this being a longer
+    playbook, only the last part is shown:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00182.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: 'We are also able to verify that these instances are running, and the addresses
+    it has assigned by viewing an `openstack server list` output:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![How to do it...](img/00183.jpeg)'
+  prefs:
+  - PREF_IND
+  type: TYPE_IMG
+- en: Finally, we can test our setup by visiting the HAProxy server floating IP address,
+    as shown here. Here we can view the HAProxy stats:![How to do it...](img/00184.jpeg)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How it works...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'What we did here was to methodically build out a playbook, called `full-stack.yml`,
+    that carries out the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Download and install Ubuntu 16.04 image if necessary
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Create our web server and ansible SSH security groups
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Create a private tenant network, router and configure the router
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Launch two web server instances and one HAProxy instance
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: For each web server, install Apache
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: For the HAProxy server, install HAProxy and configure the configuration file,
+    auto-populated with information that Ansible knows about from launching the web
+    servers (such as what IP address was assigned to each of them)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'In this recipe, we introduced a few notable items: Ansible *facts*, the *Jinja2*
+    configuration template file (the `haproxy.cfg.j2` file), and `group_vars`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The Ansible facts and HAProxy `group_var` variables were used to populate the
+    HAProxy configuration file called `templates/haproxy.cfg.j2`. This file mostly
+    looks like a normal `haproxy.cfg` file, but has elements that are applicable to
+    Jinja2, which Ansible interprets. Of particular interest is the `haproxy.cfg`
+    file that has the load balance pool member lines, that ordinarily look like the
+    following basic construct:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE59]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When we launch our instances into OpenStack, we have no idea what IP address
+    they will be assigned, however Ansible does this with its *fact gathering*. If
+    we take a look at the same line in our template, we get the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE60]'
+  prefs: []
+  type: TYPE_PRE
+- en: This line has some static text at the beginning and end, denoted by `server`
+    and `check`. They're the same `server` and `check` text, as we can see in our
+    final output.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The magic of the template and Ansible is what we can do with the loop that
+    surrounds this line and `hostvars` we can access. The loop says:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: For each of the `hosts` in the `webservers` *group* (recall that we registered
+    the web server instances into this specific inventory group), get the value of
+    `hostvars[host].inventory_hostname` and `hostvars[host]['ansible_all_ipv4_addresses'][0](`from
+    the **gathered facts**). This last variable takes the first entry in the `ansible_all_ipv4_addresses`
+    dict, which is our internal IP of our instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The result is the output shown on the previous page, which lists the web servers
+    that HAProxy can access in the load balance pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We aren''t restricted to the variables that Ansible has gathered. We have specified
+    a `group_var` variable file that specifies the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE61]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is referenced directly in the template file in the following places. This
+    allows us to add some static elements that are user-configurable, but allows us
+    to maintain a flexible, environment agnostic set of playbooks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE62]'
+  prefs: []
+  type: TYPE_PRE

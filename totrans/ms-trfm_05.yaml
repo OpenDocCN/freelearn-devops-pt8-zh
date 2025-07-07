@@ -1,0 +1,1355 @@
+- en: '5'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Beyond VMs – Core Concepts of Containers and Kubernetes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In the previous chapter, we familiarized ourselves with **virtual machine**
+    (**VM**) architecture and the core concepts and mechanics needed to automate VM-based
+    solutions. In this book, we will build end-to-end solutions covering the three
+    significant hyperscalars—**Amazon Web Services** (**AWS**), Azure, and **Google
+    Cloud Platform** (**GCP**)—and covering three cloud computing paradigms: VMs,
+    containers, and serverless. In this chapter, we will look at the core concepts
+    needed to tackle container-based architecture solutions using the managed Kubernetes
+    offerings from each cloud platform.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: To accomplish this, we must understand the basics of containers, Kubernetes,
+    and how they fit within the Terraform ecosystem. As with VMs and the surrounding
+    toolchains used for configuration management and the **build-versus-bake** dilemma,
+    with container-based architecture, we need to make some decisions about where
+    the boundary between Terraform and other tools will exist and how best to integrate
+    configuration management of our containers and container orchestrators with the
+    cloud infrastructure that we provision to host them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The chapter covers the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding key concepts of container architecture
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Leveraging Docker to build container images
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Working with container registries
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding key concepts of container orchestration and Kubernetes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding Kubernetes manifests
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Leveraging the Kubernetes provider to provision Kubernetes resources
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Leveraging the Helm provider to provision Kubernetes resources
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding key concepts of container architecture
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '**VMs** are great when you want minimal changes to operate your applications
+    and software in the cloud, but they also have drawbacks. With the maximum control
+    you get from having a full VM—of whatever size you happened to provision—you are
+    free to use as many (or as few) of the VM’s resources as you can. However, many
+    organizations have found that their fleet of VMs is plagued by low utilization
+    even when best practices in workload isolation or the **single responsibility
+    principle** (**SRP**) are followed.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Inversely, when maximum utilization is the objective, organizations load up
+    a single VM with so many disparate services and components that each VM—while
+    highly utilized—becomes a bit of a quagmire to manage and maintain. The VM will
+    have a myriad of dependency conflicts, with resource contention cropping up between
+    the horde of independent but cohabitating processes within the same VM.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This dilemma between workload isolation and resource utilization is the problem
+    that container technology aims to solve and where container orchestrators, such
+    as Kubernetes, help by bringing resiliency and scalability.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this book, we will build an end-to-end solution using Kubernetes-based container
+    technology on AWS, Azure, and GCP. To do so, you must understand some critical
+    concepts that transcend cloud platforms to help you navigate the architecture
+    and relevant Terraform resources within the respective cloud platform’s Terraform
+    provider.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Containers
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '**Containers** allow you to package your applications into an isolated environment
+    logically separated from other applications without the overhead incurred by virtualizing
+    the underlying physical hardware and the resource consumption of a full-on operating
+    system. Whether it is Windows or Linux, the operating system consumes resources
+    that take away from your capacity.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Containers use two Linux kernel primitives: *namespaces* and *control groups*.
+    These constructs allow the container runtime to set up an isolated environment
+    within the Linux operating system. Namespaces are all about isolation, which allows
+    us to split the operating system into multiple virtual operating systems with
+    their own process tree, root filesystem, user, and so on. Each container might
+    feel like a regular operating system, but it’s not. Control groups police the
+    allocation of the host system’s resources—including CPU, memory, and disk I/O—to
+    ensure that the actual physical server is not overwhelmed by resources consumed
+    by the containers.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The last component that enables containers is a layered filesystem. This is
+    similar to how we used to build VM images—only with better isolation between layers.
+    When we build a VM layer, when we apply changes to and create a new VM image,
+    we can no longer sort out the base layer from the top layer. Containers can apply
+    filesystem layers that contain only the differences between the lower layers.
+    This approach creates an extremely compact and highly efficient way of layering
+    changes onto each container image to compose the final filesystem that the container
+    operates on—with the topmost layer being writable by the container itself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One of the key benefits of containers is their efficiency. Unlike VMs, which
+    require separate operating systems and resource allocations for each instance,
+    containers directly leverage the host system’s kernel. This approach means they
+    consume fewer resources and start up much faster than their VM counterparts. Multiple
+    containers can run simultaneously on a single host, thus using system resources
+    more efficiently. This allows us to create higher-density workloads—thus reducing
+    the waste of valuable system resources such as CPU and memory to idleness, and
+    when working in the cloud, this waste is like pouring money down the drain!
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now that we have a solid understanding of what a container is and how it differs
+    from a VM, let’s look at the de facto tool for managing the configuration of an
+    individual container: **Docker**. While this book isn’t about Docker per se, if
+    you are going to be a master of Terraform and work with container-based architectures,
+    you will inevitably come into contact with this tool either directly or need to
+    integrate it into the **continuous integration/continuous deployment** (**CI/CD**)
+    process.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Leveraging Docker to build container images
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The Docker engine makes the process of setting up containers much simpler. It
+    provides a consistent meta-language for describing containers and command-line
+    tools for building, interrogating, and running container images.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Writing a Dockerfile
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Docker uses a simple syntax that you can use to define basic information about
+    your container. This basic structure includes what base image to build onto (`FROM`),
+    who the author is (`MAINTAINER`), files to copy and commands to execute (`COPY`
+    and `RUN`), and what the entry point process should be (`CMD`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Much of this is similar to the structure of a Packer template, except for the
+    entry point process. With Packer, it’s just a VM; whatever processes are running,
+    based on how you configure, it will be running. With Docker, you need to explicitly
+    state what process to start because containers run a single process in isolation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can also configure the runtime further by setting the working directory,
+    adding environment variables, and exposing network ports.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A simple Dockerfile looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice that we are building from a base image called `python:3-7slim` and copying
+    the current folder’s contents to the container’s `/app` directory. This step will
+    copy the `app.py` script into the container so that it is available when we set
+    it as the execution point at the bottom of the file. This Python script sets up
+    a web server and exposes it to port `80`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building a Docker image
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Just as with Terraform, Docker uses the current working directory to derive
+    its context. Therefore, when building a Docker image, you need to execute the
+    `docker build` command from the same directory where your Dockerfile resides.
+    However, you can override this by specifying a different path:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `-t` flag lets you tag your image with a memorable name. The `.` instance
+    may seem out of place, but it tells Docker to look for the Dockerfile in the current
+    directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After the build completes, you can see your image listed by running the following
+    command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Running Docker images
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Docker images are like the VM images we built using Packer, which represent
+    a VM we have yet to start. They have potential energy but need to be launched
+    as the operating system disk of a VM to achieve kinetic energy and become a running
+    VM. Docker images are the same for containers. We need to start a container using
+    the image and specify the runtime configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this case, because we exposed port `80` in the container, we need to map
+    a port to the container’s port `80`. The `-p` flag maps a network port inside
+    the container to a port on the host machine. This setting will route traffic from
+    port `4000` on the host to port `80` on the container.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can run as many containers as your host machine can handle. You are constrained
+    only by the technical resources of the host machine. Sometimes, the cloud platform
+    imposes constraints depending on what SKU of VM your host machine is running.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To see which containers are running, you can execute the following Docker command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: This section should help you understand the basic principles of working with
+    Docker images. While there are many more commands and flags you can use with Docker
+    to manage your images and containers, this is out of the scope of this book. I’m
+    providing you with enough theory and practice to be productive in building container-based
+    architectures using Terraform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this section, we familiarized ourselves with the command-line tool used
+    to create container images: Docker.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we’ll look at how to publish these container images that
+    we create with Docker to container registries so that we can deploy containers
+    with them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Working with container registries
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A **container registry** is just a server-side application that acts as central
+    storage and allows you to distribute container images to the host machines that
+    need to run them. This approach is advantageous when leveraging a CI/CD pipeline
+    where you need a central location to pull down your container images.
+  prefs: []
+  type: TYPE_NORMAL
+- en: They often provide versioning, labeling, and sharing mechanisms that let you
+    keep track of different versions of your container images, maintain stable releases,
+    and share images with others—either within your organization or publicly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Just as with `git`, anybody can set up a container registry on their own, but
+    several managed services provide best-in-class service offerings on each of the
+    respective clouds. There is also a cloud-agnostic and community-oriented solution:
+    Docker Hub. Docker Hub is the default registry where Docker looks for images,
+    and you can use it for both images you want to share publicly or keep private
+    for internal purposes. It offers a free tier and paid plans with more storage
+    and features.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Docker Hub
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The mechanics of interacting with a container registry are broadly similar depending
+    on the service—with only slight variations. As an example, because it is the default
+    container registry that Docker uses, I’ll show you how to use **Docker Hub** to
+    authenticate, tag, push, and pull your images.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, you need to authenticate. Depending on your registry service, this step
+    might require additional tools. However, you won’t need to install any other tools
+    for Docker Hub but, naturally, you will need to register an account on Docker
+    Hub:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding command will initiate an interactive login process where you must
+    supply your Docker Hub username and password.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before you can push your image to a registry, you must tag it with the registry’s
+    address:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding command first specifies the `my-image` source image of a specific
+    version, `1.0`. Then, it specifies a target image under my `markti` Docker Hub
+    account for the same image and version. It’s crucial to synchronize the image
+    name and version between your local and remote environments to maintain consistency
+    between the environments. After your image is tagged, you can push it to the registry:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding command pushes the image to the remote container registry. Now,
+    you can pull the image with the appropriate permissions using your Docker Hub
+    username as the registry name, the container image name, and the tag:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: Remember that container registries might have slightly different naming conventions
+    and authentication processes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we looked at how to work with container registries, which serve
+    as a critical infrastructure for our container-based architecture. In the next
+    section, we’re ready to look at Kubernetes—both from an architectural standpoint
+    and at its practical usage as a developer, operator, and within CI/CD pipelines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding key concepts of container orchestration and Kubernetes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '**Kubernetes** is a platform that expands on the responsibilities of the container
+    runtime, which operates at an individual host level. Kubernetes’ job is to perform
+    this across multiple nodes. As we learned in the first section of this chapter,
+    the container runtime uses a Linux operating system construct—control groups—to
+    protect the health of the operating system by ensuring that the physical (or virtual)
+    host that the containers are running on remains healthy. Kubernetes essentially
+    does the same thing but across many, many servers.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Most applications or systems will naturally be organized into different components,
+    layers, or microservices—each with its own responsibilities and corresponding
+    application code and technology stack that implements its functionality. Each
+    component within such a system will have its own container that has this software
+    installed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When we deploy systems using VMs, we do so in such a way that the same component
+    is deployed to two more VMs, and we ensure that these VMs do not share the same
+    underlying physical equipment. This separation could be as simple as a different
+    physical host in the same rack, all the way up to a different physical host in
+    an entirely different data center—sometimes separated by many tens, if not hundreds,
+    of miles. This allows us to achieve **high availability** (**HA**) and resiliency
+    during an outage or an issue affecting some underlying component of the physical
+    hardware.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unlike when using VMs, our application components don’t sit on isolated VMs;
+    they sit on the cluster nodes, oftentimes with pods from other applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Kubernetes tries to make sure that our application containers don’t sit on
+    the same node. That way, if one of the cluster’s nodes fails, our application
+    will not go down. Kubernetes also takes it a step further by intelligently reorganizing
+    the containers on other health nodes. In order to do this, Kubernetes maintains
+    a divide between its own internal **logical layer** and the underlying **physical
+    layer** and maps the device by assigning logical deployments, or pods, to physical
+    deployments and nodes. This separation between the logical and the physical layers
+    is one of Kubernetes’ huge advantages and what makes it so effective at managing
+    applications and services on top of a potentially unlimited underlying physical
+    infrastructure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.1 – Logical-physical divide](img/B21183_05_1.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.1 – Logical-physical divide
+  prefs: []
+  type: TYPE_NORMAL
+- en: That’s pretty much it, but there are a lot of ways we can customize how our
+    application’s components are deployed to Kubernetes to meet the specific needs
+    of our application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kubernetes is flexible enough to run on a fleet of VMs on a cloud provider or
+    physical bare-metal servers down to running on a single computer—such as your
+    laptop. This flexibility makes it an ideal choice for hybrid cloud scenarios.
+    It streamlines the problematic task of integration testing by allowing developers
+    to run a copy of the entire solution on their laptop that closely mimics a production
+    environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kubernetes offers a rich set of features that fulfill most of the needs for
+    running workloads at scale, such as service discovery, secrets management, horizontal
+    scaling, automated rollouts and rollbacks, and self-healing capabilities—making
+    it an ideal candidate to run both stateless and stateful applications at scale
+    while avoiding vendor lock-in.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kubernetes architecture is a set of loosely coupled and extensible components.
+    This modularity allows adaptations for different cloud providers to integrate
+    with their specific solutions for networking, storage, service mesh, and so on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As with Terraform, Google designed Kubernetes to encourage the adoption of **infrastructure
+    as code** (**IaC**) by leveraging a declarative approach for defining your application’s
+    runtime environment. Due to the extensibility of both Terraform and Kubernetes,
+    several integration options exist. In this chapter, we’ll discuss a few of those
+    approaches and trade-offs that come along with each—but before we do that, we
+    need to introduce some critical concepts of Kubernetes’ internal architecture
+    and operating model. Only with this foundation can we maximize the potential of
+    leveraging Terraform and Kubernetes together.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kubernetes architecture
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Kubernetes is a distributed software system, and its design is relatively similar
+    to that of other such systems. Because its responsibility spans a cluster of interconnected
+    computer systems that can scale from just a few to literally thousands, it is
+    organized like an army. There are officers, soldiers, and a central command. The
+    soldiers are organized into smaller sub-groups, and each needs to maintain continuous
+    contact with the central command in order to operate effectively by receiving
+    new orders and providing the status of the current situation. The central commands
+    receive status reports from the various officers that oversee their soldiers and
+    operating orders and determine whether different areas of the battlefield need
+    more troops or fewer troops, issuing orders to reallocate different sub-groups
+    of the soldiers to different locations across the battlefield. Let’s dive into
+    each component and their roles.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Master node
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The **master node** is the central command of the Kubernetes cluster—it’s essentially
+    where the generals of the army operate. For smaller skirmishes, there is typically
+    only one central command, but for truly epic entanglement, you might need more
+    than one for each theatre of war. It oversees the entire system and makes high-level
+    decisions. As with any good central command, it must perform several functions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**API server**: Any army must take input from its civilian government, which
+    provides objectives to complete and defines what success looks like. In many ways,
+    this is very much like the role of the API server. Instead of taking input from
+    politicians via that red telephone, it takes input from the end user (usually
+    a system administrator or software developer) over a REST-based interface. The
+    definition of success looks a bit different as well, which is the definition of
+    how the end user’s applications and services should be deployed and how to tell
+    if they are healthy.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Controller manager**: Napoleon Bonaparte famously said, “*An army marches
+    on its stomach*,” which highlights the importance of sound logistics when waging
+    war. An army is more than just boots and guns. You need food and water, uniforms
+    and tents, and fuel for your trucks and trains. The controller manager performs
+    a similar function as it is responsible for monitoring inventories and distributing
+    resources so that the desired state of the army is maintained and they are empowered
+    to accomplish their mission.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Scheduler**: Our very own George Washington famously said “*Discipline is
+    the soul of an army*”—and to enforce that discipline, an army must have an officer
+    corps that efficiently executes orders across the field of battle, assigning soldiers
+    across the battlefield to where they are most needed. In this sense, it assigns
+    pods to appropriate nodes based on resource availability and the objective to
+    be accomplished.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`etcd` plays this role in Kubernetes by maintaining configuration data, the
+    state of the cluster, and creating a **single source of** **truth** (**SSOT**).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Worker nodes
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '**Worker nodes** are the battlefields where the soldiers of this army do what
+    must be done to achieve the objective. They are the physical (or virtual) machines
+    where your containers run. On any battlefield, there must be a sergeant who commands
+    a squad of soldiers. The sergeant of Kubernetes is called the **Kubelet**. As
+    with a sergeant, the Kubelet is autonomous within its area of the battlefield,
+    executing orders received from central command and commanding the troops within
+    their squad—the pods—and it maintains the chain of command with its superiors
+    at central command—or the master node—that might delegate new orders.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The containers running within the node, being monitored by their attentive sergeant,
+    the Kubelet, need a container runtime in order to operate. There are several different
+    container runtimes, such as `containerd`, **CRI-O**, or Docker, which we learned
+    about in the first section of this chapter. Although there are many container
+    runtimes, we still use the same tooling—Docker—to build images. The runtime is
+    really only responsible for running the containers. There are some other details
+    to it, and it’s definitely a rabbit hole, but this is what we need to know within
+    the context of this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With soldiers distributed across an expansive battlefield, there needs to be
+    a way for messages to be sent back and forth between the soldiers, their officers,
+    and the central command. On the battlefield, this has changed throughout history
+    from flags, banners, smoke signals, drums, horns, and bugles to modern times with
+    telegraph, radio, and satellite communication. For the pods, this is the network
+    traffic that is being routed to the node. The **kube-proxy**, as with the Kubelet,
+    runs on every node and is responsible for routing network traffic to the correct
+    destination.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Pods
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: That’s enough about the big hats. It’s time to talk soldiers. A soldier is the
+    smallest participant on the battlefield, and soldiers, collectively, are the primary
+    force in military operations. The same is true for pods within the context of
+    Kubernetes. **Pods** are where all the work actually happens. Everything else
+    going on inside a Kubernetes cluster is to facilitate the effectiveness of pods
+    in achieving their individual objectives, much like the myriad of characters that
+    support our frontline troopers on the battlefield by making sound strategic decisions,
+    allocating resources, organizing soldiers into units, and assigning orders.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A pod is not a container but a Kubernetes-specific construct and, as with the
+    soldier, the smallest unit of deployment within a cluster. A pod can have one
+    or more containers inside of it that share resources and configurations to perform
+    a common objective.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Instead of directly deploying individual containers, you create a pod and place
+    containers within it. When you declare more than one container within the same
+    pod, you are tightly coupling them together—in that they share the same network
+    namespace, **inter-process communication** (**IPC**), namespace, and filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following diagram illustrates these core components of Kubernetes architecture:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.2 – Key Kubernetes architectural components](img/B21183_05_2.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.2 – Key Kubernetes architectural components
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we understand the core components of the architecture, we’ll delve
+    into a couple of other important topics. I do want to call out that this book
+    is about mastering Terraform, and while part of that journey is understanding
+    the architectures that you will be designing and provisioning with Terraform,
+    this book does not intend to be an in-depth guide to Kubernetes. Hence, I am focusing
+    on just the key concepts that you need to be aware of when building solutions
+    with these technologies using Terraform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Services
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: For more complex military operations, we may need to allocate a larger military
+    unit to complete the mission successfully. This is where we have a lieutenant
+    that would command multiple squads. The lieutenant delegates orders to the appropriate
+    squads, with each deployed to a different area on the battlefield. This is similar
+    to the role of a **service** in Kubernetes, which allows us to group pods together
+    with a common purpose and distribute them across multiple nodes. The service is
+    responsible for load balancing across pods, and any incoming requests intended
+    for those pods would be addressed to the service to route accordingly—much like
+    how orders from a captain or higher in the chain of command would be delegated
+    down to a lieutenant, and they would take the necessary steps to dole them out
+    to the squads under their command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this way, the service plays a crucial role in workloads that require a stable
+    endpoint for communicating with pods, such as a web application or a REST API.
+    This is because Kubernetes assigns a stable IP address and DNS name to the service,
+    which remains unchanged even if the underlying pods change, enabling other applications
+    or services within or outside the cluster to establish a reliable connection with
+    the service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Namespaces
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Lastly, we need to cover an important concept of Kubernetes’ logical model:
+    the **namespace**. The namespace provides complete separation from all services
+    and pods deployed within the cluster at the logical level. Namespaces do not apply
+    to the physical resources of clusters, such as nodes or persistent volumes. They
+    only apply within the logical realm of Kubernetes as it relates to pods and other
+    related resources. You can think of it as branches within the military. Resources
+    in different namespaces, as with soldiers in different branches of the army, share
+    a central command, and they can communicate and coordinate with each other, but
+    they are isolated in terms of chain of command and resource allocation. Therefore,
+    pods in different namespaces can operate on the same nodes but can’t coexist in
+    the same service since that, too, has a namespace.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’ve covered the key components of Kubernetes architecture. There is definitely
+    a lot more that is out of the scope of this book, but this should give you enough
+    of the conceptual overhead to understand Kubernetes architecture at a high level.
+    Next, we’ll delve a bit deeper into some of the resources that are used to configure
+    pods and services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuration and secrets
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: One of the key areas where Terraform and Kubernetes will likely interact is
+    the area of configuration and secrets. This is because, quite often, Terraform
+    is provisioning other resources that will supply endpoint URLs, authentication
+    credentials, logging, or identity configuration. Therefore, it’s important to
+    understand which Kubernetes resources should be used to connect these configuration
+    settings to the appropriate place in your Kubernetes deployments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: ConfigMaps
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: A **ConfigMap** is a special kind of Kubernetes resource that can be used to
+    provide non-sensitive configuration to a pod. The configuration is stored as a
+    set of key-value pairs, which can be used to configure either environment variables
+    for containers or command-line arguments for an application that you want to run
+    inside the container.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A pod can reference one or more ConfigMap objects, and then the application
+    can reference the keys in the key-value pairs to obtain their values. This creates
+    a separation of the application, which is running in the pod, from the configuration,
+    which is stored in a ConfigMap. This means that the same ConfigMap can be used
+    by more than one pod specification.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By default, only other pods within the same namespace can access ConfigMaps.
+    If you want more granular security, you can apply for **role-based access** **control**
+    (**RBAC**).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Secrets
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: While Kubernetes does have an internal method for storing secrets and making
+    them available to your pods, when you are deploying to the cloud, you will often
+    use a cloud-specific secret provider instead. There are a number of advantages
+    to leveraging an external secret store. First, with an external secret store,
+    you would have more centralized management, which would make it easier for operators
+    to manage the environment. Second, most external secret providers offer features
+    and capabilities that the built-in secret storage in Kubernetes doesn’t have,
+    such as the ability to version and rotate secrets. Lastly, offloading secret storage
+    reduces the burden on the `etcd` database on the cluster, thus freeing up more
+    resources for workloads running in your pods.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When you leverage an external secret store, Terraform will likely be provisioning
+    it along with the secrets that your pods will need. In order to take advantage
+    of an external secret store, you will need to provision a `SecretProviderClass`
+    resource that is specific to the external secret store you plan on using. It will
+    provide a bridge between your pods and the secrets you store there. There are
+    often platform-native configurations depending on the cloud platform you are using
+    to configure this provider. Most managed Kubernetes service offerings provide
+    built-in support for the corresponding secret storage service and streamline the
+    authentication and authorization required for your pods to access secrets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this book, we will be working with the Managed Kubernetes offerings of three
+    cloud platforms: Amazon **Elastic Kubernetes Service** (**EKS**), **Azure Kubernetes
+    Service** (**AKS**), and **Google Kubernetes** **Engine** (**GKE**).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Continuous deployment (CD)
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Kubernetes has a multitude of ways to provision resources. It has both imperative
+    and declarative covered with the `kubectl` command-line tool and Kubernetes YAML
+    manifests (which also use the `kubectl` command-line tool) respectively. Because
+    this is a book on Terraform, I think it’s clear the approach we would prefer!
+    Yes—declarative! And because Kubernetes also has its own REST API, it’s possible
+    to build a Terraform provider that communicates with it as well. All of these
+    approaches, using `kubectl` either with imperative commands or YAML manifests
+    or using `terraform` and the `kubernetes` Terraform provider, are examples of
+    the traditional push model.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Push model
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The `kubectl` commands, either just plain old `bash` or YAML manifest files,
+    using `kubectl apply -``f foo.yaml`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.3 – CI/CD pipeline with Terraform and Kubernetes command-line interface](img/B21183_05_3.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.3 – CI/CD pipeline with Terraform and Kubernetes command-line interface
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this case, the cloud environment is defined in `kubectl` is executed to create
+    deployments on the newly created or existing Kubernetes cluster. The Kubernetes
+    cluster’s existence will depend on whether it was the first time `terraform apply`
+    was executed or not.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next method is to use Terraform for both of these stages, replacing the
+    `kubectl` stage with a second Terraform stage, this time using a second Terraform
+    root module that only uses the Kubernetes provider for Terraform. The Terraform
+    root module that provisioned the cloud environment stays in its own folder and
+    is completely isolated from this second Terraform code base:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.4 – CI/CD pipeline with Terraform using the Kubernetes provider
+    for Terraform](img/B21183_05_4.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.4 – CI/CD pipeline with Terraform using the Kubernetes provider for
+    Terraform
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first Terraform stage still uses our target cloud platform’s Terraform provider
+    to provision the Kubernetes cluster and other required resources within our cloud
+    environment. Likewise, the CI/CD pipeline still passes the Kubernetes cluster
+    configuration that is output from this first Terraform stage to the second Terraform
+    stage where we provision Kubernetes resources to our Kubernetes cluster using
+    the Kubernetes provider for Terraform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Pull model
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'An alternative to the push model is the **pull model**, which flips things
+    upside down. Instead of the Kubernetes resources being provisioned by some actor
+    outside of the Kubernetes cluster itself, the CI/CD pipeline installs a CD service
+    on the cluster, and this service connects to a specified source code repository
+    containing Kubernetes YAML manifests and provisions the resources on the Kubernetes
+    cluster:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.5 – CI/CD pipeline with Terraform and ArgoCD](img/B21183_05_5.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.5 – CI/CD pipeline with Terraform and ArgoCD
+  prefs: []
+  type: TYPE_NORMAL
+- en: This approach takes advantage of the immutable and declarative aspects of YAML-based
+    Kubernetes deployments and creates an SSOT for a Kubernetes deployment within
+    a Git source code repository. As a result, this approach has become more and more
+    identified as a best practice when it comes to fully embracing GitOps, which we’ll
+    delve into more detail in the next chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we took a high-level look at Kubernetes—what purpose it serves,
+    how it works, and how it can interconnect our containers with the underlying infrastructure
+    that we provision. These are all critical things to understand as we use Terraform
+    to provision and manage the Kubernetes infrastructure that we’ll use to run our
+    containers. Next, let’s look at how Kubernetes natively handles deployments before
+    we contrast that with what we can do with Terraform’s Kubernetes providers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding Kubernetes manifests
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As we discussed in the previous section, `kubectl` is a command-line application
+    that can be used to either imperatively or declaratively execute commands on a
+    Kubernetes cluster. You can use `kubectl` to deploy resources and inspect and
+    manage cluster resources, among other common operational activities.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kubernetes manifests
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When deploying resources to a Kubernetes cluster, you can either use `kubectl`
+    commands directly to perform operations to provision resources or use YAML manifests
+    to define the desired state of resources and use `kubectl` to execute against
+    these manifests. These two different ways of using `kubectl` parallel the way
+    there are imperative ways to provision resources to cloud platforms such as AWS
+    and Azure through their respective command-line applications and the way Terraform
+    provisions the desired state of resources during `terraform apply`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When you’re using `kubectl` commands directly, you’re giving instructions right
+    away in the command line. For example, if you want to create a deployment, you
+    might issue a command such as this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this case, `kubectl` will create a deployment for `nginx` with mostly default
+    settings, and it will do so immediately.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This method can be useful for quick, one-off creations or when you need to make
+    an immediate change.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When using YAML manifests, you’re writing the desired state of your resources
+    in a declarative manner. For example, a deployment might be written like this
+    in a YAML file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You would then use `kubectl` to apply this file, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: This tells Kubernetes to make the cluster’s actual state match the desired state
+    described in the file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The benefit of this approach is that the file serves as a **source of truth**
+    (**SOT**) for the resource configuration. The files can be version-controlled,
+    making it easy to track changes, roll back if needed, and reuse configurations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Generally, it’s considered a best practice to manage your Kubernetes resources
+    using configuration files, especially in production environments. That being said,
+    direct `kubectl` commands are useful for debugging and quick prototyping tasks,
+    but you should consider using a declarative approach to manage resources in the
+    long term.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deployment manifest
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'When creating an application in Kubernetes, you use a deployment to specify
+    how you want it to be configured. Kubernetes will then automatically adjust the
+    current state of the application to match your desired configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: This deployment manifest describes a desired state that includes running three
+    instances (or replicas) of the `my-app` application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Service manifest
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'A **service** is a method of grouping a collection of pods that form an application,
+    allowing them to be presented as a network service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: This service manifest will create a network service that will route traffic
+    to the `my-app` pods on port `8080`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuration and secrets
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Because Kubernetes is where we will host our applications and services, we need
+    to have a way to provide runtime configuration settings, both non-sensitive and
+    secret.
+  prefs: []
+  type: TYPE_NORMAL
+- en: ConfigMaps
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'As we discussed in the previous section, a ConfigMap is how we pass non-sensitive
+    data into our pods. The ConfigMap is a key area where Terraform and Kubernetes
+    integration takes place because many of the configuration settings are likely
+    generated by Terraform. This is an important consideration when designing how
+    you provision to Kubernetes, as you want to minimize the manual steps required
+    to provision to Kubernetes. We’ll look at strategies on how to avoid this in future
+    sections covering Kubernetes and Helm providers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: This ConfigMap is named `my-config`, and it holds a key-value pair of `my-value:`
+    `Hello, Kubernetes!`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, when we want to reference this ConfigMap from one of our deployments,
+    we simply use the `configMapRef` block to pull in the correct value from the ConfigMap
+    and set an environment variable inside our container:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this deployment, the `my-app` application has a `MY_VALUE` environment variable
+    whose value is pulled from the `my-config` ConfigMap, and when the pod is running,
+    it can get a `Hello, Kubernetes!` value from that environment variable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Secrets
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Just as with the non-sensitive configuration settings, many of our secrets will
+    be provisioned by Terraform using the target cloud platform’s secret management
+    service. As a result, we won’t be using the Kubernetes `Secret` resource but will
+    be defining a `SecretProviderClass` resource that will enable integration with
+    the cloud platform’s secret management service and pull in the desired secrets.
+    Because this is cloud platform-specific, we’ll cover this in more detail in each
+    of the solutions we build on AWS, Azure, and GCP, using their respective managed
+    Kubernetes offerings.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we looked at how Kubernetes handles deployments natively—both
+    using its own `kubectl` command-line utility and its own YAML-based deployment
+    manifests, which allow us to describe Kubernetes resources we want to provision
+    in a declarative way—similar to what Terraform allows us to do with the underlying
+    cloud infrastructure. In the next section, we’ll look at the Kubernetes provider,
+    which gives us a way of managing Kubernetes natively using Terraform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using the Kubernetes provider to provision Kubernetes resources
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The Kubernetes provider for Terraform is a plugin that allows Terraform to manage
+    resources on a Kubernetes cluster. This includes creating, updating, and deleting
+    resources such as deployments, services, and pods.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When using the Kubernetes Terraform provider, your infrastructure description
+    is written in HCL instead of YAML. This is the language used by Terraform to describe
+    infrastructure and service configurations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Kubernetes Terraform provider
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: As we discussed in the previous section, because Kubernetes has a REST API that
+    acts as a uniform control plane for all management operations, it’s possible to
+    create a Terraform provider that we can use to automate it in the same fashion
+    that we do with the AWS, Azure, and GCP cloud platforms.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Just as with other cloud platforms, we need to authenticate against the control
+    plane. One big difference with Kubernetes is that the management control plane
+    is hosted on the Kubernetes cluster itself—more specifically, as we discussed
+    in the *Understanding key concepts of container orchestration and Kubernetes*
+    section of this chapter, on the master node. This means we need to specify the
+    endpoint address of the Kubernetes cluster. This is usually provided by the Terraform
+    resource that provisions the Kubernetes cluster on the target cloud platform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In order to authenticate with the Kubernetes cluster, we need to typically use
+    a cluster certificate, but some cloud platforms support more sophisticated authentication
+    methods that tie into your organization’s directory systems such as Microsoft
+    Entra ID.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is an example of what the provider configuration would typically look
+    like when using certificate-based authentication:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here’s what each field is for:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`host`: The hostname (in the form of URI) of the Kubernetes master. It can
+    be sourced from the `KUBE_HOST` environment variable.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`client_certificate`: This is used for client authentication against the Kubernetes
+    REST API.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`client_key`: This is paired with `client_certificate` and is used as part
+    of the **Transport Layer Security** (**TLS**) handshake that happens between the
+    Terraform provider and the Kubernetes REST API.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`cluster_ca_certificate`: This is the **certificate authority** (**CA**) for
+    the Kubernetes cluster and is used to verify the authenticity of the Kubernetes
+    cluster’s REST API.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Another common method for configuring the Kubernetes provider for Terraform
+    is to use a `kube_config` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this situation, all of the details needed to connect and authenticate with
+    the cluster are stored within the file. We just need to point the provider at
+    the location where the file exists. By default, this location is `~/.kube/config`.
+    Of course, this file can contain multiple cluster connections, each referred to
+    as a *context*. Therefore, we may need to specify the context. However, if you
+    are running in a CI/CD pipeline, this is very unlikely because you will likely
+    use a custom path.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kubernetes resources
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When you use the Kubernetes provider for Terraform, we get the same declarative
+    model that we get with Kubernetes’ native YAML manifests, but we get all the features
+    and capabilities of HCL. This allows us to pass input variables, generate dynamic
+    local values, and use string interpolation—the works!
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'However, the downside of all this is that we have to use HCL to define Kubernetes
+    resources. This goes against the grain of the Kubernetes ecosystem as most Kubernetes
+    documentation and practitioners asking and answering questions online will be
+    using YAML. If we can tolerate the translation from YAML into HCL, then it might
+    be worth considering using the Kubernetes provider for Terraform:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding example is of an HCL equivalent of the Kubernetes YAML that provisions
+    a Kubernetes deployment resource. Notice the prolific use of curly braces, which
+    can be rather jarring for somebody who is used to looking at YAML.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Evaluating the trade-offs
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: With this approach, your Kubernetes resources are defined in HCL, and you then
+    use the `terraform apply` command to create or update those resources as opposed
+    to using `kubectl` either imperatively or declaratively.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As with the native YAML approach for Kubernetes, this process is also declarative,
+    meaning you describe what you want but leverage Terraform to figure out how to
+    do it. This is similar to how Kubernetes itself works, but you’re using the Terraform
+    provider to generate the plan and do the work.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While it may seem like a great thing to use one language—HCL—to manage other
+    parts of your infrastructure (such as cloud resources on AWS or GCP) and use it
+    to manage your Kubernetes resources, however, because most Kubernetes documentation
+    and samples are in YAML, you will be spending a significant amount of time mapping
+    from YAML into HCL. This can make it difficult to learn and effectively manage
+    Kubernetes at scale.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Therefore, it is usually better to let Terraform manage the underlying infrastructure
+    that Kubernetes sits on while managing Kubernetes using its own declarative approach
+    using YAML and `kubectl`. However, if you can overcome the translation from YAML
+    into HCL—or an even better option that we’ll address later: encapsulate your Kubernetes
+    deployments into Helm charts—then it might be easier to use Terraform’s Kubernetes
+    provider to eliminate the additional integration with `kubectl` commands embedded
+    in `bash` scripts that you’ll have to do at the end of your `terraform` `apply`
+    operation.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: There might also be certain Kubernetes resources that are tightly coupled with
+    your cloud platform and the configuration that Terraform manages for you. These
+    might be individual or standalone resources that connect a Kubernetes Service
+    account to a cloud platform identity or a ConfigMap that sources the bulk of its
+    values from Terraform outputs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we looked at how we can use Terraform to provision resources
+    to Kubernetes and compared and contrasted this approach to the native Kubernetes
+    options using `kubectl`—both imperatively and declaratively using YAML-based manifests.
+    In the next section, we’ll look at the Helm provider to see if it provides a better
+    alternative to the options we’ve evaluated thus far.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Leveraging the Helm provider to provision Kubernetes resources
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As we discussed previously, Kubernetes has a built-in declarative model based
+    on YAML that allows you to provide resources to your cluster. However, as we saw,
+    one of the challenges of using this model is that there is no way to use dynamic
+    values inside your YAML-based specifications. That’s where Helm comes in. In this
+    section, we’ll look at what Helm is exactly, its basic structure, how to use it,
+    and how we can integrate it with our Terraform pipelines or use it directly with
+    the Helm provider for Terraform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: What is Helm?
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Helm is widely referred to as a package manager for Kubernetes, but I find this
+    definition a bit perplexing as a software developer who is used to working with
+    package managers for software libraries such as Maven, NuGet, or `npm` or operating
+    system package managers such as `apt` or Chocolatey. I suppose at some levels,
+    they share a similarity in aggregating multiple components into a single, versioned
+    package and providing a convenient way to pull these packages into other projects
+    for reuse.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, I think a big difference and a unique part of Helm’s architecture is
+    the nature of the templating engine. At its core, Helm allows you to create templates
+    containing one or more Kubernetes YAML manifests and allows you to infuse more
+    dynamic customization within your Kubernetes resources, thus making your Kubernetes
+    deployments much more reusable and easier to manage and maintain. These templates
+    are referred to as **charts** or **Helm charts**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In many ways, a Helm chart reminds me more of what a Terraform module is rather
+    than a traditional package management software—whether it’s `apt` or NuGet. The
+    similarities abound when comparing a Terraform module with a Helm chart. They
+    both operate within a folder and define a method for taking input variables and
+    producing outputs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.6 – Terraform module inputs, outputs, and resources](img/B21183_05_6.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.6 – Terraform module inputs, outputs, and resources
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A Terraform module encapsulates an aggregation of several Terraform resources
+    (or other modules) defined within `.tf` files, and HCL allows you to implement
+    any number of dynamic configurations using built-in capabilities of the language:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.7 – Helm chart inputs, outputs, and resources](img/B21183_05_7.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.7 – Helm chart inputs, outputs, and resources
+  prefs: []
+  type: TYPE_NORMAL
+- en: As mentioned, a Helm chart performs a similar aggregation but with Kubernetes
+    resources that are defined within `.yaml` files and use Kubernetes YAML-based
+    markup. Helm defines its own templating engine based on Go templates that offers
+    a wide range of features that allow you to implement a similar level of dynamic
+    configuration that you can achieve with HCL.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As you can see, the basic structure of a Helm chart is quite simple. It is
+    not as simple as a Terraform module because we have nested folders that preclude
+    users from being able to cleanly nest Helm charts within each other. Sub-charts
+    need to be created in a special `charts` directory and can be completely encapsulated
+    within this folder or simply reference an existing chart hosted elsewhere. This
+    is similar to how Terraform modules work in that you can reference a local module
+    or one hosted at any number of remote locations. A subtle difference is how Terraform
+    modules can be declared in any `.tf` file, and their definition simply needs to
+    be stored in another local folder or remote location:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.8 – Helm chart anatomy](img/B21183_05_8.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.8 – Helm chart anatomy
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `Chart.yaml` file is a special file inside the Helm chart that acts as
+    the main entry point file that contains key identification metadata and other
+    dependencies such as other Helm charts defined either locally or in a remote location:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `values.yaml` file is a file that defines the input variables for a Helm
+    chart. This is an example where in HCL we have no restriction on where we put
+    input variables, by convention—and for our own sanity, we put input variables
+    into a `variables.tf` file. In Helm, this convention of isolating input variable
+    declarations is canonized into a well-known file that is recognized beyond a simple
+    convention:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `templates` folder is where all our YAML-based manifests will go. However,
+    the YAML is a bit different because it will most likely have many dynamic values
+    injected into it using a Go templating convention (`{{` and `}}`) to denote symbolic
+    references that Helm will resolve using the Go templating engine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: Helm charts can then be installed onto a Kubernetes cluster using a different
+    command-line tool called `helm`. This tool performs a number of different functions,
+    including autogenerating a basic chart structure, packaging charts for distribution,
+    managing chart repositories, and installing charts onto the cluster.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Both `kubectl` and `helm` use the same method to authenticate with a Kubernetes
+    cluster, but they are used for different purposes when managing the cluster, just
+    as with `kubectl`, which can apply declarative Kubernetes configuration using
+    the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `helm` command can be used to provision a Helm chart to a Kubernetes cluster
+    using the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In this regard, Helm could similarly be integrated into a Terraform CI/CD pipeline
+    that first provisions the cloud environment using Terraform and the relevant cloud
+    platform provider (for example, `aws`, `azurerm`, or `googlecloud`) and then uses
+    the `helm` command-line tool to install Helm charts onto the Kubernetes cluster
+    using connection and authentication information provided by the output of the
+    Terraform stage of the pipeline:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.9 – Helm chart anatomy: Terraform and Helm integration in a CI/CD
+    pipeline](img/B21183_05_9.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 5.9 – Helm chart anatomy: Terraform and Helm integration in a CI/CD
+    pipeline'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next subsection, we’ll look at how the same process could be streamlined
+    using the Helm provider for Terraform, thus replacing the `bash` scripts executing
+    `helm` commands imperatively and managing it with Terraform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Helm Terraform provider
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In the previous section, we looked at how Helm works, the structure of a Helm
+    chart, and how its structure and functionality compare and contrast to Terraform
+    modules. Now, we’ll look at how we can use Terraform to manage our Kubernetes
+    environment using the Helm provider for Terraform. This provider is a close brother
+    to the Kubernetes provider for Terraform because they both interact with the Kubernetes
+    REST API as the control plan for managing Terraform resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The advantage of using Terraform with Helm is that it enables you to manage
+    your Kubernetes applications alongside your other infrastructure, using the same
+    configuration language and tooling. As we know, Helm allows us to create parameterized
+    templates using Kubernetes’ declarative YAML manifests and a templating language,
+    but we still need to use `bash` scripts to execute `helm` commands and pass in
+    parameters to the Helm chart. Some Helm charts can have very complicated configurations
+    with dozens of parameters. So, using Terraform eliminates the additional integration
+    with external `bash` scripts that execute `helm` commands.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At the same time, it also allows Kubernetes practitioners to develop Kubernetes
+    templates in their native toolset. So, if you have Kubernetes specialists in your
+    organization who want to build their own custom Helm charts, this allows them
+    to keep doing their thing while plugging into a declarative deployment approach
+    using Terraform. This also allows you to leverage the massive ecosystem that already
+    exists for Helm and Kubernetes without any additional translation into HCL.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As with the Kubernetes provider, you need to initialize the provider first
+    by declaring it as a required provider:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, in your root module, you need to create an instance of the provider.
+    The provider configuration for the Helm provider closely resembles that of the
+    Kubernetes provider:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: In fact, both the Helm and Kubernetes providers can be used side by side in
+    the same Terraform module in case some additional Kubernetes resources need to
+    be provisioned to augment what’s in the Helm chart itself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The Helm provider can be used to create a two-stage Terraform CI/CD pipeline
+    where the first stage provisions the cloud environment using Terraform and the
+    corresponding cloud platform’s provider. The second stage uses the cluster connection
+    and authentication settings output by the first stage to configure the Helm provider
+    and runs `terraform apply` again using a different Terraform code base containing
+    the Helm configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.10 – Helm chart anatomy: Terraform and Helm integration in a CI/CD
+    pipeline](img/B21183_05_10.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 5.10 – Helm chart anatomy: Terraform and Helm integration in a CI/CD
+    pipeline'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Terraform code base for the second stage is often quite small, only using
+    a single resource. The `helm_release` resource is the only resource in the provider—which
+    is quite different if you have ever used one of the cloud platform providers such
+    as AWS, Azure, or GCP!
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `helm_release` resource simply takes the inputs that we would expect to
+    pass to the `helm install` command by specifying the chart name and version and
+    an external repository (if necessary):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: This concludes the section on the Helm provider.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we learned the basic concepts needed to understand containers,
+    container orchestrators, and the ways you can provision and manage container-based
+    infrastructure using both Kubernetes native tooling via `kubectl` and Helm and
+    the corresponding Terraform providers for both Kubernetes and Helm.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is the end of the cross-platform, cloud-agnostic knowledge that we need
+    to build both VM- and container-based architectures across all three hyperscalars.
+    Since serverless is inherently platform-specific and offers significant abstraction
+    from the underlying infrastructure, I will cover each hyperscalar’s offering in
+    its respective chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will move beyond cloud architecture paradigms and spend
+    some time understanding how teams deliver IAC solutions using CI/CD pipelines
+    that fuse the infrastructure provisioning, configuration management, and application
+    deployment processes into a cohesive, end-to-end workflow.
+  prefs: []
+  type: TYPE_NORMAL

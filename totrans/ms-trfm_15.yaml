@@ -1,0 +1,874 @@
+- en: '15'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Go Serverless on Google Cloud – Building Solutions with Google Cloud Functions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We are almost there! In this chapter, we will build the last of the nine solutions
+    we’ll build in this book. We are about to close the door on Google Cloud—but only
+    after we take the final step of transitioning our application to serverless architecture
+    as we did on AWS and Azure. In the previous two chapters, we worked hard to implement
+    our solution on Google Cloud using virtual machines and then containers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’ve taken time to make some comparisons between how things work across all
+    three cloud platforms to help us understand the subtle and sometimes not-so-subtle
+    differences between them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’ve noticed that while our Terraform code has been changing pretty consistently
+    between cloud platforms, our application code and the operating system configuration—either
+    in Packer or Docker—haven’t. As we take our final step with Google Cloud, we’ll
+    be going through a similar process to the one we went through when we transitioned
+    our application to AWS Lambda and Azure Functions. We’ll have to completely refactor
+    the application code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The chapter covers the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Laying the foundation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Designing the solution
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Building the solution
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Automating the deployment
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Laying the foundation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Our skilled team had just finished putting the finishing touches on the final
+    ConfigMap in our Kubernetes configuration when they received a not-so-surprising
+    telephone call. Keyser seems to have had yet another epiphany, this time while
+    hanging out with Larry Page.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While walking through Larry’s private terminal at San Jose International Airport
+    to his personal Boeing 767 waiting for them, Keyser and Larry were discussing
+    Keyser’s new venture. Larry mentioned in passing, *“Keyser, why are you even investing
+    in infrastructure? These days, everybody is going serverless. Focus on your platform.
+    Let Google Cloud focus on how to* *scale it.”*
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*“Eureka!”* exclaimed Keyser, as he tossed a few warm cashews into his mouth
+    before elaborating. *“Oh man, Larry, you’re so right! I need to get my team on
+    this right away! What was I thinking? We don’t have time for the plumbing; we
+    need to move fast to stay ahead of* *the competition!”*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Back at headquarters, the team is adapting to this exciting yet sudden change
+    in direction. Now, thanks to Keyser’s bold new strategy, they’re gearing up to
+    dive deep into serverless computing. This shift will require more than just repackaging
+    the application—they’ll have to completely refactor the code!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Designing the solution
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In this section, we will look at the overall design of our solution given the
+    shift from virtual machine- and container-based architectures toward serverless
+    architectures. As we saw in previous transformations, serverless at its core has
+    the quintessential objective of eliminating heavy infrastructure from the stack.
+    Therefore, we will be looking for ways to shed any Google Cloud services that
+    require significant fixed costs, such as **virtual machines** or **Kubernetes
+    clusters**, and replace them with serverless options. This change in our operational
+    context and our technology landscape will likely require us to rethink some things
+    about our solution, including its design, implementation, and deployment strategy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 15.1 – The logical architecture for the autonomous vehicle platform](img/B21183_15_1.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 15.1 – The logical architecture for the autonomous vehicle platform
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'While our application’s architecture doesn’t change significantly, we will
+    use different Google Cloud services to host it. In this case, we’ll be using Google
+    Cloud Storage to host the application’s frontend, and we’ll be using Google Cloud
+    Functions to host the application’s backend, as illustrated in *Figure 15**.2*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 15.2 – The source control structure of our repository](img/B21183_15_2.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 15.2 – The source control structure of our repository
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this solution, we’ll have four parts of our code base: Terraform code that
+    provisions the environment, GitHub Actions code that executes the deployment process,
+    and the two code bases for our application’s frontend and backend.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Cloud architecture
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In [*Chapter 13*](B21183_13.xhtml#_idTextAnchor569), our cloud-hosting solution
+    was a set of dedicated virtual machines, and in [*Chapter 14*](B21183_14.xhtml#_idTextAnchor605),
+    it was a set of shared virtual machines within our Kubernetes cluster’s node pool.
+    Using virtual machines has the most sunk cost, whether they are standalone virtual
+    machines or part of a Kubernetes node pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In [*Chapter 14*](B21183_14.xhtml#_idTextAnchor605), our entire solution was
+    executed on containers that allowed the frontend and the backend to coexist as
+    a set of containers on the same virtual machine. This saved some money, but we
+    still needed servers to host the workload. In this chapter, we have a new objective:
+    take advantage of the power of the cloud by leveraging cloud-native services that
+    abstract the underlying infrastructure from us and allow us to truly pay for only
+    what we use. Google Cloud’s serverless offerings will be crucial to us in this
+    endeavor.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Frontend
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: In previous chapters, we hosted our frontend on public-facing servers that return
+    the HTML and JavaScript that composed our web application, and we still required
+    a cloud-hosted solution to host the files and respond to requests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, due to the nature of the web application running within the end user’s
+    browser, we really don’t need to use cloud-hosted virtual machines to host what
+    are essentially flat files. We can use simple cloud storage to host the frontend
+    as a static website and rely on the cloud platform to shoulder the burden of returning
+    the web content.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can use the Google Cloud Storage service on Google Cloud. This service allows
+    us to host static web content that is internet accessible. As we did on AWS and
+    Azure in previous chapters, most of this functionality is achieved by adding a
+    **Storage bucket** and enabling it to host web content. However, unlike how we
+    handled this on AWS and Azure, we need to add our own load balancer to ensure
+    our web application functions properly, as illustrated in *Figure 15**.3*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 15.3 – Google Cloud Storage handles web page requests while Google
+    Cloud Functions handles REST API requests](img/B21183_15_3..jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 15.3 – Google Cloud Storage handles web page requests while Google Cloud
+    Functions handles REST API requests
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we saw on other platforms, we will gain a huge advantage because Google Cloud
+    Storage has absolutely no sunk costs. When you create a Google Cloud Storage bucket,
+    it costs you absolutely zero dollars ($0) per month. Like other serverless offerings,
+    it uses a set of microtransactions to measure your activity and charge you for
+    precisely what you use. In Google Cloud Storage, this can be a bit complicated
+    as there are several measurements that incur costs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Table 15.1* shows all the costs you will run into when using Google Cloud
+    Storage to host your static websites:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Metric** | **Unit** | **Scale** | **Price** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Storage | GBs | 1,000 | $0.023 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Write Transactions | Transactions | 1,000 | $0.01 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Read Transactions | Transactions | 1,000 | $0.0004 |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 15.1 – Google Cloud Storage micro-transactional pricing
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The prices listed are, at the time of writing, for Google Cloud’s West US 2
+    region. Prices may have changed by the time you are reading this, so it’s best
+    to check the latest prices for the most accurate cost estimation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I included these prices to make a point. We can host a static website on a three-node
+    Kubernetes cluster for approximately $300 a month, or we can host a static website
+    on Google Cloud Storage for less than $0.01 a month on the most rock-solid storage
+    tier that Google Cloud has to offer. Which approach would you choose?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Backend
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Like our frontend, in previous chapters, our backend was also hosted on virtual
+    machines in two different ways: dedicated virtual machines and shared virtual
+    machines within the node pool on our Kubernetes cluster.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unlike our frontend, our backend doesn’t have the option of running entirely
+    client-side inside the end user’s web browser. In the backend, we have custom
+    code that needs to run on a server. Therefore, we need to find a solution to host
+    these components without all the overhead of a fleet of virtual machines. On Google
+    Cloud, we can use Google Cloud Functions to accomplish this. Google Cloud Functions
+    is a managed service that allows you to deploy your code without paying the sunk
+    costs for any of the underlying virtual machines. Like Google Cloud Storage, it
+    has its own micro-transactional pricing model that charges you for precisely what
+    you use.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Table 15.2* shows what costs that you will incur when deploying your code
+    to Google Cloud Functions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Metric** | **Unit** | **Scale** | **Price** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Compute | GHz/s | 1 | $0.00001 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Memory | GB/s | 1 | $0.0000025 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Total Executions | Transactions | 1,000,000 | $0.40 |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 15.2 – Google Cloud Functions microtransactions pricing
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first thing that you’ll probably notice is that, like Google Cloud Storage,
+    these prices are extremely small but they measure a very small amount of activity
+    on the platform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For example, the **compute** and **memory** metrics have units that correspond
+    to that resource’s unit of measure per second. For compute metrics, it’s measured
+    in GHz per second, and for memory metrics, it’s measured in GB per second. These
+    units of measurement give you the flexibility to adjust the amount of compute
+    and memory resources your cloud functions have access to when they are executed.
+    Given that it measures at a *per second* interval, you don’t have to be running
+    your Google Cloud Functions very long to rack up quite a few of these. *Figure
+    15**.4* shows Google Cloud Functions deploying the application code to Google
+    Cloud Storage:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 15.4 – Google Cloud Functions runs the application code which is deployed
+    to Google Cloud Storage](img/B21183_15_4..jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 15.4 – Google Cloud Functions runs the application code which is deployed
+    to Google Cloud Storage
+  prefs: []
+  type: TYPE_NORMAL
+- en: Previously, our ASP.NET REST API was set up using a traditional ASP.NET project
+    that used Controllers to implement the REST API endpoints. However, when transitioning
+    to Google Cloud Functions, this solution structure is incompatible with the Google
+    Cloud Functions framework. In order to be able to host our REST API as Google
+    Cloud Functions, we need to conform to the framework that Cloud Functions dictates.
+    This means that the ASP.NET controller classes will need to be refactored to conform
+    to this standard. In the next section, we’ll delve into the code that makes this
+    possible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deployment architecture
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Now that we have a good idea of what our cloud architecture for our solution
+    on Google Cloud will look like, we need to devise a plan for provisioning our
+    environments and deploying our code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In [*Chapter 12*](B21183_12.xhtml#_idTextAnchor543), when we deployed our application
+    to virtual machines, we baked our compiled application code into a virtual machine
+    image using Packer:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 15.5 – The deployment process for virtual machines using Packer-built
+    virtual machine images](img/B21183_15_5..jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 15.5 – The deployment process for virtual machines using Packer-built
+    virtual machine images
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Similarly, in [*Chapter 13*](B21183_13.xhtml#_idTextAnchor569), when we deployed
+    our application to containers on our Kubernetes cluster, we baked our application
+    code into container images using Docker:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 15.6 – The deployment process for Kubernetes using Docker-built container
+    images](img/B21183_15_6..jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 15.6 – The deployment process for Kubernetes using Docker-built container
+    images
+  prefs: []
+  type: TYPE_NORMAL
+- en: With serverless, this completely changes because Google Cloud’s serverless offerings
+    abstract away the operating system. This means that all we are responsible for
+    is producing a compatible deployment package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating the deployment package
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'As discussed in the previous section, we have two components of our application:
+    the frontend and the backend. Each has a different deployment target. For the
+    frontend, we are going to be deploying as a static website, while the backend
+    is going to be deployed as a Google Cloud function. Since both are .NET projects,
+    we will be using both .NET and Google Cloud Platform-specific tools in order to
+    create deployment packages and deploy them to their target Google Cloud services.
+    The following diagram shows the process we go through to provision our environment,
+    package our application code, and deploy it to the target environment in Google
+    Cloud:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 15.7 – The deployment pipeline to build our .NET application code
+    for deployment to Google Cloud](img/B21183_15_7..jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 15.7 – The deployment pipeline to build our .NET application code for
+    deployment to Google Cloud
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For the frontend, this means enabling the feature to deploy our ASP.NET Blazor
+    web application as WebAssembly. This will allow the frontend to be hosted as a
+    static website that can run completely client-side without any server-side rendering.
+    This is only possible because of the way we have designed our frontend web application,
+    which uses HTML, CSS, and JavaScript to interact with server-side REST APIs. It’s
+    important to note that ASP.NET Blazor supports both hosting options, but we specifically
+    chose to go down the client-side-only path and eliminate any dependency on server-side
+    page rendering. As a result, when we use the .NET CLI to publish our ASP.NET Blazor
+    project, it will emit a folder containing static web content. Then, using a Google
+    Cloud CLI, we can upload the contents of this folder to our Google Cloud Storage
+    bucket to complete the deployment, as shown in *Figure 15**.8*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 15.8 – The deployment process for Google Cloud Functions using custom-built
+    deployment packages](img/B21183_15_8..jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 15.8 – The deployment process for Google Cloud Functions using custom-built
+    deployment packages
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For the backend, unlike on AWS and Azure, the application code on Google Cloud
+    shouldn’t be compiled as it needs to be processed by Google Cloud Functions. This
+    means the actual source code files need to be uploaded as opposed to the compiled
+    artifacts, as we have done previously. Therefore, we must zip the source code
+    folder into a ZIP archive. Another major difference is that the Terraform provider
+    for Google Cloud requires this zip archive to be uploaded by Terraform:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 15.9 – The GitFlow process to create new versioned artifacts](img/B21183_15_9..jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 15.9 – The GitFlow process to create new versioned artifacts
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This process will integrate nicely with the GitFlow process discussed in [*Chapter
+    6*](B21183_06.xhtml#_idTextAnchor330). With each new feature we develop, we’ll
+    open a new feature branch, and when we’re ready to integrate our updates with
+    the main body of work, we’ll submit a pull request:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 15.10 – GitFlow process to create new versioned artifacts](img/B21183_15_10..jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 15.10 – GitFlow process to create new versioned artifacts
+  prefs: []
+  type: TYPE_NORMAL
+- en: This pull request will trigger GitHub Actions that run built-in quality checks
+    on our application code and run a `terraform plan` to evaluate the impact on our
+    long-lived environments. We can do any number of tests before the code is merged,
+    which is good to verify that our updates–both to the application code and to the
+    infrastructure code– won’t negatively impact our target environment. Once our
+    pull request is approved and merged, it will trigger additional GitHub Actions
+    that will apply the changes to the target environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we have a solid plan for implementing both the cloud architecture using
+    Google Cloud Platform and the deployment architecture using GitHub Actions, let’s
+    start building! In the next section, we’ll break down the **HashiCorp Configuration
+    Language** (**HCL**) code that we use to implement Terraform, and we’ll look at
+    the application code changes we need to make to get our application up and running
+    using Google Cloud Functions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building the solution
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Now that we have a solid design for our solution, we can begin building it.
+    As we discussed in the previous section, because we’ll be using Google Cloud’s
+    serverless offerings such as Google Cloud Storage and Google Cloud Functions to
+    host our application, we will need to make some changes to our application code.
+    This is something that we have never had to do in *Chapters 13* and *14*, as we
+    were able to deploy our application to the cloud by packaging it in either a virtual
+    machine image (using Packer) or in a container image (using Docker). Therefore,
+    in order to build our solution, we need to write some Terraform and make updates
+    to our application code in C#.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Terraform
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'As we discussed in our design, our solution comprises two application components:
+    the frontend and the backend. Each has its own application codebase that needs
+    to be deployed. Unlike previous chapters, where we also had operating system configuration,
+    now that we are using serverless offerings, this is no longer our responsibility
+    as the platform takes care of it for us:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 15.11 – A Google Cloud Functions resource structure](img/B21183_15_11..jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 15.11 – A Google Cloud Functions resource structure
+  prefs: []
+  type: TYPE_NORMAL
+- en: Much of the Terraform setup is very similar to what we have done in previous
+    chapters so we will only focus on new resources needed for our solution. You can
+    check the full source code for this book, which is available on GitHub, if you
+    want to work with the complete solution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Frontend
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: As we saw in previous chapters, when working with Google Cloud, we need to activate
+    the required Google APIs to provision resources to our new project. For the frontend,
+    we will mainly use Google Cloud Storage, but we also need a `compute.googleapis.com`
+    API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, we need to provision a Google Cloud Storage bucket to which we can deploy
+    our frontend. However, we need to configure our Google Cloud Storage bucket differently
+    using an optional block called `website` to enable the static websites feature:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To allow anonymous internet traffic to access the content stored within the
+    bucket, we need to set up a binding with the Identity and Access Management service.
+    This will grant `allUsers` access to view objects within the storage bucket:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In previous chapters, we’ve set up Google Cloud Load Balancing, which establishes
+    a load balancer as the frontend and allows you to configure many different types
+    of backends:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 15.12 – Google Cloud Load Balancing routes traffic to the Frontend
+    hosted on Google Cloud Storage](img/B21183_15_12..jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 15.12 – Google Cloud Load Balancing routes traffic to the Frontend hosted
+    on Google Cloud Storage
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this case, the backend for the load balancer becomes extremely simple; it’s
+    just a Google Cloud Storage bucket:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: The Google Cloud Storage bucket needs to be set up as the backend for the load
+    balancer, which will allow traffic to be routed to the appropriate location.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Backend
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Our Backend will be hosted on Google Cloud Functions, so we need to enable `logging.googleapis.com`
+    to allow Google Cloud Functions’ telemetry to be accessible from the Google Cloud
+    console.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we discussed in the previous section, Google Cloud Functions requires our
+    source code to be uploaded, not compiled artifacts; this is because of the way
+    Google Cloud Functions handles the packaging of our application on our behalf.
+    As a result, this creates a dependency on `cloudbuild.googleapis.com`, which Google
+    Cloud Functions uses to create a packaged artifact based on the source code we
+    upload.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For our Google Cloud Functions to execute, we need two additional Google APIs,
+    the Cloud Run API (i.e., `run.googleapis.com`) and the Cloud Functions API (i.e.,
+    `cloudfunctions.googleapis.com`). Google Cloud Functions is a layer built onto
+    the Cloud Run API that provides an additional layer of abstraction and additional
+    capabilities to create event-driven workflows, while the Cloud Run API provides
+    a foundational service to run stateless containers that are invocable via HTTP
+    requests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Google Cloud Functions have a rather simple deployment model. Like AWS Lambda,
+    you must declare a resource for the function itself. The resource has two main
+    configuration components—the build and service configurations—as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The build configuration controls the type of execution runtime (e.g., Python,
+    Java, or .NET), the entry point in the application code, and the location in storage
+    where the application code can be found:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The service configuration controls how many resources the cloud function has
+    access to when invoked. Consequently, this configuration is also the primary driver
+    of costs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The service configuration block also allows you to set environment variables
+    that can be used to pass non-sensitive configuration settings to the cloud function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Secrets management
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: As we saw in previous chapters, we can only provision secrets using Google Cloud
+    Secrets Manager once we have enabled the `secretmanager.googleapis.com` API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, we need to define the secret with a unique secret identifier that we
+    can use to look up the secret’s value from our application code. If we are building
+    multi-region deployments, we can also set the regions to which we want this secret
+    replicated:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As we saw with the `aws` provider in earlier chapters, the secret is just a
+    placeholder, a unique way to look up our secret’s value. We need to create versions
+    of our secret to store the actual secret value:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After provisioning the secret and a version of our secret, we can access it
+    from our Google Cloud Functions. There are two methods for injecting our secrets
+    into our cloud function; the first is using environment variables:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding code demonstrates how we can add a secret to the service configuration
+    block of our cloud function to inject our secrets stored in the Google Secret
+    Manager device using the secret’s identifier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The second approach is probably more secure as it avoids exposing the secret
+    within the process’ environment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding code shows how to set a mount point within the filesystem and
+    drop the secret’s value there using the secret’s identifier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Application code
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Google Cloud Functions are inherently event-based. Each cloud function is triggered
+    by a different type of event from a wide variety of Google Cloud services. For
+    the purposes of this book, we’ll focus on the HTTP trigger only, but if you are
+    interested, I’d recommend you go check out all the other options that Google Cloud
+    Functions has—it’s quite extensive:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 15.13 – ASP.NET MVC controller class anatomy](img/B21183_15_13..jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 15.13 – ASP.NET MVC controller class anatomy
+  prefs: []
+  type: TYPE_NORMAL
+- en: In a traditional ASP.NET REST API solution, you have controller classes that
+    embody a specific route and then methods that implement different operations at
+    that route. The controller class needs to be decorated with an `ApiController`
+    attribute informing the ASP.NET runtime that this class should be used to process
+    incoming web requests at the route specified in the `Route` attribute.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Each method is decorated with an attribute that denotes which HTTP verb the
+    method should respond to. In the preceding example, we use `HttpGet`, but there
+    are corresponding attributes for each of the supported HTTP Verbs. The method
+    can take strongly typed parameters that can either be part of the route, the Query
+    String, or the request body. The method returns `IActionResult` by default, which
+    allows us to return different data structures depending on the outcome of the
+    request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In order to implement a REST API using Azure Functions, we need to implement
+    a class using the Azure Function SDK. This requires us to slightly adjust how
+    we implement both our class and our method. We will employ different class and
+    method attributes in order to achieve a similar outcome, defining an endpoint
+    that responds to web requests at a specific route:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 15.14 – Google Cloud Functions class anatomy](img/B21183_15_14..jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 15.14 – Google Cloud Functions class anatomy
+  prefs: []
+  type: TYPE_NORMAL
+- en: Google Cloud Functions has a very simple method for integrating with the underlying
+    cloud service that drives the runtime. The only requirement is to implement the
+    `IHttpFunction` interface. This interface has a single requirement to implement
+    a method called `HandleAsync` that takes an `HttpContext` object as its only parameter.
+    There is no return object. Therefore, the only way we have to respond to the client
+    is by writing to the response object that is accessible from the `HttpContext`
+    object.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we can see, the cloud architecture radically simplifies, but one trade-off
+    is that our backend code needs to be adapted to the Google Cloud Functions framework.
+    This will require development and testing efforts in order to transform our code
+    base into this new hosting model. This stands in stark contrast to what we explored
+    in previous chapters, where we hosted on virtual machines or containerized and
+    hosted on a Kubernetes cluster. While conforming to the Google Cloud Functions
+    model does take work, its benefits are twofold. First, it allows us to take advantage
+    of near-zero sunk cost, and second, it allows us to fully abstract the underlying
+    infrastructure from us and let Google Cloud Platform take care of scalability
+    and high availability. This allows us to focus more on the functionality of our
+    solutions rather than the plumbing of managing the underlying infrastructure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we have implemented Terraform to provision our solution and made changes
+    to our application code to conform it to the Google Cloud Functions framework,
+    in the next section, we’ll dive into YAML and Bash and implement the GitHub Actions
+    workflows.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Automating the deployment
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As we discussed in the previous section, serverless offerings such as Google
+    Cloud Functions and Google Cloud Storage abstract away the operating system configuration.
+    Therefore, when we deploy, we only need an application package that is compatible
+    with the target platform. In this section, we’ll create an automation pipeline
+    using GitHub Actions that will provision our application to its new serverless
+    home in Google Cloud.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Terraform
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The first thing that we need to do is to provision our environment to Google
+    Cloud. This is going to be extremely similar to the way we did this in the previous
+    chapters. In [*Chapter 13*](B21183_13.xhtml#_idTextAnchor569), we needed to ensure
+    that our virtual machine images were built and available before we executed Terraform
+    because the Terraform code base referenced the virtual machine images when it
+    provisioned the virtual machines. This means that with our virtual machine architecture,
+    application deployment happens before Terraform provisions the environment, as
+    shown in *Figure 15**.15*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 15.15 – Packer-produced virtual machine images are a prerequisite
+    for Terraform](img/B21183_15_15..jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 15.15 – Packer-produced virtual machine images are a prerequisite for
+    Terraform
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In [*Chapter 14*](B21183_14.xhtml#_idTextAnchor605), we provisioned our Kubernetes
+    cluster using **Google Kubernetes Engine** (**GKE**) without such a prerequisite.
+    In fact, the application deployment occurred after the Kubernetes cluster was
+    online. This means that with container-based architecture, application deployment
+    happens after Terraform provisions the environment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 15.16 – Docker-produced container images are provisioned to Kubernetes
+    after Terraform executes](img/B21183_15_16..jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 15.16 – Docker-produced container images are provisioned to Kubernetes
+    after Terraform executes
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When using Google Cloud’s serverless offerings, the deployment process is split.
+    While both the frontend and backend of our application need a deployment package
+    to be created, the way they are deployed is different. For the frontend, like
+    on other platforms, we simply generate static web content. However, for the backend,
+    due to Google Cloud Functions’ unique approach to packaging and deployment, we
+    need to generate a ZIP archive with the application’s source code itself. These
+    artifacts share a similar purpose to Docker images in that they are a target service-compatible
+    way of packaging our application for deployment, as shown in *Figure 15**.17*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 15.17 – The ZIP archive with the source code acts as the deployment
+    artifacts that are provisioned to Google Cloud when Terraform executes](img/B21183_15_17..jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 15.17 – The ZIP archive with the source code acts as the deployment artifacts
+    that are provisioned to Google Cloud when Terraform executes
+  prefs: []
+  type: TYPE_NORMAL
+- en: As you can see, the backend deployment looks very similar to the approach used
+    with the virtual-machine-based architecture. The Terraform code references the
+    packaged artifact and is responsible for deploying it to the Google Cloud Functions
+    that it provisions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deployment
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Now that Terraform has provisioned the Google Cloud infrastructure we need for
+    our serverless solution, we need to take the final step of deploying both deployment
+    artifacts to the appropriate locations in Google Cloud.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will use .NET and Google Cloud custom tools to produce the artifacts and
+    deploy the frontend. However, the backend will be provisioned by Terraform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Frontend
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'As we saw in other chapters, our .NET application code needs to follow a continuous
+    integration process where the code is built and tested using automated unit testing
+    and other built-in quality controls. Nothing changes there, except that we need
+    to add some special handling to the deployment artifact that these processes produce
+    to ensure it is available to our GitHub Actions job that deploys the workload
+    to the appropriate location:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: We need to ensure that we authenticate with Google Cloud and target the right
+    Google Cloud project with the right Google Cloud Storage bucket. The Google Cloud
+    command-line tool that we are using is called `gsutil`. It can be configured to
+    obtain credentials in several ways, but it is probably the safest to specify the
+    path to a Google Cloud credentials file. We can use the GitHub Actions secret
+    to generate a file that we then reference when we call `gsutil`. Once done, we
+    can execute `gsutil` to recursively upload all the files within the staging directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Backend
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'In order to deploy the Google Cloud function, we need to modify our Terraform
+    to provision a location for the zip archive to be uploaded to and specify the
+    ZIP archive containing the source code of our application code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After the Google Cloud Storage bucket has been provisioned, we must upload
+    the deployment package:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding code will reference the `deployment.zip` file in Terraform’s root
+    directory and upload it to the Google Cloud Storage bucket.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That’s it! Now, our application has been fully deployed to Google Cloud Functions!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we designed, built, and automated the deployment of a complete
+    end-to-end solution using serverless architecture using Google Cloud Functions.
+    To accomplish this, we finally had to make some major changes to our application
+    code to conform to the requirements of the serverless runtime. When adopting serverless
+    offerings, one must make this distinct and considerable decision, as it tightly
+    couples your application code with the target cloud platform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we conclude this chapter and this Google Cloud-centric narrative, we have
+    successfully implemented cloud architectures on three different cloud platforms—**Amazon
+    Web Services** (**AWS**), Microsoft Azure, and Google Cloud Platform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Throughout our journey with our enigmatic CEO, Keyser Söze, we saw many similarities
+    that cross from one cloud platform to another, but we also saw distinct differences
+    between the cloud platforms, spanning from small naming convention differences,
+    design and implementation variations up to large structural changes within the
+    entire taxonomy of the cloud platforms. In addition to exploring these three cloud
+    platforms, we witnessed the journey that many organizations face when navigating
+    their journey to the cloud—whether to stick with what they know or to leap into
+    new capabilities and service offerings that pose challenges due to the learning
+    curve while also granting potential opportunities to streamline operations and
+    better take advantage of the economies of scale that the public cloud has to offer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we’ll switch gears and look at the distinct challenges
+    when we aren’t starting from scratch but trying to adapt existing environments
+    and architectures to bring them into an infrastructure-as-code world.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Part 6: Day 2 Operations and Beyond'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this part, we explore the challenges and common pitfalls when working with
+    existing environments using Terraform, either importing existing environments
+    that were provisioned initially outside of Terraform or managing environments
+    long-term with Terraform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This part has the following chapters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[*Chapter 16*](B21183_16.xhtml#_idTextAnchor665), *Already Provisioned? Strategies
+    for Importing Existing Environments*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 17*](B21183_17.xhtml#_idTextAnchor700), *Managing Production Environments
+    with Terraform*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 18*](B21183_18.xhtml#_idTextAnchor740), *Looking Ahead – Certification,
+    Emerging Trends, and Next Steps*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

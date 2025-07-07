@@ -1,0 +1,873 @@
+- en: Scaling Puppet
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Puppet is built to centrally manage all servers in an organization. In some
+    organizations, the total node count may be in the hundreds. Other organizations
+    have thousands or even tens of thousands of servers. For a smaller set of servers,
+    we can configure a single monolithic Puppet Master (Puppetserver, PuppetDB or
+    PE Console) on one server. Once we reach a certain size, we can export the components
+    of Puppet Enterprise into separate servers. With even larger server sizes, we
+    can begin to scale each component individually. This chapter will cover models
+    of installing Puppet Enterprise, scaling to three servers, and finally load balancing
+    multiple puppet components to support very large installations of Puppet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When supporting a smaller subset of servers, the first stage is to optimize
+    our settings on a monolithic master.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This chapter will primarily cover scaling Puppet Enterprise. Open source techniques
+    will also be discussed in the context of this scaling, but full implementation
+    methods will be left up to individual users of Puppet open source.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Inspection
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before we begin scaling our services, lets understand how to collect and understand
+    metrics on those systems. A dashboard is included for both PuppetDB and the Puppet
+    Enterprise console. We can use these dashboards to inspect the metrics of our
+    system and identify problems along the way. As an environment grows, we want to
+    ensure we have enough system resources available to Puppet to ensure that catalogs
+    can be compiled and served to agents. A separate dashboard is provided for both
+    PuppetDB and Puppetserver.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Puppetserver
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Puppetserver is the primary driver behind Puppet and is the only required component
+    in open source Puppet. The Puppetserver developer dashboard is used to track the
+    Puppet Master's ability to serve catalogs to agents. The primary area of tracking
+    on this dashboard focuses on Puppetserver's JRubies. JRubies on the Puppetserver
+    are simply small ruby instances contained in the **Java Virtual Machine** (**JVM**),
+    dedicated to compiling catalogs for agents.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can reach the Puppetserver developer dashboard at `https://<puppetserver>:8140/puppet/experimental/dashboard.html`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The dashboard contains a few live metrics about the Puppetserver, broken down
+    into current metrics and average metrics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Free JRubies**: The number of available JRuby instances to serve Puppet catalogs'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Requested JRubies**: How many JRubies have been requested by agents'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**JRuby Borrow Time**: The amount of time in milliseconds the Puppetserver
+    holds for a single request from an agent'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**JRuby Wait Time**: How long an agent has to wait on average for a JRuby'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**JVM Heap Memory Used**: The amount of system memory the JVM containing the
+    JRubies is consuming'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**CPU Usage**: The CPU used by the Puppetserver'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**GC CPU Usage**: The amount of CPU used by **Garbage Collection** (**GC**)
+    on the Puppetserver'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![](img/b8f9dd2d-37bd-4878-bcd3-b6201ba169ff.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: We can inspect this data to get quite a bit of information about the primary
+    job of the Puppetserver, which is to compile and serve catalogs. One of the first
+    key components to look at is **JRuby Wait Time**. Are our nodes often waiting
+    in line to receive catalogs? If we find the wait time increasing, we'll need more
+    total JRubies available to serve the agents. This can also be indicated by a low
+    average free JRubies count, or a high current requested JRubies status. We can
+    also inspect the **JRuby Borrow Time** to get an idea of how big our catalogs
+    are and how much time each node expects to be able to talk to the Puppetserver.
+    Finally, we have some metrics to let us know if we've allocated enough memory
+    and CPU to the Puppetserver.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can also get some useful data about our API usage on **Top 10 Requests**,
+    letting us know which APIs are being used most heavily in our infrastructure.
+    **Top 10 Functions** help to identify which Puppet functions are being used most
+    heavily on the master, and our **Top 10 Resources** can help us understand our
+    most used code in an environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: PuppetDB dashboard
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'PuppetDB has it''s own dashboard, designed to show what''s going on in the
+    server. It is primarily aimed at making sense of the data that PuppetDB stores.
+    It covers some performance metrics, like the JVM Heap, and also a quick active
+    and inactive node count. The following information is available on PuppetDB:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**JVM Heap**: Total memory heap size of database'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Active and inactive nodes**: Nodes with information inside of PuppetDB'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Resources**: Total resources seen in PuppetDB'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Resource Duplication**: Total resources that are a duplicate that PuppetDB
+    can serve (higher is better)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Catalog Duplication**: Total catalogs that are a duplicate that PuppetDB
+    can serve (higher is better)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Command Queue**: Number of commands waiting to be run'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Command Processing**: How long commands take to execute against the database'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Processed**: Number of queries processed since startup'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Retried**: Number of queries that had to be run more than once'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Discard**: Number of queries that did not return a value'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Rejected**: Number of queries that were rejected'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Enqueuing**: Average amount of time spent waiting to write to the database'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Command Persistence**: The time it takes to move data from memory to disk'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Collection Queries**: Collection query service time in seconds'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**DB Compaction**: Round trip time for database compaction'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**DLO Size on Disk**: Dynamic large object size on disk'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Discarded Messages**: Messages that did not enter PuppetDB'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Sync Duration**: Amount of time it takes to sync data between databases'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Last Synced**: How many seconds since the last database sync'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: By default, PuppetDB runs the PuppetDB Dashboard on port `8080`, but restricts
+    this to localhost. We can reach this locally on our machine by forwarding the
+    web port onto our workstation. The command `ssh -L 8080:localhost:8080 <user>@<puppetdb-server>`
+    will allow you reach the PuppetDB dashboard at `http://localhost:8080` on the
+    same workstation the command was run on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/7e0e763e-7c7b-498b-931c-c0fe3d3b6583.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: We can use this information to check the status of our PuppetDB server. We want
+    to see a high resource duplication and catalog duplication, which speeds up our
+    overall runs of Puppet using PuppetDB. Our JVM heap can let us know how we're
+    doing on memory usage. Active and inactive nodes help us understand what's being
+    stored in PuppetDB, and what is on it's way out. Most other data is metrics surrounding
+    the database itself, letting us know the health of the PostgreSQL server. Once
+    we understand some simple live metrics, we can start looking at tuning our environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tuning
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before moving into horizontal scaling of services, we should optimize the workload
+    we have. The best horizontal scaling is scaling you don't need to do. Don't build
+    more puppet component nodes until you can't support your workload with a single
+    large monolithic instance. Adding more resources to Puppet allows it to serve
+    more agents. There is no hard and fast rule on how many agents can be served by
+    a monolithic Puppet Master, even with additional compile masters. The size of
+    Puppet catalogs differs for every organization and is the primary unknown variable
+    for most organizations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you just need some simple settings to get started, Puppet keeps a list of
+    standard recommended settings for small monolithic masters and monolithic masters
+    with additional compile masters at: [https://puppet.com/docs/pe/latest/tuning_monolithic.html](https://puppet.com/docs/pe/latest/tuning_monolithic.html).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Puppetserver tuning
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The Puppetserver generates catalogs for each of our agents, using the code placed
+    in our environments and served via JRubies. We'll be configuring the JVM and implementing
+    our changes in Puppet in both an Enterprise and open source installation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Puppetserver's primary job in our infrastructure is handling agent requests
+    and returning a catalog. In older versions of Puppet, the RubyGem Passenger was
+    commonly used to concurrently serve requests to multiple agents. Today Puppet
+    runs multiple JRuby instances on the Puppetserver to handle concurrent requests.
+    While Ruby itself runs with the operating system's native compiler, JRuby runs
+    Ruby in an isolated JVM instance. These JRubies allow for better scaling with
+    Puppet, providing multiple concurrent and thread-safe runs of Puppet. Each JRuby
+    can serve one agent at a time, and Puppet will queue agents until a JRuby is available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Every JVM (containing JRuby instances) has a minimum and maximum heap size.
+    The maximum heap size determines how much memory a JVM can consume before garbage
+    collection begins. Garbage collection is simply the process of clearing data from
+    memory, starting from the oldest data to the newest. The minimum heap size ensures
+    that new JVMs are started with enough memory allocated to run the application.
+    If the JRuby can not allocate enough memory to the Puppet instance, it will trigger
+    an `OutOfMemory` error and shut down the Puppetserver. We generally set our Java
+    maximum heap size (sometimes referred to as -Xmx) and our minimum heap size (-Xms)
+    to the same value, so that new JRubies start with the memory they need. We can
+    also set the maximum number of JRuby instances using the `max-active-instances`.
+    Puppet generally recommends this number be close to the number of CPUs available
+    to the Puppetserver.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Puppet Enterprise implementation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In Puppet Enterprise, we can configure our Java settings in Puppet with the
+    following settings in Hiera:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Open source implementation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In open source, we need to manage our settings with our own module. Luckily,
+    `camptocamp/puppetserver` provides exactly what we need! We can use this module
+    to create a profile that applies to our Puppetservers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: In an open source installation, the ulimits required for each component in larger
+    installations may not be present. You can follow the instructions at [https://puppet.com/docs/pe/latest/config_ulimit.html](https://puppet.com/docs/pe/latest/config_ulimit.html)
+    if your master is serving an immense number of nodes and is unable to open more
+    files on the Linux operating system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: PuppetDB tuning
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'PuppetDB is installed on a PostgreSQL instance, and can generally be managed
+    the same as any PostgreSQL server. We do have a few configuration options that
+    can help tune your PostgreSQL PuppetDB instance to your environment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deactivate and purge nodes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Tune max heap size
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Tune threads
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Deactivating and purging nodes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: PuppetDB keeps records on every node that checks into your Puppet Enterprise
+    installation. In an environment where nodes often come and go, such as an immutable
+    infrastructure, lots of data can pile up about nodes that impact the performance
+    of the database and infrastructure. By default, Puppet will expire nodes that
+    have not checked in for seven days, and will cease exporting objects from the
+    catalog. This setting can be managed with the `node-ttl` setting underneath the
+    `[database]` section of `puppet.conf`. An additional setting, `node-purge-ttl`,
+    lets the database know when to drop records for a node. By default, 14 days is
+    the purge time for Puppet Enterprise. We can also perform these tasks manually
+    with `puppet node deactivate` and `puppet node purge`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can manage the default settings using `puppetlabs/inifile` as shown below:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Managing the heap size
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The maximum heap size of our PuppetDB will depend on the total number of nodes
+    checking into the system, the frequency of the Puppet runs, and the amount of
+    resources managed by Puppet. The easiest way to determine heap size needs is to
+    estimate or use defaults, and monitor the performance dashboard.  If your database
+    triggers an `OutOfMemory` exception, just provide a larger memory allocation and
+    restart the service. If the JVM heap metric often gets close to maximum, you'll
+    need to increase the max heap size using Java args, managed by the PostgreSQL init
+    script. PuppetDB will begin handling requests from the same point in the queue
+    as when the service died. In an open source installation, this file will be named
+    `puppetdb`, and will be named `pe-puppetdb` in a Puppet Enterprise installation.
+    On an Enterprise Linux distribution (such as Red Hat), these files will be located
+    in `/etc/sysconfig`. Debian based systems such as Ubuntu will place this file
+    in `/etc/default`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In a Puppet Enterprise installation, we can set our heap size using the following
+    Hiera values:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In an open source installation, preferably using `puppet/puppetdb` from the
+    forge, we can simply set the Java args via the `puppetdb` class:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Tuning CPU threads
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Tuning CPU threads for PuppetDB is not always a simple case of *add more and it
+    will perform better*. CPUs on the PuppetDB are in use for the PostgreSQL instance,
+    the **Message Queue** (**MQ**) and web server provided by PuppetDB. If your server
+    does have CPUs to spare, consider adding more CPU threads to process more messages
+    at a time. If increasing the number of CPUs to PuppetDB is actually decreasing
+    throughput, instead make sure more CPU resources are available for the MQ and
+    web server. The setting for CPU threads is also found in `puppet.conf`, under
+    the `[command-processing]` section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On a Puppet Enterprise installation, we''ll find this setting managed by Hiera:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In an open source installation, we will again use `puppetlabs/puppetdb` to
+    manage this setting:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Automatically determining settings
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Now that we've seen some of the settings, we can look at some tools to help
+    us deliver a decent baseline using our hardware. To begin with, we'll be looking
+    at automatically tuning our full Puppet Enterprise installation and using PGTune
+    to tune our PuppetDB instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Puppet Enterprise
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Before we inspect and tune our system, we will find a set of recommended settings
+    based on the hardware available. Thomas Kishel at Puppet has designed a Puppet
+    Face that queries PuppetDB for Puppet Enterprise Infrastructure. This command
+    inspects available resources on the system and provides a sane default for the
+    following Puppet Enterprise installations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Monolithic infrastructure
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Monolithic with compile masters
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Monolithic with external PostgreSQL
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Monolithic with compile masters with external PostgreSQL
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Monolithic with HA
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Monolithic with compile masters with HA
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Split infrastructure
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Split with compile masters
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Split with external PostgreSQL
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Split with compile masters with external PostgreSQL
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'To get started with `tkishel/pe_tune`, we''ll want to clone the Git repository
+    onto our Puppet Enterprise on our primary master, and make the `tune.rb` script
+    executable:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When we have the binary cloned and executable, we''ll want to run `tune.rb`
+    to get information back about our system and return sane Puppet Enterprise settings
+    in Hiera:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: We can then place these values in Hiera anywhere that the Puppet Enterprise
+    installation would be able to pick them up. I recommend `common.yaml`, unless
+    you have a Hiera layer specifically set aside for Puppet settings.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This script will fail to run by default on infrastructure hosts with less than
+    4 CPUs or 8 GB of RAM. You can run the command with the `--force` flag to get
+    results, even on nodes that are smaller than the recommended 4 CPUs and 8GB of
+    memory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: PuppetDB – PostgreSQL with PGTune
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When in doubt about how to tune a PostgreSQL server, try PGTune. This project
+    will read your current `postgresql.conf` and output a new one with tuning settings
+    designed for the machine it's running on. As an important side note, this will
+    not take into account the necessary memory for the message queue or the web server,
+    so leaving a small amount of extra resources by slightly tuning down these settings
+    can help with performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Please note that PGTune assumes the only purpose of the node it is running on
+    is to serve a Postgres server. These settings will be difficult to use on a single
+    monolithic master, and `tkishel/pe_tune` will be a much more useful tool for configuring
+    these servers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We''ll want to begin by cloning and entering the current PGTune project:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then we run PGTune against our Puppet Enterprise `postgresql.conf`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'These settings come back in a form for manually managing a `postgresql.conf`.
+    Let''s translate these values into Puppet Enterprise Hiera settings that can be
+    placed in `common.yaml` to drive our PuppetDB:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When using open source, we''ll instead want to lean on the `puppetlabs/postgresql`
+    module that is a dependency of `puppetlabs/puppetdb`. Each value we want to set
+    is an individual resource, and can be represented in Hiera at the PuppetDB level.
+    I would not recommend putting these particular settings in `common.yaml` if you
+    have other PostgreSQL servers in your environment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: Understanding these key concepts allows us to configure our individual nodes
+    to maximize performance. For many users, this will be enough to run Puppet in
+    their environment. For more extreme cases, we can turn to horizontal scaling,
+    allowing more copies of our Puppetservers and PuppetDBs to support more agents.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Horizontal scaling
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'When a single monolithic master can no longer serve our environment, we split
+    our master into distinct components: console, Puppetserver and PuppetDB.  This
+    allows us to serve more clients with a smaller footprint. In an ever growing environment,
+    even this setup may not be able to cover your needs for all agents.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we'll be discussing the scaling of Puppetserver, PuppetDB and
+    our certificate authority to serve more agents. With concepts of vertical tuning
+    and horizontal scaling, we can serve a very large installation of nodes, up to
+    the tens of thousands of individual servers on a single setup.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Puppetserver
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Generally, the first component that is required to scale in any Puppet setup
+    is the Puppetserver. The Puppetserver does the bulk of the work in Puppet, compiling
+    catalogs to agents. In this section, we're going to explore some of the theory
+    behind how many agents a Puppetserver can support, how to create new Puppetservers,
+    and some load balancing strategies around your Puppet Masters. We'll be viewing
+    this from the lens of open source and Enterprise.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Estimating the number of agents a Puppetserver supports
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Puppet has a mathematics equation for estimating how many nodes a Puppetserver
+    can support. This equation is an estimate and should not replace actual benchmarks,
+    as things such as catalog compile size often shift over time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The estimation of Puppetservers is represented as *j = ns/mr*. In this equation,
+    we see the following values:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*j*: JRuby instances per master'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*m*: Number of compile masters (Puppetservers)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*n*: Number of nodes served by the master'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*s*: Catalog compile size in seconds'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*r*: Run interval in seconds'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Using this equation, let''s post a simple metric to work with: how many nodes
+    can a single Puppetserver with one JRuby instance serve, with an average catalog
+    compile time of 10 seconds and a default run interval of 30 minutes? Our equation
+    looks like this: *1 = n10 / 1*1800*. We can simplify this to *1 = n10 / 1800*.
+    We can multiple both sides of our equation to get *1800 = n10*. Simplifying by
+    dividing both sides by 10 gives us *n = 180*.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A single master, with one JRuby instance, with a run interval of 30 minutes
+    and catalog compile time of 10 seconds can serve 180 agents. If we want to serve
+    more agents, we have the following options:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Increase the number of JRuby instances per master
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Increase the number of compile masters
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Decrease run interval
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Decrease catalog compilation times with more efficient code
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Just increasing this tiny server to a server with 8 CPUs, and setting the `jruby_max_active_instances`
+    setting to 8 would allow us to serve 1,440 agents on this server. Adding two more
+    compile masters with the same number of CPUs would get us to 4,320 agents to serve.
+    We can continually add more Puppetservers to this until we have the ability to
+    serve all the nodes in our infrastructure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adding new compile masters
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In a Puppet Enterprise installation, bringing on new compile masters is very
+    easy. Simply add a new node to the PE Master **Classification** group underneath
+    the PE Infrastructure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/21a8fd6c-27e0-4e14-8453-82118a0b64cf.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: These nodes will receive the same configuration as the Primary Master, including
+    code manager configuration and necessary connections to PuppetDB. There are no
+    hidden tricks to managing additional compile masters in Puppet Enterprise. Classify
+    and add them to a load balancer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In open source, we need to ensure each Puppet Master is configured to use PuppetDB.
+    Luckily, `puppetlabs/puppetdb` provides that connection for us:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We''ll still need to make sure this open source installation has the ability
+    to retrieve code. r10k does not federate across servers, unlike Code Manager,
+    so you''ll need to determine a strategy for deploying code out to these masters.
+    One easy method of managing this is included in the `puppet/r10k module`! Not
+    only can the `puppet/r10k` module configure r10k in the same way across each Puppetserver,
+    but a new Puppet task is available for deploying code in that module. This can
+    be run from the command line, or preferably from a CI/CD server on commit:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: Load balancing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When we have multiple Puppetservers, it's important we decide how agents determine
+    which server to connect to. We'll be inspecting a simple strategy of placing Puppetservers
+    closest to the nodes they serve, as well as load balancing strategies that cover
+    larger infrastructure needs. These two methods can be combined if there is a security
+    requirement for isolated masters and a technical requirement for more catalog
+    compilation from additional Puppetservers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Simple setup – direct connection
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'One of the simplest setups many organizations use is to isolate data centers
+    and provide a Puppetserver for each data center. Some organizations have data
+    centers across the world, whether in the cloud in regions, or on site in various
+    locations. Providing a compile master to these individual data centers is a fairly
+    simple task and only requires a few things:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The agent is aware of compile master FQDN and has network connectivity to it
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Compile master has connectivity back to the primary master, sometimes called
+    **Master of Masters**
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In this setup, during provisioning an agent would reach out to the local compile
+    master for it's agent installation. On a Puppet Enterprise installation, the agent
+    can simply run `curl -k https://<compile_master>:8140/packages/current/install.bash` command
+    during provisioning, and it will retrieve an agent thanks to the `pe_repo` classification
+    found in the PE Master node group. This agent will not need network connectivity
+    to PuppetDB, the Primary Master, or the PE console, as information will be handled
+    by the compile master in the middle.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following infographic from Puppet shows the necessary firewall connections
+    required for each component in a large environment installation of Puppet Enterprise:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/4073ac03-1ee4-4b75-bdf9-9b9f97394d6a.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: These same ports remain true in an open source installation, although the node
+    classifier API endpoint will not be available from the Puppet console.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If a single data center grows so large that it needs multiple compile masters,
+    or we want to centralize our compile masters for every data center, we'll instead
+    need to focus on load balancing. Everything in this section still applies in a
+    load balanced cluster, but there are a few new pieces to work with behind a load
+    balancer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Load balancing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In very large environments, we may worry about having enough resources to serve
+    all of our agents. We start building more compile masters and our agents need
+    to connect to them. There are only a few key additional concerns when placing
+    our compile masters behind a load balancer: certificate management and load balancing
+    strategy.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Puppet builds trusted SSL connections between agents and masters at compile
+    time using self-signed certificates. The FQDN of both the master and the agent
+    are recorded in their respective certs by default. During each connection, the
+    agent inspects the certificate to ensure that the requested domain name is in
+    the certificate. If our agent uses DNS or a VIP from load balancing to connect
+    to a master at `puppet.example.com`, and the certificate does not contain that
+    name explicitly, the agent will reject the connection. We want to identify a common
+    name for our pool of compile masters (often just a shortname, such as `puppet`),
+    and embed that into the certificate. We can include multiple DNS alt names in
+    the `puppet.conf` in the main section on each compile master:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: When we connect to the Puppet Master for the first time, these `dns_alt_names`
+    will be embedded into our certificate. For Enterprise users, this certificate
+    will not show up in the Puppet Enterprise console, so that no one can accidentally
+    approve DNS alt names from the GUI. You'll need to log in to the Puppet Master
+    and run `puppet cert sign <name> --allow-dns-alt-names` to sign the certificate,
+    and accept it with alternate names. If you have already built this compile master
+    and need to regenerate the certificates, you can run `puppet cert clean <name>`
+    on the Master of Masters, and remove the SSL directory with `sudo rm -r $(puppet
+    master --configprint ssldir)` on the compile master prior to running the agent
+    again.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is generally considered safe to remove the SSL directory on any agent, including
+    compile masters. Running this on the Master of Masters, which acts as the centralized
+    Certificate Authority, on the other hand, will cause all SSL connections and all
+    Puppet runs to stop in the environment. If you do this, you'll need to rebuild
+    your certificate authority on the Master of Masters. Directions can be found at: [https://docs.puppet.com/puppet/4.4/ssl_regenerate_certificates.html](https://docs.puppet.com/puppet/4.4/ssl_regenerate_certificates.html).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Your agents should now be referring to all compile masters by their common
+    DNS alt name. You''ll need to decide a load balancing strategy: using DNS round
+    robin, DNS SRV records, or a dedicated load balancer. Major DNS providers provide
+    a mechanism for DNS round robin and SRV records, and you should consult their
+    documentation. We''ll walk through a sample of setting up HAProxy as a software
+    load balancer for our compile masters, as if they were all in a single pool. We''ll
+    be using `puppetlabs/haproxy` and the usage sample on the forge to build a HAProxy
+    instance for multiple compile masters. We could use our exported resources sample
+    from [Chapter 9](036a4b96-b91a-4c72-83dc-e5505efc26cd.xhtml), *Exported Resources*,
+    but we''ll use a simple example as we don''t often add Puppet Masters to our load
+    balancer:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: Using this configuration, our HAProxy will be able to serve requests to all
+    agents requesting a connection to a compile master.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Certificate authority
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In a Puppet Enterprise installation, the certificate authority portion of compile
+    masters is fairly easy to solve. Puppet Enterprise uses separate node groups for
+    a CA and compile master. By adding additional compile masters to the PE Master
+    classification group, each master is configured to use the centralized certificate
+    authority on the Master of Masters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In Puppet open source, we'll need to disable the certificate authority on each
+    of our compile masters using Trapperkeeper. You can simply open `/etc/puppetlabs/puppetserver/services.d/ca.cfg`
+    and comment out the line `puppetlabs.services.ca.certificate-authority-service/certificate-authority-service`
+    and uncomment `#puppetlabs.services.ca.certificate-authority-disabled-service/certificate-authority-disabled-service`.
+    Finally, you'll need each agent in your infrastructure (including the compile
+    masters) to add the `ca_server` setting into the `[main]` section of the `puppet.conf`,
+    pointing at the Master of Masters. Note that this requires network connectivity
+    over the CA port to the Master of Masters, which by default is `8140`, but can
+    be toggled with the `ca_port` setting.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The final goal of this setup is that each compile master has a DNS alt name,
+    and every agent is connecting to the master via that DNS alt name, while using
+    the Master of Master as the certificate authority for all nodes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: PuppetDB
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Scaling PuppetDB is generally scaling PostgreSQL. A single PuppetDB can cover
+    a large number of nodes and compile masters, but should you need to scale PuppetDB,
+    consult PostgreSQL documentation and organizational database guidance. Known methodologies
+    of scaling PostgreSQL that work with Puppet include:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: High availability setups
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Load balancing
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Database replication
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Database clustering
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Connection pooling
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we talked about scaling Puppet. We started by learning how
+    to monitor the components inside Puppet and how to tune individual Puppet components.
+    We then discussed horizontal scaling, adding more compile masters to serve more
+    agents. We discussed how to load balance our Puppetservers behind a HAProxy and
+    discussed that PuppetDB can be scaled like any PostgreSQL database.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In our next chapter, we'll look at troubleshooting Puppet Enterprise. Learning
+    to read and understand the errors you may see in Puppet will teach you to be a
+    better practitioner, and allow you to really understand the Puppet system.
+  prefs: []
+  type: TYPE_NORMAL

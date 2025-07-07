@@ -1,0 +1,761 @@
+- en: A Peek into the Ruby Part of Puppet - Facts, Types, and Providers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: So far in this book, you have primarily done practical things - writing manifests,
+    setting up a master, assigning agents, signing certificates, and so forth. Before
+    you are introduced to the missing language concepts that you will need to use
+    Puppet effectively for bigger projects, there is some background that we should
+    cover. Don't worry, it won't be all dry theory - most of the important parts of
+    Puppet are relevant to your daily business.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The topics of this chapter have been hinted at earlier; [Chapter 1](8a22dc0e-3fe2-4153-b60e-935b7e6d9f94.xhtml),
+    *Writing Your First Manifests*, contained a brief description of the type and
+    provider. This and some adjacent topics will be thoroughly explored in the sections
+    collecting system information with Facter, understanding the type system, and
+    command execution control with providers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Putting it all together - collecting system information with Facter
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Configuration management is quite a dynamic problem. In other words, the systems
+    that need configuration are mostly moving targets. In some situations, system
+    administrators or operators get lucky and work with large quantities of 100 percent
+    uniform hardware and software. In most cases, however, the landscape of servers
+    and other computing nodes is rather heterogeneous, at least in subtle ways. Even
+    in unified networks, there are likely multiple generations of machines or operating
+    systems, with smaller or larger differences required for their respective configurations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For example, a common task for Puppet is to handle the configuration of system
+    monitoring. Your business logic will likely dictate warning thresholds for gauges
+    such as the system load value. However, those thresholds can rarely be static.
+    On a two-processor virtual machine, a system load of `10` represents a crippling
+    overload, while the same value can be absolutely acceptable for a busy DBMS server
+    that has cutting edge hardware of the largest dimensions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another important factor can be software platforms. Your infrastructure might
+    span multiple distributions of Linux or alternate operating systems, such as BSD,
+    Solaris, or Windows, each with different ways of handling certain scenarios. Imagine,
+    for example, that you want Puppet to manage some content from the `fstab` file.
+    On your rare Solaris system, you would have to make sure that Puppet targets the
+    `/etc/vfstab` file instead of `/etc/fstab`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is usually not a good idea to interact directly with the `fstab` file in
+    your manifest. This example will be rounded off in the section concerning providers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Puppet strives to present you with a unified way of managing all your infrastructure.
+    It therefore needs a means to allow your manifests to adapt to different kinds
+    of circumstances on the agent machines. This includes their operating system,
+    hardware layout, and many other details. Keep in mind that, generally, the manifests
+    have to be compiled on the master machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are several conceivable ways to implement a solution for this particular
+    problem. A direct approach would be to use a language construct that allows the
+    master to send a piece of shell script (or other code) to the agent and receive
+    its output in return.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following is pseudocode; however, there are no back tick expressions in
+    the Puppet DSL:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: This solution would be powerful but expensive. The master would need to call
+    back to the agent whenever the compilation process encountered such an expression.
+    Writing manifests that were able to cope with such a command returning an error
+    code would be strenuous, and Puppet would likely end up resembling a quirky scripting
+    engine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Puppet uses a different approach. It relies on a secondary system called Facter,
+    which has the sole purpose of examining the machine on which it is run. It serves
+    a list of well-known variable names and values, all according to the system on
+    which it runs. For example, an actual Puppet manifest that needs to form a condition
+    upon the number of processors on the agent will use this expression:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Facter's variables are called **facts**, and `processors` is one such fact.
+    With Facter version 3 or later, most data will be gathered and presented as structured
+    facts (JSON). In the example, we accessed the `'count'` element from 'processors'
+    data. The older key-value pairs are still available. The fact values are gathered
+    by the agent and sent to the master, who will use these facts to compile a catalog.
+    All fact names are available in the manifests as variables.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Facts are also available to manifests that are used with `puppet apply`, of
+    course. You can test this very simply with the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`puppet apply -e ''notify { "I am ${::networking[''fqdn'']} and have ${::processors[''count]}
+    CPUs": }''`'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Accessing and using fact values
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You have already seen the use of the `processors` fact in an example. In the
+    manifest, each fact value is available as a global variable value. That is why
+    you can just use the `::processors` expression where you need it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You will often see conventional uses such as `$::processors['count']` or `$::networking[‘ip’]`.
+    Prefixing the fact name with double colons is highly recommended. The official
+    style guide at [https://docs.puppetlabs.com/guides/style_guide.html#namespacing-variables](https://docs.puppetlabs.com/guides/style_guide.html#namespacing-variables) recommends
+    this. The prefix indicates that you are referring to a variable delivered from
+    Facter. Facter variables are put into the Puppet master's top scope.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Some helpful facts have already been mentioned. The `processors` fact might
+    play a role for your configuration. When configuring some services, you will want
+    to use the machine''s `networking [''ip'']` value in a configuration file or as
+    an argument value:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Apart from the hostname, your manifest can also make use of the **Fully Qualified
+    Domain Name** (**FQDN**) of the agent machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The agent will use the value of its `fqdn` fact as the name of its certificate
+    (`clientcert`) by default. The master receives both these values. Note that the
+    agent can override the `fqdn` value of any name, whereas the `clientcert` value
+    is tied to the signed certificate that the agent uses. Sometimes, you will want
+    the master to pass sensitive information to individual nodes. The manifest must
+    identify the agent by its `clientcert` fact and never use `fqdn` or `hostname`
+    instead, for the reason mentioned. An example is shown in the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There is a whole group of facts that are used to describe the operating system.
+    Each fact is useful in different situations. The `os[‘name’]` fact takes values
+    such as `Debian` or `CentOS`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If your manifest will behave identically on RHEL, CentOS, and Fedora (but not
+    on Debian and Ubuntu), you should make use of the `osfamily` fact instead:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `os[‘release’][‘full’]` fact allows you to tailor your manifests to the
+    different versions of your OS:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Facts such as mac address, the different SSH host keys, fingerprints, and others
+    make it easy to use Puppet for keeping an inventory of your hardware. There are
+    a slew of other useful facts. Of course, the collection will not suit every possible
+    need of every user out there. That is why Facter comes readily extendible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Extending Facter with custom facts
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Technically, nothing is stopping you from adding your own fact code right next
+    to the core facts, either by maintaining your own Facter package, or even by deploying
+    the Ruby code files to your agents directly through Puppet management. However,
+    Puppet offers a much more convenient alternative in the form of custom facts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We have still not covered Puppet modules yet. They will be thoroughly introduced
+    in [Chapter 5](3217a4c2-135e-46b4-bcf2-eef9ddce9991.xhtml), *Combining Classes,
+    Configuration Files, and Extensions into Modules*. For now, just create a Ruby
+    file at `/etc/puppetlabs/code/environments/production/modules/hello_world/lib/facter/hello.rb`
+    on the master machine. Puppet will recognize this as a custom fact of the name,
+    `hello`. (For Puppet 3 or older versions, the path should be `/etc/puppet/modules/hello_world/lib/facter/hello.rb.`)
+  prefs: []
+  type: TYPE_NORMAL
+- en: The inner workings of Facter are very straightforward and goal oriented. There
+    is one block of Ruby code for each fact, and the return value of the block becomes
+    the fact value. Many facts are self-sufficient, but others will rely on the values
+    of one or more basic facts. For example, the method to determine the IP address(es)
+    of the local machine is highly dependent upon the operating system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `hello` fact is very simple, though:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: The return value of the `setcode` block is the string `Hello, world!`, and you
+    can use this fact as `$::hello` in a Puppet manifest.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before Facter version 2.0, each fact had a string value. If a code block returns
+    another value, such as an array or hash, Facter 1.x will convert it to a string.
+    The result is not useful in many cases. For this historic reason, there are facts
+    such as `ipaddress_eth0` and `ipaddress_lo` instead of (or in addition to) a proper
+    hash structure with interface names and addresses.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It is important for the `pluginsync` option to be enabled on the agent side.
+    This has been the default for a long time and should not require any customization.
+    The agent will synchronize all custom facts whenever checking in to the master.
+    They are permanently available on the agent machine after that. You can then retrieve
+    the `hello` fact from the command line using the following line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: Just by invoking the following command without an argument, you can request
+    a list of all fact names and values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: There is also a `facter` command. It does roughly the same as puppet facts,
+    but will only show built-in facts, not your custom facts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In Puppet 3 and earlier, there was no puppet facts subcommand. You had to rely
+    on the Facter CLI (from Facter version 2.x or older) and call `facter -p`, to
+    include custom facts. Some versions of Facter 3.0 removed this parameter; newer
+    versions support it again.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This book will not cover all aspects of Facter''s API, but there is one facility
+    that is quite essential. Many of your custom facts will only be useful on Unix-like
+    systems, and others will only be useful on your Windows boxes. You can retrieve
+    such facts using a construct the same as the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This would be quite tedious and repetitive, though. Instead, you can invoke
+    the `confine` method within the `Facter.add(name) { ... }` block:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can confine a fact to several alternative values as well:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, if a fact does make sense in different circumstances, but requires
+    drastically different code in each respective case, you can add the same fact
+    several times, each with a different set of `confine` values. Core facts such
+    as `ipaddress` use this often:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: You can confine facts based on any combination of other facts, not just `kernel`.
+    It is a very popular choice though. The `operatingsystem` or `osfamily` facts
+    can be more appropriate in certain situations. Technically, you can even confine
+    some of your facts to certain `processorcount` values, and so forth.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Simplifying things using external facts
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: If writing and maintaining Ruby code is not desirable in your team for any reason,
+    you might prefer to use an alternative that allows shell scripts, or really any
+    kind of programming language, or even static data with no programming involved
+    at all. Facter allows this in the form of **external facts**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Creating an external fact is similar to the process used for regular custom
+    facts, with the following distinctions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: External facts are produced by standalone executables or files with static data,
+    which the agent must find in `/etc/puppetlabs/facter/facts.d/`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The data is not just a string value, but an arbitrary number of `key=value`
+    pairs instead
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The data need not use the `ini` file notation style; the key/value pairs can
+    also be in the YAML or JSON format. The following external facts hold the same
+    data:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The facts can be written in the YAML format in the following way:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the JSON format, facts can be written as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The deployment of the external facts works simply through `file` resources
+    in your Puppet manifest:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With newer versions of Puppet and Facter, external facts will be automatically
+    synchronized, just as custom facts, if they are found in `facts.d/*` in any module
+    (for example, `/etc/puppetlabs/code/environments/production/modules/hello_world/facts.d/hello.sh`).
+    This is not only more convenient, but has a large benefit: when Puppet must fetch
+    an external fact through a `file` resource instead, as its fact value(s) are not
+    available while the catalog is being compiled. The `pluginsync` mechanism, on
+    the other hand, makes sure that all synced facts are available before manifest
+    compilation starts.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When facts are not static and cannot be placed in a `txt` or `YAML` file, you
+    can make the file executable and add a shebang instead. It will usually be a shell
+    script, but the implementation is of no consequence; it is just important that
+    properly formatted data is written to the standard output. You can simplify the
+    `hello` fact this way, in `/etc/puppetlabs/code/environments/production/modules/hello_world/facts.d/hello.sh`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: For executable facts, the `ini` styled `key=value` format is the only supported
+    format. YAML or JSON are not eligible in this context.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Facter 2 introduced structured facts. Structured facts return an array or a
+    hash. In older Puppet versions (prior to 3.4), structured facts have to be enabled
+    in `puppet.conf` by setting `stringify_facts` to false. This is the default setting
+    for Puppet 4.0 and later versions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Goals of Facter
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The whole structure and philosophy of Facter serves the goal of allowing for
+    platform-agnostic usage and development. The same collection of facts (roughly)
+    is available on all supported platforms. This allows Puppet users to keep a coherent
+    development style throughout their manifests for all those different systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Facter forms a layer of abstraction over the characteristics of both hardware
+    and software. It is an important piece of Puppet's platform-independent architecture.
+    Another feature that was mentioned before is the type and provider subsystem.
+    Types and providers are explored in greater detail in the following sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the type system
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Being one of the cornerstones of the Puppet model, resources were introduced
+    quite early in [Chapter 1](8a22dc0e-3fe2-4153-b60e-935b7e6d9f94.xhtml), *Writing
+    Your First Manifests*. Remember how each resource represents a piece of state
+    on the agent system. It has a resource type, a name (or a title), and a list of
+    attributes. An attribute can either be `property` or `parameter`. Between the
+    two of them, properties represent distinct pieces of state, and parameters merely
+    influence Puppet's actions upon the `property` values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's examine resource types in more detail and understand their inner workings.
+    This is not only important when extending Puppet with resource types of your own
+    (which will be demonstrated in [Chapter 5](3217a4c2-135e-46b4-bcf2-eef9ddce9991.xhtml),
+    *Combining Classes, Configuration Files, and Extensions into Modules*). It also
+    helps you anticipate the action that Puppet will take, given your manifest, and
+    get a better understanding of both the master and the agent.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, we take a closer look at the operational structure of Puppet, with its
+    pieces and phases. The agent performs all its work in discreet **transactions**.
+    A transaction is started under any of the following circumstances:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The background agent process activates and checks in to the master
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An agent process is started with the `--onetime` or `--test` options
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A local manifest is compiled using `puppet apply`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The transaction always passes several stages. They are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Gathering fact values to form the actual catalog request.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Receiving the compiled catalog from the master.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Prefetching of current resource states.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Validation of the catalog's content.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Synchronization of the system with the `property` values from the catalog.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Facter was explained in the previous section. The resource types become important
+    during compilation and then throughout the rest of the agent transaction. The
+    master loads all resource types to perform some basic checking; it basically makes
+    sure that the types of resources it finds in the manifests do exist and that the
+    attribute names fit the respective type.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The resource type's life cycle on the agent side
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Once the compilation has succeeded, the master hands out the catalog and the
+    agent enters the catalog validation phase. Each resource type can define some
+    Ruby methods that ensure that the passed values make sense. This happens on two
+    levels of granularity: Each attribute can validate its input value, and then the
+    resource as a whole can be checked for consistency.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: One example of attribute value validation can be found in the `ssh_authorized_key`
+    resource type. A resource of this type fails if its `key` value contains a whitespace
+    character because SSH keys cannot comprise multiple strings.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Validation of whole resources happens with the `cron` type, for example. It
+    makes sure that the `time` fields make sense together. The following resource
+    would not pass, because special times, such as `midgnight`, cannot be combined
+    with numeric fields:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: Another task during this phase is the transformation of input values to more
+    suitable internal representations. The resource type code refers to this as a
+    `munge` action. Typical examples of munging are the removal of leading and trailing
+    whitespace from string values, or the conversion of array values to an appropriate
+    string format-this can be a comma-separated list, but for search paths, the separator
+    should be a colon instead. Other kinds of values will use different representations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next up is the prefetching phase. Some resource types allow the agent to create
+    an internal list of resource instances that are present on the system. These types
+    are referred to as being enumerable types. For example, this is possible (and
+    makes sense) for installed packages-Puppet can just invoke the package manager
+    to produce the list. For other types, such as `file`, this would not be prudent.
+    Creating a list of all reachable paths in the whole filesystem can be arbitrarily
+    expensive, depending on the system on which the agent is running.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The prefetching can be simulated by running `puppet resource <resource type>
+    <title>` on the command line as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: Finally, the agent starts walking through its internal graph of interdependent
+    resources. Each resource is brought in sync, if necessary. This happens separately
+    for each individual property, for the most part.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `ensure` property, for types that support it, is a notable exception. It
+    is expected to manage all other properties on its own; when a resource is changed
+    from `absent` to `present` through its `ensure` property (in other words, the
+    resource is getting newly created), this action should bring all other properties
+    in sync as well.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are some notable aspects of the whole agent process. For one, attributes
+    are handled independently. Each can define its own methods for the different phases.
+    There are quite a number of hooks, which allow a resource type author to add a
+    lot of flexibility to the model.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For aspiring type authors, skimming through the core types can be quite inspirational.
+    You will be familiar with many attributes; using them in your manifests and studying
+    their hooks will offer quite some insight.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is also worth noting that the whole validation process is performed by the
+    agent, not the master. This is beneficial in terms of performance. The master
+    saves a lot of work, which gets distributed to the network of agents (which scales
+    with your needs automatically).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Command execution control with providers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: At the start of this chapter, you learned about Facter and how it works as a
+    layer of abstraction over the supported platforms. This unified information base
+    is one of Puppet's most important means of achieving its goal of operating system
+    independence. Another one is the DSL, of course. Finally, Puppet also needs a
+    method to transparently adapt its behavior to the respective platform on which
+    each agent runs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In other words, depending on the characteristics of the computing environment,
+    the agent needs to switch between different implementations for its resources.
+    This is not unlike object oriented programming-the type system provides a unified
+    interface, not unlike an abstract base class. The programmer need not worry what
+    specific class is being referenced, as long as it correctly implements all the
+    required methods. In this analogy, Puppet's providers are the concrete classes
+    that implement the abstract interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For a practical example, look at package management. Different flavors of Unix-like
+    operating systems have their own implementation. The most prevalent Puppet platforms
+    use `apt` and `yum`, respectively, but can (and sometimes must) also manage their
+    packages through `dpkg` and `rpm`. Other platforms use tools such as `emerge`,
+    `zypper`, `fink`, and a slew of other things. There are even packages that exist
+    apart from the operating system software base, handled through `gem`, `pip`, and
+    other language-specific package management tools. For each of these management
+    tools, there is a provider for the package type.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Many of these tools allow the same set of operations-installing and uninstalling
+    a package, and updating a package to a specific version. However, the latter is
+    not universally possible. For example, `dpkg` can only ever install the local
+    package that is specified on the command line, with no other version to choose.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are also some distinct features that are unique to specific tools, or
+    are supported by only a few. Some management systems can hold packages at specific
+    versions. Some use different states for uninstalled versus purged packages. Some
+    have a concept of virtual packages. The list of examples can go on and on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Because of this potential diversity (which is not limited to package management
+    systems), Puppet providers can opt for **features**. The set of features is resource-type
+    specific. All providers for a type can support one or more of the same group of
+    features. For the `package` type, there are features such as `versionable`, `purgeable`,
+    `holdable`, and so forth. You can set `ensure => purged` on any package resource
+    as so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: However, if you are managing the `HAproxy` package through `rpm`, Puppet will
+    fail to make any sense of it because `rpm` has no notion of a `purged` state,
+    and therefore, the `purgeable` feature is missing from the `rpm` provider. Trying
+    to use an unsupported feature will usually produce an error message. Some attributes,
+    such as `install_options`, might just result in a warning by Puppet instead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The official documentation on the Puppet Labs website holds a complete list
+    of the core resource types and all their built-in providers, along with the respective
+    feature matrices. It is very easy to find suitable providers and their capabilities.
+    The documentation can be found at [https://docs.puppetlabs.com/references/latest/type.html.](https://docs.puppetlabs.com/references/latest/type.html)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Resource types with generic providers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: There are some resource types that use no providers, but they are rare among
+    the core types. Most of the interesting management tasks that Puppet makes easy
+    just work differently among operating systems, and providers enable this in a
+    most elegant fashion.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Even for straightforward tasks that are the same on all platforms, there might
+    be a provider. For example, there is a `host` type to manage entries in the `/etc/hosts`
+    file. Its syntax is universal, so the code can technically just be implemented
+    in the type. However, there are actual abstract base classes for certain kinds
+    of providers in the Puppet code base. One of them makes it very easy to build
+    providers that edit files, if those files consist of single-line records with
+    ordered fields. Therefore, it makes sense to implement a provider for the `host`
+    type and base it on this provider class.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For the curious, this is what a host resource looks like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: Summarizing types and providers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Puppet's resource types and their providers work together to form a solid abstraction
+    layer over software configuration details. The type system is an extendable basis
+    for Puppet's powerful DSL. It forms an elaborate interface for the polymorphous
+    provider layer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The providers flexibly implement the actual management actions that Puppet is
+    supposed to perform. They map the necessary synchronization steps to commands
+    and system interactions. Many providers cannot satisfy every nuance that the resource
+    type models. The feature system takes care of these disparities in a transparent
+    fashion.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Putting it all together
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Reading this far, you might have gotten the impression that this chapter is
+    a rather odd mix of topics. While types and providers do belong closely together,
+    the whole introduction to Facter might seem out of place in this context. However,
+    this is deceptive; facts do play a vital role in the type/provider structure.
+    They are essential for Puppet to make good choices between the providers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s look at an example from the *Extending Facter with custom facts* section
+    once more. It was about `fstab` entries and the difference of Solaris, which uses
+    `/etc/vfstab` instead of `/etc/fstab`. That section suggested a manifest that
+    adapts according to a fact value. As you have learned, Puppet has a resource type
+    to manage `fstab` content: the `mount` type. However, for the small deviation
+    of a different file path, there is no dedicated `mount` provider for Solaris.
+    There is actually just one provider for all platforms, but on Solaris, it behaves
+    differently. It does this by resolving Facter''s `os[''family'']` value. The following
+    code example was adapted from the actual provider code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: In other cases, however, Puppet should use thoroughly different providers on
+    different platforms. Package management is a classic example. On a Red Hat-like
+    platform, you will want Puppet to use the `yum` provider in virtually all cases.
+    It can be sensible to use `rpm`, and even `apt` might be available. However, if
+    you tell Puppet to make sure a package is installed, you expect it to install
+    it using `yum`, if necessary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This is obviously a common theme. Certain management tasks need to be performed
+    in different environments, with very different toolchains. In such cases, it is
+    quite clear which provider would be best suited. To make this happen, a provider
+    can declare itself the default if a condition is met. In the case of `yum`, it
+    is the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: The conditions are based around fact values. If the `operatingsystem` value
+    for a given agent is among the listed, `yum` will consider itself the default
+    package provider.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The operating system and os family facts are the most popular choices for such
+    queries in providers, but any fact is eligible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In addition to marking themselves as default, there is more filtering of providers
+    that rely on fact values. Providers can also confine themselves to certain combinations
+    of values. For example, the `yum` alternative, `zypper`, confines itself to SUSE
+    Linux distributions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: This provider method works just as the `confine` method in Facter, which was
+    discussed earlier in this chapter. The provider will not even be seen as valid
+    if the respective facts on the agent machine have none of the white-listed values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you find yourself looking through code for some core providers, you will
+    notice confinement (and even the declaration of default providers) on feature
+    values, although there is no Facter fact of that name. These features are not
+    related to provider features either. They are from another layer of introspection
+    similar to Facter, but hardcoded into the Puppet agent. These agent features are
+    a number of flags that identify some system properties that need not be made available
+    to manifests in the form of facts. For example, the `posix` provider for the `exec`
+    type becomes the default in the presence of the corresponding feature: `defaultfor
+    :feature => :posix`'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You will find that some providers forgo the `confine` method altogether, as
+    it is not mandatory for correct agent operation. Puppet will also identify unsuitable
+    providers when looking for their necessary operating system commands. For example,
+    the `pw` provider for certain BSD flavors does not bother with a `confine` statement.
+    It only declares its one required command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: Agents that find no `pw` binary in their search path will not try and use this
+    provider at all.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This concludes the little tour of the inner workings of types and providers
+    with the help of Facter. For a complete example of building a provider for a type,
+    and using the internal tools that you have now learned about, you can refer to
+    [Chapter 5](3217a4c2-135e-46b4-bcf2-eef9ddce9991.xhtml), *Combining Classes, Configuration
+    Files, and Extensions into Modules*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Puppet gathers information about all agent systems using Facter. The information
+    base consists of a large number of independent bits, called facts. Manifests can
+    query the values of those facts to adapt to the respective agents that trigger
+    their compilation. Puppet also uses facts to choose among providers, the work
+    horses that make the abstract resource types functional across the wide range
+    of supported platforms.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The resource types not only completely define the interface that Puppet exposes
+    in the DSL, they also take care of all the validation of input values, transformations
+    that must be performed before handing values to the providers, and other related
+    tasks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The providers encapsulate all knowledge of actual operating systems and their
+    respective toolchains. They implement the functionality that the resource types
+    describe. The Puppet model's configurations apply to platforms, which vary from
+    one another, so not every facet of every resource type can make sense for all
+    agents. By exposing only the supported features, a provider can express such limitations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After this in-depth look at the internal details, let's tackle more practical
+    concerns again. The following chapters will cover the tools needed to build complex
+    and advanced manifests of all scales.
+  prefs: []
+  type: TYPE_NORMAL
