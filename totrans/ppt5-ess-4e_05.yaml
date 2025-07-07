@@ -1,0 +1,2478 @@
+- en: Combining Classes, Configuration Files, and Extensions into Modules
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 将类、配置文件和扩展组合成模块
+- en: In the previous chapter, you learned about the tools that create modularized
+    and reusable Puppet code in the form of classes and defined types. We discussed
+    that almost all Puppet resources should be separated into appropriate classes,
+    except if they logically need to be part of a defined type. This is almost enough
+    syntax to build manifests for an entire fleet of agent nodes; each selecting the
+    appropriate composite classes, which in turn include further required classes,
+    with all the classes recursively instantiating the defined types.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一章中，你了解了将类和定义类型模块化和可重用的工具。我们讨论了几乎所有 Puppet 资源都应该被分离到适当的类中，除非它们在逻辑上需要作为定义类型的一部分。这几乎提供了足够的语法来构建一个完整代理节点集群的
+    manifests；每个节点选择适当的复合类，而复合类又包含其他所需类，所有类会递归地实例化定义类型。
+- en: What has not been discussed up until now is the organization of the manifests
+    in the filesystem. It is obviously undesirable to stuff all of your code into
+    one large `site.pp` file. The answer to this problem is provided by modules and
+    will be explained in this chapter.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 直到现在为止，还没有讨论过 manifests 在文件系统中的组织方式。显然，将所有代码塞进一个大的 `site.pp` 文件是不理想的。解决这个问题的方法是通过模块实现的，本章将对此进行解释。
+- en: Besides organizing classes and defines, modules are also a way to share common
+    code. They are software libraries for Puppet manifests and plugins. They also
+    offer a convenient place to locate the interface descriptions that were hinted
+    at in the previous chapter. Puppet Labs runs a dedicated service for hosting open
+    source modules, called the Puppet Forge.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了组织类和定义，模块还是共享公共代码的一种方式。它们是 Puppet manifests 和插件的软件库。模块还提供了一个便捷的位置，用来存放在前一章中提到的接口描述。Puppet
+    Labs 运营着一个专门的服务，用于托管开源模块，称为 Puppet Forge。
+- en: 'The existence and general location of the modules were mentioned briefly in
+    [Chapter 3](be2d7b8b-9ea8-4459-b415-081e77db07c7.xhtml), *A Peek into the Ruby
+    Part of Puppet - Facts, Types, and Providers*. It is now time to explore these
+    and other aspects in greater detail. We''ll cover the following topics in this
+    chapter:'
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模块的存在和一般位置在 [第 3 章](be2d7b8b-9ea8-4459-b415-081e77db07c7.xhtml) 中简要提到过，*Puppet
+    中 Ruby 部分的初探 - Facts、Types 和 Providers*。现在是时候更详细地探讨这些内容以及其他方面了。本章将涵盖以下主题：
+- en: The contents of Puppet's modules
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Puppet 模块的内容
+- en: Managing environments
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 管理环境
+- en: Building a component module
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 构建一个组件模块
+- en: Finding helpful Forge modules
+  id: totrans-8
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 查找有用的 Forge 模块
+- en: The contents of Puppet's modules
+  id: totrans-9
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Puppet 模块的内容
+- en: A module can be seen as a higher-order organizational unit. It bundles up classes
+    and defined types that contribute to a common management goal (specific system
+    aspects or a piece of software, for example). These manifests are not all that
+    is organized through modules; most modules also bundle files and file templates.
+    There can also be several kinds of Puppet plugins in a module. This section will
+    explain these different parts of a module and show you where they are located.
+    You will also learn about the means of module documentation and how to obtain
+    existing modules for your own use.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模块可以看作是一个更高级的组织单元。它将有助于实现共同管理目标的类和定义类型捆绑在一起（例如，特定的系统方面或软件）。这些 manifests 并不是模块组织的全部内容；大多数模块还会捆绑文件和文件模板。模块中也可以包含几种类型的
+    Puppet 插件。本节将解释模块的不同部分，并展示它们的存放位置。你还将了解模块文档的手段以及如何获取现有模块以供使用。
+- en: Parts of a module
+  id: totrans-11
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 模块的组成部分
+- en: For most modules, **manifests** form the most important part - the core functionality.
+    The manifests consist of classes and defined types, which all share a namespace,
+    rooted at the module name. For example, an `ntp` module will contain only classes
+    and defines whose names start with the `ntp::` prefix.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于大多数模块，**manifests** 是最重要的部分——核心功能。manifests 由类和定义类型组成，这些类和类型共享一个命名空间，以模块名称为根。例如，`ntp`
+    模块只包含名称以 `ntp::` 前缀开头的类和定义。
+- en: 'Many modules contain files that can be synced to the agent''s filesystem. This
+    is often used for configuration files or snippets. You have seen examples of this,
+    but let''s repeat them. A frequent occurrence in many manifests is `file` resources
+    such as the following:'
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多模块包含可以同步到代理文件系统的文件。这通常用于配置文件或代码片段。你已经看过这些示例，但让我们再重复一遍。许多 manifests 中常见的资源之一是
+    `file` 资源，例如以下内容：
+- en: '[PRE0]'
+  id: totrans-14
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: The previous resource references a file that ships with a hypothetical `ntp`
+    module. It has been prepared to provide generally suitable configuration data.
+    However, there is often the need to tweak some parameters inside such a file,
+    so that the node manifests can declare customized config settings for the respective
+    agent. The tool of choice for this is templates, which will be discussed in [Chapter
+    6](60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml), *The Puppet Beginners Advanced
+    Parts*.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 前述资源引用的是一个随虚拟`ntp`模块提供的文件。它已准备好提供一般适用的配置数据。然而，通常需要调整这类文件中的某些参数，以便节点清单可以为相应的代理声明定制的配置设置。用于此目的的工具是模板，将在[第6章](60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml)，*Puppet初学者高级部分*中讨论。
+- en: Another possible component of a module that you have already read about is custom
+    facts-code that gets synchronized to the agent and runs before a catalog is requested,
+    so that the output becomes available as facts about the agent system.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模块的另一个可能组成部分是自定义事实 - 这是在请求目录之前同步到代理并运行的代码，以便将输出作为有关代理系统的事实提供。
+- en: These facts are not the only Puppet plugins that can be shipped with modules.
+    There are also **parser functions** (also called **custom functions**), for one.
+    These are actual functions that you can use in your manifests. In many situations,
+    they are the most convenient way, if not the only way, to build some specific
+    implementations.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些事实并不是可以与模块一起提供的唯一 Puppet 插件。还有**解析器函数**（也称为**自定义函数**）。在许多情况下，它们是构建某些特定实现的最便捷方式，如果不是唯一方式。
+- en: The final plugin type that has also been hinted at in an earlier chapter is
+    the custom native types and providers, which are conveniently placed in modules
+    as well.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前文已经暗示过的最终插件类型是自定义本地类型和提供者，它们也方便地放置在模块中。
+- en: Module structure
+  id: totrans-19
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 模块结构
+- en: All the mentioned components need to be located in specific filesystem locations
+    for the master to pick them up. Each module forms a directory tree. Its root is
+    named after the module itself. For example, the `ntp` module is stored in a directory
+    called `ntp/`.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有提及的组件都需要位于特定的文件系统位置，以便主节点进行拾取。每个模块形成一个目录树。其根目录以模块本身命名。例如，`ntp`模块存储在名为`ntp/`的目录中。
+- en: All manifests are stored in a subdirectory called `manifests/`. Each class and
+    defined type has its own respective file. The `ntp::package` class will be found
+    in `manifests/package.pp`, and the defined type called `ntp::monitoring::nagios`
+    will be found in `manifests/monitoring/nagios.pp`. The first particle of the container
+    name (`ntp`) is always the module name, and the rest describes the location under
+    `manifests/`. You can refer to the module tree in the following paragraphs for
+    more examples.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有清单都存储在名为`manifests/`的子目录中。每个类和定义类型都有各自的文件。例如，`ntp::package`类将在`manifests/package.pp`中找到，名为`ntp::monitoring::nagios`的定义类型将在`manifests/monitoring/nagios.pp`中找到。容器名称的第一个部分（`ntp`）始终是模块名称，其余描述了`manifests/`下的位置。您可以参考下文的模块树获取更多示例。
+- en: The `manifests/init.pp` file is special. It can be thought of as a default manifest
+    location, because it is looked up for any definition from the module in question.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`manifests/init.pp`文件是特殊的。可以将其视为默认的清单位置，因为它被查找以获取来自相关模块的任何定义。'
+- en: Both the examples that were just mentioned can be put into `init.pp` and will
+    still work. Doing this makes it harder to locate the definitions, though.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 刚才提到的示例都可以放在`init.pp`中，仍然可以工作。不过，这样做会使得定位定义变得更加困难。
+- en: 'In practice, `init.pp` should only hold one class, which is named after the
+    module (such as the `ntp` class), if your module implements such a class. This
+    is a common practice, as it allows the manifests to use a simple statement to
+    tap the core functionality of the module:'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在实践中，`init.pp`应仅包含一个类，其名称与模块相同（例如`ntp`类），如果您的模块实现了这样的类。这是一种常见的做法，因为它允许清单使用简单语句来调用模块的核心功能：
+- en: '[PRE1]'
+  id: totrans-25
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: You can refer to the *Module best practices* section for some more notes on
+    this subject.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以参考*模块最佳实践*部分获取有关此主题的更多注释。
+- en: 'The files and templates that a module serves to the agents are not this strictly
+    sorted into specific locations. It is only important that they be placed in the
+    `files/` and `templates/` subdirectories, respectively. The contents of these
+    subtrees can be structured to the module author''s liking, and the manifest must
+    reference them correctly. Static files should always be addressed through URLs,
+    such as these:'
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模块为代理提供的文件和模板并没有严格分类到特定位置。重要的是它们分别被放置在 `files/` 和 `templates/` 子目录中。这些子树的内容可以按照模块作者的喜好进行结构化，并且清单必须正确引用它们。静态文件应始终通过
+    URL 进行访问，例如以下这些：
+- en: '[PRE2]'
+  id: totrans-28
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'These files are found in the corresponding subdirectories of `files/`:'
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些文件位于 `files/` 的相应子目录中：
+- en: '[PRE3]'
+  id: totrans-30
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: The `modules` prefix in the URI is mandatory and is always followed by the module
+    name. The rest of the path translates directly to the contents of the `files/`
+    directory. There are similar rules for templates. You can refer to [Chapter 6](60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml),
+    *The Puppet Beginners Advanced Parts*, for the details.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: URI 中的 `modules` 前缀是必须的，后面必须跟着模块名称。其余路径直接对应于 `files/` 目录中的内容。模板也有类似的规则。有关详细信息，请参阅[第六章](60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml)，*《Puppet
+    初学者进阶部分》*。
+- en: Finally, all plugins are located in the `lib/` subtree. Custom facts are Ruby
+    files in `lib/facter/`. Parser functions are stored in `lib/puppet/parser/functions/`,
+    the Puppet 4 API functions are located in `lib/puppet/functions/`, and for custom
+    resource types and providers, there is `lib/puppet/type/` and `lib/puppet/provider/`,
+    respectively. This is not a coincidence; these Ruby libraries are looked up by
+    the master and the agent in the according namespaces. There are examples for all
+    these components later in this chapter.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，所有插件都位于 `lib/` 子树中。自定义事实是存放在 `lib/facter/` 中的 Ruby 文件。解析器函数存储在 `lib/puppet/parser/functions/`
+    中，Puppet 4 API 函数位于 `lib/puppet/functions/`，而自定义资源类型和提供者分别位于 `lib/puppet/type/`
+    和 `lib/puppet/provider/` 中。这并非巧合；这些 Ruby 库由主节点和代理节点在相应的命名空间中查找。本章稍后会提供所有这些组件的示例。
+- en: 'In short, the following are the contents of a possible module in a tree view:'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 简而言之，以下是树状视图中可能出现的模块内容：
+- en: '[PRE4]'
+  id: totrans-34
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: Documentation in modules
+  id: totrans-35
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 模块中的文档
+- en: A module can and should include documentation. The Puppet master does not process
+    any module documentation by itself. As such, it is largely up to the authors to
+    decide how to structure the documentation of the modules that are created for
+    their specific site only. That being said, there are some common practices, and
+    it's a good idea to adhere to them. Besides, if a module should end up being published
+    on the Forge, appropriate documentation should be considered mandatory.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个模块可以并且应该包含文档。Puppet 主节点不会自动处理任何模块文档。因此，模块作者在如何为其特定站点创建的模块结构化文档方面有很大的决定权。尽管如此，仍然存在一些常见的做法，遵循这些做法是一个好主意。此外，如果一个模块最终要在
+    Forge 上发布，适当的文档应当视为强制性的。
+- en: The process of publishing modules is beyond the scope of this book. You can
+    find a guide at [https://docs.puppetlabs.com/puppet/latest/reference/modules_publishing.html.](https://docs.puppet.com/puppet/latest/modules_publishing.html)
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 发布模块的过程超出了本书的范围。你可以在[https://docs.puppetlabs.com/puppet/latest/reference/modules_publishing.html.](https://docs.puppet.com/puppet/latest/modules_publishing.html)找到相关指南。
+- en: For many modules, the main focus of the documentation is centered on the `README`
+    file, which is located right in the module's root directory. It is customarily
+    formatted in Markdown as `README.md` or `README.markdown`. The `README` file should
+    contain explanations and, often, there is a reference documentation as well.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于许多模块，文档的主要焦点集中在 `README` 文件上，该文件位于模块的根目录中。它通常以 Markdown 格式书写，文件名为 `README.md`
+    或 `README.markdown`。`README` 文件应包含解释说明，通常还包括参考文档。
+- en: 'Puppet DSL interfaces can also be documented right in the manifest, in the
+    `rdoc` and `YARD` format. This applies to classes and defined types:'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Puppet DSL 接口也可以直接在清单中以 `rdoc` 和 `YARD` 格式进行文档化。这适用于类和定义的类型：
+- en: '[PRE5]'
+  id: totrans-40
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'You can generate HTML documentation (including navigation) for all your modules
+    using the `puppet strings` subcommand. This subcommand is available after installation
+    of the puppet-strings Ruby extension: `puppet resource package puppet-strings
+    provider=puppet_gem`. This practice is somewhat obscure, so it won''t be discussed
+    here in great detail. However, if this option is attractive to you, we encourage
+    you to peruse the documentation.'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以使用`puppet strings`子命令为所有模块生成HTML文档（包括导航）。安装puppet-strings Ruby扩展后，便可以使用此子命令：`puppet
+    resource package puppet-strings provider=puppet_gem`。这个做法相对较为晦涩，因此这里不会详细讨论。然而，如果这个选项对你有吸引力，我们鼓励你阅读相关文档。
+- en: 'The following command provides an overview of possible puppet strings functionality:'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下命令概述了可能的puppet strings功能：
+- en: '[PRE6]'
+  id: totrans-43
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: Managing environments
+  id: totrans-44
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 管理环境
+- en: 'Puppet doesn''t organize things in modules exclusively. There is a higher-level
+    unit called **environment** that groups and contains the modules. An environment
+    mainly consists of:'
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Puppet并不是仅通过模块来组织内容的。还有一个更高层次的单元，叫做**环境**，它将模块进行分组和包含。一个环境主要由以下部分组成：
+- en: One or more site manifest files
+  id: totrans-46
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个或多个站点清单文件
+- en: A `modules` directory with your modules inside
+  id: totrans-47
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个包含模块的`modules`目录
+- en: An optional `environment.conf` configuration file
+  id: totrans-48
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个可选的`environment.conf`配置文件
+- en: "When the master compiles the manifest for a node, it uses exactly one environment\
+    \ for this task. As described in [Chapter 2](7cafeeab-0e5c-4848-9eb0-1bae38ed3525.xhtml)\uFEFF\
+    , *Puppet Server and Agents*, it always starts in `manifests/*.pp`, which form\
+    \ the environment's site manifest. Before we take a look at how this works in\
+    \ practice, let's look at an example `environment` directory:"
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当管理员为节点编译清单时，它仅使用一个环境来执行此任务。如[第2章](7cafeeab-0e5c-4848-9eb0-1bae38ed3525.xhtml)《Puppet服务器和代理》中所述，它始终从`manifests/*.pp`开始，这些文件形成环境的站点清单。在我们查看实际操作是如何进行之前，先来看看一个示例`environment`目录：
+- en: '[PRE7]'
+  id: totrans-50
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'The `environment.conf` file can customize the environment. Normally, Puppet
+    uses `site.pp` and the other files in the `manifests` directory. To make Puppet
+    read all the `pp` files in another directory, set the `manifest` option in `environment.conf`:'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`environment.conf`文件可以自定义环境。通常，Puppet使用`site.pp`和`manifests`目录中的其他文件。若要让Puppet读取另一个目录中的所有`pp`文件，可以在`environment.conf`中设置`manifest`选项：'
+- en: '[PRE8]'
+  id: totrans-52
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: In most circumstances, the manifest option need not be changed.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在大多数情况下，无需更改`manifest`选项。
+- en: 'The `site.pp` file will include node classification with classes from the modules.
+    Puppet looks for modules in the `modules` subdirectory of the active environment.
+    You can define additional subdirectories that hold the modules by setting the
+    `modulepath` option in `environment.conf`:'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`site.pp`文件将包含来自模块的节点分类。Puppet会在活动环境的`modules`子目录中查找模块。你可以通过在`environment.conf`中设置`modulepath`选项，定义包含模块的额外子目录：'
+- en: '[PRE9]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'The directory structure can be made more distinctive:'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 目录结构可以做得更加具有区分度：
+- en: '[PRE10]'
+  id: totrans-57
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: Configuring environment locations
+  id: totrans-58
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 配置环境位置
+- en: 'Puppet uses the `production` environment by default. This and the other environments
+    are expected to be located in `/opt/puppetlabs/code/environments`. You can override
+    this default by setting the `environmentpath` option in `puppet.conf`:'
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Puppet默认使用`production`环境。这个环境以及其他环境预期位于`/opt/puppetlabs/code/environments`目录中。你可以通过在`puppet.conf`中设置`environmentpath`选项来覆盖此默认设置：
+- en: '[PRE11]'
+  id: totrans-60
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: Obtaining and installing modules
+  id: totrans-61
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 获取和安装模块
+- en: Downloading existing modules is very common. Puppet Labs hosts a dedicated site
+    for sharing and obtaining the modules - the Puppet Forge. It works just the same
+    as RubyGems or CPAN and makes it simple for the user to retrieve a given module
+    through a command-line interface. In the Forge, the modules are fully named by
+    prefixing the actual module name with the author's name, such as `puppetlabs-stdlib`
+    or `ffrank-constraints`.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下载现有模块是非常常见的。Puppet Labs拥有一个专门的站点，用于共享和获取模块——Puppet Forge。它的工作方式与RubyGems或CPAN相同，并且使用户可以通过命令行界面轻松获取指定模块。在Forge中，模块的命名方式是通过将作者的名字前缀到实际模块名称上，例如`puppetlabs-stdlib`或`ffrank-constraints`。
+- en: 'The `puppet module install` command installs a module in the active environment:'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`puppet module install`命令会在活动环境中安装一个模块：'
+- en: '[PRE12]'
+  id: totrans-64
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: The *Testing your modules* section has information on using different environments.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*测试你的模块*部分提供了关于如何使用不同环境的信息。'
+- en: The current release of the `stdlib` module (authored by the user `puppetlabs`)
+    is downloaded from the Forge and installed in the standard modules' location.
+    This is the first location in the current environment's `modulepath`, which is
+    usually the `modules` subdirectory. Specifically, the modules will most likely
+    end up in the `environments/production/modules` directory.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当前版本的`stdlib`模块（由用户`puppetlabs`编写）从Forge下载并安装到标准模块位置。这是当前环境的`modulepath`中的第一个位置，通常是`modules`子目录。具体来说，这些模块很可能会最终安装到`environments/production/modules`目录中。
+- en: The `stdlib` module in particular should be considered mandatory; it adds a
+    large number of useful functions to the Puppet language. Examples include the
+    `keys`, `values`, and `has_key` functions, which are essential for implementing
+    the proper handling of hash structures, to name only a few. The functions are
+    available to your manifests as soon as the module is installed, there is no need
+    to include any class or other explicit loading. If you write your own modules
+    that add functions, these are loaded automatically in the same way.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特别是`stdlib`模块应被视为必需的；它为Puppet语言添加了大量有用的功能。比如`keys`、`values`和`has_key`函数，这些对于正确处理哈希结构至关重要，举几个例子。这些函数一旦模块安装完成，就可以在你的清单文件中使用，无需包含任何类或其他显式加载。如果你编写自己的模块来添加函数，这些函数也会以相同的方式自动加载。
+- en: Module best practices
+  id: totrans-68
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 模块最佳实践
+- en: 'With all the current versions of Puppet, you should make it a habit to put
+    all the manifest code into modules, with only the following few exceptions:'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在所有当前版本的Puppet中，你应该养成将所有清单代码放入模块中的习惯，只有以下几个例外：
+- en: The `node` blocks
+  id: totrans-70
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`node`块'
+- en: The `include` statements for very select classes that should be omnipresent
+    (the most common design pattern does this in the so-called base role, however;
+    see [Chapter 9](0a0cf4b0-23fa-48fd-abf9-77ed851bb581.xhtml), *Puppet Roles and
+    Profiles*, for the roles and profiles pattern)
+  id: totrans-71
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 应包含那些应该始终存在的类的`include`语句（最常见的设计模式是在所谓的基础角色中进行处理；不过，具体的角色和配置模式请参考[第9章](0a0cf4b0-23fa-48fd-abf9-77ed851bb581.xhtml)，*Puppet角色与配置文件*）
+- en: Declarations of helpful variables that should have the same availability as
+    the Facter facts in your manifests
+  id: totrans-72
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 声明有用的变量，这些变量应该在你的清单文件中具有与Facter事实相同的可用性
+- en: This section provides details on how to organize your manifests accordingly.
+    It also advises some design practices and strategies in order to test the changes
+    to the modules.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节提供了如何相应地组织你的清单文件的详细信息。它还建议了一些设计实践和策略，用以测试模块的更改。
+- en: Putting everything in modules
+  id: totrans-74
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 将所有内容放入模块中
+- en: 'You might find some manifests in very old installations that gather lots of
+    manifest files in one or more directories and use the `import` statements in the
+    `site.pp` file, such as:'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会在一些非常老的安装中找到一些清单文件，它们将大量的清单文件聚集在一个或多个目录中，并在`site.pp`文件中使用`import`语句，例如：
+- en: '[PRE13]'
+  id: totrans-76
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: All classes and defined types in these files are then available globally.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些文件中的所有类和定义的类型都将全局可用。
+- en: This whole approach had scalability issues and has long been deprecated. The
+    `import` keyword is missing from Puppet 4 and the newer versions.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法存在可扩展性问题，早已被弃用。`import`关键字在Puppet 4及以后的版本中已不再支持。
+- en: 'It is far more efficient to give meaningful names to the classes and defined
+    types so that Puppet can look them up in the collection of modules. The scheme
+    has been discussed in an earlier section already, so let''s just look at another
+    example where the Puppet compiler encounters a class name, such as:'
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 给类和定义类型起有意义的名称会更加高效，这样Puppet可以在模块集合中查找它们。这个方案在前面已经讨论过了，现在我们来看一个示例，Puppet编译器遇到一个类名时，比如：
+- en: '[PRE14]'
+  id: totrans-80
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: Puppet will go ahead and locate the `ntp` module in all the configured module
+    locations of the active environment (path names in the `modulepath` setting).
+    It will then try and read the `ntp/manifests/server/component/watchdog.pp` file
+    in order to find the class definition. Failing this, it will try `ntp/manifests/init.pp`.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Puppet将继续在当前环境的所有已配置模块位置中查找`ntp`模块（即`modulepath`设置中的路径）。然后，它会尝试读取`ntp/manifests/server/component/watchdog.pp`文件，以查找类定义。如果失败，它将尝试`ntp/manifests/init.pp`。
+- en: This makes compilation very efficient. Puppet dynamically identifies the required
+    manifest files and includes only those for parsing. It also aids code inspection
+    and development, as it is abundantly clear where you should look for specific
+    definitions.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这样会使得编译变得非常高效。Puppet会动态识别所需的清单文件，并仅包括那些文件进行解析。它还帮助代码检查和开发，因为非常清楚在哪里可以找到特定的定义。
+- en: Technically, it is possible to stuff all of a module's manifests into its `init.pp`
+    file, but you lose the advantages that a structured tree of module manifests offers.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从技术上讲，确实可以将一个模块的所有清单放入其`init.pp`文件中，但这样做会失去结构化模块清单树所提供的优势。
+- en: Avoiding generalization
+  id: totrans-84
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 避免泛化
+- en: Each module should ideally serve a specific purpose. On a site that relies on
+    Puppet to manage a diverse server infrastructure, there are likely modules for
+    each respective service, such as `apache`, `ssh`, `nagios`, `nginx`, and so forth.
+    Most of these modules will be taken from an upstream development and are referred
+    to as "technical component modules". There can also be site-specific modules,
+    such as `users` or `shell_settings,` if the operations require this kind of fine-grained
+    control. Such customized modules are sometimes just named after the group or the
+    company that owns them.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个模块理想情况下应当服务于一个特定的目的。在依赖Puppet来管理多样化服务器基础设施的网站上，可能会有针对每个服务的模块，比如`apache`、`ssh`、`nagios`、`nginx`等等。这些模块中的大多数将来自上游开发，并被称为“技术组件模块”。也可以有网站特定的模块，例如`users`或`shell_settings`，如果操作需要这种细粒度的控制。这些自定义模块有时只是以拥有它们的团队或公司命名。
+- en: The ideal granularity depends on the individual requirements of your setup.
+    What you generally want to avoid are modules with names such as `utilities` or
+    `helpers,` which serve as a melting pot for ideas that don't fit in any of the
+    existing modules. Such a lack of organization can be detrimental to discipline
+    and can lead to chaotic modules that include definitions that should have become
+    their own respective modules instead.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理想的粒度取决于你设置的具体需求。你通常希望避免使用诸如`utilities`或`helpers`这样的模块名称，这些模块作为无法归入任何现有模块的想法的“集大成者”。这种缺乏组织的情况会对规范性产生不利影响，可能导致混乱的模块，包含本应成为各自独立模块的定义。
+- en: Adding more modules is cheap. A module generally incurs no cost for the Puppet
+    master operation, and your user experience will usually become more efficient
+    with more modules, not less so. Of course, this balance can tip if your site imposes
+    special documentation or other handling prerequisites on each module. Such rulings
+    must then be weighed into the decisions about module organization.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 添加更多模块是很便宜的。一个模块通常不会对Puppet主控操作产生额外成本，而且随着模块数量的增加，用户体验通常会变得更加高效，而不是降低效率。当然，如果你的网站对每个模块有特殊的文档或其他处理要求，这种平衡可能会被打破。这些规则必须在模块组织决策时进行权衡。
+- en: Testing your modules
+  id: totrans-88
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 测试你的模块
+- en: Depending on the size of your agent network, some or many of your modules can
+    be used by a large variety of nodes. Despite these commonalities, these nodes
+    can be quite different from one another. A change to a central module, such as
+    `ssh` or `ntp`, which are likely used by a large number of agents, can have quite
+    extensive consequences.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据你的代理网络的规模，你的一些或许多个模块可以被各种各样的节点使用。尽管这些节点有很多共同之处，它们之间可能仍然存在显著差异。对一个中央模块的更改，例如`ssh`或`ntp`，可能会对大量代理产生广泛的后果。
+- en: The first and the most important tool for testing your work is the `--noop`
+    option for Puppet. It works for `puppet agent`, as well as `puppet apply`. If
+    it is given on the command-line, Puppet will not perform any necessary sync actions,
+    and will merely present the respective line of output to you instead. There is
+    an example of this in [Chapter 1](8a22dc0e-3fe2-4153-b60e-935b7e6d9f94.xhtml),
+    *Writing Your First Manifests*.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 测试工作最重要的工具是Puppet的`--noop`选项。它适用于`puppet agent`以及`puppet apply`。如果在命令行中给出该选项，Puppet将不会执行任何必要的同步操作，而仅仅将相应的输出行呈现给你。在[第1章](8a22dc0e-3fe2-4153-b60e-935b7e6d9f94.xhtml)中有这个的示例，*编写你的第一个清单*。
+- en: When using a master instead of working locally with `puppet apply`, a new problem
+    arises, though. The master is queried by all your agents. Unless all the agents
+    are disabled while you are testing a new manifest, it is very likely that one
+    will check in and accidentally run the untested code.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是，当使用主控而不是本地使用`puppet apply`时，会出现一个新问题。所有代理都会查询主控。除非在你测试新清单时禁用所有代理，否则很可能会有代理检查并不小心运行未经测试的代码。
+- en: In fact, even your test agent can trigger its regular run while you are logged
+    in, transparently in the background.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事实上，即使在你登录时，你的测试代理也可以在后台透明地触发其常规运行。
+- en: It is very important to guard against such uncontrolled manifest applications.
+    A small mistake can damage a number of agent machines in a short time period.
+    The best way to go about this is to define multiple environments on the master
+    and stage code changes. [Chapter 9](0a0cf4b0-23fa-48fd-abf9-77ed851bb581.xhtml)*,
+    Puppet Roles and Profiles,* will provide further information on this topic.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 防范此类无法控制的清单应用非常重要。一个小错误可能会在短时间内损坏大量代理机器。最好的做法是，在主节点上定义多个环境并逐步进行代码更改。[第9章](0a0cf4b0-23fa-48fd-abf9-77ed851bb581.xhtml)*，Puppet角色与配置文件*将进一步介绍相关内容。
+- en: Safe testing with environments
+  id: totrans-94
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用环境进行安全测试
+- en: Besides the `production` environment, you should create at least one testing
+    environment. You can call it `testing` or whatever you like. When using the directory
+    environments, just create its directory in `environmentpath`.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了`production`环境之外，你应该至少创建一个测试环境。你可以称其为`testing`或其他任何你喜欢的名称。使用目录环境时，只需在`environmentpath`中创建其目录即可。
+- en: 'Such an additional environment is very useful for testing changes. The test
+    environment or environments should be copies of the production data. Prepare all
+    the manifest changes in `testing` first. You can make your agents test this change
+    before you copy it to production:'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这样的附加环境在测试更改时非常有用。测试环境或多个环境应为生产数据的副本。首先在`testing`中准备所有清单更改。你可以让代理在将其复制到生产环境之前测试此更改：
+- en: '[PRE15]'
+  id: totrans-97
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: You can even omit the `noop` flag on some or all of your agents so that the
+    change is actually deployed. Some subtle mistakes in the manifests cannot be detected
+    from an inspection of the `noop` output, so it is usually a good idea to run the
+    code at least once before releasing it.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你甚至可以省略某些或所有代理上的`noop`标志，以便实际部署更改。某些在清单中出现的细微错误无法通过检查`noop`输出来检测出来，因此在发布之前，通常最好至少运行一次代码。
+- en: Environments are even more effective when used in conjunction with source control,
+    especially distributed systems such as `git` or `mercurial`. Versioning your Puppet
+    code is a good idea independently of environments and testing; this is one of
+    the greatest advantages that Puppet has to offer you through its infrastructure
+    as code paradigm.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当环境与源代码控制结合使用时，它们的效果更为显著，特别是像`git`或`mercurial`这样的分布式系统。无论是否使用环境和测试，为你的Puppet代码进行版本控制都是一个好主意；这正是Puppet通过其基础设施即代码（Infrastructure
+    as Code）理念为你提供的最大优势之一。
+- en: 'Using environments and the `noop` mode form a pragmatic approach to testing
+    that can serve in most scenarios. The safety against erroneous Puppet behavior
+    is limited, of course. There are more formal ways of testing the modules:'
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用环境和`noop`模式形成了一个务实的测试方法，适用于大多数场景。当然，针对错误的Puppet行为的安全性是有限的。还有更正式的模块测试方式：
+- en: The `rspec-puppet` tool allows the module authors to implement unit tests based
+    on `rspec`. You can find more details at [http://rspec-puppet.com/](http://rspec-puppet.com/)
+  id: totrans-101
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`rspec-puppet`工具允许模块作者基于`rspec`实现单元测试。你可以在[http://rspec-puppet.com/](http://rspec-puppet.com/)找到更多详细信息。'
+- en: Acceptance testing can be performed through `beaker`. You can refer to [https://github.com/puppetlabs/beaker/wiki/How-To-Beaker](https://github.com/puppetlabs/beaker/wiki/How-To-Beaker) for
+    details
+  id: totrans-102
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 可以通过`beaker`进行验收测试。有关详细信息，请参考[https://github.com/puppetlabs/beaker/wiki/How-To-Beaker](https://github.com/puppetlabs/beaker/wiki/How-To-Beaker)
+- en: Explaining these tools in detail is beyond the scope of this book.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 详细解释这些工具超出了本书的范围。
+- en: Building a component module
+  id: totrans-104
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 构建组件模块
+- en: This chapter has discussed many theoretical and operational aspects of modules,
+    but you are yet to gain an insight into the process of writing modules. For this
+    purpose, the rest of this chapter will have you create an example module step
+    by step.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章已讨论了模块的许多理论和操作方面，但你尚未了解编写模块的过程。为此，本章的其余部分将一步一步带领你创建一个示例模块。
+- en: It should be stressed again that, for the most part, you will want to find general
+    purpose modules from the Forge. The number of available modules is ever-growing,
+    so the odds are good that there is something already there to help you with what
+    you need to do.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 再次强调，大多数情况下，你会想从Forge上寻找通用模块。可用模块的数量不断增加，因此很有可能已经有某个模块可以帮助你完成所需的工作。
+- en: 'Assume that you want to add Cacti to your network: an RRD tool-based trend
+    monitor and graphing server, including a web interface. If you would check the
+    Forge first, you would indeed find some modules. However, let''s further assume
+    that none of them speak to you, because either the feature set or the implementation
+    is not to your liking. If even the respective interfaces don''t meet your requirements,
+    it doesn''t make much sense to base your own module on an existing one (in the
+    form of a fork on GitHub) either. You will, then, need to write your own module
+    from scratch.'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设你想在你的网络中添加 Cacti：一个基于 RRD 工具的趋势监控和图形服务器，包括一个 web 界面。如果你首先检查 Forge，你确实会找到一些模块。但是，假设这些模块都没有符合你的需求，因为它们的功能集或实现方式不合适。如果连这些模块的接口都不符合要求，那么基于现有模块（如在
+    GitHub 上分叉）来开发自己的模块也没有多大意义。那你就需要从头开始编写自己的模块。
+- en: Naming your module
+  id: totrans-108
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 为你的模块命名
+- en: Module names should be concise and to the point. If you manage a specific piece
+    of software, name your module after it - `apache`, `java`, `mysql`, and so forth.
+    Avoid verbs such as `install_cacti` or `manage_cacti`. If your module name does
+    need to consist of several words (because the target subsystem has a long name),
+    they should be divided by underscore characters. Spaces, dashes, and other non-alphanumeric
+    characters are not allowed.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模块名称应该简洁且直观。如果你管理的是特定的软件，可以根据它来命名模块——`apache`、`java`、`mysql` 等等。避免使用动词，如 `install_cacti`
+    或 `manage_cacti`。如果模块名称需要由多个单词组成（因为目标子系统名称较长），它们应由下划线字符分隔。禁止使用空格、连字符和其他非字母数字字符。
+- en: In our example, the module should just be named `cacti`.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的示例中，模块应该被命名为 `cacti`。
+- en: Usually, you will never write a module with names such as apache, mysql, java,
+    as these are names already used from upstream development. When learning Puppet,
+    one wants to start with a simple module implementation, maybe the upstream module
+    is yet too complicated to understand. In this case, you want to prefix your modules
+    with a company or team name. Keep in mind to not use the hyphen but an underscore
+    to separate company/team name, for example, `packt_apache`, `infra_mysql`. This
+    pattern will keep the original namepsace available and allow easier migration
+    to upstream modules later.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，你不会编写像 apache、mysql、java 这样的模块名称，因为这些名称已经被上游开发使用了。当学习 Puppet 时，想要从一个简单的模块实现开始，可能上游模块太复杂，难以理解。在这种情况下，你应该用公司或团队的名称作为前缀来命名模块。记住不要使用连字符，而应使用下划线分隔公司/团队名称，例如
+    `packt_apache`、`infra_mysql`。这个命名模式可以保留原始的命名空间，并且在以后迁移到上游模块时更加容易。
+- en: Making your module available to Puppet
+  id: totrans-112
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使你的模块对 Puppet 可用
+- en: To use your own module, you don't need to make it available for installation
+    through `puppet module`. For that, you will need to upload the module to the Forge
+    first, which will require quite some additional effort. Luckily, a module will
+    work just fine without all this preparation, if you just put the source code in
+    the proper location on your master.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使用你自己的模块，你不需要通过 `puppet module` 使其可安装。为此，你需要先将模块上传到 Forge，这将需要额外的工作。不过幸运的是，如果你只是将源代码放在主节点的适当位置，模块就能正常工作，而不需要进行所有这些准备工作。
+- en: 'To create your own `cacti` module, create the basic directories:'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要创建你自己的 `cacti` 模块，请创建基本目录：
+- en: '[PRE16]'
+  id: totrans-115
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: Don't forget to synchronize all the changes to `production` once the agents
+    use them.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦代理使用了它们，别忘了将所有的更改同步到 `production`。
+- en: Implementing basic module functionality
+  id: totrans-117
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 实现基础的模块功能
+- en: Most modules perform all of their work through their manifests.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数模块通过其清单文件完成所有工作。
+- en: There are notable exceptions, such as the `stdlib` module. It mainly adds the
+    parser functions and a few general-purpose resource types.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有一些显著的例外，比如 `stdlib` 模块。它主要增加了解析器函数和一些通用资源类型。
+- en: When planning the classes for your module, it is most straightforward to think
+    about how you would like to use the finished module. There is a wide range of
+    possible interface designs. The de facto standard stipulates that the managed
+    subsystem is initialized on the agent system by including the module's main class;
+    the class that bears the same name as the module and is implemented in the module's
+    `init.pp` file.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在规划模块的类时，最直接的思考方式是考虑你希望如何使用完成的模块。接口设计的方式有很多种。事实上的标准规定，管理的子系统通过在代理系统中包含模块的主类进行初始化；该类与模块同名，并且实现于模块的
+    `init.pp` 文件中。
+- en: 'For our Cacti module, the user should use the following:'
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于我们的 Cacti 模块，用户应该使用以下内容：
+- en: '[PRE17]'
+  id: totrans-122
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: As a result, Puppet would take all the required steps in order to install the
+    software and, if necessary, perform any additional initialization.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果，Puppet将采取所有必要的步骤来安装软件，并在需要时执行任何额外的初始化。
+- en: 'Start by creating the `cacti` class and implementing the setup in the way you
+    would from the command-line, replacing the commands with appropriate Puppet resources.
+    On a Debian system, installing the `cacti` package is enough. Other required software
+    is brought in through the dependencies (completing the LAMP stack), and after
+    the package installation, the interface becomes available through the web URI
+    `/cacti/` on the server machine:'
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先创建`cacti`类，并以命令行方式实现设置，将命令替换为适当的Puppet资源。在Debian系统中，安装`cacti`包就足够了。其他所需的软件通过依赖项引入（完成LAMP堆栈），并且在包安装后，接口通过服务器机器上的Web
+    URI`/cacti/`可用：
+- en: '[PRE18]'
+  id: totrans-125
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'Your module is now ready for testing. Invoke it from your agent''s manifest
+    in `site.pp` or `nodes.pp` of the `testing` environment:'
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你的模块现在可以进行测试了。通过在`site.pp`或`nodes.pp`的`testing`环境中从代理的清单中调用它：
+- en: '[PRE19]'
+  id: totrans-127
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 'Apply it on your agent directly:'
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 直接在代理上应用它：
+- en: '[PRE20]'
+  id: totrans-129
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: This will work on Debian, and Cacti is reachable via `http://<address>/cacti/`.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这在Debian上可以工作，Cacti可以通过`http://<address>/cacti/`访问。
+- en: Some sites use an **External Node Classifier** (**ENC**), such as the Foreman.
+    Among other helpful things, it can centrally assign environments to the nodes.
+    In this scenario, the `--environment` switch will not work.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些站点使用**外部节点分类器**（**ENC**），例如Foreman。除了其他有用的功能外，它还可以集中分配环境到节点。在这种情况下，`--environment`开关将不起作用。
+- en: 'It''s unfortunate that the Cacti web interface will not come up when the home
+    page is requested through the `/` URI. To enable this, give the module the ability
+    to configure an appropriate redirection. Prepare an Apache configuration snippet
+    in the module in `/opt/puppetlabs/code/environments/testing/packt_cacti/files/etc/apache2/conf.d/cacti-redirect.conf`:'
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 遗憾的是，当通过`/` URI请求主页时，Cacti的Web界面不会显示。为了启用此功能，请为模块提供配置适当重定向的能力。在模块中的`/opt/puppetlabs/code/environments/testing/packt_cacti/files/etc/apache2/conf.d/cacti-redirect.conf`准备一个Apache配置片段：
+- en: '[PRE21]'
+  id: totrans-133
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: The warning notice is helpful, especially when multiple administrators have
+    access to the Cacti server.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 警告通知很有帮助，特别是当多个管理员可以访问Cacti服务器时。
+- en: 'It makes sense to add a dedicated class that will sync this file to the agent
+    machine:'
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 添加一个专门的类来将此文件同步到代理机器是有意义的：
+- en: '[PRE22]'
+  id: totrans-136
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: 'A short file such as this can also be managed through the `file` type''s `content`
+    property instead of `source`:'
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这样简短的文件也可以通过`file`类型的`content`属性而不是`source`来管理：
+- en: '[PRE23]'
+  id: totrans-138
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: This is more efficient, because the content is part of the catalog and so the
+    agent does not need to retrieve the checksum through another request to the master.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这样做更高效，因为内容是目录的一部分，因此代理无需通过另一个请求从主服务器获取校验和。
+- en: 'The module now allows the user to `include packt_cacti::redirect` in order
+    to get this functionality. This is not a bad interface as such, but this kind
+    of modification is actually well-suited to become a parameter of the `cacti` class:'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该模块现在允许用户`include packt_cacti::redirect`以获取此功能。这本身并不是一个糟糕的接口，但这种修改实际上非常适合成为`cacti`类的一个参数：
+- en: '[PRE24]'
+  id: totrans-141
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: The redirect is now installed by default when a manifest uses `include cacti`.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当清单使用`include cacti`时，重定向现在默认安装。
+- en: 'If the web server has other virtual hosts that serve things that are not Cacti,
+    this might be undesirable. In such cases, the manifest will declare the class
+    with the following parameter:'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果Web服务器有其他虚拟主机提供非Cacti的内容，这可能是不希望的。在这种情况下，清单将声明带有以下参数的类：
+- en: '[PRE25]'
+  id: totrans-144
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: 'Speaking of best practices, most modules will also separate the installation
+    routine into a class of its own. In our case, this is hardly helpful, because
+    the installation status is ensured through a single resource, but let''s do it
+    anyway:'
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 说到最佳实践，大多数模块也会将安装过程拆分为独立的类。在我们的例子中，这几乎没有帮助，因为安装状态通过一个单一资源得到保证，但我们还是这样做：
+- en: '[PRE26]'
+  id: totrans-146
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: 'It''s sensible to use `contain` here in order to make the Cacti management
+    a solid unit. The `cacti::install` class is put into a separate `install.pp` manifest
+    file:'
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里使用`contain`是明智的，以便使Cacti管理成为一个独立的单元。`cacti::install`类被放入一个单独的`install.pp`清单文件中：
+- en: '[PRE27]'
+  id: totrans-148
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: On Debian, the installation process of the `cacti` package copies another Apache
+    configuration file to `/etc/apache2/conf.d`. Since Puppet performs a normal `apt`
+    installation, this result will be achieved. However, Puppet does not make sure
+    that the configuration stays in this desired state.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Debian上，`cacti`包的安装过程会将另一个Apache配置文件复制到`/etc/apache2/conf.d`。由于Puppet执行的是常规的`apt`安装，因此会达到这一结果。然而，Puppet并不会确保配置保持在期望的状态。
+- en: There is an actual risk that the configuration might get broken. If the `puppetlabs-apache`
+    module is in use for a given node, it will usually purge any unmanaged configuration
+    files from the `/etc/apache2/` tree. Be very careful when you enable this module
+    for an existing server. Test it in the `noop` mode. If required, amend the manifest
+    to include the existing configuration.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 配置可能会被破坏，这确实存在实际风险。如果给定节点使用`puppetlabs-apache`模块，它通常会清除`/etc/apache2/`目录下的任何未管理的配置文件。在为现有服务器启用此模块时要非常小心。在`noop`模式下进行测试。如果需要，修改清单以包含现有的配置。
+- en: 'It is prudent to add a `file` resource to the manifest that keeps the configuration
+    snippet in its post-installation state. Usually with Puppet, this will require
+    you to copy the config file contents to the module, just as the redirect configuration
+    is in a file on the master. However, since the Debian package for Cacti includes
+    a copy of the snippet in `/usr/share/doc/cacti/cacti.apache.conf`, you can instruct
+    the agent to sync the actual configuration with that. Perform this in yet another
+    de facto standard for modules the `config` class:'
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 明智的做法是向清单中添加一个`file`资源，用来保存安装后状态下的配置片段。通常在Puppet中，这需要你将配置文件内容复制到模块中，就像重定向配置文件一样位于主服务器上的某个文件中。然而，由于Cacti的Debian包包含了位于`/usr/share/doc/cacti/cacti.apache.conf`的配置片段，你可以指示代理与此同步实际配置。在另一个事实标准模块`config`类中执行此操作：
+- en: '[PRE28]'
+  id: totrans-152
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: This class should be contained by the `packt_cacti` class as well. Running the
+    agent again will now have no effect, because the configuration is already in place.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个类应该也包含在`packt_cacti`类中。重新运行代理现在不会产生任何效果，因为配置已经到位。
+- en: Creating utilities for derived manifests
+  id: totrans-154
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 为派生清单创建实用工具
+- en: You have now created several classes that compartmentalize the basic installation
+    and configuration work for your module. Classes lend themselves very well to implementing
+    global settings that are relevant for the managed software as a whole.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，你已经创建了几个类，这些类将模块的基本安装和配置工作进行了模块化。类非常适合实现与管理软件整体相关的全局设置。
+- en: However, just installing Cacti and making its web interface available is not
+    an especially powerful capability after all, the module does little beyond what
+    a user can achieve by installing Cacti through the package manager. The much greater
+    pain point with Cacti is that it usually requires configuration via its web interface;
+    adding servers as well as choosing and configuring graphs for each server can
+    be an arduous task and require dozens of clicks per server, depending on the complexity
+    of your graphing needs.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，仅仅安装Cacti并使其网页界面可用，毕竟并不是一个特别强大的功能，模块做的事情不过是用户通过包管理器安装Cacti时能够完成的工作。Cacti的一个更大的痛点是，它通常需要通过网页界面进行配置；添加服务器以及为每个服务器选择和配置图表可能是一个繁琐的任务，并且根据你的图表需求的复杂程度，可能需要每个服务器数十次点击。
+- en: This is where Puppet can be the most helpful. A textual representation of the
+    desired states allows for quick copy and paste repetition and name substitution
+    through regular expressions. Better yet, once there is a Puppet interface, users
+    can devise their own defined types in order to save themselves from the copy and
+    paste work.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是Puppet最有帮助的地方。期望状态的文本表示允许通过正则表达式快速地进行复制粘贴和名称替换。更好的是，一旦有了Puppet接口，用户可以自己设计定义类型，从而避免重复的复制粘贴工作。
+- en: Speaking of defined types, they are what is required for your module to allow
+    this kind of configuration. Each machine in Cacti's configuration should be an
+    instance of a defined type. The graphs can have their own type as well.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 说到定义类型，它们是你模块所需的，用于支持这种配置方式。Cacti配置中的每台机器应该是一个定义类型的实例。图表也可以有自己的类型。
+- en: As with the implementation of the classes, the first thing you always need to
+    ask yourself is how this task would be done from the command-line.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与类的实现一样，你首先需要问自己的是，如何通过命令行来完成这项任务。
+- en: 'Actually, the better question can be what API you should use for this, preferably
+    from Ruby. However, this is only important if you intend to write Puppet plugins:
+    resource types and providers. We will look into this later in this very chapter.'
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事实上，更好的问题可能是应该使用哪个 API，最好是从 Ruby 出发。然而，这只有在你打算编写 Puppet 插件（资源类型和提供者）时才重要。我们将在本章稍后讨论这个问题。
+- en: Cacti comes with a set of CLI scripts. The Debian package makes these available
+    in `/usr/share/cacti/cli`. Let's discover these while we step through the implementation
+    of the Puppet interface. The goals are defined types that will effectively wrap
+    the command-line tools so that Puppet can always maintain the defined configuration
+    state through appropriate queries and update commands.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Cacti 附带了一组 CLI 脚本。Debian 包将这些脚本放在 `/usr/share/cacti/cli` 目录下。让我们在实现 Puppet
+    接口的过程中探索这些脚本。目标是定义类型，这些类型将有效地封装命令行工具，以便 Puppet 始终能够通过适当的查询和更新命令保持定义的配置状态。
+- en: Adding configuration items
+  id: totrans-162
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 添加配置项
+- en: When designing more capabilities for the Cacti module, first comes the ability
+    to register a machine for monitoring - or rather, a **device**, as Cacti itself
+    calls it (network infrastructure such as switches and routers are frequently monitored
+    as well, and not only computers). The name for the first defined type should,
+    therefore, be `cacti::device`.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在为 Cacti 模块设计更多功能时，首先是能够注册一个用于监控的机器——或者更确切地说，是一个 **设备**，正如 Cacti 自身所称（网络基础设施，如交换机和路由器也经常被监控，而不仅仅是计算机）。因此，第一个定义类型的名称应该是
+    `cacti::device`。
+- en: The same warnings from the *Naming your module* subsection apply - don't give
+    in to the temptation to give names such as `create_device` or `define_domain`
+    to your type, unless you have very good reasons, such as the removal being impossible.
+    Even then, it's probably better to skip the verb.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 来自 *命名你的模块* 小节的相同警告适用——除非你有非常充分的理由（如移除是不可能的），否则不要被诱惑给你的类型命名为 `create_device`
+    或 `define_domain` 等。即便如此，最好还是跳过动词。
+- en: 'The CLI script used to register a device is named `add_device.php`. Its help
+    output readily indicate that it requires two parameters, which are `description`
+    and `ip`. A custom description of an entity is often a good use for the respective
+    Puppet resource''s title. The type almost writes itself now:'
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于注册设备的 CLI 脚本名为 `add_device.php`。它的帮助输出清楚地指示需要两个参数，即 `description` 和 `ip`。自定义实体的描述通常是相应
+    Puppet 资源标题的良好用途。现在类型几乎已经可以自然而然地写出来了：
+- en: '[PRE29]'
+  id: totrans-166
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: In practice, it is often unnecessary to use so many variables, but it serves
+    readability with the limited horizontal space of the page.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实际上，通常不需要使用这么多变量，但它有助于在页面有限的水平空间中提高可读性。
+- en: This `exec` resource gives Puppet the ability to use the CLI to create a new
+    device in the Cacti configuration. Since PHP is among the Cacti package's requirements,
+    it's sufficient to make the `exec` resource `require` the `cacti` class. Note
+    the use of `$title`, not only for the `--description` parameter, but in the resource
+    name for the `exec` resource as well. This ensures that each `packt_cacti::device`
+    instance declares a unique `exec` resource in order to create itself.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个 `exec` 资源赋予 Puppet 使用 CLI 在 Cacti 配置中创建新设备的能力。由于 PHP 是 Cacti 包的要求之一，因此只需要让
+    `exec` 资源 `require` `cacti` 类即可。注意 `$title` 的使用，不仅用于 `--description` 参数，还用于 `exec`
+    资源的资源名称。这确保每个 `packt_cacti::device` 实例都声明一个唯一的 `exec` 资源来创建自身。
+- en: 'The `exec` resource type allows one to run arbitrary commands with root privileges
+    and an empty shell environment. This allows one to flexibly wrap configuration
+    commands in puppet DSL. But the exec resource type has its downside: the `exec`
+    resource type is not, per-se idempotent and bares the risk that everything is
+    done with running commands, which is against Puppet''s nature of being a declarative
+    configuration management system. The best option is to see the `exec` resource
+    type as an emergency exit: only use it if one sees no other possibilities to achieve
+    the goals.'
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`exec` 资源类型允许以 root 权限和空的 shell 环境运行任意命令。这使得能够灵活地在 Puppet DSL 中封装配置命令。但 `exec`
+    资源类型也有其缺点：`exec` 资源类型本身并不是幂等的，并且存在所有操作都通过运行命令完成的风险，这与 Puppet 作为声明式配置管理系统的性质相悖。最好的做法是将
+    `exec` 资源类型视为应急出口：只有在没有其他方法可以实现目标时才使用它。'
+- en: Usually, a custom resource type is more suitable, especially when running difficult
+    commands with difficult check options. The custom resource type is explained later
+    in this chapter.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，自定义资源类型更为合适，特别是在运行复杂的命令时需要处理复杂的检查选项。自定义资源类型将在本章后面讲解。
+- en: However, this still lacks an important aspect. Written as in the preceding example,
+    this `exec` resource will make the Puppet agent run the CLI script always, under
+    any circumstances. This is incorrect though - it should only run if the device
+    has not yet been added.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，这仍然缺少一个重要方面。如前面的示例所写，这个`exec`资源会使Puppet代理在任何情况下都运行CLI脚本。虽然这是不正确的——它只应在设备尚未添加时才运行。
+- en: 'Every `exec` resource should have one of the `creates`, `onlyif`, or `unless`
+    parameters. It defines a query for Puppet to determine the current sync state.
+    The `add_device` call must be made unless the device exists already. The query
+    for the existing devices must be made through the `add_graphs.php` script (counterintuitively).
+    When called with the `--list-hosts` option, it prints one header line and a table
+    of devices, with the description in the fourth column. The following `unless`
+    query will find the resource in question:'
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个`exec`资源应当包含`creates`、`onlyif`或`unless`中的一个参数。它定义了一个查询，供Puppet用来判断当前的同步状态。除非设备已经存在，否则必须执行`add_device`调用。现有设备的查询必须通过`add_graphs.php`脚本（这可能不太直观）进行。当使用`--list-hosts`选项时，它会打印一行头信息和一个设备列表，设备描述位于第四列。以下`unless`查询将找到相关资源：
+- en: '[PRE30]'
+  id: totrans-173
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: The `path` parameter is useful, as it allows for calling the core utilities
+    without the respective full path.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`path`参数非常有用，因为它允许调用核心实用程序时无需提供完整路径。'
+- en: It is a good idea to generally set a standard list of search paths, because
+    some tools will not work with an empty `PATH` environment variable.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一般设置标准的搜索路径列表是个好主意，因为某些工具在`PATH`环境变量为空时无法正常工作。
+- en: The `unless` command will return `0` if the exact resource title is found among
+    the list of devices. The final `$` sign is escaped so that Puppet includes it
+    in the `$search` command string literally.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果在设备列表中找到了完全相同的资源标题，`unless`命令将返回`0`。最后的`$`符号被转义，以便Puppet在`$search`命令字符串中按字面意义包括它。
+- en: 'You can now test your new define by adding the following resource to the agent
+    machine''s manifest:'
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你现在可以通过将以下资源添加到代理机器的清单中来测试你新的定义：
+- en: '[PRE31]'
+  id: totrans-178
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: On the next `puppet agent --test` run, you will be notified that the command
+    for adding the device has been run. Repeat the run and Puppet will determine that
+    everything is now already synchronized with the catalog.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一次执行`puppet agent --test`时，你会收到通知，表示添加设备的命令已经执行。再次执行，Puppet会判断所有内容已经与目录同步。
+- en: Allowing customization
+  id: totrans-180
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 允许自定义
+- en: 'The `add_device.php` script has a range of optional parameters that allow the
+    user to customize the device. The Puppet module should expose these dials as well.
+    Let''s pick one and implement it in the `packt_cacti::device` type. Each Cacti
+    device has a `ping_method` that defaults to `tcp`. With the module, we can even
+    superimpose our own defaults over those of the software:'
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`add_device.php`脚本有一系列可选参数，允许用户自定义设备。Puppet模块应当暴露这些参数。我们来选择其中一个并在`packt_cacti::device`类型中实现。每个Cacti设备都有一个默认为`tcp`的`ping_method`。使用这个模块时，我们甚至可以覆盖软件的默认值：'
+- en: '[PRE32]'
+  id: totrans-182
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: The module uses a default of `icmp` instead of `tcp`. The value is always passed
+    to the CLI script, whether it was passed to the `packt_cacti::device` instance
+    or not. The parameter default is used in the latter case.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该模块默认使用`icmp`而不是`tcp`。无论是否将其传递给`packt_cacti::device`实例，值都会始终传递给CLI脚本。在后一种情况下，使用的是参数默认值。
+- en: If you plan to publish your module, it is more sensible to try and use the same
+    defaults as the managed software whenever possible.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你计划发布你的模块，尽可能使用与托管软件相同的默认值会更加明智。
+- en: Once you incorporate all the available CLI switches, you will have successfully
+    created a Puppet API in order to add devices to your Cacti configuration, giving
+    the user the benefits of easy reproduction, sharing, implicit documentation, simple
+    versioning, and more.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦你加入了所有可用的CLI开关，你将成功创建一个Puppet API，用于将设备添加到你的Cacti配置中，用户将因此受益于便捷的复现、共享、隐式文档、简单的版本控制等功能。
+- en: Removing unwanted configuration items
+  id: totrans-186
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 移除不需要的配置项
+- en: There is still one remaining wrinkle. It is atypical for Puppet types to be
+    unable to remove the entities that they create. As it stands, this is a technical
+    limitation of the CLI that powers your module, because it does not implement a
+    `remove_device` function yet. Such scripts have been made available on the internet,
+    but are not properly a part of Cacti at the time of writing this.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 仍然有一个剩下的问题。对于Puppet类型来说，无法删除它们创建的实体是不典型的。当前，这实际上是你模块所依赖的CLI的技术限制，因为它尚未实现`remove_device`功能。此类脚本已经在互联网上发布，但在撰写本文时，它们尚未正式成为Cacti的一部分。
+- en: 'To give the module more functionality, it would make sense to incorporate additional
+    CLI scripts among the module''s files. Put the appropriate file into the right
+    directory under `modules/cacti/files/` and add another `file` resource to the
+    `cacti::install` class:'
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了使模块更具功能性，合理的做法是将额外的CLI脚本加入到模块的文件中。将适当的文件放入`modules/cacti/files/`下的正确目录，并向`cacti::install`类中添加另一个`file`资源：
+- en: '[PRE33]'
+  id: totrans-189
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: 'You can then add an `ensure` attribute to the `cacti::device` type:'
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，你可以向`cacti::device`类型添加一个`ensure`属性：
+- en: '[PRE34]'
+  id: totrans-191
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: Note that we took some liberties with the indentation here, so as to not break
+    too many lines. This new `exec` resource is quite a mouthful, because the `remove_device.php`
+    script requires the numeric ID of the device to be removed. This is retrieved
+    with a `--list-devices` call that is piped to `awk`. To impair readability even
+    more, some things such as double quotes, `$` signs, and backslashes must be escaped
+    so that Puppet includes a valid `awk` script in the catalog.
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，我们在这里对缩进做了一些处理，以避免断行过多。这个新的`exec`资源很复杂，因为`remove_device.php`脚本需要删除设备的数字ID。这是通过执行`--list-devices`调用并将其传递给`awk`来获取的。为了进一步影响可读性，像双引号、`$`符号和反斜杠等内容必须进行转义，以便Puppet在清单中包含有效的`awk`脚本。
+- en: 'Also note that the query for the sync state of this `exec` resource is identical
+    to the one for the `add` resource, except that now it is used with the `onlyif`
+    parameter: only take action *if* the device in question is still found in the
+    configuration.'
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还要注意，查询这个`exec`资源的同步状态与`add`资源的查询是相同的，唯一的区别是现在它与`onlyif`参数一起使用：仅在配置中仍然找到相关设备时才执行操作。
+- en: Dealing with complexity
+  id: totrans-194
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 处理复杂性
+- en: The commands we implemented for the `packt_cacti::device` define are quite convoluted.
+    At this level of complexity, shell one-liners become unwieldy for powering Puppet's
+    resources. It gets even worse when handling the Cacti graphs; the `add_graphs.php`
+    CLI script requires numeric IDs of not only the devices, but of the graphs as
+    well. At this point, it makes sense to move the complexity out of the manifest
+    and write wrapper scripts for the actual CLI. I will just sketch the implementation.
+    The wrapper script will follow this general pattern.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们为`packt_cacti::device`定义实现的命令相当复杂。在这种复杂度的层面，Shell单行命令变得不再适用于驱动Puppet的资源。当处理Cacti图表时情况变得更糟；`add_graphs.php`
+    CLI脚本不仅需要设备的数字ID，还需要图表的数字ID。在这种情况下，将复杂性移出清单并为实际的CLI编写包装脚本是合理的。我将简要描述这个实现。包装脚本将遵循这个大致模式。
+- en: '[PRE35]'
+  id: totrans-196
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: 'With this, you can add a straightforward `graph` type:'
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用这个，你可以添加一个简单的`graph`类型：
+- en: '[PRE36]'
+  id: totrans-198
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE36]'
+- en: This also requires, an additional `cacti-find-graph` script. Adding this poses
+    an additional challenge as the current CLI has no capabilities for listing configured
+    graphs. There are many more functionalities that can be added to a `cacti` module,
+    such as the management of Cacti's data sources and the ability to change options
+    of the devices and, possibly, other objects that already exist in the configuration.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这还需要一个额外的`cacti-find-graph`脚本。添加这个脚本带来了额外的挑战，因为当前的CLI没有列出已配置图表的功能。可以添加到`cacti`模块的功能还包括管理Cacti的数据源、改变设备选项，甚至可能是更改配置中已存在的其他对象的选项。
+- en: Such commodities are beyond the essentials and won't be detailed here. Let's
+    look at some other parts for your exemplary `cacti` module instead.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这样的商品超出了基本内容的范畴，暂时不做详细说明。让我们看看`cacti`模块的其他部分作为示例。
+- en: Enhancing the agent through plugins
+  id: totrans-201
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 通过插件增强代理
+- en: The reusable classes and defines give manifests that use your module much more
+    expressive power. Installing and configuring Cacti now works concisely, and the
+    manifest to do this becomes very readable and maintainable.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可重用的类和定义使得使用你模块的清单更加具有表现力。现在安装和配置Cacti变得简洁，而执行这一操作的清单变得非常易读和可维护。
+- en: "It's time to tap into the even more powerful aspect of modules: Puppet plugins.\
+    \ The different types of plugins are custom facts (which were discussed in [Chapter\
+    \ 3\uFEFF](be2d7b8b-9ea8-4459-b415-081e77db07c7.xhtml), *A Peek into the Ruby\
+    \ Part of Puppet - Facts, Types, and Providers*), parser functions, resource types,\
+    \ and providers. All these plugins are stored in the modules on the master and\
+    \ get synchronized to all the agents. The agent will not use the parser functions\
+    \ (they are available to the users of `puppet apply` on the agent machine once\
+    \ they are synchronized, however); instead, the facts and resource types do most\
+    \ of their work on the agent. Let's concentrate on the types and providers for\
+    \ now; the other plugins will be discussed in dedicated sections later."
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在是时候探索模块的另一个更强大的方面：Puppet 插件了。插件的不同类型包括自定义事实（在[第 3 章](be2d7b8b-9ea8-4459-b415-081e77db07c7.xhtml)中讨论过，*Puppet
+    Ruby 部分概览 - 事实、类型和提供者*）、解析器函数、资源类型和提供者。所有这些插件都存储在主机上的模块中，并会同步到所有代理上。代理不会使用解析器函数（虽然在同步后，`puppet
+    apply` 的用户可以在代理机器上使用它们）；相反，事实和资源类型在代理上执行大部分工作。现在让我们集中讨论类型和提供者；其他插件将在后续的专门章节中讨论。
+- en: This section can be considered optional. Many users will never touch the code
+    for any resource type or provider the manifests give you all the flexibility you
+    will ever need. If you don't care for plugins, do skip ahead to the final sections
+    about finding the Forge modules. On the other hand, if you are confident about
+    your Ruby skills and would like to take advantage of them in your Puppet installations,
+    read on to find the ways in which custom types and providers can help you.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节可以视为可选内容。许多用户永远不会接触任何资源类型或提供者的代码，因为清单本身已经提供了所需的所有灵活性。如果你不关心插件，可以跳过本节，直接阅读关于如何查找
+    Forge 模块的最后部分。另一方面，如果你对 Ruby 技能有信心，并希望在 Puppet 安装中利用它们，继续阅读，了解自定义类型和提供者如何为你提供帮助。
+- en: While the custom resource types are functional on both the master and the agent,
+    the provider will do all its work on the agent side. Although the resource types
+    also perform mainly through the agent, they have one effect on the master; they
+    enable manifests to declare resources of the type. The code not only describes
+    what properties and parameters exist, but it can also include the validation and
+    transformation code for the respective values. This part is invoked by the agent.
+    Some resource types even do the synchronization and queries themselves, although
+    there is usually at least one provider that takes care of this.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然自定义资源类型在主机和代理上都可以使用，但提供者将主要在代理端完成所有工作。虽然资源类型也主要通过代理执行，但它们对主机有一个影响；它们使清单能够声明该类型的资源。代码不仅描述了哪些属性和参数存在，还可以包含对各自值的验证和转换代码。该部分由代理调用。有些资源类型甚至会自行处理同步和查询，尽管通常至少会有一个提供者来负责这些操作。
+- en: 'In the previous section, you implemented a defined type that did all its synchronization
+    by wrapping some `exec` resources. By installing binaries and scripts through
+    Puppet, you can implement almost any kind of functionality this way and extend
+    Puppet without ever writing one plugin. This does have some disadvantages, however:'
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一节中，你通过封装一些 `exec` 资源实现了一个定义类型，并完成了所有的同步工作。通过 Puppet 安装二进制文件和脚本，你可以通过这种方式实现几乎任何功能，且无需编写任何插件。然而，这种做法也有一些缺点：
+- en: The output is cryptic in the ideal case and overwhelming in the case of errors
+  id: totrans-207
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 理想情况下，输出是晦涩的，而在出现错误时则会让人不知所措。
+- en: Puppet shells out to at least one external process per resource; and in many
+    cases, multiple forks are required
+  id: totrans-208
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Puppet 每个资源至少会调用一个外部进程；在许多情况下，需要多个子进程。
+- en: In short, you pay a price, both in terms of usability and performance. Consider
+    the `packt_cacti::device` type. For each declared resource, Puppet will have to
+    run an `exec` resource's `unless` query on each run (or `onlyif` when `ensure
+    => absent` is specified). This consists of one call to a PHP script (which can
+    be expensive) as well as several core utilities that have to parse the output.
+    On a Cacti server with dozens or hundreds of managed devices, these calls add
+    up and make the agent spend a lot of time forking off and waiting for these child
+    processes.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 简而言之，你需要付出代价，无论是可用性还是性能方面。考虑 `packt_cacti::device` 类型。对于每个声明的资源，Puppet 在每次运行时都会运行
+    `exec` 资源的 `unless` 查询（或者在指定 `ensure => absent` 时，运行 `onlyif`）。这包括一次调用 PHP 脚本（可能会比较昂贵），以及几个必须解析输出的核心工具。在拥有数十或数百个受管设备的
+    Cacti 服务器上，这些调用会累积起来，使代理花费大量时间来生成和等待这些子进程。
+- en: 'Consider a provider, on the other hand. It can implement an `instances` hook,
+    which will create an internal list of configured Cacti devices once during initialization.
+    This requires only one PHP call in total, and all the processing of the output
+    can be done in the Ruby code directly inside the agent process. These savings
+    alone will make each run much less expensive: resources that are already synchronized
+    will incur no penalty, because no additional external commands need to be run.'
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一方面，考虑一个提供者。它可以实现一个`instances`钩子，这将在初始化时创建一个已配置的Cacti设备的内部列表。总共只需要一个PHP调用，所有输出的处理可以直接在代理进程中的Ruby代码内完成。仅这些节省的操作就能使每次运行成本大大降低：已经同步的资源不会受到任何惩罚，因为不需要运行额外的外部命令。
+- en: 'Let''s take a quick look at the agent output before we go ahead and implement
+    a simple type/provider pair. The following is the output of the `cacti::device`
+    type when it creates a device:'
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们继续实现一个简单的类型/提供者配对之前，先快速看一下代理输出。以下是`cacti::device`类型创建设备时的输出：
+- en: '[PRE37]'
+  id: totrans-212
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE37]'
+- en: 'The native types express such actions in a much cleaner manner, such as the
+    output from a `file` resource:'
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本地类型以更简洁的方式表达这些操作，例如来自`file`资源的输出：
+- en: '[PRE38]'
+  id: totrans-214
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE38]'
+- en: Replacing a defined type with a native type
+  id: totrans-215
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用本地类型替换定义类型
+- en: The process of creating a custom resource type with a matching provider
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建一个与之匹配的提供者的自定义资源类型的过程
+- en: '(or several providers) is not easy. Let''s go through the steps involved:'
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: （或者多个提供者）并不容易。让我们一步步了解其中的步骤：
+- en: Naming your type
+  id: totrans-218
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 命名你的类型
+- en: Creating the resource type's interface
+  id: totrans-219
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创建资源类型的接口
+- en: Designing sensible parameter hooks
+  id: totrans-220
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 设计合理的参数钩子
+- en: Using resource names
+  id: totrans-221
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用资源名称
+- en: Adding a provider
+  id: totrans-222
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 添加提供者
+- en: Declaring management commands
+  id: totrans-223
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 声明管理命令
+- en: Implementing the basic functionality
+  id: totrans-224
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 实现基本功能
+- en: Allowing the provider to prefetch existing resources
+  id: totrans-225
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 允许提供者预取现有资源
+- en: Making the type robust during provisioning
+  id: totrans-226
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在配置过程中使类型更强健
+- en: Naming your type
+  id: totrans-227
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 命名你的类型
+- en: The first important difference between the native and defined types is the naming.
+    There is no module namespacing for the custom types as you get with the defined
+    types, which are manifest-based. Native types from all the installed modules mingle
+    freely, if you will. They use plain names. It would, therefore, be unwise to call
+    the native implementation of `packt_cacti::device` just `device -` this will easily
+    clash with whatever notion of devices another module might have. The obvious choice
+    for naming your first resource type is `cacti_device`.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本地类型和定义类型之间的第一个重要区别是命名。自定义类型没有像定义类型那样的模块命名空间，定义类型是基于清单的。本地类型来自所有已安装的模块，可以自由地混合使用。它们使用普通名称。因此，简单地将`packt_cacti::device`的本地实现命名为`device`是不明智的——这很容易与其他模块可能有的设备概念发生冲突。命名你第一个资源类型的明显选择是`cacti_device`。
+- en: 'The type must be completely implemented in `packt_cacti/lib/puppet/type/cacti_device.rb`.
+    All hooks and calls will be enclosed in a `Type.newtype` block:'
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该类型必须完全实现于`packt_cacti/lib/puppet/type/cacti_device.rb`。所有钩子和调用都将封装在`Type.newtype`块中：
+- en: '[PRE39]'
+  id: totrans-230
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE39]'
+- en: The documentation string in `@doc` should be considered mandatory, and it should
+    be a bit more substantial than this example. Consider including one or more example
+    resource declarations. Put all the further code pieces between the `EOD` terminator
+    and the final `end`.
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`@doc`中的文档字符串应视为强制性的，并且它应该比这个例子更有实质性。考虑包含一个或多个示例资源声明。将所有后续的代码片段放在`EOD`终止符和最终的`end`之间。'
+- en: Creating the resource type's interface
+  id: totrans-232
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 创建资源类型的接口
+- en: 'First of all, the type should have the `ensure` property. Puppet''s resource
+    types have a handy helper method that generates all the necessary type code for
+    it through a simple invocation:'
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，类型应该具有`ensure`属性。Puppet的资源类型有一个方便的助手方法，通过简单调用生成所有必要的类型代码：
+- en: '[PRE40]'
+  id: totrans-234
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE40]'
+- en: 'With this method call in the body of the type, you add the typical `ensure`
+    property, including all the necessary hooks. This line is all that is needed in
+    the type code (actual implementation will follow in the provider). Most properties
+    and parameters require more code, just the same as the `ip` parameter:'
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在类型的主体中通过这个方法调用，你可以添加典型的`ensure`属性，包括所有必要的钩子。这个行在类型代码中是唯一需要的（实际实现将在提供者中跟进）。大多数属性和参数需要更多的代码，就像`ip`参数一样：
+- en: '[PRE41]'
+  id: totrans-236
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE41]'
+- en: This should usually be an `ip` property instead, but the provider will rely
+    on the Cacti CLI, which has no capability for changing the already configured
+    devices. If the IP address was a property, such changes would be required in order
+    to perform property-value synchronization.
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常这应该是一个`ip`属性，但提供者将依赖于Cacti CLI，而Cacti CLI无法更改已配置的设备。如果IP地址是一个属性，那么为了执行属性值同步，需要进行此类更改。
+- en: As you can see, the IP address parameter code consists mostly of validation.
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如你所见，IP地址参数的代码主要由验证组成。
+- en: Add the `require 'ipaddr'` line near the top of the file rather than inside
+    the `Type.newtype` block.
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在文件顶部附近添加`require 'ipaddr'`行，而不是放在`Type.newtype`块内。
+- en: The parameter is now available for the `cacti_device` resources, and the agent
+    will even refuse to add devices whose IP addresses are not valid. This is helpful
+    for users, because obvious typos in the addresses will be detected early. Let's
+    implement the next parameter before we look at the `munge` hook more closely.
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该参数现在可用于`cacti_device`资源，代理甚至会拒绝添加IP地址无效的设备。这对用户很有帮助，因为明显的地址错误将被早期检测到。在我们更仔细地查看`munge`钩子之前，先实现下一个参数。
+- en: Designing sensible parameter hooks
+  id: totrans-241
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 设计合理的参数钩子
+- en: 'Moving right along to the `ping_method` parameter, it accepts values only from
+    a limited set, so validation is easy:'
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来是`ping_method`参数，它只接受来自有限集合的值，因此验证很容易：
+- en: '[PRE42]'
+  id: totrans-243
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE42]'
+- en: Looking at the `munge` blocks carefully, you will notice that they aim at unifying
+    the input values. This is much less critical for the parameters than the properties,
+    but if either of these parameters is changed to a property in a future release
+    of your Cacti module, it will not try to sync a `ping_method` of `tcp` to `TCP.`
+    The latter might appear if the users prefer uppercase in their manifest. Both
+    values just become `:tcp` through munging. For the IP address, invoking `downcase`
+    has an effect only for IPv6.
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 仔细查看`munge`块，你会注意到它们旨在统一输入值。对于参数来说，这比属性要不那么关键，但如果将来某个Cacti模块版本中这些参数被改为属性，它将不会尝试将`ping_method`的`tcp`同步为`TCP`。如果用户在清单中更喜欢使用大写字母，后者可能会出现。通过munging，两个值都会变成`:tcp`。对于IP地址，调用`downcase`仅对IPv6有影响。
+- en: Beyond the scope of Puppet itself, the munging of a parameter's value is important
+    as well. It allows Puppet to accept more convenient values than the subsystem
+    being managed. For example, Cacti might not accept `TCP` as a value, but Puppet
+    will, and it will do the right thing with it.
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 超出Puppet本身的范围，参数值的munging也很重要。它允许Puppet接受比被管理的子系统更方便的值。例如，Cacti可能不接受`TCP`作为值，但Puppet会接受，并且会正确处理它。
+- en: Using resource names
+  id: totrans-246
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用资源名称
+- en: 'You need to take care of one final requirement: each Puppet resource type must
+    declare a `name variable` or `namevar`, for short. This parameter will use the
+    resource title from the manifest as its value, if the parameter itself is not
+    specified for the resource. For example, the `exec` type has the `command` parameter
+    for its `namevar`. You can either put the executable command into the resource
+    title or explicitly declare the parameter:'
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你需要处理最后一个要求：每个Puppet资源类型必须声明一个`name变量`或简称`namevar`。如果资源本身未指定该参数，该参数将使用清单中的资源标题作为其值。例如，`exec`类型具有`command`参数作为其`namevar`。你可以将可执行命令放入资源标题中，或显式声明该参数：
+- en: '[PRE43]'
+  id: totrans-248
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE43]'
+- en: To mark one of the existing parameters as the name variable, call the `isnamevar`
+    method in that parameter's body. If a type has a parameter called `:name`, it
+    automatically becomes the name variable. This is a safe default.
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 若要将现有参数标记为名称变量，请在该参数的主体中调用`isnamevar`方法。如果类型有一个名为`:name`的参数，它会自动成为名称变量。这是一个安全的默认值。
+- en: '[PRE44]'
+  id: totrans-250
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE44]'
+- en: 'The resource type is now already usable inside a manifest:'
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 资源类型现在已经可以在清单中使用：
+- en: '[PRE45]'
+  id: totrans-252
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE45]'
+- en: This code will get compiled into a catalog, but the agent will produce an error,
+    due to the reason that there is no provider available.
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这段代码将被编译到一个目录中，但代理会抛出错误，因为没有提供者可用。
+- en: Adding a provider
+  id: totrans-254
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 添加一个提供者
+- en: The resource type itself is ready for action, but it lacks a provider to do
+    the actual work of inspecting the system and performing the synchronization. Let's
+    build it step by step, just the same as the type. The name of the provider need
+    not reflect the resource type it's for. Instead, it should contain a reference
+    to the management approach it implements. Since your provider will rely on the
+    Cacti CLI, name it `cli`. It's fine for multiple providers to share a name if
+    they provide functionality to different types.
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 资源类型本身已经准备好执行操作，但缺少执行系统检查和执行同步的提供者。让我们一步步构建它，就像构建资源类型一样。提供者的名称不需要反映它所针对的资源类型，而应包含对其实现的管理方法的引用。由于你的提供者将依赖于
+    Cacti CLI，命名为`cli`即可。如果多个提供者为不同类型提供功能，共享相同的名称也是可以的。
+- en: 'Create the skeleton structure in `packt_cacti/lib/puppet/provider/cacti_device/cli.rb`:'
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在`packt_cacti/lib/puppet/provider/cacti_device/cli.rb`中创建框架结构：
+- en: '[PRE46]'
+  id: totrans-257
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE46]'
+- en: Specifying `:parent => Puppet::Provider` is not necessary, actually. `Puppet::Provider`
+    is the default base class for the providers. If you write a couple of similar
+    providers for a subsystem (each catering to a different resource type), all of
+    which rely on the same toolchain, you might want to implement a base provider
+    that becomes the parent for all the sibling providers.
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实际上，指定`:parent => Puppet::Provider`并不是必要的。`Puppet::Provider`是提供者的默认基类。如果你为一个子系统编写了几个类似的提供者（每个提供者针对不同的资源类型），而这些提供者都依赖相同的工具链，你可能希望实现一个基类提供者，作为所有兄弟提供者的父类。
+- en: For now, let's concentrate on putting together a self-sufficient `cli` provider
+    for the `cacti_device` type. First of all, declare the commands that you are going
+    to need.
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们集中精力构建一个自给自足的`cli`提供者，针对`cacti_device`类型。首先，声明你将需要的命令。
+- en: Declaring management commands
+  id: totrans-260
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 声明管理命令
+- en: Providers use the `commands` method to conveniently bind executables to
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提供者使用`commands`方法来方便地绑定可执行文件
+- en: 'Ruby identifiers:'
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Ruby 标识符：
+- en: '[PRE47]'
+  id: totrans-263
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE47]'
+- en: 'You won''t be invoking `php` directly. It''s included here because declaring
+    commands serves two purposes:'
+  id: totrans-264
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你不会直接调用`php`。它在这里被包含是因为声明命令有两个作用：
+- en: You can conveniently call the commands through a generated method
+  id: totrans-265
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你可以通过生成的方法方便地调用命令
+- en: The provider will mark itself as `valid` only if all the commands are found
+  id: totrans-266
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 只有在找到所有命令后，提供者才会标记自己为`valid`
+- en: So, if the `php` CLI command is not found in Puppet's search path, Puppet will
+    consider the provider to be dysfunctional. The user can determine this error condition
+    quite quickly through Puppet's debug output.
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，如果在 Puppet 的搜索路径中找不到`php` CLI 命令，Puppet 会认为该提供者是无效的。用户可以通过 Puppet 的调试输出快速判断这一错误情况。
+- en: Implementing the basic functionality
+  id: totrans-268
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 实现基本功能
+- en: The basic functions of the provider can now be implemented in three instance
+    methods. The names of these methods are not magic as such, but these are the methods
+    that the default `ensure` property expects to be available (remember that you
+    used the `ensurable` shortcut in the type code).
+  id: totrans-269
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提供者的基本功能现在可以通过三个实例方法来实现。这些方法的名称本身并没有什么特别的含义，但这些是默认`ensure`属性期望可用的方法（记住你在类型代码中使用了`ensurable`快捷方式）。
+- en: 'The first is the method that creates a resource if it does not exist yet. It
+    must gather all the resource parameter''s values and build an appropriate call
+    to `add_device.php`:'
+  id: totrans-270
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一个方法是创建一个资源（如果它尚不存在）。它必须收集所有资源参数的值，并构建一个合适的`add_device.php`调用：
+- en: '[PRE48]'
+  id: totrans-271
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE48]'
+- en: Don't quote the parameter values as you would quote them on the command-line.
+    Puppet takes care of this for you. It also escapes any quotes that are in the
+    arguments, so in this case, Cacti will receive any quotes for inclusion in the
+    configuration. For example, this will lead to an incorrect title.
+  id: totrans-272
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不要像在命令行中那样引用参数值。Puppet 会为你处理这个问题。它还会转义参数中的任何引号，因此在这种情况下，Cacti 会接收到这些引号并将其包含在配置中。例如，这将导致标题不正确。
+- en: '[PRE49]'
+  id: totrans-273
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE49]'
+- en: 'The provider must also be able to remove or `destroy` an entity:'
+  id: totrans-274
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提供者还必须能够删除或`销毁`实体：
+- en: '[PRE50]'
+  id: totrans-275
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE50]'
+- en: The `property_hash` variable is an instance member of the provider. Each resource
+    gets its specific provider instance. Read on to learn how it gets initialized
+    to include the device's ID number.
+  id: totrans-276
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`property_hash` 变量是提供者的实例成员。每个资源都有其特定的提供者实例。继续阅读，了解它如何被初始化以包含设备的 ID 号。'
+- en: 'Before we get to that, let''s add the final provider method in order to implement
+    the `ensure` property. This is a query method that the agent uses to determine
+    whether a resource is already present:'
+  id: totrans-277
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们进入这部分之前，让我们先添加最后一个提供者方法，以实现`ensure`属性。这是一个查询方法，代理会用来判断资源是否已经存在：
+- en: '[PRE51]'
+  id: totrans-278
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE51]'
+- en: The `ensure` property relies on the provider class method `instances` in order
+    to get a list of `providers` for all the entities on the system. It compares each
+    of them with the `resource` attribute, which is the resource type instance for
+    which this current provider instance is performing the work. If this is rather
+    confusing, please refer to the diagram in the next section.
+  id: totrans-279
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`ensure`属性依赖于提供者类方法`instances`，以获取系统上所有实体的`providers`列表。它将每个实体与`resource`属性进行比较，`resource`属性是当前提供者实例正在执行操作的资源类型实例。如果这让你感到困惑，请参考下一节的图示。'
+- en: Allowing the provider to prefetch existing resources
+  id: totrans-280
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 允许提供者预先获取现有资源
+- en: 'The `instances` method is truly special - it implements the prefetching of
+    the system resources during the provider initialization. You have to add it to
+    the provider yourself. Some subsystems are not suitable for the mass-fetching
+    of all the existing resources (such as the `file` type). These providers don''t
+    have an `instances` method. Enumerating the Cacti devices, on the other hand,
+    is quite possible:'
+  id: totrans-281
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`instances`方法非常特殊——它在提供者初始化期间实现了系统资源的预取。你必须自己将其添加到提供者中。一些子系统不适合大规模获取所有现有资源（例如`file`类型）。这些提供者没有`instances`方法。而枚举Cacti设备则是完全可行的：'
+- en: '[PRE52]'
+  id: totrans-282
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE52]'
+- en: The `ensure` value of the provider instance reflects the current state. The
+    method creates instances for the resources that are found on the system, so for
+    these, the value is always `present`. Also note that the result of the method
+    is cached in the `@instances` class member variable. This is important, because
+    the `exists?` method calls `instances`, which can happen a lot.
+  id: totrans-283
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提供者实例的`ensure`值反映了当前状态。该方法为系统中找到的资源创建实例，因此对于这些资源，值始终是`present`。还要注意，方法的结果会缓存在`@instances`类成员变量中。这一点非常重要，因为`exists?`方法会调用`instances`，这可能会频繁发生。
+- en: 'Puppet requires another method to perform proper prefetching. The mass-fetching
+    you implemented through `instances` supplies the agent with a list of provider
+    instances that represent the entities found on the system. From the master, the
+    agent received a list of the resource type instances. However, Puppet has not
+    yet built a relation between the resources (type instances) and providers. You
+    need to add a `prefetch` method to the provider class in order to make this happen:'
+  id: totrans-284
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Puppet需要另一种方法来执行正确的预取操作。你通过`instances`实现的大规模获取，向代理提供了一份代表系统上实体的提供者实例列表。代理从主节点接收资源类型实例的列表。然而，Puppet还没有在资源（类型实例）和提供者之间建立关系。你需要在提供者类中添加一个`prefetch`方法来实现这一点：
+- en: '[PRE53]'
+  id: totrans-285
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE53]'
+- en: The agent passes the `cacti_device` resources as a hash, with the resource title
+    as the respective key. This makes lookups very simple (and quick).
+  id: totrans-286
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 代理将`cacti_device`资源作为哈希传递，资源标题作为相应的键。这使得查找非常简单（且快速）。
+- en: 'This completes the `cli` provider for the `cacti_device` type. You can now
+    replace your `cacti::device` resources with the `cacti_device` instances to enjoy
+    improved performance and cleaner agent output:'
+  id: totrans-287
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这完成了`cli`提供者对`cacti_device`类型的支持。你现在可以用`cacti_device`实例替换你的`cacti::device`资源，以享受更好的性能和更清晰的代理输出：
+- en: '[PRE54]'
+  id: totrans-288
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE54]'
+- en: Note that, unlike your defined type `cacti::device`, a native type will not
+    assume a default value of `present` for its `ensure` property. Therefore, you
+    have to specify it for any `cacti_device` resource. Otherwise, Puppet will only
+    manage the properties of the resources that already exist and not care about whether
+    the entity exists or not. In the particular case of `cacti_device`, this will
+    never do anything, because there are no other properties (only parameters).
+  id: totrans-289
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，与您定义的类型`cacti::device`不同，本地类型不会为其`ensure`属性假设默认值`present`。因此，您必须为任何`cacti_device`资源指定此值。否则，Puppet只会管理已存在资源的属性，而不关心实体是否存在。在`cacti_device`的特殊情况下，这样做永远不会有任何作用，因为没有其他属性（仅有参数）。
+- en: You can refer to [Chapter 6](60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml), *The
+    Puppet Beginners Advanced Parts*, on how to use resource defaults to save you
+    from the repetition of the `ensure => present` specification.
+  id: totrans-290
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以参考[第6章](60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml)，*Puppet初学者进阶部分*，了解如何使用资源默认值来避免重复的`ensure
+    => present`规范。
+- en: Making the type robust during provisioning
+  id: totrans-291
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 在配置过程中增强类型的健壮性
+- en: There is yet another small issue with the `packt_cacti` module. It is self-sufficient
+    and handles both the installation and configuration of Cacti. However, this means
+    that during Puppet's first run, the `cacti` package and its CLI will not be available,
+    and the agent will correctly determine that the `cli` provider is not yet suitable.
+    Since it is the only provider for the `cacti_device` type, any resource of this
+    type that is synchronized before the `cacti` package will fail.
+  id: totrans-292
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`packt_cacti`模块还有一个小问题。它是自给自足的，并处理Cacti的安装和配置。然而，这意味着在Puppet的第一次运行中，`cacti`包及其CLI将不可用，代理会正确判断`cli`提供者尚不适用。由于它是`cacti_device`类型的唯一提供者，在`cacti`包之前同步的任何此类型的资源都会失败。'
+- en: 'In the case of the defined type `packt_cacti::device`, you just added the `require`
+    metaparameters to the inner resources. To achieve the same end for the native
+    type instances, you can work with the `autorequire` feature. Just as the files
+    automatically depend on their containing directory, the Cacti resources should
+    depend on the successful synchronization of the `cacti` package. Add the following
+    block to the `cacti_device` type:'
+  id: totrans-293
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在`packt_cacti::device`定义类型的例子中，你只是将`require`元参数添加到了内部资源。为了在原生类型实例中实现相同的效果，你可以使用`autorequire`特性。就像文件自动依赖于它们所在的目录一样，Cacti资源应该依赖于`cacti`包的成功同步。将以下代码块添加到`cacti_device`类型中：
+- en: '[PRE55]'
+  id: totrans-294
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE55]'
+- en: Enhancing Puppet's system knowledge through facts
+  id: totrans-295
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 通过事实增强Puppet的系统知识
+- en: When facts were introduced in [Chapter 3](be2d7b8b-9ea8-4459-b415-081e77db07c7.xhtml),
+    *A Peek into the Ruby Part of Puppet - Facts, Types, and Providers*, you got a
+    small tour of the process of creating your own custom facts.
+  id: totrans-296
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当在[第3章](be2d7b8b-9ea8-4459-b415-081e77db07c7.xhtml)中介绍事实时，*《Puppet中Ruby部分概述
+    - 事实、类型和提供者》*，你对创建自定义事实的过程进行了简要了解。
+- en: We hinted at modules at that point, and now, we can take a closer look at how
+    the fact code is deployed, using the example of the `Cacti` module. Let's focus
+    on native Ruby facts - they are more portable than the external facts. As the
+    latter are easy to create, there is no need to discuss them in depth here.
+  id: totrans-297
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在那时提到过模块，现在，我们可以更详细地了解事实代码如何部署，以下是`Cacti`模块的例子。我们将重点关注原生Ruby事实——它们比外部事实更具可移植性。由于后者容易创建，这里无需深入讨论它们。
+- en: For details on external facts, you can refer to the online documentation on
+    custom facts on the Puppet Labs site at [http://docs.puppetlabs.com/facter/latest/custom_facts.html#external-facts](http://docs.puppetlabs.com/facter/latest/custom_facts.html#external-facts).
+  id: totrans-298
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于外部事实的详细信息，你可以参考Puppet Labs网站上的自定义事实在线文档：[http://docs.puppetlabs.com/facter/latest/custom_facts.html#external-facts](http://docs.puppetlabs.com/facter/latest/custom_facts.html#external-facts)。
+- en: 'Facts are part of the Puppet plugins that a module can contain, just as the
+    types and providers from the previous sections. They belong in the `lib/facter/`
+    subtree. For users of the `cacti` module, it might be helpful to learn which graph
+    templates are available on a given Cacti server (once the graph management is
+    implemented, that is). The complete list can be passed through a fact. The following
+    code in `packt_cacti/lib/facter/cacti_graph_templates.rb` will do just this job:'
+  id: totrans-299
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事实是Puppet插件的一部分，模块可以包含它们，就像前面章节中的类型和提供者一样。它们属于`lib/facter/`子树。对于`cacti`模块的用户，了解给定Cacti服务器上有哪些图表模板可能会很有帮助（当然前提是图表管理功能已经实现）。完整的列表可以通过一个事实传递。以下代码位于`packt_cacti/lib/facter/cacti_graph_templates.rb`，将执行此操作：
+- en: '[PRE56]'
+  id: totrans-300
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE56]'
+- en: The code will call the CLI script, skip its first line of output, and join the
+    values from the second column of each remaining line in a list. Manifests can
+    access this list through the global `$cacti_graph_templates` variable, just the
+    same as any other fact.
+  id: totrans-301
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该代码将调用CLI脚本，跳过其输出的第一行，并将每一行其余部分的第二列的值合并成一个列表。清单可以通过全局变量`$cacti_graph_templates`访问此列表，正如访问任何其他事实一样。
+- en: Refining the interface of your module through custom functions
+  id: totrans-302
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 通过自定义函数优化模块的接口
+- en: Functions can be of great help in keeping your manifest clean and maintainable,
+    and some tasks cannot even be implemented without resorting to a Ruby function.
+  id: totrans-303
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 函数在保持你的清单干净且易于维护方面非常有帮助，有些任务甚至无法在没有Ruby函数的情况下实现。
+- en: A frequent use of the custom functions (especially in Puppet 3) is input validation.
+    You can do this in the manifest itself, but it can be a frustrating exercise because
+    of the limitations of the language. The resulting Puppet DSL code can be hard
+    to read and maintain. The `stdlib` module comes with the `validate_X` functions
+    for many basic data types, such as `validate_bool`. Typed parameters in Puppet
+    4 and later versions make this more convenient and natural, because for the supported
+    variable types, no validation function is needed anymore.
+  id: totrans-304
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自定义函数的一个常见用法（特别是在 Puppet 3 中）是输入验证。您可以在清单本身中执行此操作，但由于语言的限制，这可能会让人感到沮丧。生成的 Puppet
+    DSL 代码可能很难阅读和维护。`stdlib` 模块提供了许多基本数据类型的 `validate_X` 函数，例如 `validate_bool`。Puppet
+    4 及更高版本中的类型化参数使这一过程更加方便和自然，因为对于支持的变量类型，已经不再需要验证函数。
+- en: As with all the plugins, the functions need not be specific to the module's
+    domain, and they instantly become available for all the manifests. A case in point
+    is the `packt_cacti` module that can use the validation functions for the `packt_cacti::device`
+    parameters. Checking whether a string contains a valid IP address is not at all
+    specific to Cacti. On the other hand, checking whether `ping_method` is one of
+    those that Cacti recognizes is not that generic.
+  id: totrans-305
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与所有插件一样，这些函数不需要特定于模块的领域，它们会立即对所有清单可用。举个例子，`packt_cacti` 模块可以使用 `packt_cacti::device`
+    参数的验证函数。检查一个字符串是否包含有效的 IP 地址与 Cacti 完全没有关系。另一方面，检查 `ping_method` 是否是 Cacti 识别的那些方法，则不那么通用。
+- en: 'To see how it works, let''s just implement a function that does the job of
+    the `validate` and `munge` hooks from the custom `cacti_device` type for the IP
+    address parameter of `packt_cacti::device`. This should fail the compilation if
+    the address is invalid; otherwise, it should return the unified address value:'
+  id: totrans-306
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了查看它是如何工作的，让我们实现一个函数，完成 `packt_cacti::device` 中 IP 地址参数的 `validate` 和 `munge`
+    钩子的功能。如果地址无效，编译应该失败；否则，它应该返回统一的地址值：
+- en: '[PRE57]'
+  id: totrans-307
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE57]'
+- en: In the exception message, `@resource.ref` is expanded to the textual reference
+    of the offending resource type instance, such as `Packt_cacti::Device[Edge Switch
+    03]`.
+  id: totrans-308
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在异常消息中，`@resource.ref` 会扩展为出现问题的资源类型实例的文本引用，例如 `Packt_cacti::Device[Edge Switch
+    03]`。
+- en: 'The following example illustrates the use of the function in the simple version
+    of `cacti::device` without the `ensure` parameter:'
+  id: totrans-309
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下示例说明了在没有 `ensure` 参数的简单版本 `cacti::device` 中使用该函数：
+- en: '[PRE58]'
+  id: totrans-310
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE58]'
+- en: The manifest will then fail to compile if an IP address has (conveniently)
+  id: totrans-311
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果 IP 地址（巧妙地）存在，清单将无法编译：
+- en: 'transposed digits:'
+  id: totrans-312
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 转置数字：
+- en: '[PRE59]'
+  id: totrans-313
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE59]'
+- en: IPv6 addresses will be converted to all lowercase letters.
+  id: totrans-314
+  prefs: []
+  type: TYPE_NORMAL
+  zh: IPv6 地址将被转换为全小写字母。
+- en: Puppet 4 introduced a more powerful API for defining the custom functions. Refer
+    to [Chapter 6](60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml), *The Puppet Beginners
+    Advanced Parts*, to learn about its advantages.
+  id: totrans-315
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Puppet 4 引入了更强大的 API 用于定义自定义函数。请参考 [第 6 章](60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml)，*Puppet
+    初学者高级部分*，了解其优势。
+- en: Making your module portable across platforms
+  id: totrans-316
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使您的模块能够在多个平台上移植
+- en: Sadly, our `Cacti` module is very specific to the Debian package. It expects
+    to find the CLI at a certain place and the Apache configuration snippet at another.
+    These locations are most likely specific to the Debian package. It would be useful
+    for the module to work on the Red Hat derivatives as well.
+  id: totrans-317
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不幸的是，我们的 `Cacti` 模块非常依赖 Debian 包。它期望在特定位置找到 CLI，在另一个位置找到 Apache 配置片段。这些位置很可能是特定于
+    Debian 包的。如果模块能够在 Red Hat 衍生系统上也能正常工作，那就更好了。
+- en: The first step is to get an overview of the differences by performing a manual
+    installation. I chose to test this with a virtual machine running Fedora 18\.
+    The basic installation is identical to Debian, except using `yum` instead of `apt-get`,
+    of course. Puppet will automatically do the right thing here. The `puppet::install`
+    class also contains a CLI file, though. The Red Hat package installs the CLI in
+    `/var/lib/cacti/cli`, rather than `/usr/share/cacti/cli`.
+  id: totrans-318
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一步是通过执行手动安装来了解差异。我选择使用运行 Fedora 18 的虚拟机进行测试。基本的安装与 Debian 相同，当然，使用的是 `yum`
+    而不是 `apt-get`。Puppet 会自动在这里执行正确的操作。`puppet::install` 类也包含一个 CLI 文件。Red Hat 包将
+    CLI 安装在 `/var/lib/cacti/cli`，而不是 `/usr/share/cacti/cli`。
+- en: 'If the module is supposed to support both platforms, the target location for
+    the `remove_device.php` script is no longer fixed. Therefore, it''s best to deploy
+    the script from a central location in the module, while the target location on
+    the agent system becomes a module parameter, if you will. Such values are customarily
+    gathered in a `params` class:'
+  id: totrans-319
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果模块应该支持两个平台，那么`remove_device.php`脚本的目标位置不再固定。因此，最好从模块的中心位置部署脚本，而在代理系统上的目标位置则成为一个模块参数，如果您愿意的话。这些值通常会在`params`类中收集：
+- en: '[PRE60]'
+  id: totrans-320
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE60]'
+- en: It is best to fail the compilation for unsupported agent platforms. Users will
+    have to remove the declaration of the `cacti` class from their module, rather
+    than have Puppet try untested installation steps that most likely will not work
+    (this might concern Gentoo or a BSD variant).
+  id: totrans-321
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最好是针对不支持的代理平台失败编译。用户必须从其模块中删除`cacti`类的声明，而不是让Puppet尝试未经测试的安装步骤，这很可能不起作用（这可能涉及Gentoo或BSD变体）。
+- en: 'Classes that need to access the variable value must include the `params` class:'
+  id: totrans-322
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要访问变量值的类必须包含`params`类：
+- en: '[PRE61]'
+  id: totrans-323
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE61]'
+- en: Similar transformations will be required for the `cacti::redirect` class and
+    the `cacti::config` class. Just add more variables to the `params` class. This
+    is not limited to the manifests, either; the facts and providers must behave in
+    accordance with the agent platform as well.
+  id: totrans-324
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于`cacti::redirect`类和`cacti::config`类，可能需要类似的转换。只需向`params`类添加更多变量。这不仅限于清单；事实和提供者也必须按照代理平台的行为。
+- en: 'You will often see that the `params` class is inherited rather than included:'
+  id: totrans-325
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您经常会看到`params`类是继承而不是包含：
+- en: '[PRE62]'
+  id: totrans-326
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE62]'
+- en: This is done because an `include` statement in the class body won't allow the
+    use of variable values from the `params` class as the class parameter's default
+    values, such as the `$redirect` parameter in this example.
+  id: totrans-327
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是因为类主体中的`include`语句不允许使用`params`类中的变量值作为类参数的默认值，比如此示例中的`$redirect`参数。
+- en: The portability practices are often not required for your own custom modules.
+    In the ideal case, you won't use them on more than one platform. The practice
+    should be considered mandatory if you intend to share them on the Forge, though.
+    For most of your Puppet needs, you will not want to write modules anyway, but
+    download existing solutions from the Forge instead.
+  id: totrans-328
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您自己的自定义模块通常不需要可移植性实践。在理想情况下，您不会在多个平台上使用它们。但如果打算在Forge上共享它们，则应该考虑这种实践是强制性的。对于大多数Puppet需求，您不希望编写模块，而是从Forge下载现有的解决方案。
+- en: In Puppet 4.9 and later versions, the params class pattern will no longer be
+    necessary to ship the default parameter values. There is a new data binding mechanism
+    instead. This mechanism is explained in [Chapter 8](6d37b9a7-780a-49f2-a965-4431d8517de6.xhtml),
+    *Separation of Code and Data with Hiera*.
+  id: totrans-329
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Puppet 4.9及更高版本中，params类模式将不再需要用于传递默认参数值。取而代之的是一种新的数据绑定机制。该机制在《第8章》中有详细解释，*使用Hiera分离代码与数据*。
+- en: Finding helpful Forge modules
+  id: totrans-330
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 查找有用的Forge模块。
+- en: Using the web interface at [http://forge.puppetlabs.com](http://forge.puppetlabs.com/)
+    is very straightforward. By filling the search form with the name of the software,
+    system, or service you need to manage, you will usually get a list of very fitting
+    modules often with just your search term as their name. In fact, for common terms,
+    the number of available modules can be overwhelming.
+  id: totrans-331
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用[http://forge.puppetlabs.com](http://forge.puppetlabs.com/)的Web界面非常直观。通过填写软件、系统或服务的名称来搜索，通常会得到一列非常合适的模块，而它们的名称往往就是你搜索的关键词。事实上，对于常见术语，可用模块的数量可能会让人眼花缭乱。
+- en: 'You can get immediate feedback about the maturity and popularity of each module.
+    A module is being actively used and maintained if:'
+  id: totrans-332
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以立即了解每个模块的成熟度和流行度。如果模块正在积极使用和维护：
+- en: It has a score close to 5
+  id: totrans-333
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 它的分数接近5。
+- en: It has a version number that indicates releases past 1.0.0 (or even 0.1.0)
+  id: totrans-334
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 它有一个版本号，表示超过1.0.0（甚至0.1.0）的发布。
+- en: Its most recent release was not too long ago, perhaps less than half a year
+  id: totrans-335
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最近的版本发布并不久，也许不到半年的时间。
+- en: It has a significant number of downloads
+  id: totrans-336
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 它有大量的下载量。
+- en: The latter three numbers can vary a lot though, depending on the number of features
+    that the module implements and how widespread its subject is. Even more importantly,
+    just because a particular module gets much attention and regular contributions,
+    it does necessarily mean that it is the best choice for your situation.
+  id: totrans-337
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，后面三个数字可能会有很大差异，这取决于模块实现的功能数量以及其主题的普及程度。更重要的是，仅仅因为某个模块获得了大量关注和定期贡献，并不意味着它是最适合你情况的选择。
+- en: You are encouraged to evaluate less trafficked modules as well - you can unearth
+    some hidden gems this way. The next section details some deeper indicators of
+    quality for you to take into consideration.
+  id: totrans-338
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你被鼓励评估那些访问量较少的模块——这样你可能会发现一些隐藏的宝藏。下一节详细介绍了一些质量的深层指标，供你参考。
+- en: If you cannot, or don't want to, spend too much time digging for the best module,
+    you can also just refer to the sidebar with the Puppet Supported and Puppet Approved
+    modules. All modules that are featured in these categories have got a seal of
+    quality from Puppet Labs.
+  id: totrans-339
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你不能，或者不想花太多时间去挖掘最合适的模块，也可以参考 Puppet 支持和 Puppet 批准的模块侧边栏。所有在这些类别中展示的模块都得到了
+    Puppet Labs 的质量认证。
+- en: Identifying module characteristics
+  id: totrans-340
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 识别模块特性
+- en: When navigating to a module's details in the Forge, you are presented with its
+    `README` file. An empty or very sparse documentation speaks of little care taken
+    by the module author. A sample manifest in the `README` file is often a good starting
+    point in order to put a module to work quickly.
+  id: totrans-341
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Forge 中导航到模块的详细信息时，会显示其`README`文件。一个空的或非常简略的文档表明模块作者并未花费多少心思。`README`文件中的示例清单通常是快速启动模块的一个好起点。
+- en: If you are looking for a module that will enhance your agents through additional
+    resource types and providers, look for the Types tab on the module details page.
+    It can also be enlightening to click on the Project URL link near the top of the
+    module description. This usually leads to GitHub. Here, you can not only conveniently
+    browse the plugins in the `lib/` subtree, but also get a feel of how the module's
+    manifests are structured.
+  id: totrans-342
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你正在寻找能够通过额外的资源类型和提供者增强代理的模块，可以查看模块详细信息页面上的类型标签。点击模块描述顶部附近的项目 URL 链接也是一个有启发性的做法。这个链接通常指向
+    GitHub。在这里，你不仅可以方便地浏览`lib/`子树中的插件，还可以大致了解模块清单的结构。
+- en: Another sign of a carefully maintained module are unit tests. These are found
+    in the `spec/` subtree. This tree does exist for most of the Forge modules. It
+    tends to be devoid of actual tests, though. There may be test code files for all
+    the classes and the defined types that are part of the module's manifest; these
+    are typically in the `spec/classes/` and `spec/defines/` subdirectories, respectively.
+    For plugins, there will ideally be unit tests in `spec/unit/` and `spec/functions/`.
+  id: totrans-343
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个精心维护模块的标志是单元测试。这些测试可以在`spec/`子树中找到。大多数 Forge 模块都有这个子树。不过，这个子树通常没有实际的测试。可能会有所有类和定义类型的测试代码文件，这些文件通常位于`spec/classes/`和`spec/defines/`子目录中。对于插件，理想情况下会在`spec/unit/`和`spec/functions/`中有单元测试。
+- en: Some `README` files of the modules contain a small greenish tag saying **build
+    passing**. This can turn red on occasions, stating **build failing**. These modules
+    use the Travis CI through GitHub, so they are likely to have at least a few unit
+    tests.
+  id: totrans-344
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些模块的`README`文件中包含一个绿色的标签，写着**构建通过**。这个标签有时会变红，显示**构建失败**。这些模块通过 GitHub 使用 Travis
+    CI，因此它们很可能至少有一些单元测试。
+- en: Summary
+  id: totrans-345
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: All the development in Puppet should be done in modules, and each such module
+    should serve as specific a purpose as possible. Most modules comprise only manifests.
+    This suffices to provide very effective and readable node manifests that clearly
+    and concisely express their intent by including aptly named classes and instantiating
+    defined types.
+  id: totrans-346
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有的 Puppet 开发都应该在模块中进行，每个模块应尽可能服务于一个特定的目的。大多数模块只包含清单文件。这足以提供非常有效且易读的节点清单，通过包含恰当命名的类和实例化定义的类型，清晰简洁地表达其意图。
+- en: Modules can also contain Puppet plugins in the form of resource types and providers,
+    parser functions, or facts. All of these are usually Ruby code. External facts
+    can be written in any language, though. Writing your own types and providers is
+    not required, but it can boost your performance and management flexibility.
+  id: totrans-347
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模块还可以包含 Puppet 插件，形式包括资源类型和提供者、解析函数或事实。这些通常都是 Ruby 代码。然而，外部事实可以用任何语言编写。虽然编写自己的类型和提供者不是必须的，但它可以提高你的性能和管理灵活性。
+- en: It is not necessary to write all your modules yourself. On the contrary, it's
+    advisable to rely on the open source modules from the Puppet Forge as much as
+    possible. The Puppet Forge is an ever-growing collection of helpful code for virtually
+    all the systems and software that Puppet can manage. In particular, the modules
+    that are curated by Puppet Labs are usually of very high quality. As with any
+    open source software, you are more than welcome to add any missing requirements
+    to the modules yourself.
+  id: totrans-348
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并不需要自己编写所有模块。相反，尽可能依赖于来自Puppet Forge的开源模块是一个明智的选择。Puppet Forge是一个不断增长的有用代码集合，几乎涵盖了Puppet能够管理的所有系统和软件。特别是，由Puppet
+    Labs策划的模块通常质量非常高。像所有开源软件一样，您非常欢迎自行添加任何缺失的需求到这些模块中。
+- en: After this broad view on Puppet's larger building blocks, [Chapter 6](60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml),
+    *The Puppet Beginners Advanced Parts*, narrows the scope a little. Now that you
+    have the tools to structure and compose a manifest code base, you will learn some
+    refined techniques in order to elegantly solve some distinct problems with Puppet.
+  id: totrans-349
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在对Puppet的整体构建模块有了一个广泛的了解后，[第六章](60cec52e-6b29-4028-bc15-3b5685598e6b.xhtml)，*Puppet初学者进阶部分*，将进一步缩小范围。现在，您已经具备了构建和组织清单代码库的工具，接下来您将学习一些精细的技巧，以优雅地解决一些Puppet中独特的问题。
