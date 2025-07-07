@@ -1,0 +1,3115 @@
+- en: '2'
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: '2'
+- en: Building Docker Images
+  id: totrans-1
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 构建 Docker 镜像
+- en: Applications that have components running as software containers are quite a
+    new development and a great way of avoiding problems with underlying infrastructure.
+    As we learned in the previous chapter, containers are processes that are executed
+    on hosts using their kernels, isolated using features present in these kernels
+    (in some cases, for years), and encapsulated in their own filesystems.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为软件容器运行的应用程序是一个相对较新的发展，也是避免底层基础设施问题的一种很好的方式。正如我们在上一章中所学到的，容器是利用宿主的内核执行的进程，通过内核中提供的特性（有时已存在多年）实现隔离，并被封装在自己的文件系统中。
+- en: In this chapter, we will use container images, which are template-like objects,
+    to create containers. Building these images is the first step to creating your
+    own container-based applications. We will learn different procedures to create
+    container images. These images will be our new application’s artifacts, and as
+    such, we need to build them securely and be ready to run them on our laptops or
+    computers, staging and production servers, or even cloud-provisioned infrastructures.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将使用容器镜像，它们是类似模板的对象，用于创建容器。构建这些镜像是创建你自己基于容器的应用程序的第一步。我们将学习不同的构建容器镜像的过程。这些镜像将成为我们新应用程序的产物，因此我们需要安全地构建它们，并准备在我们的笔记本电脑或计算机、预发布和生产服务器，甚至云提供的基础设施上运行它们。
+- en: 'In this chapter, we will cover the following topics:'
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将讨论以下内容：
+- en: Understanding how copy-on-write filesystems work
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 理解**写时复制（copy-on-write）**文件系统的工作原理
+- en: Building container images
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 构建容器镜像
+- en: Understanding common Dockerfile keys
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 理解常见的 Dockerfile 关键字
+- en: The command line for creating images
+  id: totrans-8
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创建镜像的命令行
+- en: Advanced image creation techniques
+  id: totrans-9
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 高级镜像创建技巧
+- en: Best practices for container image creation
+  id: totrans-10
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 容器镜像创建的最佳实践
+- en: Technical requirements
+  id: totrans-11
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 技术要求
+- en: 'In this chapter, we will teach you how to build container images and use them
+    in your code-compiling workflow. We will use open source tools, as well as a few
+    commercial ones that can run without licensing for non-professional use, to build
+    images and verify their security. We have included some labs in this chapter to
+    help you understand the content presented. These labs have been published at the
+    following GitHub repository: [https://github.com/PacktPublishing/Containers-for-Developers-Handbook/tree/main/Chapter2](https://github.com/PacktPublishing/Containers-for-Developers-Handbook/tree/main/Chapter2).
+    Here, you will find some extended explanations that have been omitted from this
+    book’s content to make the chapters easier to follow. The *Code In Action* video
+    for this chapter can be found at [https://packt.link/JdOIY](https://packt.link/JdOIY).'
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将教你如何构建容器镜像，并在你的代码编译工作流中使用它们。我们将使用开源工具，以及一些可以在非专业用途下无许可证运行的商业工具来构建镜像并验证其安全性。本章中还包含了一些实验，帮助你理解所介绍的内容。这些实验已发布在以下
+    GitHub 仓库：[https://github.com/PacktPublishing/Containers-for-Developers-Handbook/tree/main/Chapter2](https://github.com/PacktPublishing/Containers-for-Developers-Handbook/tree/main/Chapter2)。在这里，你将找到一些为了让章节更易于跟进而省略的扩展说明。本章的*实践代码*视频可以在[https://packt.link/JdOIY](https://packt.link/JdOIY)找到。
+- en: Understanding how copy-on-write filesystems work
+  id: totrans-13
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 理解**写时复制（copy-on-write）**文件系统的工作原理
+- en: Building a container image is the first step that’s required when you develop
+    an application using containers. In this chapter, we will learn about different
+    methods to build images. But first, it will be interesting to deep dive into how
+    images can be created in terms of filesystems.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 构建容器镜像是使用容器开发应用程序时的第一步。在本章中，我们将学习不同的镜像构建方法。但首先，深入探讨如何从文件系统角度创建镜像会很有趣。
+- en: Containers are processes that run isolated thanks to kernel features. They run
+    on top of a host system with its own filesystem as if they were running completely
+    independently within their own sub-system. Files included in this filesystem are
+    grouped in different layers, one layer on top of another. Files that have to be
+    modified from a lower layer are copied to the layer where the modification is
+    going to be made, and these changes are then committed. New files are only created
+    on the upper layer. This is the basis of **copy-on-write** (**CoW**) filesystems.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 容器是利用内核特性实现隔离运行的进程。它们运行在宿主系统上，拥有自己的文件系统，仿佛在各自的子系统内完全独立运行。这个文件系统中的文件被分成不同的层次，一层叠一层。需要修改的较低层文件会被复制到要进行修改的层，修改后会提交。新文件只会创建在上层。这就是**写时复制（CoW）**文件系统的基础。
+- en: As we can expect with this model, the container runtime will manage all these
+    changes. Every file modification requires host resources to copy the file between
+    layers and, thus, makes this mechanism a problem to create files continuously.
+    Before creating a new file in the upper layer, all layers must be read to verify
+    that the file isn’t present yet to copy its content to the upper layer.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们所预期的，这种模型下，容器运行时将管理所有这些变化。每次文件修改都需要主机资源来在层之间复制文件，因此，使得这个机制在连续创建文件时成为一个问题。在上层创建新文件之前，必须读取所有层，以确保文件尚未存在，并将其内容复制到上层。
+- en: All these layers are presented in **read-only** mode to a container every time
+    we create a container using a specific container image as a template, and a new
+    layer is added on top of other layers in **read-write** mode. This new layer is
+    the layer that will contain all the file changes since the container started.
+    However, this behavior will occur in all containers running on your system. All
+    containers based on the same container images share these read-only layers, which
+    is very important in terms of disk usage. Only the **container layer** differs
+    every time a new container is executed.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有这些层在每次我们使用特定容器镜像作为模板创建容器时，都以**只读**模式呈现给容器，并且会在其他层上方添加一个新的**读写**模式层。这个新层将包含容器启动后所有的文件更改。然而，这种行为会出现在系统中所有运行的容器中。所有基于相同容器镜像的容器共享这些只读层，这在磁盘使用方面非常重要。只有**容器层**在每次执行新的容器时会有所不同。
+- en: Important note
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要提示
+- en: All data that should persist across different container executions must be declared
+    and used outside the containers’ life cycle – for instance, by using **volumes**,
+    as we will learn in [*Chapter 4*](B19845_04.xhtml#_idTextAnchor096), *Running
+    Docker Containers*. We can declare volumes during the container-image-building
+    process, which indicates that the content exists outside of the image’s layers.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有在不同容器执行之间应该持久化的数据，必须在容器生命周期之外声明和使用——例如，通过使用**卷**，正如我们将在[*第4章*](B19845_04.xhtml#_idTextAnchor096)《运行
+    Docker 容器》中学习的那样。我们可以在容器镜像构建过程中声明卷，这表明内容存在于镜像层之外。
+- en: As we can see, using these templates speeds up container creation and reduces
+    the size of all containers in our systems. If we compare this with virtual machines,
+    it works like virtual machine templates or snapshots. Only changes are stored
+    at the host level, although it is important to mention here that containers use
+    very little space.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如我们所见，使用这些模板加速了容器创建并减少了我们系统中所有容器的大小。如果我们将其与虚拟机进行比较，它就像虚拟机模板或快照一样。只有更改被存储在主机级别，尽管这里需要特别提到的是，容器占用的空间非常少。
+- en: However, performance is always affected when using CoW filesystems, which you
+    should be aware of. Never store logs in a container layer as they may be lost
+    if you remove the container, and it is very important to remember that due to
+    the searching-copying-writing process for any file, your application performance
+    may also be impacted. Therefore, we will never use a container layer to store
+    logs, where processes are continuously writing files or monitoring data. You should
+    write these files on remote backends or use the container volumes feature. This
+    performance decrease applies when you write a lot of small files (thousands),
+    the opposite (a few enormous files), or lots of directories with quite a deep
+    tree structure. You, as a developer, must avoid any of these cases in your applications,
+    and you should prepare your containers to avoid them.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，在使用 CoW 文件系统时，性能总是会受到影响，这是你需要注意的。切勿将日志存储在容器层中，因为如果你删除容器，日志可能会丢失，且非常重要的一点是，由于任何文件的查找-复制-写入过程，应用程序性能可能也会受到影响。因此，我们绝不会在容器层中存储日志，尤其是那些不断写入文件或监控数据的进程。你应该将这些文件写入远程后端或使用容器卷功能。这种性能下降适用于大量小文件（成千上万），相反地（少量巨大文件），或有深层树结构的大量目录。作为开发者，你必须避免这些情况出现在你的应用中，并且应当提前准备好容器来避免它们。
+- en: Now that we know the behavior of these CoW filesystems, applied to both container
+    image creation and their execution, let’s learn how to build images.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们了解了这些 CoW 文件系统的行为，适用于容器镜像的创建和执行，让我们学习如何构建镜像。
+- en: Creating container images
+  id: totrans-23
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 创建容器镜像
+- en: In this section, we will review the different methods to build container images,
+    along with their pros and cons and use cases, so that you can choose the right
+    one, depending on your needs.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将回顾构建容器镜像的不同方法，以及它们的优缺点和使用场景，以便你根据需求选择合适的方法。
+- en: 'There are three ways to create container images:'
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建容器镜像有三种方法：
+- en: Using a base image within a Dockerfile, which is a recipe file that contains
+    different automated steps that are executed to create an image
+  id: totrans-26
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在 Dockerfile 中使用基础镜像，Dockerfile 是一个配方文件，包含创建镜像时执行的不同自动化步骤。
+- en: Interactively and manually executing commands and storing the resulting filesystem
+  id: totrans-27
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 交互式手动执行命令并存储生成的文件系统
+- en: From an empty filesystem, using a Dockerfile recipe file and copying only the
+    binaries and libraries required for our application
+  id: totrans-28
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 从空文件系统开始，使用 Dockerfile 配方文件，只复制我们应用所需的二进制文件和库。
+- en: It is easy to see that the last method is the best in terms of security, but
+    this can be difficult to implement if your code has many dependencies and is very
+    integrated with operating system files. Let’s explore these methods, starting
+    with the most common.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 很容易看出，最后一种方法在安全性方面是最好的，但如果你的代码有很多依赖关系并且与操作系统文件紧密集成，那么这可能很难实现。让我们从最常见的方法开始，逐一探讨这些方法。
+- en: Using Dockerfiles to create container images
+  id: totrans-30
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用 Dockerfile 创建容器镜像
+- en: Before we describe this method, let’s learn what a **Dockerfile** is.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们描述这种方法之前，让我们先了解一下什么是**Dockerfile**。
+- en: A Dockerfile is an **Open Container Initiative** (**OSI**)-compliant file that
+    works as a recipe, containing a step-by-step procedure to create a container image.
+    It contains a set of key-value pairs that describe different executions and meta-information
+    regarding the image’s behavior. We can use variables to expand arguments that
+    are passed when building images, and it is perfect for automation. If a Dockerfile
+    is well written, we can ensure its reproducibility.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Dockerfile 是一个符合**开放容器倡议**（**OSI**）规范的文件，作为创建容器镜像的配方，包含一步步的程序。它包含一组键值对，描述不同的执行步骤以及镜像行为的元信息。我们可以使用变量扩展在构建镜像时传递的参数，且它非常适合自动化。如果一个
+    Dockerfile 写得很好，我们可以确保它的可复现性。
+- en: 'The following is an example of a Dockerfile:'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是一个 Dockerfile 的示例：
+- en: '[PRE0]'
+  id: totrans-34
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: As mentioned before, this file describes all the steps required to assemble
+    an image. Let’s provide a quick overview of the steps taken in the presented Dockerfile.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前所述，这个文件描述了组装镜像所需的所有步骤。让我们快速概览一下所展示的 Dockerfile 中的步骤。
+- en: The first line, `FROM debian:stable-slim`, indicates that this container image
+    will be taken as a base image; hence, all its layers will be used. The container
+    runtime will download (*pull*) all these layers if they are not present in our
+    host. If any of them are already in our host, they will be used. This layer could
+    have come from any other image already in our host. Container image layers are
+    reused.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一行，`FROM debian:stable-slim`，表示此容器镜像将作为基础镜像，因此它的所有层都会被使用。容器运行时会下载（*pull*）所有这些层，如果它们在我们的主机上不存在的话。如果其中任何一层已经存在于主机上，它们将被使用。这个层可能已经来自主机中的任何其他镜像。容器镜像的层是可以重用的。
+- en: The second line, `RUN apt-get update -qq && apt-get install -qq package1 package2`,
+    executes all the content included as values. First, `apt-get update –qq` will
+    be executed, and if it’s successful, `apt-get install -qq package1 package2` will
+    be executed. This full step creates just one layer, on top of the previous one.
+    This layer will automatically be enabled for any other image using the same execution,
+    using the same `debian:stable-slim` base image.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二行，`RUN apt-get update -qq && apt-get install -qq package1 package2`，执行所有作为值的内容。首先会执行`apt-get
+    update -qq`，如果成功，则会执行`apt-get install -qq package1 package2`。这个完整步骤只会创建一个层，叠加在之前的层之上。此层会自动对使用相同执行的任何其他镜像启用，使用相同的`debian:stable-slim`基础镜像。
+- en: The third line, `COPY . /myapp`, will copy all the files available in the current
+    directory to a directory named `/myapp`, in a new layer. As mentioned in the second
+    line, this also creates a reusable layer for any new image that contains the same
+    entry.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第三行，`COPY . /myapp`，会将当前目录下所有可用的文件复制到名为`/myapp`的目录，并在新的一层中完成。正如第二行提到的，这也为包含相同入口的任何新镜像创建了可重用的层。
+- en: The fourth line, `RUN make /myapp`, executes the `make /myapp` command and creates
+    a new line. Remember that this is an example. We added a `make` sentence to build
+    our source code. In this step, for example, we run a compiler, previously installed
+    in the image, and build our binary artifact. All executing layers (those that
+    include a `RUN` key) should exit correctly. If this doesn’t happen, the image
+    build process will break and be stopped. If this happens, all previous layers
+    will remain in your system. The container runtime creates a layers cache, and
+    all following executions will reuse them by default. This behavior can be avoided
+    by recreating all previous images during the build process.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第四行，`RUN make /myapp`，执行`make /myapp`命令并创建一个新的层。记住，这是一个示例。我们添加了`make`命令来构建源代码。在这一步骤中，例如，我们运行了一个先前在镜像中安装的编译器，并构建了我们的二进制文件。所有执行层（包含`RUN`键的层）应该正确退出。如果发生异常，镜像构建过程将中断并停止。如果发生这种情况，所有之前的镜像层将保留在你的系统中。容器运行时会创建一个层缓存，所有后续执行会默认重用它们。这种行为可以通过在构建过程中重新创建所有之前的镜像来避免。
+- en: The two final steps don’t add layers. The `CMD` key declares which command line
+    will be executed (remember that a container runs a main process), and `EXPOSE`
+    adds the meta-information regarding which port should be exposed (listening).
+    This way, we explicitly declare in which port our application will listen to any
+    kind of communication.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后的两步不会增加镜像层。`CMD`键声明了将执行的命令行（记住，容器运行的是一个主进程），`EXPOSE`则添加了有关应暴露（监听）哪个端口的元信息。通过这种方式，我们明确声明了应用程序将在哪个端口监听任何类型的通信。
+- en: Important note
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要提示
+- en: You should declare all relevant meta-information in your Dockerfiles, such as
+    the *ports exposed*, the *volumes* for persistent data, the *username* (or *userid*)
+    defined for your main process, and the command line that should run on startup.
+    This information may be required by your container’s orchestrator administrators
+    because it is very important to avoid security issues. They will probably force
+    some security policies in the production platform that disallow your application’s
+    execution. Ask them whether some security policies are applied to ensure you added
+    the required information. Anyway, if you follow the security practices described
+    in this book, you probably won’t have any problems in production.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你应该在Dockerfile中声明所有相关的元信息，比如*暴露的端口*、*持久化数据的卷*、为你的主进程定义的*用户名*（或*用户ID*）以及启动时应执行的命令行。这些信息可能是容器编排管理员所需要的，因为它们对于避免安全问题至关重要。他们可能会在生产平台上强制实施一些安全策略，以禁止你的应用程序执行。询问他们是否应用了一些安全策略，确保你已经添加了所需的信息。无论如何，如果你遵循本书中描述的安全实践，你在生产中可能不会遇到任何问题。
+- en: As you can see, this is a pretty reproducible process. This recipe will create
+    the same image every time if we don’t change anything. This helps developers focus
+    on their code. However, creating reproducible images is not that easy. If you
+    take a closer look at the used `FROM` value, we use `debian:stable-slim`, which
+    means that the default image `docker.io`. For now, you just have to know that
+    a registry is a store for all container image layers. The value of the `FROM`
+    key indicates that a `debian` image, with a specific tag of `stable-slim`, will
+    be used, and thus, if Docker changes this image, all your image builds will also
+    change. Tags are the way we identify images, but they are not uniquely identified.
+    Each image and layer within images are uniquely identified by **digest hashes**,
+    and these are the real relevant values that you should closely monitor. To get
+    these values, we have to either pull the image or review the information in the
+    defined registry. The easier method is to pull the image, which happens when you
+    execute your build process, but in this example, we used a mocked Dockerfile,
+    so it won’t work as-is.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如你所见，这是一个相当可复现的过程。如果我们不做任何更改，这个配方每次都会创建相同的镜像。这帮助开发者专注于他们的代码。然而，创建可复现的镜像并不容易。如果你仔细查看所使用的`FROM`值，我们使用的是`debian:stable-slim`，这意味着默认镜像是`docker.io`。目前，你只需要知道注册表是所有容器镜像层的存储库。`FROM`键的值表示将使用一个特定标签为`stable-slim`的`debian`镜像，因此，如果Docker更改了这个镜像，你的所有镜像构建也会随之变化。标签是我们识别镜像的方式，但它们并不是唯一标识的。每个镜像及镜像中的层都是通过**摘要哈希**唯一标识的，这些才是你应该密切关注的真正相关值。为了获取这些值，我们要么需要拉取镜像，要么检查定义注册表中的信息。较为简单的方法是拉取镜像，这会在执行构建过程时自动发生，但在这个示例中，我们使用了一个模拟的Dockerfile，因此它不会直接起作用。
+- en: 'So, let’s pull the image from the official Docker images registry, at [https://hub.docker.com](https://hub.docker.com),
+    or by using the `docker.io` command-line tool:'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所以，让我们从官方 Docker 镜像注册表 [https://hub.docker.com](https://hub.docker.com) 拉取镜像，或者使用
+    `docker.io` 命令行工具：
+- en: '[PRE1]'
+  id: totrans-45
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Here, we execute `docker image pull debian:stable-slim` to download this image
+    from `docker.io`. All its layers will be downloaded. The Docker Hub website provides
+    lots of useful information, such as all the tags associated with an image and
+    the vulnerabilities detected in the contained files.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我们执行 `docker image pull debian:stable-slim` 从 `docker.io` 下载该镜像。所有相关的层将被下载。Docker
+    Hub 网站提供了许多有用的信息，比如与镜像相关的所有标签以及在包含的文件中发现的漏洞。
+- en: 'The digest shown in the previous code snippet will identify this image uniquely.
+    We can verify the image of our system and review its information by executing
+    `docker image inspect`, using its **image ID**:'
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上述代码片段中显示的摘要将唯一标识此镜像。我们可以通过执行 `docker image inspect` 并使用其 **镜像 ID** 来验证系统中的镜像并查看其信息：
+- en: '[PRE2]'
+  id: totrans-48
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: All containers’ related objects are identified by object IDs, and as such, we
+    can use them to refer to each object. In this example, we used the image ID to
+    inspect the object.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有与容器相关的对象都有唯一的对象 ID，因此我们可以用它们来引用每个对象。在这个例子中，我们使用镜像 ID 来检查对象。
+- en: Important note
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要提示
+- en: 'We can use `–-digests` when listing local images to retrieve all their digests
+    – for example, with the image used in this section:'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以在列出本地镜像时使用 `--digests` 来检索所有镜像的摘要——例如，使用本节中的镜像：
+- en: '`$ docker image` `ls --digests`'
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ docker image` `ls --digests`'
+- en: '`REPOSITORY   TAG           DIGEST                   IMAGE ID       CREATED      ``SIZE`'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`REPOSITORY   TAG           DIGEST               IMAGE ID       CREATED      ``SIZE`'
+- en: '`debian       stable-slim   sha256:f711bda490b4e5803ee7f634483c4e6fa7dae54102654f2c231ca58eb233a2f1   4ea5047878b3   9
+    days ago   ``80.5MB`'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`debian       stable-slim   sha256:f711bda490b4e5803ee7f634483c4e6fa7dae54102654f2c231ca58eb233a2f1   4ea5047878b3   9天前   ``80.5MB`'
+- en: It is important to note that image IDs are different from their digests. The
+    ID represents the current compilation or identifier generated on your system,
+    while the digest represents the compendium of all the layers and essentially identifies
+    the image anywhere – on your laptop, on your servers, or even in the registry
+    where it is remotely stored. The image digest is associated with the image content
+    manifest ([https://docs.docker.com/registry/spec/manifest-v2-2/](https://docs.docker.com/registry/spec/manifest-v2-2/))
+    and is used in V2 registries (the current version for most modern registry implementations).
+    Since your local builds are not in a registry format, the digest will be displayed
+    as `none`. Pushing your images to a V2 registry will change this.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要注意的是，镜像 ID 和其摘要是不同的。ID 代表当前在系统中生成的编译或标识符，而摘要则代表所有层的汇总，并且本质上可以在任何地方唯一标识该镜像——无论是在你的笔记本电脑、服务器上，还是在远程存储的注册表中。镜像摘要与镜像内容清单相关联（[https://docs.docker.com/registry/spec/manifest-v2-2/](https://docs.docker.com/registry/spec/manifest-v2-2/)），并用于
+    V2 注册表（目前大多数现代注册表实现使用的版本）。由于本地构建的镜像不符合注册表格式，因此摘要将显示为 `none`。将镜像推送到 V2 注册表后，情况将发生变化。
+- en: 'Let’s review this process, as well as the image IDs and digests, by looking
+    at a quick and simple example. We will build a couple of images using the following
+    two lines of a Dockerfile:'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们通过查看一个简短且简单的示例来回顾这个过程以及镜像 ID 和摘要。我们将使用以下两行 Dockerfile 构建几个镜像：
+- en: '[PRE3]'
+  id: totrans-57
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Using the current `debian:stable-slim` image, we will update its content and
+    install the `curl` package.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用当前的 `debian:stable-slim` 镜像，我们将更新其内容并安装 `curl` 包。
+- en: 'We will build two images, `one` and `two`, as shown in the following screenshot:'
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将构建两个镜像，`one` 和 `two`，如下面的截图所示：
+- en: '![Figure 2.1 – The execution of two consecutive container image builds. No
+    changes are expected; hence, the images are equal](img/B19845_02_01.jpg)'
+  id: totrans-60
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 2.1 – 执行两个连续的容器镜像构建。预计没有变化，因此镜像是相同的](img/B19845_02_01.jpg)'
+- en: Figure 2.1 – The execution of two consecutive container image builds. No changes
+    are expected; hence, the images are equal
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 2.1 – 执行两个连续的容器镜像构建。预计没有变化，因此镜像是相同的
+- en: The first build process will create a layers cache, and thus, the second build
+    will reuse them and the process will be faster as the layers are the same. No
+    installation process will be triggered. We have used the current directory as
+    the **build context**. Container runtimes such as Docker are executed in a client-server
+    model, and as such, we talk with the Docker daemon using our Docker command line.
+    The building process sends all files in the *current context* (*path*) to the
+    daemon so that it can use them to create the image’s filesystem. This is critical
+    because if we choose the wrong context, a lot of files will be sent to the daemon,
+    and this will impact the building process. We should correctly specify which directory
+    contains our code, and this will be used during the build process. In this context
+    folder, we should avoid binaries, libraries, documentation, and so on. It is important
+    to note that we can use Git repositories (in URL format) as the build context,
+    which makes it very interesting for CI/CD integrations.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一次构建过程将创建一个层缓存，因此第二次构建将复用这些缓存，构建过程会变得更快，因为层是相同的。安装过程不会被触发。我们使用当前目录作为**构建上下文**。像
+    Docker 这样的容器运行时是以客户端-服务器模型运行的，因此，我们通过 Docker 命令行与 Docker 守护进程进行交互。构建过程会将所有文件发送到*当前上下文*（*路径*）中的守护进程，以便它可以使用这些文件来创建镜像的文件系统。这一点至关重要，因为如果我们选择了错误的上下文，很多文件会被发送到守护进程，这将影响构建过程。我们应该正确指定包含代码的目录，这将在构建过程中使用。在这个上下文文件夹中，我们应避免放入二进制文件、库文件、文档等。需要注意的是，我们可以使用
+    Git 仓库（以 URL 格式）作为构建上下文，这使得 CI/CD 集成变得非常有趣。
+- en: To avoid sending irrelevant files to the daemon during the build process, we
+    can use the `.dockerignore` file. In this file, we will add the list of files
+    and folders that should be excluded, even if they are present in our build context.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了避免在构建过程中将无关文件发送给守护进程，我们可以使用 `.dockerignore` 文件。在该文件中，我们将列出应该排除的文件和文件夹，即使它们存在于我们的构建上下文中。
+- en: 'Let’s review the information we have from these images on our system. If we
+    execute `docker image ls –digest`, we will obtain their image IDs and their digests:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们查看系统中这些图像的相关信息。如果我们执行 `docker image ls --digest`，将获得它们的图像 ID 和摘要：
+- en: '![Figure 2.2 – A list of the created container images, showing their completely
+    equal IDs](img/B19845_02_02.jpg)'
+  id: totrans-65
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 2.2 – 创建的容器镜像列表，显示它们完全相同的 ID](img/B19845_02_02.jpg)'
+- en: Figure 2.2 – A list of the created container images, showing their completely
+    equal IDs
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 2.2 – 创建的容器镜像列表，显示它们完全相同的 ID
+- en: The first thing we can see is that both images, `one` and `two`, have the same
+    image ID. This is because we reused their layers. In the second build process,
+    using the same Dockerfile, the container runtime reuses all previous equal image
+    layers (those coming from the same execution), and the image was created very
+    fast. They are the same image with two different tags.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先可以看到的是，`one` 和 `two` 这两个镜像具有相同的镜像 ID。这是因为我们复用了它们的层。在第二次构建过程中，使用相同的 Dockerfile，容器运行时会复用所有先前相同的镜像层（那些来自相同执行的层），因此镜像创建非常快速。它们是相同的镜像，但有两个不同的标签。
+- en: We can also see that only the base image shows its digest. As mentioned previously,
+    it is the only one that comes from a V2 registry. If we upload one of our images
+    to *Docker Hub* (or any other V2-compatible registry), its digest will be created.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还可以看到，只有基础镜像显示了它的摘要。正如前面所提到的，它是唯一来自 V2 注册表的镜像。如果我们将某个镜像上传到*Docker Hub*（或任何其他支持
+    V2 的注册表），它的摘要将会被创建。
+- en: Important note
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要提示
+- en: To be able to upload images to Docker Hub, you need a working account. Create
+    your account by going to [https://hub.docker.com/signup](https://hub.docker.com/signup).
+    The process is pretty simple, and you will have a Docker Hub registry account
+    within a minute.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要能够将图像上传到 Docker Hub，您需要一个有效的账户。通过访问[https://hub.docker.com/signup](https://hub.docker.com/signup)来创建您的账户。这个过程非常简单，您将在一分钟内拥有一个
+    Docker Hub 注册账户。
+- en: Let’s see how uploading the image works and how it will have its immutable and
+    unique reference digest.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们来看一下上传镜像的工作原理，以及它如何生成不可变且唯一的引用摘要。
+- en: 'Before initiating the process, we will just log in to Docker Hub using our
+    account name. We will be prompted for our password, after which we should receive
+    a `Login` `Succeeded` message:'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在启动过程之前，我们只需使用账户名登录 Docker Hub。系统会提示输入密码，之后我们应该会收到 `Login` `Succeeded` 消息：
+- en: '[PRE4]'
+  id: totrans-73
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: Now that we are logged in, we need to retag our image. Image tags are the human-readable
+    format we use to reference images. In the build processes used for this example,
+    we used `one` and `two` as tags through the command line by writing `docker build
+    –t <TAG>`. However, we saw that both were the same image; hence, we can say that
+    tags are names for an image ID, which may cause you some confusion. *Can we trust
+    image tags?* The short answer is, *no, we can’t*. They don’t represent a unique
+    image state. We can have different tags for an image ID and change these images,
+    but if you still use those tags, you will be using completely different images.
+    In our example, anyone can change our `debian:stable-slim` image. If we rebuild
+    some of our images, based on this tag, we will create a new image with completely
+    different content. What if the new image contains some code exploitation because
+    a malicious attacker included it in that base image? This should not happen in
+    very controlled image registries such as Docker Hub, but this problem does exist.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经登录，需要重新标记我们的镜像。镜像标签是我们用来引用镜像的易读格式。在本示例中使用的构建过程中，我们通过命令行输入 `docker build
+    –t <TAG>`，将 `one` 和 `two` 作为标签。然而，我们看到这两个镜像是相同的；因此，我们可以说标签是镜像 ID 的名称，这可能会让您感到困惑。*我们能信任镜像标签吗？*
+    简短的回答是，*不，我们不能*。它们并不代表一个唯一的镜像状态。我们可以为镜像 ID 使用不同的标签并修改这些镜像，但如果您仍然使用这些标签，您将使用完全不同的镜像。在我们的示例中，任何人都可以更改我们的
+    `debian:stable-slim` 镜像。如果我们基于这个标签重新构建某些镜像，我们将创建一个具有完全不同内容的新镜像。如果新镜像包含一些代码漏洞，因为恶意攻击者将其包含在该基础镜像中呢？在像
+    Docker Hub 这样的高度受控的镜像注册表中，这不应该发生，但这个问题确实存在。
+- en: 'Let’s retag and upload our image by using `docker tag` and then `docker push`:'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们重新标记并上传我们的镜像，使用 `docker tag` 然后 `docker push`：
+- en: '![Figure 2.3 – Tagging and pushing an image to obtain its digest](img/B19845_02_03.jpg)'
+  id: totrans-76
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 2.3 – 标记和推送镜像以获取其摘要](img/B19845_02_03.jpg)'
+- en: Figure 2.3 – Tagging and pushing an image to obtain its digest
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 2.3 – 标记和推送镜像以获取其摘要
+- en: Note that we need to push the image. Just re-tagging does not work. Now, we
+    have a unique image, and anyone can use our tag to reference it. If we update
+    our `one` image, by adding some new content or changing the command line to be
+    executed, this digest will change. And even if we still use the same `frjaraur/one`
+    tag, a new build process using our image will create new content.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，我们需要推送镜像。仅重新标记并不起作用。现在，我们拥有一个唯一的镜像，任何人都可以使用我们的标签来引用它。如果我们更新了我们的`one`镜像，添加了一些新内容或更改了要执行的命令行，这个摘要将发生变化。即使我们仍然使用相同的`frjaraur/one`标签，使用我们的镜像进行的新构建过程也将创建新的内容。
+- en: Important note
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要提示
+- en: As a developer, you should be aware of any changes introduced in the images
+    you use as a reference for creating your images. You might be wondering which
+    method is correct to manage these changes. The short answer would be always using
+    image digests (following the example tags and digest, we will use `FROM debian:stable-slim@sha256:f711bda490b4e5803ee7f634483c4e6fa7dae54102654f2c231ca58eb233a2f1`).
+    This method can be very complex, but it is the most secure. Another method would
+    be using your own registry, isolated from the internet, where you store your images.
+    With your own managed private registry, you may be comfortable using image tags.
+    You will be the only one able to update your base images; hence, you manage the
+    complete image life cycle.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为开发者，您应该注意您作为参考来创建镜像时所使用的镜像中引入的任何更改。您可能会想知道管理这些更改的正确方法是什么。简短的回答是：始终使用镜像摘要（遵循示例标签和摘要，我们将使用`FROM
+    debian:stable-slim@sha256:f711bda490b4e5803ee7f634483c4e6fa7dae54102654f2c231ca58eb233a2f1`）。这种方法可能非常复杂，但它是最安全的。另一种方法是使用您自己的私有注册表，隔离于互联网，在其中存储您的镜像。使用您自己管理的私有注册表，您可以放心使用镜像标签。您将是唯一能够更新您的基础镜像的人，因此，您管理整个镜像生命周期。
+- en: 'As we mentioned at the beginning of this example, we built two images using
+    the same Dockerfile, and we realized that both images have the same image ID;
+    hence, they are exactly the same. Let’s change this a bit and use the `docker
+    build –no-cache` option, which avoids reusing previously created layers:'
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在本示例开始时提到的，我们使用相同的 Dockerfile 构建了两个镜像，并且我们意识到这两个镜像具有相同的镜像 ID；因此，它们是完全相同的。让我们稍微改变一下，使用
+    `docker build –no-cache` 选项，这样可以避免重新使用先前创建的层：
+- en: '![Figure 2.4 – Executing the image-building process without a cache](img/B19845_02_04.jpg)'
+  id: totrans-82
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 2.4 – 执行无缓存的镜像构建过程](img/B19845_02_04.jpg)'
+- en: Figure 2.4 – Executing the image-building process without a cache
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 2.4 – 执行无缓存的镜像构建过程
+- en: We can see that a completely new image was built, even though we are using the
+    same Dockerfile. This is due to the time between executions. Layers change between
+    build executions because we made modifications at two different points in time.
+    Of course, we can also include new changes due to package updates, but in this
+    case, it is even simpler.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以看到，即使使用相同的 Dockerfile，仍然构建出了一个全新的镜像。这是由于执行之间的时间差异。因为我们在两个不同的时间点进行了修改，所以下次构建执行时，层会发生变化。当然，我们也可以包括由于软件包更新带来的新变更，但在这种情况下，情况更加简单。
+- en: What we can learn from this is that reusing layers helps us maintain image sizes
+    and build times (we didn’t notice this in this example because we used a simple
+    two-line Dockerfile, but when you are compiling or downloading a bunch of modules
+    for your code, it can take a lot of time), but when we need to refresh the image
+    content, disabling the cache is a must. This is very useful when we create base
+    image files for our projects – for example, our own .NET Core and Python projects.
+    We will use these base images, uploaded into our registry, and we will be sure
+    of their content. When a new release arrives, we can rebuild these images and
+    all their dependent images (our applications’ images). This process should be
+    part of our automated CI/CD pipelines.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以从中学到的是，重用层有助于保持镜像的大小和构建时间（在这个例子中我们没有注意到这一点，因为我们使用了一个简单的两行 Dockerfile，但当你在为代码编译或下载大量模块时，这可能需要很长时间），但是当我们需要刷新镜像内容时，禁用缓存是必须的。当我们为项目创建基础镜像文件时，这一点非常有用——例如，我们自己的
+    .NET Core 和 Python 项目。我们将使用这些基础镜像并将它们上传到我们的注册中心，确保它们的内容是可靠的。当新的发布版本到来时，我们可以重建这些镜像以及它们的所有依赖镜像（我们的应用镜像）。这个过程应该是我们自动化
+    CI/CD 管道的一部分。
+- en: Now that we understand how to build images using Dockerfiles, we will move on
+    to a new method that can be helpful in very specific cases.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经理解了如何使用 Dockerfile 构建镜像，接下来我们将介绍一种在某些特定情况下非常有用的新方法。
+- en: Creating container images interactively
+  id: totrans-87
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 交互式创建容器镜像
+- en: We haven’t mentioned it before, but it is important to comment here that the
+    Dockerfile `RUN` lines create intermediate containers to execute the commands,
+    written as values after the `RUN` key. Hence, the `docker build` command launches
+    a series of chained containers that create the different layers that are finally
+    part of an image. Before executing a new container, this process stores the modified
+    files (container layer) in the system, using the container runtime’s `commit`
+    feature.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们之前没有提到，但这里需要特别指出，Dockerfile 中的 `RUN` 行会创建中间容器来执行命令，这些命令作为 `RUN` 键后的值书写。因此，`docker
+    build` 命令启动了一系列链式容器，这些容器创建了最终构成镜像的不同层。在执行新容器之前，这个过程会将修改过的文件（容器层）存储到系统中，使用容器运行时的
+    `commit` 功能。
+- en: These containers run one after another, using the layer created by the previous
+    one. The interactive process we are about to describe follows this workflow in
+    a simplified way. We will run a container, using an image as a base, and manually
+    run and copy all the commands and content required by our application. Changes
+    will be created on the fly, and we will commit the created container layer when
+    we have finished. This method may be interesting when we need to install software
+    that asks for different configurations interactively and we can’t automate the
+    process.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些容器一个接一个地运行，使用前一个容器创建的层。我们即将描述的交互式过程以简化的方式遵循这一工作流。我们将运行一个容器，使用镜像作为基础，并手动运行和复制应用程序所需的所有命令和内容。变更将在运行时创建，当我们完成后，我们将提交创建的容器层。当我们需要安装要求交互式不同配置的软件，并且无法自动化此过程时，这种方法可能会很有趣。
+- en: This method lacks reproducibility and shouldn’t be used if we can find a way
+    to automate the image creation process. No one will have any clue of how you installed
+    the content inside the image (the shell history will contain the steps if you
+    didn’t remove it, but interactive commands will not be there). Let’s introduce
+    a command that will help us understand how images were built – `docker image history`.
+    This command shows all the steps taken to create an image, including the meta-information
+    added in the process, in reverse order.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法缺乏可重现性，如果我们能找到一种方法来自动化镜像创建过程，就不应该使用它。没有人会知道你是如何在镜像中安装内容的（如果你没有删除它，shell
+    历史会包含这些步骤，但交互式命令不会出现）。让我们介绍一个可以帮助我们了解镜像如何构建的命令——`docker image history`。这个命令显示了创建镜像的所有步骤，包括在过程中添加的元信息，按倒序排列。
+- en: 'Let’s take a look at this output using one of the images from the previous
+    section, *Using Dockerfiles to create* *container images*:'
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看一下使用上一节中提到的一个镜像的输出，*使用 Dockerfile 创建* *容器镜像*：
+- en: '![Figure 2.5 – Reviewing all the steps that were used to create a container
+    image](img/B19845_02_05.jpg)'
+  id: totrans-92
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 2.5 – 回顾用于创建容器镜像的所有步骤](img/B19845_02_05.jpg)'
+- en: Figure 2.5 – Reviewing all the steps that were used to create a container image
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 2.5 – 回顾用于创建容器镜像的所有步骤
+- en: Image history must be read in reverse order, starting from the latest line.
+    We will start with an `ADD` key, which represents the initial `FROM` key from
+    our Dockerfile. This is because the `FROM` key is interpreted as copying all the
+    base image content on top of the base layer.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 镜像历史记录必须从最新的行开始按逆序读取。我们将从 `ADD` 键开始，这代表了我们 Dockerfile 中的初始 `FROM` 键。这是因为 `FROM`
+    键被解释为将所有基础镜像的内容复制到基础层之上。
+- en: We used `–-no-trunc` to be able to read the full command line from the output.
+    We can easily see that this image was created using the `/bin/sh -c apt-get update
+    –q && apt-get install –qq curl` command. The `docker image history` command will
+    show us the steps that were executed to build any image created from a Dockerfile,
+    but it won’t work for interactively created ones.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们使用了`–-no-trunc`选项，以便从输出中读取完整的命令行。我们可以很容易地看到，这个镜像是通过 `/bin/sh -c apt-get update
+    –q && apt-get install –qq curl` 命令创建的。`docker image history` 命令将显示我们从 Dockerfile
+    构建任何镜像时执行的步骤，但它对交互式创建的镜像无效。
+- en: 'Let’s see a simple example of installing a Postfix mail server using the *Debian*
+    image:'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看一个使用 *Debian* 镜像安装 Postfix 邮件服务器的简单示例：
+- en: '![Figure 2.6 – The manual execution of a Postfix mail package](img/B19845_02_06.jpg)'
+  id: totrans-97
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 2.6 – 手动执行 Postfix 邮件包](img/B19845_02_06.jpg)'
+- en: Figure 2.6 – The manual execution of a Postfix mail package
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 2.6 – 手动执行 Postfix 邮件包
+- en: 'Once the installation process has finished, we will be prompted to configure
+    various aspects of the server. This configuration is completely interactive:'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦安装过程完成，我们将被提示配置服务器的各个方面。这些配置是完全交互式的：
+- en: '![Figure 2.7 – The Postfix installation is interactive because it asks users
+    for specific configurations](img/B19845_02_07.jpg)'
+  id: totrans-100
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 2.7 – Postfix 安装是交互式的，因为它要求用户进行特定配置](img/B19845_02_07.jpg)'
+- en: Figure 2.7 – The Postfix installation is interactive because it asks users for
+    specific configurations
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 2.7 – Postfix 安装是交互式的，因为它要求用户进行特定配置
+- en: 'The installation process will ask you for some configurations interactively
+    and after that, the Postfix server will be ready to work. We can exit the container
+    process by executing `exit`, and we will commit the container layer as a new image.
+    We use `docker container ls –l` to only list the last container executed, and
+    then we execute `docker commit` (or `docker container commit` – both commands
+    will work as they both refer to containers) to save the current container layer
+    as a new image:'
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 安装过程中将要求你进行一些交互式配置，之后 Postfix 服务器将准备好工作。我们可以通过执行 `exit` 来退出容器进程，然后将容器层作为新镜像提交。我们使用
+    `docker container ls –l` 仅列出最后执行的容器，然后执行 `docker commit`（或 `docker container commit`
+    — 两个命令都可以使用，因为它们都指容器）将当前容器层保存为新镜像：
+- en: '![Figure 2.8 – Committing the container layer to create an image](img/B19845_02_08.jpg)'
+  id: totrans-103
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 2.8 – 提交容器层以创建图像](img/B19845_02_08.jpg)'
+- en: Figure 2.8 – Committing the container layer to create an image
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 2.8 – 提交容器层以创建图像
+- en: However, as we previously mentioned about this method, we can’t know the steps
+    taken to create the image.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，正如我们之前提到的关于此方法的内容，我们无法知道创建图像时所采取的步骤。
+- en: 'Let’s try using the `docker image` `history` command:'
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们试试使用 `docker image` 的 `history` 命令：
+- en: '![Figure 2.9 – History does not show any commands when an interactive process
+    was followed](img/B19845_02_09.jpg)'
+  id: totrans-107
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 2.9 – 当执行交互式过程时，历史记录不会显示任何命令](img/B19845_02_09.jpg)'
+- en: Figure 2.9 – History does not show any commands when an interactive process
+    was followed
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 2.9 – 当执行交互式过程时，历史记录不会显示任何命令
+- en: All we can see in the output is that we used `bash` to do something. We will
+    have the commands in its `.bash_history` file, but this is not how things should
+    be done. If you must use this method in specific cases, such as when your application’s
+    installation requires some interactive steps, remember to document all the changes
+    you made in the file to let other developers understand your process.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在输出中看到的只是我们使用`bash`做了某些事情。我们将在它的`.bash_history`文件中看到命令，但这并不是应有的做法。如果你必须在特定情况下使用这种方法，例如当应用程序的安装需要一些交互步骤时，记得将你所做的所有更改记录在文件中，以便其他开发人员理解你的过程。
+- en: This method is not recommended because it is not reproducible, and we can’t
+    add any meta-information to the container image. In the next section, we will
+    describe possibly the best method to remedy this, but it requires a lot of knowledge
+    about your application binary files, libraries, and hidden dependencies.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法不推荐使用，因为它不可重复，并且我们无法向容器镜像中添加任何元信息。在下一节中，我们将描述可能是解决此问题的最佳方法，但它需要对应用程序的二进制文件、库以及隐藏的依赖项有大量的了解。
+- en: Creating images from scratch
+  id: totrans-111
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 从零开始创建镜像
+- en: In this method, as its name already indicates, we will create an empty layer
+    and all files will be introduced, using a packaged set of files. You may have
+    noticed that all the image history we have seen so far involved using the `ADD`
+    key as the first step. This is how a container runtime starts the building process
+    – by copying the content of the base image.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种方法中，正如其名称所示，我们将创建一个空层，并通过使用一组打包好的文件来引入所有文件。你可能已经注意到，我们迄今为止看到的所有图像历史都涉及使用`ADD`关键字作为第一步。这就是容器运行时启动构建过程的方式——通过复制基础镜像的内容。
+- en: 'Using this method, you can ensure that only explicit required files will be
+    included in the container image. It works very well with coding languages such
+    as Go because you can include all their dependencies in binaries; hence, adding
+    your compiled artifacts will probably be enough for your application to work correctly.
+    This method also uses Dockerfile files, but in this case, we will start with a
+    simple `FROM scratch` line. This creates an empty layer for our files. Let’s take
+    a look at a simple example Dockerfile:'
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用这种方法，你可以确保只有明确需要的文件会被包含在容器镜像中。它与Go等编程语言配合得非常好，因为你可以将所有依赖项都包含在二进制文件中；因此，添加已编译的工件可能就足以使应用程序正常工作。此方法也使用Dockerfile文件，但在这种情况下，我们将从简单的`FROM
+    scratch`行开始。这将为我们的文件创建一个空层。让我们看一个简单的Dockerfile示例：
+- en: '[PRE5]'
+  id: totrans-114
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: This is a simple Dockerfile in which we just add files and meta-information.
+    It will contain our binary file, on top of an empty structure, and the meta-information
+    required to build a complete container image. As you can imagine, this method
+    creates the most secure images because the attack surface is completely reduced
+    to our own application. Developers can create images from scratch, packaging all
+    the files required for their applications. This can be very tricky and lots of
+    effort is required to include all dependencies. As mentioned earlier in this section,
+    it works very well with applications running static binaries, which include all
+    their dependencies.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个简单的Dockerfile，我们只是添加文件和元信息。它将包含我们的二进制文件，基于一个空结构，并包含构建完整容器镜像所需的元信息。正如你所想，这种方法创建了最安全的镜像，因为攻击面完全被缩减为我们自己的应用程序。开发人员可以从零开始创建镜像，打包他们应用程序所需的所有文件。这样做可能非常棘手，需要付出很多努力来包含所有依赖项。正如本节前面提到的，这种方法在运行静态二进制文件的应用程序中效果非常好，因为这些二进制文件已经包括了所有依赖项。
+- en: This method can also be used to create images based on exotic or highly customized
+    operating systems for which we don’t have base images. In these cases, you should
+    remove all non-required files and all references to the underlying hardware. This
+    can be very difficult, and that’s why it is usually recommended to use official
+    container images. We will learn a bit more about the different types of images
+    and how to ensure their origin, immutability, and ownership in [*Chapter 3*](B19845_03.xhtml#_idTextAnchor082),
+    *Shipping* *Docker Images*.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法还可以用于创建基于外来或高度自定义操作系统的镜像，这些操作系统没有基础镜像。在这些情况下，你应该删除所有不需要的文件和对底层硬件的所有引用。这可能非常困难，这也是为什么通常推荐使用官方容器镜像的原因。我们将在[*第3章*](B19845_03.xhtml#_idTextAnchor082)中了解更多有关不同类型镜像的内容，并且如何确保它们的来源、不可变性和所有权，*发布*
+    *Docker镜像*。
+- en: Now that we know how to make container images using different methods, we should
+    review the most important keys we will use in Dockerfiles.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们知道了如何使用不同的方法制作容器镜像，我们应该回顾一下在Dockerfile中将使用到的最重要的关键字。
+- en: Understanding common Dockerfile keys
+  id: totrans-118
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 理解常见的 Dockerfile 键
+- en: In this section, we will take a look at the most important keys and their best
+    practices. For full reference, it is better to review the documentation provided
+    by Docker Inc. ([https://docs.docker.com/engine/reference/builder/](https://docs.docker.com/engine/reference/builder/)).
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将查看最重要的键及其最佳实践。为了全面了解，最好参考 Docker Inc. 提供的文档 ([https://docs.docker.com/engine/reference/builder/](https://docs.docker.com/engine/reference/builder/))。
+- en: Container runtimes can create container images by reading a series of instructions
+    written in a Dockerfile. Following this recipe-like file, a container runtime
+    will assemble a container image.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 容器运行时可以通过读取写在 Dockerfile 中的一系列指令来创建容器镜像。遵循这种类似配方的文件，容器运行时将组装出容器镜像。
+- en: FROM
+  id: totrans-121
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: FROM
+- en: All Dockerfiles always start with a `FROM` key. This key is used to set the
+    base image and initialize the build process. We can use any valid container image
+    as a valid value for the `FROM` key, and a `scratch` keyword is reserved to build
+    images based on an empty layer.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有 Dockerfile 都以 `FROM` 键开始。此键用于设置基础镜像并初始化构建过程。我们可以使用任何有效的容器镜像作为 `FROM` 键的有效值，并且保留了
+    `scratch` 关键字，用于基于空层构建镜像。
+- en: A Dockerfile can include multiple image build processes, although usually, we
+    will use different files for each process.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个 Dockerfile 可以包含多个镜像构建过程，尽管通常我们会为每个过程使用不同的文件。
+- en: We can refer to images using their names and tags, and we can include their
+    digests to ensure image uniqueness. If no tag is used, `latest` will be used automatically.
+    Try to avoid this bad practice and always use the appropriate tag, or, even better,
+    add its digest if you use public image registries. It is also possible to define
+    a reference for each building process using the `AS` key. This way, we can share
+    content between container images built with a unique Dockerfile. **Multi-stage
+    building** is a practice in which we copy content from an image into others. We
+    will explore a use case in the *Advanced image build processes* section later
+    in this chapter.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过名称和标签来引用镜像，还可以包括其摘要以确保镜像的唯一性。如果没有使用标签，则会自动使用 `latest` 标签。尽量避免这种不良做法，并始终使用合适的标签，或者更好地，在使用公共镜像注册中心时，添加其摘要。还可以使用
+    `AS` 键为每个构建过程定义一个引用。通过这种方式，我们可以在使用唯一 Dockerfile 构建的容器镜像之间共享内容。**多阶段构建**是一种将内容从一个镜像复制到另一个镜像的做法。我们将在本章稍后的*高级镜像构建过程*部分探讨一个用例。
+- en: As mentioned previously, a Dockerfile can include multiple build definitions,
+    and we will name them using the `AS` key, which allows us to execute only specific
+    targets, and the `–-``target` command.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前所述，Dockerfile 可以包含多个构建定义，我们将使用 `AS` 键为其命名，这样我们可以仅执行特定的目标，并使用 `–-``target`
+    命令。
+- en: 'To modify the behavior of the building process, we will use the `ARG` and `ENV`
+    keys. We can use the `–-build-arg` option to include additional arguments in the
+    build process, and the container runtime will evaluate these values whenever the
+    `ARG` key is found. The following line shows an example of how arguments can be
+    passed to the `build` command:'
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要修改构建过程的行为，我们将使用 `ARG` 和 `ENV` 键。我们可以使用 `–-build-arg` 选项在构建过程中包含额外的参数，当找到 `ARG`
+    键时，容器运行时将评估这些值。以下行显示了如何将参数传递给 `build` 命令的示例：
+- en: '[PRE6]'
+  id: totrans-127
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: Note here that we used a specific `context` and non-default Dockerfile by adding
+    the `–file` argument. We also added `myvalue` to the `myvariable` variable, and
+    we should have included the `ARG` key in the `myDockerfile` file to expand this
+    value.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里需要注意，我们通过添加 `–file` 参数使用了特定的 `context` 和非默认的 Dockerfile。我们还将 `myvalue` 添加到了
+    `myvariable` 变量中，并且应该在 `myDockerfile` 文件中包含 `ARG` 键，以扩展此值。
+- en: ARG
+  id: totrans-129
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: ARG
+- en: '`ARG` is the only key that can be used before `FROM` to use build arguments
+    – for example, to choose a specific base image. As a developer, you may want to
+    have two different images for production and development, with some small changes,
+    such as enabling debugging flags. We will use only one Dockerfile, but two build
+    processes will be triggered, depending on the arguments passed. The following
+    simple example may help you understand this use case:'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`ARG` 是唯一一个可以在 `FROM` 之前使用的键，用于使用构建参数——例如，选择特定的基础镜像。作为开发者，您可能希望为生产和开发使用两个不同的镜像，可能有一些小的修改，比如启用调试标志。我们将只使用一个
+    Dockerfile，但会根据传递的参数触发两个构建过程。以下简单示例可以帮助您理解这一用例：'
+- en: '[PRE7]'
+  id: totrans-131
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: We will use `–build-arg CODE_VERSION=prod` whenever we need to build a production
+    image, using a specific base image, `base:prod`, which may contain fewer files
+    and binaries.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每当我们需要构建生产环境镜像时，我们将使用`–build-arg CODE_VERSION=prod`，并使用特定的基础镜像`base:prod`，该镜像可能包含较少的文件和二进制文件。
+- en: It is also usual to add the `ENV` key with `ARG`. The `ENV` key is used to add
+    or modify environment variables for the containers that are used during the build
+    process – for example, to add some path to `LD_LIBRARY` or change the `PATH` variable.
+    `ARG` can then be used to modify environment variables at runtime.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常还会将`ENV`关键字与`ARG`一起使用。`ENV`关键字用于在构建过程中为容器添加或修改环境变量——例如，向`LD_LIBRARY`添加某些路径或更改`PATH`变量。然后，`ARG`可以用于在运行时修改环境变量。
+- en: To include meta-information in our final container image, we can use the `LABEL`
+    key. Labels will help us identify a framework that’s been used, a release version,
+    the creator and maintainer of the content, and so on, or even a short description
+    of its usage.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在最终的容器镜像中包含元信息，我们可以使用`LABEL`关键字。标签将帮助我们识别所使用的框架、发布版本、内容的创建者和维护者等，甚至是其使用的简短描述。
+- en: Important note
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要提示
+- en: The OCI defines some conventional labels that may be used, and it would be interesting
+    to use them instead of creating your own as many applications integrate this standard.
+    You can review these labels at [https://github.com/opencontainers/image-spec/blob/main/annotations.md](https://github.com/opencontainers/image-spec/blob/main/annotations.md).
+    You will find labels such as `org.opencontainers.image.authors`, `org.opencontainers.image.vendor`,
+    and `org.opencontainers.artifact.description`, all of which are standard and integrated
+    into many container-related tools.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: OCI定义了一些可以使用的约定标签，使用它们可能比自己创建标签更有趣，因为许多应用程序已集成此标准。你可以在[https://github.com/opencontainers/image-spec/blob/main/annotations.md](https://github.com/opencontainers/image-spec/blob/main/annotations.md)查看这些标签。你会找到像`org.opencontainers.image.authors`、`org.opencontainers.image.vendor`和`org.opencontainers.artifact.description`等标签，所有这些都是标准标签，已集成到许多容器相关工具中。
+- en: WORKDIR
+  id: totrans-137
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: WORKDIR
+- en: All command executions defined in a Dockerfile will run relative to a working
+    directory. We can change this by using the `WORKDIR` key. Once defined in our
+    Dockerfile, all subsequent defined steps will use this environment – for example,
+    to copy files inside the image layers.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Dockerfile中定义的所有命令执行都将在相对工作目录中运行。我们可以通过使用`WORKDIR`关键字来改变这一点。一旦在Dockerfile中定义，所有后续定义的步骤将使用此环境——例如，复制文件到镜像层内。
+- en: COPY and ADD
+  id: totrans-139
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: COPY和ADD
+- en: Adding files to image layers is always needed. We will include our code or binaries,
+    libraries, some static files, and so on. However, we shouldn’t add certificates,
+    tokens, passwords, and so on. In general, any content that requires some security
+    or may change frequently must be included during runtime, and not in the image
+    layers.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 向镜像层中添加文件是必须的。我们将包括我们的代码或二进制文件、库、一些静态文件等。然而，我们不应该添加证书、令牌、密码等。一般来说，任何需要一定安全性或可能频繁变化的内容，必须在运行时包含，而不是在镜像层中。
+- en: We can use the `COPY` and `ADD` keys to add files to image layers. The `COPY`
+    instruction copies files and directories into specified image paths. If relative
+    paths are used for the source, files must be included in the build context directory.
+    If relative paths are used for the destination, the `WORKDIR` key will be used
+    as the reference path. We can also copy files from other images declared in the
+    same Dockerfile by using `–-from=<IMAGE_TARGET_NAME>`. It is important to note
+    that file ownership can be changed using the `–-chown=<USERNAME or USERID>:<GROUPNAME
+    or GROUPID>` command; if omitted, the user from the current container execution
+    step will be used.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用`COPY`和`ADD`关键字将文件添加到镜像层中。`COPY`指令将文件和目录复制到指定的镜像路径。如果源使用相对路径，文件必须包含在构建上下文目录中。如果目标使用相对路径，则会使用`WORKDIR`关键字作为参考路径。我们还可以通过使用`–-from=<IMAGE_TARGET_NAME>`从在同一Dockerfile中声明的其他镜像复制文件。需要注意的是，可以使用`–-chown=<USERNAME
+    or USERID>:<GROUPNAME or GROUPID>`命令更改文件所有权；如果省略，则将使用当前容器执行步骤中的用户。
+- en: '`ADD` works like `COPY`, but in this case, you can use remote URLs as a source,
+    as well as TAR and gzip packaged files. If you use a compressed and packaged file,
+    it will be unpackaged and uncompressed automatically for you in the specified
+    destination.'
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`ADD`的功能与`COPY`相似，但在这种情况下，你可以使用远程URL作为源，也可以使用TAR和gzip打包文件。如果使用压缩和打包的文件，它将在指定的目标位置自动解包和解压。'
+- en: Each file that’s passed is verified against the checksums of image files, but
+    the modification time isn’t recorded, so you must be aware of the changes you
+    make to your files before executing the building process. It is better to add
+    a separate `COPY` line for those files you are often editing (for example, your
+    application’s code), or simply disable caching if you are not sure whether your
+    file changes were correctly copied.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有传递的文件都会根据镜像文件的校验和进行验证，但修改时间不会被记录，因此在执行构建过程之前，你必须注意对文件所做的更改。最好为那些经常编辑的文件（例如你的应用程序代码）添加单独的`COPY`命令，或者如果不确定文件更改是否已正确复制，可以简单地禁用缓存。
+- en: To avoid copying some files inside our project folders, we can use the `.dockerignore`
+    file. This file contains a list of files that shouldn’t be included in the Docker
+    build context; hence, they will not be copied into the image layers.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了避免将某些文件复制到我们的项目文件夹中，我们可以使用`.dockerignore`文件。该文件包含不应包含在Docker构建上下文中的文件列表，因此这些文件将不会被复制到镜像层中。
+- en: RUN
+  id: totrans-145
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 运行
+- en: The `RUN` key is used to execute the command line inside containers that were
+    created during the build process. This action is fundamental to creating container
+    images. All commands passed as a value to this key will be executed, and the resulting
+    container layer will be committed as a new image layer; hence, all the `RUN` keys
+    create a layer. Only the `COPY`, `ADD`, and `RUN` keys create layers; none of
+    the other keys increase image size because they modify the resulting image behavior
+    and add meta-information. You will probably see the `RUN` values use multiple
+    lines, starting with `&&` and ending with `\`. This simple trick will avoid the
+    creation of new layers for each command executed. This way, you can concatenate
+    multiple executions in one line and separate them into multiple lines for easy
+    reading. Lines will be treated as if they were just one line, and thus, only one
+    layer will be created. You should take care here because you may lose layer reusability,
+    and this method can also mask errors during building processes. If you are having
+    issues with one long line that contains a lot of commands, decouple them into
+    multiple executions to isolate the error and, once solved, concatenate the lines
+    again to create just one line.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`RUN`关键字用于在构建过程中创建的容器内部执行命令行。这个操作是创建容器镜像的基础。所有传递给该关键字的命令将会被执行，结果生成的容器层将作为一个新的镜像层提交；因此，所有的`RUN`命令都会创建一个层。只有`COPY`、`ADD`和`RUN`关键字会创建镜像层；其他任何关键字都不会增加镜像的大小，因为它们只是修改了镜像的行为或添加了元数据。你可能会看到`RUN`命令使用多行，从`&&`开始，使用`\`结束。这种简单的技巧可以避免为每个执行的命令创建新的层。通过这种方式，你可以将多个执行操作连接到一行，并将其拆分成多行以便阅读。行会被视为单行，因此只会创建一个层。在此过程中需要小心，因为这样做可能会丧失层的可复用性，这种方法也可能掩盖构建过程中的错误。如果你遇到包含大量命令的长命令行的问题，可以将它们分解为多个执行操作，以隔离错误，解决后再将命令行重新连接成一行。'
+- en: 'A simple example would look like this:'
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个简单的例子如下所示：
+- en: '[PRE8]'
+  id: totrans-148
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: These five lines will be interpreted like three different executions in the
+    same container, so they will just create one layer for the final image.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这五行命令会被解释为在同一个容器中执行的三次不同操作，因此它们只会为最终镜像创建一个层。
+- en: It is important to understand that the build process does not store process
+    states. This means that if we run a process and we expect it to be running upon
+    the next `RUN` line, it won’t because the container runtime only stores files
+    from the container layer. This also applies to services or daemons. The build
+    process will not work if you expect to have some processes already running and
+    you apply some data or files to them. Each execution ends when the `RUN` line
+    is processed.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要的是要理解，构建过程不会存储进程状态。这意味着如果我们运行一个进程，并且期望在下一个`RUN`命令执行时该进程仍然运行，它不会继续运行，因为容器运行时只会存储来自容器层的文件。这同样适用于服务或守护进程。如果你期望某些进程已经在运行，并且你应用了一些数据或文件到这些进程中，构建过程将无法正常工作。每次执行在`RUN`命令被处理时就结束了。
+- en: USER
+  id: totrans-151
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 用户
+- en: By default, the container runtime will execute all commands inside containers
+    with `userid`, which is defined in the base image, and `root` if we are creating
+    an image from scratch. You will find that most official Docker container images
+    will run as `root`. Docker Inc. and other vendors prepare their images to allow
+    you to install and manage additional software and binaries. You should ensure
+    that your images run with the principle of *less privilege*, and thus, you must
+    declare which user will run a container’s main process. Dockerfile’s `USER` key
+    will help us define this user and even switch them multiple times in the same
+    Dockerfile. Switching users will ensure that each Dockerfile line runs with the
+    appropriate user, and containers created with this image will also run with the
+    right user.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 默认情况下，容器运行时会以`userid`执行容器中的所有命令，该`userid`在基础镜像中定义。如果我们从头开始创建镜像，默认会以`root`用户运行。你会发现大多数官方的
+    Docker 容器镜像都会以`root`身份运行。Docker 公司及其他供应商准备他们的镜像以允许你安装和管理额外的软件和二进制文件。你应该确保你的镜像遵循*最小权限*原则，因此，必须声明哪个用户将运行容器的主进程。Dockerfile
+    中的`USER`关键字将帮助我们定义这个用户，甚至可以在同一个 Dockerfile 中多次切换用户。切换用户将确保每一行 Dockerfile 都以适当的用户运行，而使用该镜像创建的容器也会以正确的用户身份运行。
+- en: It is mandatory to avoid using containers with privileged users. This will essentially
+    protect your applications and the underlying infrastructure. If you need to use
+    `root` or any other privileged users, you should declare this situation explicitly.
+    You can use a label, for example, to indicate that your image requires a privileged
+    account to run.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 强制避免使用具有特权的用户容器。这基本上将保护你的应用程序和底层基础设施。如果你需要使用`root`或其他特权用户，应该明确声明这种情况。例如，你可以使用标签来表明你的镜像需要特权账户才能运行。
+- en: Important note
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要说明
+- en: If you are developing an application that requires a root user for its execution,
+    you can use user namespace mappings. This feature lets us map a container’s root
+    user with a normal user in our host. If you need to set up this feature, you can
+    follow the instructions provided at [https://docs.docker.com/engine/security/userns-remap/](https://docs.docker.com/engine/security/userns-remap/).
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你正在开发需要 root 用户执行的应用程序，可以使用用户命名空间映射。此功能允许我们将容器的 root 用户与主机中的普通用户映射。如果需要设置此功能，你可以参考[https://docs.docker.com/engine/security/userns-remap/](https://docs.docker.com/engine/security/userns-remap/)中提供的说明。
+- en: ENTRYPOINT
+  id: totrans-156
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: ENTRYPOINT
+- en: Now, let’s introduce how to declare which processes will run inside our container.
+    The following keys add the meta-information required in an image to define which
+    binary or script will run.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们介绍如何声明将在哪些进程中运行的内容。以下关键字会添加必要的元信息，用于定义镜像中将运行的二进制文件或脚本。
+- en: We will use the `ENTRYPOINT` key to define the main process the container will
+    run. If this key isn’t defined, the `/bin/sh` shell will be used for Linux containers
+    and `cmd.exe` for Microsoft Windows containers. This key can come already modified
+    in our base images, with a custom value, but we can also override it in our Dockerfile
+    declaration to modify our container’s behavior.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将使用`ENTRYPOINT`关键字来定义容器将运行的主进程。如果未定义此关键字，则Linux容器将使用`/bin/sh` shell，Microsoft
+    Windows容器将使用`cmd.exe`。这个关键字可能已经在基础镜像中被修改为自定义值，但我们也可以在 Dockerfile 中重写它，以修改容器的行为。
+- en: You can also use the `CMD` key, which allows you to specify which arguments
+    should be passed to the shell, Windows command, or any other defined `ENTRYPOINT`.
+    As such, we can think of the main process execution as the concatenation or sum
+    of the `ENTRYPOINT` and `CMD` keys. For example, if we use the default `/bin/sh`
+    shell’s `ENTRYPOINT`, and we define our `CMD` key as `ping 8.8.8.8`, the final
+    command that executes inside our container will be `/bin/sh -c ping 8.8.8.8`;
+    in other words, a shell is expanded to execute our `ping` command. We can modify
+    any of them during container creation, but remember that the user defined with
+    the `USER` key will be the process’s owner.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你还可以使用`CMD`关键字，它允许你指定应该传递给 shell、Windows 命令或任何其他已定义`ENTRYPOINT`的参数。因此，我们可以将主进程的执行理解为`ENTRYPOINT`和`CMD`关键字的拼接或叠加。例如，如果我们使用默认的`/bin/sh`
+    shell 的`ENTRYPOINT`，并将`CMD`关键字定义为`ping 8.8.8.8`，那么在容器内执行的最终命令将是`/bin/sh -c ping
+    8.8.8.8`；换句话说，shell 会被扩展来执行我们的`ping`命令。我们可以在容器创建时修改它们中的任何一个，但请记住，使用`USER`关键字定义的用户将是进程的拥有者。
+- en: As mentioned previously, we can change image behavior by changing these very
+    important keys. `ENTRYPOINT` and `CMD` are managed by the container runtime as
+    arrays, although we can define them in our Dockerfile as strings, which are also
+    commonly used to manually execute a container. The container runtime concatenates
+    both arrays to build the final command line. Due to this behavior, setting `ENTRYPOINT`
+    as a string will force `CMD` to be ignored, but we can use `CMD` as a string while
+    `ENTRYPOINT` is an array, and `CMD` will be treated as an array of 0 size.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前所述，我们可以通过更改这些非常重要的键来更改镜像行为。`ENTRYPOINT` 和 `CMD` 由容器运行时作为数组管理，尽管我们可以在 Dockerfile
+    中将它们定义为字符串，这在手动执行容器时也常用。容器运行时会将这两个数组连接在一起，构建最终的命令行。由于这种行为，将 `ENTRYPOINT` 设置为字符串会强制忽略
+    `CMD`，但我们可以在 `ENTRYPOINT` 为数组时将 `CMD` 设置为字符串，`CMD` 会被视为大小为 0 的数组。
+- en: Both values can be overridden on container execution, but usually, we will just
+    customize the container arguments by using `CMD`; as such, this key can be used
+    in the Dockerfile as a default value. As a developer, you should always provide
+    as much information about your application’s behavior as possible to make it usable,
+    and `LABEL`, `USER`, and `CMD` must be present in your Dockerfiles.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这两个值可以在容器执行时被覆盖，但通常我们会通过使用 `CMD` 自定义容器参数；因此，该键可以作为 Dockerfile 中的默认值使用。作为开发者，您应尽可能提供关于应用程序行为的详细信息，以使其更具可用性，`LABEL`、`USER`
+    和 `CMD` 必须出现在您的 Dockerfile 中。
+- en: EXPOSE
+  id: totrans-162
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: EXPOSE
+- en: We should also add the `EXPOSE` key to this list, which defines what ports will
+    be used by your application. You can define as many ports as required using ranges
+    and the transport protocol that will be used, be it TCP or UDP. With this information,
+    you will ensure that anyone using your application will know which ports your
+    processes will be listening to.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还应该将 `EXPOSE` 键添加到此列表中，该键定义了您的应用程序将使用的端口。您可以根据需要定义多个端口，并指定将使用的传输协议，无论是 TCP
+    还是 UDP。通过这些信息，您可以确保任何使用您的应用程序的人都知道您的进程将监听哪些端口。
+- en: 'The following scheme shows a simple Dockerfile stack in practice, including
+    the container layer on top:'
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下示意图展示了一个简单的 Dockerfile 堆栈的实际操作，包括位于顶部的容器层：
+- en: '![Figure 2.10 – The schema of container image layers created by using a Dockerfile.
+    The container layer is on top to keep track of changes created by processes](img/B19845_02_10.jpg)'
+  id: totrans-165
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 2.10 – 使用 Dockerfile 创建的容器镜像层的示意图。容器层位于顶部，用于跟踪由进程创建的更改](img/B19845_02_10.jpg)'
+- en: Figure 2.10 – The schema of container image layers created by using a Dockerfile.
+    The container layer is on top to keep track of changes created by processes
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 2.10 – 使用 Dockerfile 创建的容器镜像层的示意图。容器层位于顶部，用于跟踪由进程创建的更改
+- en: 'This figure represents the order obtained by using the `docker image history`
+    command. For this example, we performed the following steps:'
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此图表示使用 `docker image history` 命令获得的顺序。对于这个例子，我们执行了以下步骤：
+- en: We used a simple `alpine:3.5` base image. We updated the package sources and
+    installed `nginx` and `curl`.
+  id: totrans-168
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们使用了一个简单的 `alpine:3.5` 基础镜像。我们更新了包源并安装了 `nginx` 和 `curl`。
+- en: Next, we prepared NGINX logs to stream their output to `/dev/stdout` and `/dev/stderr`.
+    This will ensure that we can read the application logs through the container runtime
+    because these descriptors will be used by the container’s main process.
+  id: totrans-169
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 接下来，我们准备了 NGINX 日志，将它们的输出流式传输到 `/dev/stdout` 和 `/dev/stderr`。这将确保我们能够通过容器运行时读取应用程序日志，因为这些描述符将被容器的主进程使用。
+- en: We copied our custom NGINX configuration file, overwriting the default one.
+  id: totrans-170
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们复制了自定义的 NGINX 配置文件，覆盖了默认配置文件。
+- en: We exposed port `80`, indicating that our main process will listen on this port.
+  id: totrans-171
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们暴露了端口 `80`，这表示我们的主要进程将在该端口上监听。
+- en: Finally, we defined the default command line. In this case, `/bin/sh -c "nginx
+    –g daemon off;"` will be executed every time we run a container using this image.
+  id: totrans-172
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 最后，我们定义了默认的命令行。在这种情况下，`/bin/sh -c "nginx –g daemon off;"` 将在每次使用此镜像运行容器时执行。
+- en: HEALTHCHECK
+  id: totrans-173
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: HEALTHCHECK
+- en: 'To ensure that our main process runs correctly within our container, we should
+    add a health probe that will indicate whether this process is healthy or not.
+    Let’s imagine we run a web server application and it gets stuck. Processes will
+    continue running but functionality will be completely lost. To remedy this, we
+    can use the `HEALTHCHECK` key to define a command line that will check our main
+    application’s health. We can use a script or binary with arguments, such as `curl`
+    for web servers, or a database client if we run a database server. What is very
+    important for health checks is that the command exits correctly (`exit 0`) if
+    the application is healthy. If our check process exits with any other signal,
+    the container will die as a result of the application being set as unhealthy.
+    The `HEALTHCHECK` key will allow us to manage how the checks must be executed,
+    to keep the application up and running. We can modify the number of checks that
+    will mark the main process as unhealthy and the interval for these checks. When
+    the defined number of tries is reached with a negative response (any exit different
+    than 0), the container runtime is informed that even if the main process seems
+    to be running correctly, the service is not working, and the container should
+    die. This usually means a new healthy one is created, but for this process to
+    work, we should configure that container with the `restart: always` option. We
+    will deep dive into container execution in [*Chapter 3*](B19845_03.xhtml#_idTextAnchor082),
+    *Running* *Docker Containers*.'
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '为确保主进程在容器内正确运行，我们应该添加健康检查探针，以指示该进程是否健康。假设我们运行的是一个 Web 服务器应用程序，假如它卡住了，进程会继续运行，但功能完全丧失。为了解决这个问题，我们可以使用`HEALTHCHECK`键来定义一条命令行，以检查我们主应用程序的健康状态。我们可以使用带有参数的脚本或二进制文件，比如
+    Web 服务器的`curl`，或者运行数据库服务器时使用的数据库客户端。对于健康检查来说，重要的一点是，如果应用程序正常运行，命令应正确退出（`exit 0`）。如果我们的检查进程以任何其他信号退出，容器会因为应用程序被标记为不健康而停止运行。`HEALTHCHECK`键允许我们管理如何执行检查，以确保应用程序持续运行。我们可以修改标记主进程为不健康的检查次数以及检查的间隔。当达到定义的尝试次数并且返回负面响应（任何非
+    0 的退出代码）时，容器运行时会收到通知，即使主进程看似正常运行，服务已经不可用，容器应该停止。通常，这意味着会创建一个新的健康容器，但为了使这个过程正常工作，我们应该配置容器使用`restart:
+    always`选项。我们将在[*第 3 章*](B19845_03.xhtml#_idTextAnchor082)中深入探讨容器执行，*运行* *Docker
+    容器*。'
+- en: VOLUME
+  id: totrans-175
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: VOLUME
+- en: To end this section, we will review the `VOLUME` key. As the container image
+    build process is based on the execution of multiple containers and storing their
+    layers, this key is used to avoid certain directories from a container’s life
+    cycle. It is good practice to include this key to indicate which folders in your
+    image you prepared for persistent storage. You can use this key after all the
+    `RUN` keys to avoid losing an application’s folders during the build process.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节结束时，我们将回顾一下`VOLUME`键。由于容器镜像的构建过程依赖于多个容器的执行及其层的存储，因此该键用于避免某些目录在容器生命周期内的变化。建议使用此键来指示您为持久化存储准备的镜像中的文件夹。您可以在所有`RUN`键之后使用此键，以避免在构建过程中丢失应用程序的文件夹。
+- en: We have provided clear and simple examples of these keys to help you understand
+    their usage at the end of this chapter, in the *Labs* section.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经在本章的*实验室*部分提供了这些键的清晰和简洁的示例，以帮助您理解它们的使用。
+- en: In the next section, we will present you with some of the most important command-line
+    options that are commonly used to build container images.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的章节中，我们将为您介绍一些常用的命令行选项，这些选项通常用于构建容器镜像。
+- en: The command line for creating images
+  id: totrans-179
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 创建镜像的命令行
+- en: In this section, we will take a closer look at Docker and other tools that you
+    will commonly use to create container images for your projects.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节中，我们将详细介绍 Docker 以及其他常用的工具，您将使用它们来为您的项目创建容器镜像。
+- en: We will start by reviewing the `docker` command line, which is the most popular
+    tool for developers and users due to its simplicity and friendly environment.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将从回顾最流行的工具之一——`docker`命令行开始，因其简单性和友好的环境，成为了开发者和用户的首选。
+- en: Docker uses a common schema for all its arguments and options. We will use `docker
+    <OBJECT> <ACTION> <OPTIONS>`. As a Docker container runtime identifies its objects
+    by their IDs, it is common to omit the `<OBJECT>` primitive, but you should make
+    sure that you use the right object. It is improbable that you will commit an error,
+    but it is good practice to remember to include the object as part of the command.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Docker 对所有参数和选项使用统一的模式。我们将使用 `docker <OBJECT> <ACTION> <OPTIONS>`。由于 Docker
+    容器运行时通过 ID 来识别其对象，因此通常会省略 `<OBJECT>` 原语，但你应该确保使用正确的对象。犯错的可能性很小，但记得在命令中包含对象是一个好习惯。
+- en: Let’s start with the basics – that is, learning which command will create an
+    image.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从基础开始——也就是学习哪个命令可以创建镜像。
+- en: Actions for creating images
+  id: totrans-184
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 创建镜像的操作
+- en: 'We use the `build` action to create images using a Dockerfile. By default,
+    it will search for a file in your current directory, but we can use any name and
+    path to store our build manifests. We must always declare the build context, and
+    usually, we will use the `–tag` option to define a name and tag for our image.
+    Here is an example of its common usage:'
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们使用 `build` 操作通过 Dockerfile 创建镜像。默认情况下，它会在当前目录中搜索文件，但我们可以使用任何名称和路径来存储我们的构建清单。我们必须始终声明构建上下文，通常我们会使用
+    `–tag` 选项来为镜像定义名称和标签。以下是其常见用法的示例：
+- en: '![Figure 2.11 – Executing a simple image build process](img/B19845_02_11.jpg)'
+  id: totrans-186
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 2.11 – 执行简单的镜像构建过程](img/B19845_02_11.jpg)'
+- en: Figure 2.11 – Executing a simple image build process
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 2.11 – 执行简单的镜像构建过程
+- en: In this example, `context2` is the name of the folder that contains all the
+    files that should be sent to the container runtime, some of which should be copied
+    to the final image.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个例子中，`context2` 是包含所有应传送到容器运行时的文件夹名称，其中一些文件应复制到最终镜像中。
+- en: 'Here are the most common options that you will probably add to `docker` `image
+    build`:'
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里是你可能会添加到 `docker` `image build` 中的一些最常见选项：
+- en: '`--build-arg` is the way we can provide arguments for the build process. It
+    is commonly used with the `ARG` Dockerfile key to modify image creation – for
+    example, we can use `build` arguments to add some **c****ertificate** **a****uthority**
+    (**CA**) certificates to the commands.'
+  id: totrans-190
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`--build-arg` 是我们为构建过程提供参数的方式。它通常与 `ARG` Dockerfile 关键字一起使用来修改镜像创建——例如，我们可以使用
+    `build` 参数将一些**证书** **授权**（**CA**）证书添加到命令中。'
+- en: Important note
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要提示
+- en: 'When you are behind a proxy server, it is very common to pass the well-known
+    Linux `HTTPS_PROXY`, `HTTP_PROXY`, and `NO_PROXY` variables as arguments using
+    -`–build-arg`:'
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你处于代理服务器后面时，通常会使用 `–build-arg` 传递著名的 Linux `HTTPS_PROXY`、`HTTP_PROXY` 和 `NO_PROXY`
+    变量作为参数：
+- en: '`docker build --build-arg` `HTTP_PROXY=$http_proxy \`'
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`docker build --build-arg` `HTTP_PROXY=$http_proxy \`'
+- en: '`--build-arg HTTPS_PROXY=$http_proxy --build-arg` `NO_PROXY="$no_proxy" \`'
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`--build-arg HTTPS_PROXY=$http_proxy --build-arg` `NO_PROXY="$no_proxy" \`'
+- en: '`--build-arg http_proxy=$http_proxy --build-arg` `https_proxy=$http_proxy \`'
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`--build-arg http_proxy=$http_proxy --build-arg` `https_proxy=$http_proxy \`'
+- en: '`--build-arg no_proxy="$no_proxy" -t` `myimage:tag mycontext`'
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`--build-arg no_proxy="$no_proxy" -t` `myimage:tag mycontext`'
+- en: '`--force-rm` will clean all intermediate containers. By default, all containers
+    created during the building process will remain in your host unless your process
+    ends successfully, hence occupying disk space. It is good practice to clean intermediate
+    containers if you know that your build will create big layers – for example, when
+    your application is compiled in containers and many dependencies are created,
+    after which the process breaks.'
+  id: totrans-197
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`--force-rm` 会清除所有中间容器。默认情况下，在构建过程中创建的所有容器都会保留在主机中，除非你的进程成功结束，否则会占用磁盘空间。如果你知道构建过程会创建较大的层（例如，当你的应用程序在容器中编译并创建了许多依赖项，之后过程失败时），清理中间容器是一个好习惯。'
+- en: '`--label` will let you add further labels to your container image. Adding all
+    the required information, such as special library versions, the author, a short
+    description, and anything that will let other developers understand your content,
+    will be greatly appreciated.'
+  id: totrans-198
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`--label` 允许你为容器镜像添加额外的标签。添加所有必要的信息，例如特定的库版本、作者、简短的描述以及任何能够帮助其他开发人员理解你的内容的信息，都会受到极大的赞赏。'
+- en: '`--no-cache` will let us decide whether previously created and locally stored
+    layers will be used. Using this argument, your build process will create fresh
+    new layers, even if they already exist in your host. Be aware that without caching,
+    all processes will be executed and store the intermediate container data locally;
+    hence, the build will take more time. You will gain a faster build process by
+    reusing the layers already included in your underlying host as much as possible.
+    This can be very important when you are compiling your applications inside your
+    image build, where a few minor changes will restart processes completely if no
+    caching is used.'
+  id: totrans-199
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`--no-cache` 将让我们决定是否使用之前创建并本地存储的层。使用此参数时，构建过程会创建新的层，即使这些层已经存在于主机中。请注意，如果没有缓存，所有过程都会被执行并将中间容器数据存储在本地；因此，构建将花费更多的时间。通过尽可能多地重用已经包含在主机中的层，你将获得更快的构建过程。这对于在镜像构建中编译应用程序时尤其重要，因为如果没有缓存，任何微小的变化都会导致进程的完全重启。'
+- en: '`--target` is used to identify a build definition inside a Dockerfile. This
+    can represent a specific compilation or a stage in a multi-stage build. We can
+    use targets, for example, to maintain a unique Dockerfile with different build
+    definitions, such as `small`, `complete`, and `debug`, each one requiring different
+    steps and base images. We can trigger the build process for one specific definition
+    to build the smallest release for a production environment. This can also be managed
+    with arguments, with different base images chosen depending on variables.'
+  id: totrans-200
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`--target` 用于标识 Dockerfile 中的构建定义。它可以表示一个特定的编译过程或多阶段构建中的某个阶段。例如，我们可以使用目标来维护一个包含不同构建定义的唯一
+    Dockerfile，如 `small`、`complete` 和 `debug`，每个定义需要不同的步骤和基础镜像。我们可以触发一个特定定义的构建过程，以构建适用于生产环境的最小发布版本。这个过程也可以通过参数进行管理，根据变量选择不同的基础镜像。'
+- en: '`--cpuquota`, `--cpu-shares`, and `--memory` will help us manage the resources
+    available per build process. This is especially interesting if you are running
+    out of resources on your desktop computer.'
+  id: totrans-201
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`--cpuquota`、`--cpu-shares` 和 `--memory` 将帮助我们管理每个构建过程可用的资源。如果你在桌面计算机上资源不足，这一点尤其重要。'
+- en: Now that we have learned about the command line to build images, let’s look
+    at managing images.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经了解了用于构建镜像的命令行，让我们来看一下如何管理镜像。
+- en: Managing container images
+  id: totrans-203
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 管理容器镜像
+- en: Container images will reside in your host in different directories, decoupling
+    the data files from the meta-information. The location of your files will depend
+    on the container runtime you are using, or in the case of **Podman**, they will
+    probably be in your home directory. This runtime runs in rootless mode and without
+    any daemon, so it is ideal for user containers. Irrespective of this, you will
+    never directly access container image files.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 容器镜像将存储在主机的不同目录中，将数据文件与元数据分离。文件的存储位置将取决于你使用的容器运行时，或者在 **Podman** 的情况下，它们可能会存储在你的主目录中。这个运行时以无根模式运行，并且没有守护进程，因此非常适合用户容器。无论如何，你将永远无法直接访问容器镜像文件。
+- en: 'One of the most commonly used actions within Docker (and any other container
+    runtime client) is `list` (or `ls`), which is used to list the objects available
+    in our host (or remote runtime). By default, images can be represented by their
+    names (or repositories – we will learn how to store and manage images in these
+    repositories in [*Chapter 3*](B19845_03.xhtml#_idTextAnchor082)*, Shipping Docker
+    Images*), IDs, tags, creation time, and size. In this context, size is the amount
+    of space the image occupies in our host. The smaller the images, the better, and
+    that’s why you, as a developer, should be aware of the content of your images.
+    Include only strictly necessary files, and think about your layer strategy if
+    you are working with projects in which you share dependencies. Use the `.dockerignore`
+    file to avoid non-required files as this can help you save a lot of space:'
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Docker（以及其他任何容器运行时客户端）中最常用的操作之一是 `list`（或 `ls`），用于列出主机（或远程运行时）中可用的对象。默认情况下，镜像可以通过它们的名称（或仓库——我们将在[*第
+    3 章*](B19845_03.xhtml#_idTextAnchor082)《Docker 镜像的传输》）中学习如何存储和管理镜像）、ID、标签、创建时间和大小来表示。在这个上下文中，大小是镜像在主机上占用的空间。镜像越小越好，这也是为什么作为开发人员，你应该关注镜像的内容。只包含绝对必要的文件，并考虑你的层策略，尤其是在你与项目共享依赖项时。使用
+    `.dockerignore` 文件来避免不必要的文件，因为这可以帮助你节省大量空间：
+- en: '[PRE9]'
+  id: totrans-206
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: The preceding code snippet shows that we have multiple names (repositories)
+    with the same content; we know this because they have the same ID. Images with
+    the same ID are equal; they just differ in their tags. Therefore, we can add more
+    than one tag to an image. We will use `docker tag <ORIGINAL> <NEWTAG>` to tag
+    images. This is necessary to be able to upload images to registries as they are
+    stored in their own repositories. Tags will help you identify images in our registry,
+    but although tags are unique in each repository, we can have a lot to refer to
+    the same image, and you should ensure that you are using the right image.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上面的代码片段显示我们有多个名称（仓库）包含相同的内容；我们知道这一点是因为它们有相同的ID。具有相同ID的镜像是相同的，它们只是在标签上有所不同。因此，我们可以为镜像添加多个标签。我们将使用`docker
+    tag <ORIGINAL> <NEWTAG>`来标记镜像。为了能够将镜像上传到注册表，这是必要的，因为它们存储在自己的仓库中。标签将帮助您在我们的注册表中识别镜像，但尽管标签在每个仓库中是唯一的，我们仍然可以有多个标签指向相同的镜像，您需要确保使用的是正确的镜像。
+- en: Developers may choose to tag their images following the application’s life cycle,
+    and you will probably encounter many images tagged using the `release.minor.fixes`
+    model. This is good practice, and adding some key labels to identify the author,
+    the project, and so on will improve your work.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 开发人员可能会选择按照应用程序的生命周期来标记他们的镜像，您可能会遇到许多使用`release.minor.fixes`模型标记的镜像。这是一种良好的做法，添加一些关键标签来识别作者、项目等，会改善您的工作。
+- en: You probably also noticed an image without any tag or name. This is a *dangling*
+    container image that has been unused by others, and it is untagged because another
+    one was created using the same repository and tag. It is not referenced by any
+    image and now just occupies space. These dangling images should be removed, and
+    we can use `docker image prune` to delete all of them.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可能还注意到有一个没有标签或名称的镜像。这是一个*悬空*容器镜像，它没有被其他镜像使用，并且因为另一个使用相同仓库和标签的镜像被创建而未被标记。它没有被任何镜像引用，现在只占据空间。这些悬空的镜像应该被删除，我们可以使用`docker
+    image prune`来删除它们。
+- en: To delete individual images, we can use `docker image rm <IMAGE>`. It is important
+    to understand that images cannot be removed if there are references to them in
+    containers or other images. We can force the removal by using `–force`, but it
+    will only work if containers are stopped (or dead). It is also worth noting that
+    multiple image tags can be deleted by using their ID, instead of their image repository
+    names.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要删除单个镜像，我们可以使用`docker image rm <IMAGE>`。需要理解的是，如果镜像在容器或其他镜像中有引用，是无法删除的。我们可以通过使用`–force`来强制删除，但只有在容器被停止（或已死）的情况下才有效。还值得注意的是，可以通过使用镜像的ID来删除多个镜像标签，而不是使用它们的镜像仓库名称。
+- en: To review all the information included in the container image object, we can
+    use `docker image inspect <IMAGE>`. Very useful information will be presented,
+    including the image digest (if the image has a reference from a registry), the
+    architecture for which the image was built, its labels, its layers, and the configuration
+    that will be used to start the containers, such as environment variables and the
+    main command to be executed.
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要查看容器镜像对象中包含的所有信息，我们可以使用`docker image inspect <IMAGE>`。该命令将展示非常有用的信息，包括镜像摘要（如果镜像有来自注册表的引用）、镜像构建时的架构、其标签、层次结构，以及用于启动容器的配置，比如环境变量和需要执行的主要命令。
+- en: 'It is worth introducing some formatting and filtering options we can use with
+    some commands:'
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 值得介绍一些格式化和过滤选项，我们可以在某些命令中使用：
+- en: '`--filter` will allow us to use defined labels to filter objects from a list.
+    This will work for any list provided by the container runtime – for example, if
+    we labeled our images with the `environment` key, we could use it to obtain only
+    specific images:'
+  id: totrans-213
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`--filter`将允许我们使用定义的标签从列表中过滤对象。这适用于容器运行时提供的任何列表——例如，如果我们使用`environment`键标记了我们的镜像，我们可以用它来获取特定的镜像：'
+- en: '[PRE10]'
+  id: totrans-214
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: $ docker image list \
+  id: totrans-215
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: $ docker image list \
+- en: --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}"
+  id: totrans-216
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}"
+- en: REPOSITORY:TAG        SIZE
+  id: totrans-217
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: REPOSITORY:TAG        SIZE
+- en: example1:0.0          9.51MB
+  id: totrans-218
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: example1:0.0          9.51MB
+- en: postfix:test          169MB
+  id: totrans-219
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: postfix:test          169MB
+- en: frjaraur/two:180223   105MB
+  id: totrans-220
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: frjaraur/two:180223   105MB
+- en: two:latest            105MB
+  id: totrans-221
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: two:latest            105MB
+- en: one:latest            105MB
+  id: totrans-222
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: one:latest            105MB
+- en: frjaraur/one:180223   105MB
+  id: totrans-223
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: frjaraur/one:180223   105MB
+- en: alpine:latest         7.05MB
+  id: totrans-224
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: alpine:latest         7.05MB
+- en: docker image ls --format "{{json .}}".To obtain all the labels from a specific
+    image, we can use `docker image inspect <IMAGE> --format "{{ index .``Config.Labels
+    }}"`.
+  id: totrans-225
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: docker image ls --format "{{json .}}"。要获取特定镜像的所有标签，我们可以使用`docker image inspect
+    <IMAGE> --format "{{ index .Config.Labels }}"`。
+- en: '[PRE11]'
+  id: totrans-226
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: In the next section, we will learn about the options available at the command
+    line to share images between hosts or users.
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一节中，我们将学习命令行中可用的选项，用于在主机或用户之间共享镜像。
+- en: Actions for sharing images
+  id: totrans-228
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 共享镜像的操作
+- en: You may be thinking, all these examples were built on a host, so we need to
+    be able to share our images with other developers, or even move them to the servers
+    that are prepared to manage the application’s life cycle (such as testing, staging,
+    certification, or production). We can dump our container images and import them
+    to new locations, but using image registries is a better option because these
+    stores will be shared with the containers’ orchestrators, and the container runtimes
+    will automate the pull process for us.
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能在想，所有这些示例都是基于主机构建的，因此我们需要能够将我们的镜像与其他开发者共享，甚至将它们迁移到准备好管理应用程序生命周期的服务器上（例如测试、预生产、认证或生产环境）。我们可以将容器镜像导出并导入到新位置，但使用镜像注册中心是更好的选择，因为这些存储库将与容器的协调器共享，而容器运行时将自动为我们执行拉取过程。
+- en: '`docker image pull` and `docker image push` to pull and push images, respectively.
+    For this to work, you’re usually required to log in to your registry. To be able
+    to access your registry, you will require a username and a password. Docker Hub
+    (`docker.io`) is probably the most recognized container registry. It works as
+    a cloud service, providing an image store, scanning, and automations to build
+    images. There are other options; all cloud providers offer registry services,
+    and many code repositories also provide an image store (as they are considered
+    code artifacts). We can deploy some of these solutions on-premises, but we can
+    find also solutions such as Harbor, from VMware, which was prepared specifically
+    for data centers. You may notice that your container runtime also stores images,
+    and in fact, it can be considered a registry – a local registry. The `podman`
+    command line, which supports all actions described in this chapter and can be
+    used instead of the Docker client, will build your images as `localhost/IMAGE_NAME:TAG`,
+    where `IMAGE_NAME` is the name of the repository. We will learn how image registries
+    work in [*Chapter 3*](B19845_03.xhtml#_idTextAnchor082), *Shipping Docker Images*;
+    for now, we will just review the most commonly used options to share images.'
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`docker image pull` 和 `docker image push` 分别用于拉取和推送镜像。为了使其正常工作，通常需要登录到你的注册中心。要访问你的注册中心，你需要用户名和密码。Docker
+    Hub（`docker.io`）可能是最知名的容器注册中心。它作为一个云服务，提供镜像存储、扫描和自动化镜像构建的功能。还有其他选项；所有云提供商都提供注册中心服务，许多代码仓库也提供镜像存储（因为它们被视为代码工件）。我们可以在本地部署一些这些解决方案，但我们也可以找到像
+    VMware 提供的 Harbor 这样的解决方案，它专门为数据中心准备。你可能会注意到，容器运行时也存储镜像，事实上，它可以被认为是一个注册中心——一个本地注册中心。`podman`
+    命令行工具支持本章中描述的所有操作，并且可以作为 Docker 客户端的替代品，它将你的镜像构建为 `localhost/IMAGE_NAME:TAG`，其中
+    `IMAGE_NAME` 是仓库的名称。我们将在[*第3章*](B19845_03.xhtml#_idTextAnchor082)《运输 Docker 镜像》中学习镜像注册中心是如何工作的；现在，我们只回顾一些最常用的共享镜像的选项。'
+- en: 'When someone asks us for an image, we can use `docker image save` to dump a
+    container image to a file. This will completely package all its layers and meta-information.
+    By default, standard output will be used to stream all data, but we can use the
+    `–output` option to specify a file. You can copy this file to another workstation
+    or server and execute `docker image load` to import all image layers and metadata.
+    By default, the command will use standard input, but we can add the `–input` option
+    to specify a file instead:'
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当有人请求我们提供镜像时，我们可以使用 `docker image save` 将容器镜像导出到一个文件中。这将完全打包所有层和元信息。默认情况下，标准输出将用于流式传输所有数据，但我们可以使用
+    `–output` 选项指定一个文件。你可以将这个文件复制到另一个工作站或服务器，并执行 `docker image load` 来导入所有镜像层和元数据。默认情况下，该命令将使用标准输入，但我们可以添加
+    `–input` 选项来指定一个文件：
+- en: '![Figure 2.12 – Saving images to files for sharing is easy](img/B19845_02_12.jpg)'
+  id: totrans-232
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 2.12 – 将镜像保存到文件中以便共享很简单](img/B19845_02_12.jpg)'
+- en: Figure 2.12 – Saving images to files for sharing is easy
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 2.12 – 将镜像保存到文件中以便共享很简单
+- en: We can verify that the image size is retained, and if we list the files included
+    in the package file, we will obtain the layers and metadata files.
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以验证镜像大小是否保留，并且如果列出包文件中包含的文件，我们将获得层和元数据文件。
+- en: The Docker client can be used with `docker image load` to integrate this image
+    into our local registry, but we can also use `docker image import` to only upload
+    image layers. This is interesting as it can be used as the base image for builds
+    from scratch, but be aware that without the metadata manifest JSON file, you would
+    not be able to execute a container. You will need to add its exposed ports, user,
+    main process, arguments, and so on.
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Docker客户端可以使用`docker image load`将镜像集成到本地注册表中，但我们也可以使用`docker image import`仅上传镜像层。这一点很有趣，因为它可以用作从零开始构建的基础镜像，但需要注意的是，如果没有元数据清单JSON文件，你将无法执行容器。你需要添加其暴露的端口、用户、主进程、参数等信息。
+- en: As you can imagine, `docker image save` and `docker image load` work in small
+    environments, but they don’t when you need to distribute files on a dozen servers.
+    Images are hard to sync if you don’t maintain good tag maintenance; hence, try
+    to use representative tags and label your images to help others understand their
+    content.
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如你所想象的，`docker image save`和`docker image load`在小环境中工作良好，但当你需要在十几个服务器上分发文件时，它们就不再适用了。如果没有保持良好的标签管理，镜像就很难同步；因此，尽量使用具有代表性的标签，并为你的镜像打上标签，帮助他人理解其内容。
+- en: Before reviewing some best practices and recommendations, we will learn about
+    some topics that will help us optimize our workflow so that we can build new images.
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在回顾一些最佳实践和建议之前，我们将学习一些有助于优化工作流的主题，以便能够构建新的镜像。
+- en: Advanced image creation techniques
+  id: totrans-238
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 高级镜像创建技术
+- en: In this section, we will review some options and techniques available to speed
+    up the building process and optimize image sizes.
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将回顾一些可用的选项和技术，以加速构建过程并优化镜像大小。
+- en: In [*Chapter 1*](B19845_01.xhtml#_idTextAnchor015), *Modern Infrastructure and
+    Applications with Docker*, we learned that images are a package of layers. These
+    layers are distributed one over another, containing all the files, and the merging
+    of all these layers gives us a distribution of files optimized for disk space
+    reduction, using CoW filesystems. When a file from a lower layer has to be modified,
+    it is copied to the top layer if it doesn’t exist there yet. All unmodified files
+    are used in read-only mode. With that said, it is easy to understand that managing
+    the CoW process correctly will help speed up image creation times.
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[*第1章*](B19845_01.xhtml#_idTextAnchor015)《使用Docker的现代基础设施和应用程序》中，我们了解到镜像是一个由多个层组成的包。这些层一个接一个地分布，包含所有的文件，所有这些层的合并给我们提供了一个优化的文件分发，旨在减少磁盘空间使用，采用写时复制（CoW）文件系统。当一个较低层的文件需要被修改时，如果该文件尚未存在于顶层，它将被复制到顶层。所有未修改的文件都以只读模式使用。由此可见，正确管理CoW过程有助于加速镜像创建时间。
+- en: Whenever we add new `RUN` commands at the end of our Dockerfile, all previous
+    layers will be used (unless we specify `–-no-cache`); hence, the container runtime
+    just needs to create new layers according to these new changes. However, whenever
+    we add a new line to copy a new file in the middle of the Dockerfile, or even
+    when a file has been modified, the layers included after this change are invalidated.
+    This occurs with `COPY`, `ADD`, and `RUN` because these Dockerfile keys add new
+    layers, but `WORKDIR` and `ENV` can also modify the building process behavior
+    and, hence, the subsequent layers. Once a layer changes, the container runtime
+    has to rebuild all downstream layers, even if we didn’t modify any line in our
+    Dockerfile after the aforementioned change.
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每当我们在Dockerfile的末尾添加新的`RUN`命令时，所有先前的层都会被使用（除非我们指定`--no-cache`）；因此，容器运行时只需要根据这些新变化创建新的层。然而，每当我们在Dockerfile中间添加一行来复制新文件，或者当文件被修改时，所有在此更改之后的层都会失效。`COPY`、`ADD`和`RUN`都会发生这种情况，因为这些Dockerfile指令会添加新的层，但`WORKDIR`和`ENV`也可能修改构建过程的行为，从而影响后续的层。一旦某个层发生变化，容器运行时必须重新构建所有下游层，即使我们在上述变化后没有修改Dockerfile中的任何行。
+- en: 'Here are some recommendations that may help your building process:'
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是一些可能有助于构建过程的建议：
+- en: 'Multi-stage builds are key to minimizing and securing container images. We
+    will define different targets in our Dockerfile to use them as stages to compile
+    our code and dependencies, and we will add only the required files to the final
+    image. With this technique, we can ensure that no compilers will be included in
+    the final image. This is a simple example:'
+  id: totrans-243
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 多阶段构建是最小化和保护容器镜像的关键。我们将在Dockerfile中定义不同的目标，将它们作为阶段来编译代码和依赖项，并且只将所需的文件添加到最终的镜像中。通过这种技术，我们可以确保最终镜像中不会包含任何编译器。这是一个简单的示例：
+- en: '[PRE12]'
+  id: totrans-244
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: This is a very simple Dockerfile; the final image contains only the docs directory,
+    retrieved from our Git code repository. We will see a better example in this chapter’s
+    *Labs* section.
+  id: totrans-245
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 这是一个非常简单的Dockerfile；最终镜像只包含从我们的Git代码仓库中获取的`docs`目录。我们将在本章的*实验*部分看到一个更好的示例。
+- en: Ordering layers is key to speeding up and maintaining application changes. Try
+    to find the best logical order to declare your Dockerfile’s recipe. If we have
+    some time-intensive tasks, such as installing a lot of software packages, it is
+    preferable to make these changes at the beginning of the build process. Conversely,
+    the files that we change more often, probably our application’s code, should be
+    close to the end of the Dockerfile.
+  id: totrans-246
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 层的顺序对于加速构建和维护应用程序更改至关重要。尽量找到最合理的顺序来声明Dockerfile的配方。如果我们有一些耗时的任务，例如安装大量软件包，最好将这些任务放在构建过程的开头。相反，我们更频繁更改的文件，可能是我们应用程序的代码，应该接近Dockerfile的末尾。
+- en: This also works with the `COPY` key; if your application has a lot of dependencies,
+    copying all your code and requirements at once can be problematic. It is better
+    to split your files into different `COPY` sentences and copy your module requirements
+    declaration files, then update these dependencies, and after that, copy the code
+    for building. This ensures that all our code changes will not cause the dependencies
+    to be downloaded again in the container-building process.
+  id: totrans-247
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 这同样适用于`COPY`关键字；如果您的应用程序有很多依赖，一次性复制所有代码和需求可能会带来问题。更好的做法是将文件拆分成不同的`COPY`语句，首先复制模块需求声明文件，然后更新这些依赖，之后再复制构建代码。这样可以确保所有的代码更改不会导致容器构建过程中再次下载依赖。
+- en: We have to remind you again that you should only keep the necessary files inside
+    container images. Avoid any unnecessary files. This will increase the building
+    time and the final image size, and sometimes, it may be relevant to decide where
+    to store them. Also, using `.dockerignore` will help you avoid sending unnecessary
+    files to the container runtime, even if they will not be kept in the final image.
+    Avoid copying full directories using `COPY . /src` if you are unsure of the content,
+    any previous artifact builds, whether you are going to re-build them during image
+    creation, or the logs, for example.
+  id: totrans-248
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们再次提醒您，容器镜像中应仅保留必要的文件，避免包含任何不必要的文件。这将增加构建时间和最终镜像的大小，有时决定这些文件存储位置也很重要。此外，使用`.dockerignore`可以帮助您避免将不必要的文件发送到容器运行时，即使这些文件不会保留在最终镜像中。如果不确定文件内容、是否会重新构建之前的工件、是否会重新构建它们，或者日志等内容，请避免使用`COPY
+    . /src`来复制整个目录。
+- en: Avoid non-required dependencies when you install packages. Depending on your
+    base operating system distribution, you will have different arguments or options
+    to only install specific packages, avoiding, for example, the recommended, but
+    not required, associated packages. You will probably need to update the packages
+    list before installing; do this once at the beginning if you don’t add or modify
+    any package repository. It is also recommended to clean a package cache when you
+    are not going to install any other package. We can use `RUN` `--mount type=cache,target=DIRECTORY_PATH
+    <INSTALL_EXPRESSION>` to install packages. This option will keep the content of
+    the defined directory between different build processes, which will speed up installing
+    new software.
+  id: totrans-249
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 安装包时要避免安装不必要的依赖。根据您使用的基础操作系统发行版，您会有不同的参数或选项来仅安装特定的包，从而避免安装那些推荐但不必要的关联包。您可能需要在安装之前更新包列表；如果您没有添加或修改任何包仓库，请在开始时执行此操作。如果不打算安装其他包，也建议清理包缓存。我们可以使用`RUN`
+    `--mount type=cache,target=DIRECTORY_PATH <INSTALL_EXPRESSION>`来安装包。这个选项会在不同的构建过程中保持定义目录的内容，从而加速新软件的安装。
+- en: 'Sensitive information shouldn’t be included inside container images. It is
+    possible to include some files with passwords, certificates, tokens, and so on
+    in your Dockerfile using the `COPY` or `ADD` keys, or even as arguments for your
+    `docker build` command, and remove them before finishing. Although these don’t
+    look like bad solutions at first, they are not good enough because unconsciously,
+    you can leave sensible data behind. A multi-stage build can help us if secrets
+    are used to download binaries or libraries, and we can easily copy them to a final
+    stage without adding any sensible data to its layers. However, there is a better
+    solution – using `buildx`. This Docker tool includes the option to mount secrets
+    only during specific `RUN` steps, without storing them in any layer, as if they
+    were a file from a volume. Here is a simple example of its usage:'
+  id: totrans-250
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 敏感信息不应包含在容器镜像中。可以通过 `COPY` 或 `ADD` 键，或者甚至作为 `docker build` 命令的参数，将一些包含密码、证书、令牌等的文件包含在
+    Dockerfile 中，并在构建完成前将其删除。尽管这些看起来不是坏解决方案，但它们并不完美，因为你可能会不小心留下敏感数据。如果机密用于下载二进制文件或库，多阶段构建可以帮助我们，并且可以轻松将它们复制到最终阶段，而无需将任何敏感数据添加到其层中。然而，还有一个更好的解决方案——使用
+    `buildx`。这个 Docker 工具包括一个选项，可以在特定的 `RUN` 步骤中挂载机密，而无需将其存储在任何层中，就像它们是来自卷的文件一样。下面是一个简单的示例：
+- en: '[PRE13]'
+  id: totrans-251
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'To pass a value to the `mysecret` key, we can use an environment variable –
+    for example, we can execute the build process with the following command line:'
+  id: totrans-252
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 要将一个值传递给 `mysecret` 键，我们可以使用环境变量——例如，我们可以通过以下命令行执行构建过程：
+- en: '[PRE14]'
+  id: totrans-253
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: Important note
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要提示
+- en: '`buildx` even allows us to mount files with data, such as user credentials,
+    tokens, certificates, and so on, for use as secrets inside containers running
+    within the build process, by using `docker image buildx build –secret id=mysecret,src=<FULLPATH_TO_SECRETFILE>`.
+    By default, these files will be included inside containers in `/run/secrets/<SECRETID>`,
+    but we can add `target` to the Dockerfile’s `mount` definition with a full path
+    to the destination file we want to create.'
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`buildx` 甚至允许我们挂载包含数据的文件，例如用户凭证、令牌、证书等，以便在构建过程中运行的容器内部作为机密使用，方法是使用 `docker
+    image buildx build –secret id=mysecret,src=<FULLPATH_TO_SECRETFILE>`。默认情况下，这些文件将包含在容器中的
+    `/run/secrets/<SECRETID>`，但我们可以在 Dockerfile 的 `mount` 定义中添加 `target`，并指定我们希望创建的目标文件的完整路径。'
+- en: It is good practice to keep layers as small as possible. We will try to use
+    `RUN`, `COPY`, and `ADD`, executing as many changes as possible, although this
+    may impact layer reusability. We will combine multiple `RUN` executions into one
+    line. Fewer Dockerfile lines mean smaller caching, which is good, but you can’t
+    reuse layers too often for new images. Any small variation between your Dockerfiles
+    will invalidate caching from one Dockerfile to another.
+  id: totrans-256
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 保持层尽可能小是一个好习惯。我们将尽量使用 `RUN`、`COPY` 和 `ADD`，执行尽可能多的更改，尽管这可能会影响层的可重用性。我们将把多个 `RUN`
+    执行合并为一行。较少的 Dockerfile 行意味着更小的缓存，这很好，但你不能为新镜像过于频繁地重用层。你 Dockerfile 之间的任何小变动都会使缓存失效。
+- en: Important note
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要提示
+- en: 'We can use the heredocs format to combine multiple lines. This improves Dockerfile
+    readability. For example, we can write the following:'
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用 heredocs 格式将多行合并。这提高了 Dockerfile 的可读性。例如，我们可以编写以下内容：
+- en: '`RUN <<EOF`'
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`RUN <<EOF`'
+- en: '`set -e`'
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`set -e`'
+- en: '`apt-get` `update -qq`'
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`apt-get` `update -qq`'
+- en: '`apt-get install` `mypackage1 mypackage2`'
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`apt-get install` `mypackage1 mypackage2`'
+- en: '`EOF`'
+  id: totrans-263
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`EOF`'
+- en: Docker client installation also provides the unique features of `buildx` to
+    help us reduce building times and size. We can configure garbage collections to
+    remove unused layers, based on time, and enable remote caching locations. This
+    feature improves CI/CD pipelines that use distributed caches for projects that
+    must compile a lot of dependencies or low-level languages, such as *C* or *Rust*.
+  id: totrans-264
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Docker 客户端安装还提供了 `buildx` 的独特功能，帮助我们减少构建时间和大小。我们可以配置垃圾回收，以根据时间删除未使用的层，并启用远程缓存位置。这个功能改善了
+    CI/CD 流水线，特别是那些使用分布式缓存的项目，这些项目必须编译大量的依赖或低级语言，如 *C* 或 *Rust*。
+- en: Multiple-processor architectures, such as `riscv64` or `arm64`, can be built
+    by using `docker buildx build –platform`, with one unique Dockerfile. In the past,
+    we usually had different Dockerfiles, one for each architecture. Machines to use
+    these different processors were also required, and the building process was executed
+    on each one. This new feature allows you to prepare images for different platforms
+    on your laptop with Docker Desktop. We will prepare a container image for `arm64`
+    in this chapter’s *Labs* section.
+  id: totrans-265
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 可以使用`docker buildx build –platform`命令和一个独特的Dockerfile来构建多个处理器架构，如`riscv64`或`arm64`。过去，我们通常为每个架构使用不同的Dockerfile，并且需要使用不同处理器的机器来执行构建过程。这个新特性允许你在自己的笔记本电脑上使用Docker
+    Desktop为不同平台准备镜像。在本章的*实验*部分，我们将为`arm64`平台准备一个容器镜像。
+- en: We can considerably reduce the final image size by using `–squash` when the
+    image contains many layers. Squashing container images is an experimental feature
+    that’s available in the Docker container runtime. This means that we need to enable
+    `docker.json` file, and once configured, we will be able to use the `docker image
+    build –squash` command. Reducing the number of layers to one will reduce its size,
+    but you will lose the advantage of sharing layers. It’s important to mention here
+    that you shouldn’t expect miracles. Squashing images depends on the number of
+    layers used; hence, the final size may be pretty much the same as when fewer layers
+    are used.
+  id: totrans-266
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果镜像包含许多层，我们可以通过使用`–squash`显著减少最终镜像的大小。合并容器镜像是Docker容器运行时提供的实验性功能。这意味着我们需要启用`docker.json`文件，一旦配置好，我们就能使用`docker
+    image build –squash`命令。将层数减少为一个层可以减小镜像大小，但你将失去共享层的优势。需要在此提到的是，你不应期待奇迹。镜像合并的效果取决于使用的层数，因此，最终大小可能与使用较少层时的大小差不多。
+- en: Before starting with the labs, we will review the content learned in this chapter
+    by providing an overview of the best practices to build your container images.
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在开始实验之前，我们将通过概述构建容器镜像的最佳实践来回顾本章所学的内容。
+- en: Best practices for container image creation
+  id: totrans-268
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 容器镜像创建的最佳实践
+- en: 'In this section, we are going to recommend a list of the best practices you
+    can follow to create your applications, thus improving your applications’ security,
+    reusability, and building processes:'
+  id: totrans-269
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一部分，我们将推荐一份最佳实践清单，供你在创建应用程序时参考，从而提高应用程序的安全性、可重用性和构建过程：
+- en: Only include the files that are strictly necessary for your application. Don’t
+    install packages, binaries, libraries, and any file your application doesn’t need,
+    and keep image content as small as possible, exposing a minimal attack surface.
+  id: totrans-270
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 仅包括应用程序所需的文件。不要安装应用程序不需要的包、二进制文件、库和任何其他文件，并保持镜像内容尽可能小，暴露最小的攻击面。
+- en: Use the `.dockerignore` file to avoid passing unnecessary files from your build
+    context to container runtimes.
+  id: totrans-271
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用`.dockerignore`文件避免将不必要的文件从构建上下文传递到容器运行时。
+- en: Prepare debugging versions of your images, including some binaries or tools
+    that may help you resolve an issue, but never use these images in production.
+  id: totrans-272
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 准备调试版本的镜像，包括一些二进制文件或工具，以帮助你解决问题，但永远不要在生产环境中使用这些镜像。
+- en: Prepare the logic of your Dockerfiles to accommodate your changes; hence, include
+    your code close to the end of the file, and think about how many modules or dependencies
+    may need to be changed to execute the updates in the proper section.
+  id: totrans-273
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 准备好Dockerfile的逻辑来适应你的变更，因此，应将代码放在文件的接近尾部，并考虑到可能需要更改多少模块或依赖项，以确保更新能在正确的部分执行。
+- en: Use layer caching whenever it is possible to speed up the build process and
+    remember that using many layers will allow reusability but affect performance
+    when files need runtime changes.
+  id: totrans-274
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每当可能时，使用层缓存以加速构建过程，并记住，使用多个层会提高可重用性，但当文件需要运行时更改时，会影响性能。
+- en: Never use `root` in your applications unless it is strictly required. If you
+    do, you should understand its risks and manage them. You can use the `USER` key
+    multiple times to change the execution user during builds, but always finish your
+    Dockerfile with a non-root user.
+  id: totrans-275
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 除非绝对必要，否则不要在应用程序中使用`root`。如果使用了`root`，你应该了解其风险并加以管理。在构建过程中，你可以多次使用`USER`关键字来更改执行用户，但始终确保在Dockerfile的最后使用非root用户。
+- en: Never include sensitive information, such as certificates, passwords, and tokens,
+    in your final container images. This information should be provided at runtime.
+    Use Docker’s `buildx` to include secrets only during the build process.
+  id: totrans-276
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 永远不要在最终的容器镜像中包含敏感信息，如证书、密码和令牌。这些信息应该在运行时提供。使用 Docker 的 `buildx` 仅在构建过程中包含秘密信息。
+- en: Declare all your application requirements, such as your process user, the exposed
+    ports, and the command line to be executed, in your Dockerfile. This will help
+    other developers use your applications.
+  id: totrans-277
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在你的 Dockerfile 中声明所有应用程序的要求，如进程用户、暴露的端口以及需要执行的命令行。这将有助于其他开发者使用你的应用程序。
+- en: Use labels to add information about your application’s life cycle, maintainer,
+    special libraries that are required, and so on. This information will be great
+    for other developers to help them understand how they can integrate their code
+    into your images or evolve your Dockerfiles.
+  id: totrans-278
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用标签添加关于应用程序生命周期、维护者、所需特殊库等信息。这些信息对于其他开发者来说非常有帮助，可以帮助他们理解如何将他们的代码集成到你的镜像中，或是如何改进你的
+    Dockerfile。
+- en: Image size matters, especially if you are running your containerized applications
+    in a distributed environment. Container runtimes must download images if a container
+    must be created on a host. Depending on the number of changes you make to your
+    images, this can be a challenge, and resilience in the face of application issues
+    may be affected if your platform defines an *always-pull* policy. We have covered
+    some techniques to reduce image size; use them, but remember that a layer’s reusability
+    may be affected.
+  id: totrans-279
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 镜像的大小很重要，特别是在你将容器化应用程序运行在分布式环境中时。如果必须在主机上创建容器，容器运行时需要下载镜像。根据你对镜像所做的更改数量，这可能会成为一个挑战，并且如果你的平台定义了
+    *always-pull* 策略，应用程序问题的弹性可能会受到影响。我们已经讨论了一些减少镜像大小的技术；请使用它们，但要记住，层的可重用性可能会受到影响。
+- en: With this list, you can prepare your own container image creation workflow.
+    Some of this advice can be tricky and requires some practice, but I can assure
+    you that it is worth it, and you will deliver quality images for your applications.
+  id: totrans-280
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有了这个清单，你可以准备自己的容器镜像创建工作流程。部分建议可能比较棘手，需要一些练习，但我可以向你保证，这是值得的，你将为你的应用程序交付高质量的镜像。
+- en: Now that we have seen the different methods to build images, the command line
+    we will commonly use, and some advanced techniques and advice to create good and
+    secure images, it’s time to put all this into practice with some labs in the next
+    section.
+  id: totrans-281
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经了解了不同的构建镜像方法、常用的命令行和一些创建良好且安全的镜像的高级技术与建议，是时候在下一节中通过一些实验来将这些知识付诸实践。
+- en: Labs
+  id: totrans-282
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 实验
+- en: The following labs will provide examples to help you put the concepts and procedures
+    you’ve learned in this chapter into practice. We will use Docker Desktop or any
+    other container runtime. We will use different tools such as **Podman** and **nerdctl**
+    to show you some of the possibilities you have at hand, although some of the features
+    that are required for specific labs may be only available with a specific tool
+    (or one tool has a more friendly interface). In these cases, we will ask you to
+    use a specific command-line interface.
+  id: totrans-283
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下实验将提供示例，帮助你将本章中学到的概念和流程付诸实践。我们将使用 Docker Desktop 或任何其他容器运行时。我们还将使用不同的工具，如
+    **Podman** 和 **nerdctl**，展示你手头的一些可能性，尽管某些实验所需的特定功能可能仅在某个特定工具中可用（或某个工具具有更友好的界面）。在这些情况下，我们将要求你使用特定的命令行界面。
+- en: The first step for all labs would be to download the most updated version of
+    this book’s GitHub repository at [https://github.com/PacktPublishing/Docker-for-Developers-Handbook.git](https://github.com/PacktPublishing/Docker-for-Developers-Handbook.git).
+    To do this, simply execute `git clone https://github.com/PacktPublishing/Docker-for-Developers-Handbook.git`
+    to download all its content. If you have already downloaded it before, ensure
+    you have the newest version by executing `git pull` inside its directory.
+  id: totrans-284
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有实验的第一步是下载本书 GitHub 仓库的最新版本，地址为 [https://github.com/PacktPublishing/Docker-for-Developers-Handbook.git](https://github.com/PacktPublishing/Docker-for-Developers-Handbook.git)。你可以通过执行
+    `git clone https://github.com/PacktPublishing/Docker-for-Developers-Handbook.git`
+    来下载所有内容。如果你之前已经下载过，确保通过在该目录下执行 `git pull` 来获取最新版本。
+- en: We will start this section with a simple lab about using caching to speed up
+    the building process. All commands presented in these labs will be executed inside
+    the `Docker-for-Developers-Handbook/Chapter2` directory.
+  id: totrans-285
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节将从一个简单的实验开始，介绍如何使用缓存加速构建过程。所有在这些实验中呈现的命令将会在 `Docker-for-Developers-Handbook/Chapter2`
+    目录下执行。
+- en: Important note
+  id: totrans-286
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要提示
+- en: To show you the different tools to work with containers, we will use `nerdctl`
+    in these labs, but you can use `podman` or `docker` (standalone or within Docker
+    Desktop). Each tool has features and particularities, but most of the work within
+    containers will execute similarly. We will explicitly notify you if some command
+    shown requires a specific tool. Follow the specific instructions in this book’s
+    GitHub code repository to install each tool. We will use `containerd` as the container
+    runtime and integrates the `nerdctl` command line inside WSL 2, but all labs can
+    be executed with the Docker command line as well, with `docker` replacing `nerdctl`.
+  id: totrans-287
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了向您展示与容器交互的不同工具，我们将在这些实验中使用`nerdctl`，但您也可以使用`podman`或`docker`（独立使用或在Docker
+    Desktop中）。每个工具都有各自的特点，但大多数容器中的工作将类似地执行。如果某些命令需要特定工具，我们会明确通知您。请按照本书GitHub代码库中的具体说明来安装每个工具。我们将使用`containerd`作为容器运行时，并将`nerdctl`命令行集成到WSL
+    2中，但所有实验也可以使用Docker命令行来执行，`docker`替代`nerdctl`。
+- en: Caching layers
+  id: totrans-288
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 缓存层
+- en: In this first lab, we will review the importance of caching to speed up the
+    building process. We are going to use `nerdctl`, but `docker` or `podman` will
+    work, as well as `buildah` ([https://buildah.io](https://buildah.io)), which is
+    another open source tool prepared specifically to enhance the build process.
+  id: totrans-289
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个第一个实验中，我们将回顾缓存对加速构建过程的重要性。我们将使用`nerdctl`，但`docker`或`podman`也可以使用，此外还有`buildah`（[https://buildah.io](https://buildah.io)），这是一个专门为增强构建过程而准备的开源工具。
+- en: 'We will build a simple *Node.js* application that I prepared for quick demos
+    a few years ago. Its only purpose is to show some information regarding the container
+    in which it runs, the request headers, and its version. It will be interesting
+    to better understand the load balancing processes within container orchestrators
+    later on in this book, but we will focus on the build process for now:'
+  id: totrans-290
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将构建一个简单的*Node.js*应用程序，它是我几年前为快速演示而准备的。它的唯一目的是展示关于运行它的容器的一些信息、请求头以及它的版本。稍后在本书中，了解容器编排器中的负载均衡过程将会很有趣，但现在我们将专注于构建过程：
+- en: 'First, we will move inside the `Chapter2/colors/nodejs` folder and execute
+    a simple build, using `ch2lab1:first` as the image name and tag. We will use the
+    following Dockerfile in this process:'
+  id: totrans-291
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 首先，我们将进入`Chapter2/colors/nodejs`文件夹，并执行一个简单的构建，使用`ch2lab1:first`作为镜像名称和标签。我们将在此过程中使用以下Dockerfile：
+- en: '[PRE15]'
+  id: totrans-292
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: Note that here, we have separated the content copy into three lines, although
+    we could have used just one with all the content – for example, by using `COPY
+    . .`.
+  id: totrans-293
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 请注意，我们在这里将内容复制分为三行，尽管我们本可以使用一行来包含所有内容——例如，使用`COPY . .`。
+- en: Important note
+  id: totrans-294
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要提示
+- en: As you may have noticed, this Dockerfile does not include any `USER` directive,
+    but its application runs without any privileges because it is very simple and
+    doesn’t use any Linux capability or privileged port. Anyway, it is good practice
+    to include the `USER` directive, and you can add it to your local repository.
+    Everything described in the following steps will work.
+  id: totrans-295
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所见，这个Dockerfile没有包含任何`USER`指令，但它的应用程序在没有任何特权的情况下运行，因为它非常简单，不使用任何Linux功能或特权端口。无论如何，最好包含`USER`指令，您可以将其添加到您的本地仓库。以下步骤中描述的所有内容都能正常工作。
+- en: 'We will add `time` to the `build` command to measure the time the build process
+    takes:'
+  id: totrans-296
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们将向`build`命令添加`time`来测量构建过程所需的时间：
+- en: '[PRE16]'
+  id: totrans-297
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 'After these lines, our Dockerfile starts to be processed by the container runtime:'
+  id: totrans-298
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这些行之后，我们的Dockerfile开始被容器运行时处理：
+- en: '[PRE17]'
+  id: totrans-299
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'Once the required layers have been loaded, our tasks to execute commands start.
+    In our example, many packages must be installed:'
+  id: totrans-300
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 一旦所需的层被加载，我们的任务将开始执行命令。在我们的示例中，需要安装很多包：
+- en: '[PRE18]'
+  id: totrans-301
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: '[PRE19]'
+  id: totrans-302
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: var APP_VERSION="1.1";.
+  id: totrans-303
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: var APP_VERSION="1.1";.
+- en: '[PRE20]'
+  id: totrans-304
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: $ time nerdctl build -t ch2lab1:two \
+  id: totrans-305
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: $ time nerdctl build -t ch2lab1:two \
+- en: --label nodejs=18.14.2 \
+  id: totrans-306
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: --label nodejs=18.14.2 \
+- en: --label=base=alpine3.16  nodejs  \
+  id: totrans-307
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: --label=base=alpine3.16  nodejs  \
+- en: --progress plain
+  id: totrans-308
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: --progress plain
+- en: '#1 [internal] load .dockerignore'
+  id: totrans-309
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#1 [内部] 加载 .dockerignore'
+- en: '#1 transferring context: 2B done'
+  id: totrans-310
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#1 正在传输上下文：已完成2B'
+- en: 'CACHED indicate that the layers were already created; we use these instead
+    of executing the actual line to create a layer:'
+  id: totrans-311
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: CACHED表示这些层已经被创建；我们使用这些层，而不是执行实际的命令来创建层：
+- en: '[PRE21]'
+  id: totrans-312
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: '#9 [5/6] COPY app.js app.js'
+  id: totrans-313
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#9 [5/6] 复制 app.js app.js'
+- en: '#9 DONE 0.0s'
+  id: totrans-314
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#9 完成 0.0秒'
+- en: '#10 [6/6] COPY index.xhtml index.xhtml'
+  id: totrans-315
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#10 [6/6] 复制 index.xhtml index.xhtml'
+- en: '#10 DONE 0.0s'
+  id: totrans-316
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#10 完成 0.0秒'
+- en: '[PRE22]'
+  id: totrans-317
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: '#11 sending tarball'
+  id: totrans-318
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#11 正在发送tarball'
+- en: '#11 sending tarball 0.6s done'
+  id: totrans-319
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#11 正在发送tarball 0.6秒 已完成'
+- en: '#11 DONE 0.7s'
+  id: totrans-320
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#11 完成 0.7秒'
+- en: unpacking docker.io/library/ch2lab1:two (sha256:bfffba0cd2d7cc82f686195b0b996731d0d5a49e4f689a3d39c7b0e6c57dcf0e)…
+  id: totrans-321
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 解包 docker.io/library/ch2lab1:two (sha256:bfffba0cd2d7cc82f686195b0b996731d0d5a49e4f689a3d39c7b0e6c57dcf0e)…
+- en: '[PRE23]'
+  id: totrans-322
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: 'Loaded image: docker.io/library/ch2lab1:two'
+  id: totrans-323
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 加载的镜像：docker.io/library/ch2lab1:two
+- en: real    0m1.272s
+  id: totrans-324
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 实际耗时    0m1.272s
+- en: user    0m0.007s
+  id: totrans-325
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 用户    0m0.007s
+- en: index.xhtml or our simple code in app.js, all the packages will be downloaded
+    again.
+  id: totrans-326
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: index.xhtml 或我们的简单代码 app.js，所有的包将再次被下载。
+- en: '[PRE24]'
+  id: totrans-327
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: '[PRE25]'
+  id: totrans-328
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: 'Let’s repeat this process by changing the copy process in our Dockerfile:'
+  id: totrans-329
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 让我们通过更改 Dockerfile 中的复制过程来重复这个过程：
+- en: '[PRE26]'
+  id: totrans-330
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: 'We execute the build process again. We expect it to last less than 12 seconds
+    because the base image is already in our host:'
+  id: totrans-331
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 我们再次执行构建过程。我们预期它会在 12 秒内完成，因为基础镜像已经在我们的主机中：
+- en: '[PRE27]'
+  id: totrans-332
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: '#7 [3/4] COPY . .'
+  id: totrans-333
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#7 [3/4] 复制 . .'
+- en: '#7 DONE 0.0s'
+  id: totrans-334
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#7 完成 0.0s'
+- en: '#8 [4/4] RUN apk add --no-cache --update curl && rm -rf /var/cache/apk && npm
+    install'
+  id: totrans-335
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#8 [4/4] 运行 apk add --no-cache --update curl && rm -rf /var/cache/apk && npm
+    install'
+- en: '...'
+  id: totrans-336
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '...'
+- en: '...'
+  id: totrans-337
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '...'
+- en: '#8 DONE 2.8s'
+  id: totrans-338
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#8 完成 2.8s'
+- en: '...'
+  id: totrans-339
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '...'
+- en: '...'
+  id: totrans-340
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '...'
+- en: '#9 sending tarball 0.6s done'
+  id: totrans-341
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#9 发送 tarball 0.6s 完成'
+- en: '#9 DONE 0.8s'
+  id: totrans-342
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#9 完成 0.8s'
+- en: unpacking docker.io/library/ch2lab1:three (sha256:b38074f0ee5a9e6c4ee7f68e90d8a25575dc7df9560b0b66906b29f3feb8741c)...
+  id: totrans-343
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 解包 docker.io/library/ch2lab1:three (sha256:b38074f0ee5a9e6c4ee7f68e90d8a25575dc7df9560b0b66906b29f3feb8741c)...
+- en: 'Loaded image: docker.io/library/ch2lab1:three'
+  id: totrans-344
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 加载的镜像：docker.io/library/ch2lab1:three
+- en: real    0m4.634s
+  id: totrans-345
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 实际耗时    0m4.634s
+- en: user    0m0.004s
+  id: totrans-346
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 用户    0m0.004s
+- en: 'APP_VERSION to a new value variable to see what happens if we build again.
+    Change it from var APP_VERSION="1.1"; to var APP_VERSION="1.2";, and execute it
+    again:'
+  id: totrans-347
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 将 `APP_VERSION` 改为新的变量值，看看重新构建时会发生什么。将其从 var APP_VERSION="1.1"; 更改为 var APP_VERSION="1.2";，然后再次执行：
+- en: '[PRE28]'
+  id: totrans-348
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: 'The previous layers were cached, but a minimal change broke all the processes,
+    and the layers must be recreated:'
+  id: totrans-349
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 之前的层已被缓存，但由于一个最小的更改打破了所有的进程，因此必须重新创建这些层：
+- en: '[PRE29]'
+  id: totrans-350
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: As you can see, it takes the same time as the previous execution because the
+    container runtime can’t identify and isolate the small changes and reuse the layers
+    that were created previously.
+  id: totrans-351
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 如你所见，花费的时间与之前的执行相同，因为容器运行时无法识别和隔离这些小的更改，并且无法重用之前创建的层。
+- en: '[PRE30]'
+  id: totrans-352
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: In this lab, we reviewed how caching layers works and how to avoid build problems
+    by choosing the right logic for our application’s Dockerfile.
+  id: totrans-353
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本实验中，我们回顾了缓存层的工作原理，并讨论了如何通过为应用程序选择正确的 Dockerfile 逻辑来避免构建问题。
+- en: In the next lab, we will execute a multi-stage build process using an empty
+    layer for the final image.
+  id: totrans-354
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一个实验中，我们将执行一个多阶段构建过程，使用空层作为最终镜像。
+- en: Executing a multi-stage build process
+  id: totrans-355
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 执行多阶段构建过程
+- en: 'This is a very interesting use case since our code is in the Go language and
+    we will be including static dependencies:'
+  id: totrans-356
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个非常有趣的用例，因为我们的代码是用 Go 语言编写的，并且我们将包括静态依赖：
+- en: 'Move to the `Chapter2/colors` folder and use the `go` sub-folder this time.
+    The multi-stage Dockerfile looks like this:'
+  id: totrans-357
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 移动到 `Chapter2/colors` 文件夹，并这次使用 `go` 子文件夹。多阶段的 Dockerfile 如下所示：
+- en: '[PRE31]'
+  id: totrans-358
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: 'We will use a `golang:1.20-alpine3.17` image to compile our code. The compiled
+    binary is copied from the *builder* image to our final image:'
+  id: totrans-359
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们将使用 `golang:1.20-alpine3.17` 镜像来编译我们的代码。编译后的二进制文件将从 *builder* 镜像复制到我们的最终镜像：
+- en: '[PRE32]'
+  id: totrans-360
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: '#6 [builder 1/4] FROM docker.io/library/golang:1.20-alpine3.17@sha256:48f336ef8366b9d6246293e3047259d0f614ee167db1869bdbc343d6e09aed8a'
+  id: totrans-361
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#6 [builder 1/4] 从 docker.io/library/golang:1.20-alpine3.17@sha256:48f336ef8366b9d6246293e3047259d0f614ee167db1869bdbc343d6e09aed8a'
+- en: …
+  id: totrans-362
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: …
+- en: …
+  id: totrans-363
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: …
+- en: '#6 DONE 3.2s'
+  id: totrans-364
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#6 完成 3.2s'
+- en: '#6 [builder 1/4] FROM docker.io/library/golang:1.20-alpine3.17@sha256:48f336ef8366b9d6246293e3047259d0f614ee167db1869bdbc343d6e09aed8a'
+  id: totrans-365
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#6 [builder 1/4] 从 docker.io/library/golang:1.20-alpine3.17@sha256:48f336ef8366b9d6246293e3047259d0f614ee167db1869bdbc343d6e09aed8a'
+- en: '#6 extracting sha256:752c438cb1864d6b2151010a811031b48f0c3511c7aa49f540322590991c949d'
+  id: totrans-366
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#6 提取 sha256:752c438cb1864d6b2151010a811031b48f0c3511c7aa49f540322590991c949d'
+- en: '...'
+  id: totrans-367
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '...'
+- en: …
+  id: totrans-368
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: …
+- en: '#6 DONE 4.8s'
+  id: totrans-369
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#6 完成 4.8s'
+- en: '#7 [builder 2/4] WORKDIR /src'
+  id: totrans-370
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#7 [builder 2/4] 工作目录 /src'
+- en: '#7 DONE 0.2s'
+  id: totrans-371
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#7 完成 0.2s'
+- en: '#8 [builder 3/4] COPY ./src/* .'
+  id: totrans-372
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#8 [builder 3/4] 复制 ./src/* .'
+- en: '#8 DONE 0.0s'
+  id: totrans-373
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#8 完成 0.0s'
+- en: '#9 [builder 4/4] RUN mkdir bin && go build -o bin/webserver /src/webserver.go'
+  id: totrans-374
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#9 [builder 4/4] 运行 mkdir bin && go build -o bin/webserver /src/webserver.go'
+- en: 'FROM key is reached and a new image build process starts – in this case, just
+    copying the content from the previous one:'
+  id: totrans-375
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 达到 FROM 键并开始新的镜像构建过程——在这个例子中，仅复制了之前内容：
+- en: '[PRE33]'
+  id: totrans-376
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: '[PRE34]'
+  id: totrans-377
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: 'The final image is really small because it only contains our application code:'
+  id: totrans-378
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 最终的镜像非常小，因为它仅包含我们的应用代码：
+- en: '[PRE35]'
+  id: totrans-379
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: In this output, you can compare the different sizes we obtained (sizes may change
+    because some updates may be expected in the code in this book’s GitHub repository).
+  id: totrans-380
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这个输出中，你可以对比我们获得的不同大小（因为本书 GitHub 仓库中的代码可能会有更新，导致大小有所变化）。
+- en: Creating images from scratch using binaries can be very tricky, but they are
+    the best way of delivering our applications.
+  id: totrans-381
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用二进制文件从零开始创建镜像可能非常棘手，但这是交付我们应用程序的最佳方式。
+- en: This lab showed you how you can create a container image from scratch by using
+    static build binaries, which are the best application images you can create.
+  id: totrans-382
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本实验展示了如何通过使用静态构建二进制文件从零开始创建容器镜像，这些镜像是您可以创建的最佳应用镜像。
+- en: For the next lab, we will use Docker’s `buildx` features, and therefore, we
+    will use the `docker` command line.
+  id: totrans-383
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一个实验中，我们将使用Docker的`buildx`功能，因此我们将使用`docker`命令行。
+- en: Building images for different architectures
+  id: totrans-384
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 为不同架构构建镜像
+- en: If you followed the lab with `nerdctl` command line, please exit **Rancher Desktop**
+    and launch **Docker Desktop** (or your own Docker engine implementation).
+  id: totrans-385
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您使用`nerdctl`命令行跟随实验，请退出**Rancher Desktop**并启动**Docker Desktop**（或您自己的Docker引擎实现）。
+- en: Important note
+  id: totrans-386
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要说明
+- en: Podman and nerdctl also provide multiplatform support on new releases, and a
+    multi-architecture build is commonly available; hence, any of these tools will
+    be right for this lab.
+  id: totrans-387
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Podman和nerdctl在新版本中也提供了多平台支持，并且多架构构建通常是可用的；因此，任何这些工具都适用于本实验。
+- en: Note that when you change from one container runtime to another, the list of
+    images is completely different. Each container runtime manages its own environment
+    as expected.
+  id: totrans-388
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，当您从一个容器运行时切换到另一个容器运行时时，镜像列表会完全不同。每个容器运行时都会管理自己的环境，如预期那样。
+- en: 'We will continue this lab inside the `Chapter2/colors` folder. We are going
+    to build the image for multiple architectures – that is, `amd64` and `arm64`:'
+  id: totrans-389
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将在`Chapter2/colors`文件夹内继续本实验。我们将为多个架构构建镜像——即`amd64`和`arm64`：
+- en: 'We will use `buildx` with the `–-platform` argument and `arm64`. But first,
+    we will ensure that we can build images for other architectures by executing the
+    `docker buildx` `ls` command:'
+  id: totrans-390
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们将使用`buildx`配合`–-platform`参数和`arm64`。但首先，我们将确保通过执行`docker buildx` `ls`命令，能够为其他架构构建镜像：
+- en: '[PRE36]'
+  id: totrans-391
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE36]'
+- en: $ docker buildx build -t ch2lab1:six \
+  id: totrans-392
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: $ docker buildx build -t ch2lab1:six \
+- en: --label nodejs=18.14.2 \
+  id: totrans-393
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: --label nodejs=18.14.2 \
+- en: --label=base=alpine3.16 \
+  id: totrans-394
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: --label=base=alpine3.16 \
+- en: nodejs --progress plain \
+  id: totrans-395
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: nodejs --progress plain \
+- en: --platform arm64 \
+  id: totrans-396
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: --platform arm64 \
+- en: --load –no-cache
+  id: totrans-397
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: --load –no-cache
+- en: '#1 [internal] load build definition from Dockerfile'
+  id: totrans-398
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#1 [internal] 从Dockerfile加载构建定义'
+- en: '#1 transferring dockerfile: 32B done'
+  id: totrans-399
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#1 正在传输dockerfile: 32B 完成'
+- en: '#1 DONE 0.0s'
+  id: totrans-400
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '#1 完成 0.0s'
+- en: '...'
+  id: totrans-401
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '...'
+- en: 'aarch64 architecture image is downloaded during the process:'
+  id: totrans-402
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在此过程中下载了aarch64架构的镜像：
+- en: '[PRE37]'
+  id: totrans-403
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE37]'
+- en: '[PRE38]'
+  id: totrans-404
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE38]'
+- en: 'We can verify this image architecture by using `docker inspect`:'
+  id: totrans-405
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们可以通过使用`docker inspect`来验证此镜像架构：
+- en: '[PRE39]'
+  id: totrans-406
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE39]'
+- en: In this build process, we also used `--load` and `–-no-cache`. The first argument
+    is used to load the image that was built into our container runtime. If we don’t
+    use this with Docker’s `buildx`, the image is used as a cache for new builds only
+    by default. To avoid any cached layer within this build process, we used `–-no-cache`,
+    and this ensures the complete execution of each step defined in the Dockerfile.
+  id: totrans-407
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个构建过程中，我们还使用了`--load`和`–-no-cache`。第一个参数用于将构建好的镜像加载到我们的容器运行时。如果我们不与Docker的`buildx`一起使用它，镜像默认只会作为新构建的缓存使用。为了避免在此构建过程中使用任何缓存层，我们使用了`–-no-cache`，这样可以确保Dockerfile中定义的每个步骤都被完整执行。
+- en: This lab showed you that you can prepare your images for any available architecture
+    by using a unified Dockerfile and executing the build process with the `–-``platform`
+    argument.
+  id: totrans-408
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本实验展示了通过使用统一的Dockerfile，并执行带有`–-``platform`参数的构建过程，您可以为任何可用架构准备镜像。
+- en: Summary
+  id: totrans-409
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: In this chapter, we learned how to create container images for applications.
+    We started with an overview of CoW filesystems, which are the base for creating
+    container images using layers. We looked at different methods to build images,
+    along with their pros, cons, and examples. Using Dockerfiles is the best method
+    because it provides a reproducible way of creating images by using different steps,
+    written in order in these files. We provided a quick overview of the most important
+    directives we can use in Dockerfiles and the command line and the arguments for
+    using them. As the container-image-building process can be tricky, we presented
+    some advanced features and practices we can use to improve our workflow in terms
+    of speed, reusability, and quality.
+  id: totrans-410
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们学习了如何为应用程序创建容器镜像。我们首先概述了 CoW 文件系统，这是通过使用层来创建容器镜像的基础。我们研究了不同的构建镜像方法，以及它们的优缺点和示例。使用
+    Dockerfile 是最好的方法，因为它通过按顺序编写的不同步骤提供了一种可重现的创建镜像方式。我们简要回顾了在 Dockerfile 和命令行中可以使用的最重要的指令及其参数。由于容器镜像构建过程可能比较复杂，我们介绍了一些可以用来改进工作流的高级功能和实践，以提高速度、可重用性和质量。
+- en: In the next chapter, we will provide a quick overview of image registries, learn
+    how to store and tag our images in them, and learn how to improve integrity and
+    security by signing and scanning container images.
+  id: totrans-411
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一章中，我们将简要概述镜像仓库，学习如何在其中存储和标记我们的镜像，并学习如何通过签名和扫描容器镜像来提高完整性和安全性。
