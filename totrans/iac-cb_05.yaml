@@ -1,60 +1,89 @@
 - en: Chapter 5. Provisioning the Last Mile with Cloud-Init
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 第5章：使用 Cloud-Init 配置最后一公里
 - en: 'In this chapter, we will cover the following recipes:'
+  id: totrans-1
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章将涵盖以下内容：
 - en: Using cloud-init on AWS, Digital Ocean, or OpenStack
+  id: totrans-2
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在 AWS、Digital Ocean 或 OpenStack 上使用 cloud-init
 - en: Handling files using cloud-init
+  id: totrans-3
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 cloud-init 处理文件
 - en: Configuring the server's time zone using cloud-init
+  id: totrans-4
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 cloud-init 配置服务器的时区
 - en: Managing users, keys, and credentials using cloud-init
+  id: totrans-5
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 cloud-init 管理用户、密钥和凭证
 - en: Managing repositories and packages using cloud-init
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 cloud-init 管理仓库和软件包
 - en: Running commands during boot using cloud-init
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在启动过程中使用 cloud-init 运行命令
 - en: Configuring CoreOS using cloud-init
+  id: totrans-8
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 cloud-init 配置 CoreOS
 - en: Deploying Chef client from start to finish using cloud-init
+  id: totrans-9
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 cloud-init 从头到尾部署 Chef 客户端
 - en: Deploying a remote Docker server using cloud-init
+  id: totrans-10
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 cloud-init 部署远程 Docker 服务器
 - en: Introduction
+  id: totrans-11
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 引言
 - en: Cloud-init is a cloud instance initialization system, standard across most Linux
     distributions. It's supported by all recent distributions (Ubuntu, Arch, CentOS/Red
     Hat, Fedora, and more), as well as a variant found on CoreOS systems.
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: Cloud-init 是一种云实例初始化系统，几乎所有 Linux 发行版都支持它。所有最近的发行版（Ubuntu、Arch、CentOS/Red Hat、Fedora
+    等）以及 CoreOS 系统中的一个变种都支持它。
 - en: 'With cloud-init, a number of actions are taken during the initialization phases
     of booting a cloud instance (new or not): installing packages, copying files or
     SSH keys, deploying Chef, defining repositories, or rebooting (when done).'
+  id: totrans-13
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用 cloud-init 时，在启动云实例（无论是新实例还是已有实例）时，会执行多个操作：安装软件包、复制文件或 SSH 密钥、部署 Chef、定义仓库或重启（完成后）。
 - en: The scope of action of cloud-init is really intended for the initialization
     phase; it's not a configuration management tool and is globally not meant to be
     run again afterwards to update configuration, like one would with Ansible or Chef.
@@ -69,338 +98,521 @@
     awesome solution for handling the first and subsequent boots before letting a
     full-fledged configuration management tool such as Chef or Ansible play its part
     for the rest of the instance life.
+  id: totrans-14
   prefs: []
   type: TYPE_NORMAL
+  zh: cloud-init 的作用范围确实是针对初始化阶段的；它不是一个配置管理工具，也不是用于后续更新配置的工具，像 Ansible 或 Chef 那样会反复运行。它仅用于确保实例已正确配置以进行下一步操作，并确保在启动时按顺序执行一组命令。换句话说，Terraform（在[第2章](ch02.html
+    "第2章：使用 Terraform 配置 IaaS")，*使用 Terraform 配置 IaaS*，[第3章](ch03.html "第3章：深入 Terraform")，*深入
+    Terraform*，以及[第4章](ch04.html "第4章：用 Terraform 自动化完整基础设施")，*用 Terraform 自动化完整基础设施*
+    中讨论的工具）非常适合定义底层基础设施的所有方面，但 cloud-init 是一个简单而强大的解决方案，用于处理首次启动以及后续启动，之后让像 Chef 或
+    Ansible 这样的完整配置管理工具发挥作用，持续管理实例的生命周期。
 - en: '**Cloud-init** is defined as a simple YAML file (cloud-config), sent in the
     **user-data** field of a cloud instance. We''ll see how this works in the coming
     sections.'
+  id: totrans-15
   prefs: []
   type: TYPE_NORMAL
+  zh: '**Cloud-init** 被定义为一个简单的 YAML 文件（cloud-config），该文件通过云实例的 **user-data** 字段传递。接下来我们将看到它是如何工作的。'
 - en: In this chapter, we will present the most useful use cases with cloud-init,
     such as copying files, creating users, managing SSH keys, adding repositories
     and installing packages, running arbitrary commands, bootstrapping a Chef client,
     or managing CoreOS and Docker with it.
+  id: totrans-16
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章将展示 cloud-init 的最常见使用案例，例如复制文件、创建用户、管理 SSH 密钥、添加仓库和安装软件包、运行任意命令、引导 Chef 客户端或使用它管理
+    CoreOS 和 Docker。
 - en: Using cloud-init on AWS, Digital Ocean, or OpenStack
+  id: totrans-17
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 在 AWS、Digital Ocean 或 OpenStack 上使用 cloud-init
 - en: As cloud-init is an initialization system for cloud instances, we need to find
     a way to send the cloud-config YAML file to the bootstrapping process. On all
     IaaS providers supporting cloud-init, there's a field where we can paste our file.
     We'll review how cloud-init works on three important IaaS providers—AWS, Digital
     Ocean, and OpenStack.
+  id: totrans-18
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于 cloud-init 是为云实例提供初始化服务的系统，我们需要找到一种方法，将 cloud-config YAML 文件传递给引导过程。在所有支持
+    cloud-init 的 IaaS 提供商中，都有一个字段可以粘贴我们的文件。我们将回顾 cloud-init 在三个重要的 IaaS 提供商（AWS、Digital
+    Ocean 和 OpenStack）上的工作原理。
 - en: Getting ready
+  id: totrans-19
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: To step through this recipe, you will need an account on Amazon Web Services,
     Digital Ocean, or some OpenStack deployment, or on all of them if you want to
     try them all!
+  id: totrans-20
   prefs: []
   type: TYPE_NORMAL
+  zh: 要完成此食谱，你需要在 Amazon Web Services、Digital Ocean 或某个 OpenStack 部署上有一个账户，或者如果你想尝试所有平台的话，可以在它们所有平台上都有账户！
 - en: How to do it…
+  id: totrans-21
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 如何操作…
 - en: 'To illustrate cloud-init usage, we''ll create the simplest cloud-config file
     on Ubuntu 16.04 and CentOS 7.2, installing packages such as `htop`, `tcpdump`,
     `docker`, or `nmap` that aren''t usually installed by default on most Linux distributions.
     This is how a very simple cloud-config file looks:'
+  id: totrans-22
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了说明 cloud-init 的使用，我们将在 Ubuntu 16.04 和 CentOS 7.2 上创建最简单的 cloud-config 文件，安装
+    `htop`、`tcpdump`、`docker` 或 `nmap` 等包，这些包通常不会在大多数 Linux 发行版中默认安装。这是一个非常简单的 cloud-config
+    文件示例：
 - en: '[PRE0]'
+  id: totrans-23
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: Using cloud-init on Amazon Web Services
+  id: totrans-24
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 在 Amazon Web Services 上使用 cloud-init
 - en: 'Using the AWS Console, when launching your instance, click on **Advanced Details**
     and we''ll be able to paste our sample (and simple) cloud-config YAML file, or
     even simply upload it:'
+  id: totrans-25
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用 AWS 控制台时，在启动实例时，点击 **高级详细信息**，我们就能粘贴我们的示例（和简单的）cloud-config YAML 文件，或者甚至可以直接上传它：
 - en: '![Using cloud-init on Amazon Web Services](img/B05671_05_01.jpg)'
+  id: totrans-26
   prefs: []
   type: TYPE_IMG
+  zh: '![在 Amazon Web Services 上使用 cloud-init](img/B05671_05_01.jpg)'
 - en: 'In this case, the Ubuntu 16.04 instance we just launched will already have
     the `htop` and `tcpdump` system tools installed, along with the Linux distribution''s
     supported version of Docker:'
+  id: totrans-27
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这种情况下，我们刚启动的 Ubuntu 16.04 实例已经安装了 `htop` 和 `tcpdump` 系统工具，以及该 Linux 发行版支持的
+    Docker 版本：
 - en: '[PRE1]'
+  id: totrans-28
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: Note
+  id: totrans-29
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: We can manually update `cloud-config.yml` of a particular instance by powering
     off the instance, then under the **Actions** menu, navigate to **Instance Settings**
     | **View/Change User Data**. Start the EC2 instance again and the updated configuration
     is applied.
+  id: totrans-30
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们可以通过关闭实例手动更新某个实例的 `cloud-config.yml` 文件，然后在 **操作** 菜单下，进入 **实例设置** | **查看/更改用户数据**。重新启动
+    EC2 实例后，更新的配置将生效。
 - en: Using cloud-init on Digital Ocean
+  id: totrans-31
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 在 Digital Ocean 上使用 cloud-init
 - en: 'The situation is similar on Digital Ocean. When creating a new **droplet**,
     be sure to tick the **User data** checkbox under the **Select additional options**
     section and paste the cloud-config file content:'
+  id: totrans-32
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 Digital Ocean 上的情况类似。在创建新的 **droplet** 时，确保在 **选择附加选项** 部分勾选 **用户数据** 复选框，并粘贴
+    cloud-config 文件内容：
 - en: '![Using cloud-init on Digital Ocean](img/B05671_05_02.jpg)'
+  id: totrans-33
   prefs: []
   type: TYPE_IMG
+  zh: '![在 Digital Ocean 上使用 cloud-init](img/B05671_05_02.jpg)'
 - en: 'After a few seconds of boot time and package installation, our customized Ubuntu
     distribution is available:'
+  id: totrans-34
   prefs: []
   type: TYPE_NORMAL
+  zh: 在几秒钟的启动时间和软件包安装后，我们定制的 Ubuntu 发行版就可以使用了：
 - en: '[PRE2]'
+  id: totrans-35
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: Using cloud-init on OpenStack
+  id: totrans-36
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 在 OpenStack 上使用 cloud-init
 - en: 'When creating an instance on OpenStack, using the Horizon dashboard, click
     on the **Post-Creation** tab, and paste the cloud-config YAML content in the text
     box. Alternatively, it is possible to upload the file:'
+  id: totrans-37
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 OpenStack 上创建实例时，使用 Horizon 控制面板，点击 **Post-Creation** 标签，并将 cloud-config YAML
+    内容粘贴到文本框中。或者，也可以上传文件：
 - en: '![Using cloud-init on OpenStack](img/B05671_05_03.jpg)'
+  id: totrans-38
   prefs: []
   type: TYPE_IMG
+  zh: '![在 OpenStack 上使用 cloud-init](img/B05671_05_03.jpg)'
 - en: 'Verify the requested packages were installed, this time on a CentOS 7.2 box:'
+  id: totrans-39
   prefs: []
   type: TYPE_NORMAL
+  zh: 验证所请求的软件包是否已安装，这次是在 CentOS 7.2 系统上：
 - en: '[PRE3]'
+  id: totrans-40
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: Combining cloud-init and Terraform for any IaaS
+  id: totrans-41
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 将 cloud-init 和 Terraform 结合用于任何 IaaS
 - en: In the previous chapters about Terraform, we've in fact already used a `cloud-init`
     file a few times.
+  id: totrans-42
   prefs: []
   type: TYPE_NORMAL
+  zh: 在之前的 Terraform 章节中，我们实际上已经使用过几次 `cloud-init` 文件。
 - en: 'On Amazon Web Services, using the `aws_instance` resource to launch an EC2
     VM, we use the `user_data` argument to pass the cloud-config file content, and
     in this case, using the `file()` interpolation:'
+  id: totrans-43
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 Amazon Web Services 上，使用 `aws_instance` 资源启动 EC2 虚拟机时，我们通过 `user_data` 参数传递
+    cloud-config 文件内容，在这种情况下，使用 `file()` 插值：
 - en: '[PRE4]'
+  id: totrans-44
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: 'The equivalent for a Digital Ocean VM is the `user_data` argument as well:'
+  id: totrans-45
   prefs: []
   type: TYPE_NORMAL
+  zh: Digital Ocean 虚拟机的等效参数也是 `user_data`：
 - en: '[PRE5]'
+  id: totrans-46
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: Handling files using cloud-init
+  id: totrans-47
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用 cloud-init 处理文件
 - en: An early need we all face is to have a file, a license, or a script in place
     right from the beginning of the instance life. Cloud-init proposes different ways
     of sending those files over the new instance. We'll see how to send files using
     plain text and base64 data encodings.
+  id: totrans-48
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们每个人都会面临的一个早期需求是，在实例启动的初期就有一个文件、许可证或脚本。Cloud-init 提供了多种方法来将这些文件发送到新的实例中。我们将看看如何使用纯文本和
+    base64 数据编码来发送文件。
 - en: Getting ready
+  id: totrans-49
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: 'To step through this recipe, you will need:'
+  id: totrans-50
   prefs: []
   type: TYPE_NORMAL
+  zh: 要完成此食谱，你需要：
 - en: Access to a cloud-config enabled infrastructure
+  id: totrans-51
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 访问启用 cloud-config 的基础设施
 - en: How to do it…
+  id: totrans-52
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 如何操作…
 - en: 'The first file we''ll write is a **MOTD** (short for **Message Of The Day**)
     with root read-write permissions, read-only for everyone else. This file will
     have its content declared right from the cloud-config file:'
+  id: totrans-53
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将编写的第一个文件是**MOTD**（即**今日消息**），其根目录具有读写权限，其他用户只有只读权限。该文件的内容将直接从cloud-config文件中声明：
 - en: '[PRE6]'
+  id: totrans-54
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: 'This machine, when booted, will have `/etc/motd` in place and display the string
     at login:'
+  id: totrans-55
   prefs: []
   type: TYPE_NORMAL
+  zh: 当该机器启动时，将会有`/etc/motd`文件，并在登录时显示该字符串：
 - en: '[PRE7]'
+  id: totrans-56
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: 'Another way of including file content is to encode it in base64\. Let''s say
     we want to create a file named `/etc/server-id` with the content `abc-123`, with
     permissions `0600`. Begin by obtaining the base64 version of the file:'
+  id: totrans-57
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一种包括文件内容的方法是将其编码为base64。假设我们想要创建一个名为`/etc/server-id`的文件，内容为`abc-123`，并且权限为`0600`。首先获取该文件的base64版本：
 - en: '[PRE8]'
+  id: totrans-58
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: 'This is the output we''ll integrate into the `content` field of the cloud-config
     file:'
+  id: totrans-59
   prefs: []
   type: TYPE_NORMAL
+  zh: 这是我们将集成到cloud-config文件`content`字段中的输出：
 - en: '[PRE9]'
+  id: totrans-60
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: 'Let''s verify the remote content is what we expected:'
+  id: totrans-61
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们验证远程内容是否符合预期：
 - en: '[PRE10]'
+  id: totrans-62
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: It works! Our file is read/write for the owner only, and the content is `abc-123`.
+  id: totrans-63
   prefs: []
   type: TYPE_NORMAL
+  zh: 它工作了！我们的文件仅对所有者可读写，内容是`abc-123`。
 - en: Another possibility is to compress the file using `gzip`, or even to base64
     encode the resulting compressed gzip file.
+  id: totrans-64
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一种方法是使用`gzip`压缩文件，甚至将压缩后的gzip文件进行base64编码。
 - en: Configuring the server's time zone using cloud-init
+  id: totrans-65
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用cloud-init配置服务器的时区
 - en: One very common configuration step on a new instance is setting the time zone.
     This time we'll explicitly set the EDT (New York) time zone for our server (even
     if the server is running in Europe or somewhere else). It is sometimes important
     to have as early as possible a correct date and time set up (for things like registration
     times, delays, and other issues depending on dates and times).
+  id: totrans-66
   prefs: []
   type: TYPE_NORMAL
+  zh: 在新的实例上，一个非常常见的配置步骤是设置时区。这次我们将明确设置服务器的EDT（纽约）时区（即使服务器运行在欧洲或其他地方）。有时候，尽早正确设置日期和时间非常重要（例如用于注册时间、延迟和其他依赖日期和时间的问题）。
 - en: Note
+  id: totrans-67
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: In most setups, I personally prefer to ensure all the systems are set to GMT,
     wherever they are on the planet, GMT or not. This way, it's much easier to debug,
     compare logs or behavior when failures arise, without losing time doing the math
     of the time zones.
+  id: totrans-68
   prefs: []
   type: TYPE_NORMAL
+  zh: 在大多数设置中，我个人更喜欢确保所有系统都设置为GMT，无论它们位于地球的哪个地方，是否处于GMT时区。这样，当出现故障时，更容易调试、比较日志或行为，而不必浪费时间进行时区的计算。
 - en: Getting ready
+  id: totrans-69
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 准备就绪
 - en: 'To step through this recipe, you will need:'
+  id: totrans-70
   prefs: []
   type: TYPE_NORMAL
+  zh: 要按此配方进行操作，你需要：
 - en: Access to a cloud-config enabled infrastructure
+  id: totrans-71
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 访问启用cloud-config的基础设施
 - en: How to do it…
+  id: totrans-72
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 如何操作…
 - en: 'To set the server''s time zone automatically to `America/New_York`, use the
     `timezone` directive:'
+  id: totrans-73
   prefs: []
   type: TYPE_NORMAL
+  zh: 要自动将服务器的时区设置为`America/New_York`，使用`timezone`指令：
 - en: '[PRE11]'
+  id: totrans-74
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE11]'
 - en: 'That is it! Our server is now configured from the beginning to use the correct
     time zone:'
+  id: totrans-75
   prefs: []
   type: TYPE_NORMAL
+  zh: 就是这样！我们的服务器现在已从一开始就配置为使用正确的时区：
 - en: '[PRE12]'
+  id: totrans-76
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE12]'
 - en: 'This, in fact, has simply set the `/etc/timezone` file to the correct value:'
+  id: totrans-77
   prefs: []
   type: TYPE_NORMAL
+  zh: 事实上，这只是将`/etc/timezone`文件设置为正确的值：
 - en: '[PRE13]'
+  id: totrans-78
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE13]'
 - en: Managing users, keys, and credentials using cloud-init
+  id: totrans-79
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用cloud-init管理用户、密钥和凭证
 - en: There's a high probability we won't plan to use the default root account, or
     even the default user account from our distribution (those ubuntu or centos users).
     There's an even higher probability we'll need a Unix account very early in the
     process, even before the proper configuration management tool enters the game.
+  id: totrans-80
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们很可能不会打算使用默认的root账户，甚至不会使用我们发行版中的默认用户账户（那些ubuntu或centos用户）。更有可能的是，我们在过程的早期就需要一个Unix账户，甚至在适当的配置管理工具介入之前。
 - en: Let's say our IT security policy wants us to have an `emergency` user account
     in a group named `infosec` for the IT security team with passwordless `sudo` rights
     and the simple `/bin/sh` shell. This account has one authorized public key automatically
     populated. The policy is also to remove the default `ubuntu` account.
+  id: totrans-81
   prefs: []
   type: TYPE_NORMAL
+  zh: 假设我们的IT安全政策要求我们为IT安全团队创建一个名为`emergency`的用户账户，该账户位于一个名为`infosec`的组中，拥有无密码的`sudo`权限，并且只有简单的`/bin/sh`
+    shell。此账户将自动填充一个授权的公钥。政策还要求删除默认的`ubuntu`账户。
 - en: Getting ready
+  id: totrans-82
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 准备就绪
 - en: 'To step through this recipe, you will need:'
+  id: totrans-83
   prefs: []
   type: TYPE_NORMAL
+  zh: 要按此配方进行操作，你需要：
 - en: Access to a cloud-config enabled infrastructure
+  id: totrans-84
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 访问启用cloud-config的基础设施
 - en: How to do it…
+  id: totrans-85
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 如何操作…
 - en: 'To create a group, we use a directive simply named `groups`, taking a list
     of groups. Any group can have a sublist of users to put in that group:'
+  id: totrans-86
   prefs: []
   type: TYPE_NORMAL
+  zh: 要创建一个组，我们使用一个简单名为`groups`的指令，接受一个组列表。任何组都可以包含一个用户子列表，将这些用户添加到该组：
 - en: '[PRE14]'
+  id: totrans-87
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE14]'
 - en: 'To create a user, let''s use a directive named `users`, taking a list of users.
     This list of users has a set of keys, such as `groups` the user is a member of,
     `sudo` rights, which `shell` to default to, or an SSH public key to authorize.
     Here''s how it looks for our user `emergency`:'
+  id: totrans-88
   prefs: []
   type: TYPE_NORMAL
+  zh: 要创建一个用户，我们使用名为`users`的指令，它接受一个用户列表。这个用户列表有一组键，例如用户所在的`groups`，`sudo`权限，默认使用的`shell`，或者用于授权的
+    SSH 公钥。以下是我们为用户`emergency`设置的示例：
 - en: '[PRE15]'
+  id: totrans-89
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE15]'
 - en: 'Once logged in as `emergency` using the private key, let''s verify cloud-init
     did the job:'
+  id: totrans-90
   prefs: []
   type: TYPE_NORMAL
+  zh: 登录为`emergency`用户，使用私钥后，让我们验证 cloud-init 是否完成了任务：
 - en: '[PRE16]'
+  id: totrans-91
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE16]'
 - en: Note
+  id: totrans-92
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: 'We never explicitly asked to remove the default `ubuntu` user account: it''s
     automatic as soon as we create an initial user.'
+  id: totrans-93
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们从未明确要求删除默认的`ubuntu`用户账户：一旦创建初始用户，这一操作会自动完成。
 - en: 'However, if we wanted to keep the default user from our Linux distribution,
     we''d just have to add the following `default` user to the `users` directive:'
+  id: totrans-94
   prefs: []
   type: TYPE_NORMAL
+  zh: 然而，如果我们希望保留 Linux 发行版的默认用户，只需将以下`default`用户添加到`users`指令中：
 - en: '[PRE17]'
+  id: totrans-95
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE17]'
 - en: Managing repositories and packages using cloud-init
+  id: totrans-96
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用 cloud-init 管理仓库和软件包
 - en: Unless we need a very specific release of a Linux distribution, it's highly
     probable we'll expect a fully updated system as soon as possible (think security
     patches and other bug fixes). Similarly, we usually expect a set of tools to be
@@ -410,73 +622,113 @@
     configuration management tool starts its job (such as Chef or Puppet). We may
     also want to reboot the server after applying critical initial packages such as
     the kernel, or add a custom package repository.
+  id: totrans-97
   prefs: []
   type: TYPE_NORMAL
+  zh: 除非我们需要一个非常特定版本的 Linux 发行版，否则很可能我们会希望尽快得到一个完全更新的系统（考虑到安全补丁和其他 bug 修复）。同样，我们通常期望新系统中可以使用一组工具。然而，事情可能会发生变化，默认工具可能会被移除——最好小心为上。如果我们的引导脚本需要`wget`、`curl`和`nmap`，我们应该确保在适当的配置管理工具（如
+    Chef 或 Puppet）开始工作之前，这些工具已经存在。我们还可能希望在应用关键的初始软件包（如内核）后重启服务器，或者添加自定义的包仓库。
 - en: Getting ready
+  id: totrans-98
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: 'To step through this recipe, you will need:'
+  id: totrans-99
   prefs: []
   type: TYPE_NORMAL
+  zh: 要执行这个步骤，你需要：
 - en: Access to a cloud-config enabled infrastructure
+  id: totrans-100
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 访问启用了 cloud-config 的基础设施
 - en: How to do it…
+  id: totrans-101
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 如何操作……
 - en: 'To upgrade all the packages right after bootstrap, simply set the `package_upgrade`
     directive to `true`:'
+  id: totrans-102
   prefs: []
   type: TYPE_NORMAL
+  zh: 在引导完成后立即升级所有软件包，只需将`package_upgrade`指令设置为`true`：
 - en: '[PRE18]'
+  id: totrans-103
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE18]'
 - en: 'Another useful directive is to reboot the system if required by the package
     manager (common case with kernel updates). It''s often better to reboot as soon
     as possible with the most secure kernel, but proceed with caution according to
     your own environment (you might not want to reboot while another action is taking
     place, maybe a Chef run or similar management software):'
+  id: totrans-104
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一个有用的指令是，如果包管理器要求重新启动系统（通常是内核更新时的常见情况），就会执行重启。通常最好尽早重启，以确保使用最安全的内核，但根据你自己的环境小心操作（你可能不希望在进行其他操作时重启，比如运行
+    Chef 或类似的管理软件）：
 - en: '[PRE19]'
+  id: totrans-105
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE19]'
 - en: 'To ensure the required packages are installed, use the `packages` directive:'
+  id: totrans-106
   prefs: []
   type: TYPE_NORMAL
+  zh: 为确保安装了所需的软件包，请使用`packages`指令：
 - en: '[PRE20]'
+  id: totrans-107
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE20]'
 - en: 'We can also add a custom APT repository using `apt_sources`:'
+  id: totrans-108
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们还可以使用`apt_sources`添加自定义的 APT 仓库：
 - en: '[PRE21]'
+  id: totrans-109
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE21]'
 - en: 'Let''s launch a new instance and verify it''s fully updated, so no updates
     can be applied:'
+  id: totrans-110
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们启动一个新的实例，并验证它已完全更新，以便无法应用任何更新：
 - en: '[PRE22]'
+  id: totrans-111
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE22]'
 - en: 'Verify our required tools are available:'
+  id: totrans-112
   prefs: []
   type: TYPE_NORMAL
+  zh: 验证我们所需的工具是否可用：
 - en: '[PRE23]'
+  id: totrans-113
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE23]'
 - en: Good thing! Now we're sure to always have a fully updated system with the required
     set of tools installed, even our own, right from the beginning.
+  id: totrans-114
   prefs: []
   type: TYPE_NORMAL
+  zh: 好消息！现在我们可以确保从一开始就始终拥有一个完全更新的系统，并且安装了所需的工具集，甚至是我们自己的工具。
 - en: Running commands during boot using cloud-init
+  id: totrans-115
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 在启动过程中使用 cloud-init 运行命令
 - en: When bootstrapping a new server or instance, the first boot is often very different
     from all the other boots the instance will experience in its life, and most often
     we want some commands to be executed very early or very late in the boot process.
@@ -486,30 +738,44 @@
     at each boot! The `bootcmd` directive is there to handle everything related to
     commands to be executed very early in the boot process, while the `runcmd` directive
     is executed much later in the boot process (and only once).
+  id: totrans-116
   prefs: []
   type: TYPE_NORMAL
+  zh: 在引导新服务器或实例时，第一次引导通常与实例生命周期中的其他引导有很大不同，我们通常希望在引导过程中非常早或非常晚执行一些命令。例如，假设我们的云实例启动时附带了一个块存储。我们可能想要格式化这个存储空间并确保它挂载到主机上，但虽然我们始终希望磁盘能够挂载，我们可能不希望它在每次引导时都被格式化！`bootcmd`指令用于处理引导过程中非常早期需要执行的命令，而`runcmd`指令则在引导过程中较晚执行（且仅执行一次）。
 - en: Note
+  id: totrans-117
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: '`bootcmd` will be executed at every boot of the instance.'
+  id: totrans-118
   prefs: []
   type: TYPE_NORMAL
+  zh: '`bootcmd`将在每次实例引导时执行。'
 - en: Getting ready
+  id: totrans-119
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: 'To step through this recipe, you will need:'
+  id: totrans-120
   prefs: []
   type: TYPE_NORMAL
+  zh: 要执行这个步骤，你需要：
 - en: Access to a cloud-config enabled infrastructure
+  id: totrans-121
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 访问启用cloud-config的基础设施
 - en: How to do it…
+  id: totrans-122
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 如何操作…
 - en: We'll launch three commands during boot. The first one is a simple file with
     a dynamic content (the `$INSTANCE_ID` variable made available to us by cloud-init),
     which will always be rewritten, no matter what, at each boot. The second command
@@ -517,322 +783,492 @@
     final command is the `ext4` formatting of a block device attached on `/dev/xvdb`.
     For the sake of the exercise, we'll also mount the new device under `/srv/www`
     on the host.
+  id: totrans-123
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将在引导过程中启动三个命令。第一个是一个包含动态内容的简单文件（由cloud-init提供的`$INSTANCE_ID`变量），它将在每次引导时无论如何都会被重写。第二个命令是将日期打印到日志中（这样我们可以知道引导过程何时开始）。最后一个命令是格式化附加到`/dev/xvdb`上的块设备为`ext4`格式。为了演示，我们还将在主机上将新设备挂载到`/srv/www`下。
 - en: 'To launch any command at boot time that will be run as early as possible, every
     time the machine boots, simply add it to the list of the `bootcmd` directive:'
+  id: totrans-124
   prefs: []
   type: TYPE_NORMAL
+  zh: 要在每次机器启动时尽可能早地执行某个命令，只需将其添加到`bootcmd`指令的命令列表中：
 - en: '[PRE24]'
+  id: totrans-125
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE24]'
 - en: If we delete or modify this file, at the next reboot it will be overwritten.
+  id: totrans-126
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果我们删除或修改这个文件，下次重启时它将被覆盖。
 - en: 'On the other hand, if we want to run a command only once inside the `bootcmd`
     directive, we can use the helper script `cloud-init-per`. You can choose to launch
     the command once per `boot` or once per `instance`. In our case, we want to format
     the `/dev/xvdb` device (so, unless we want to format our drive each time we reboot,
     we probably want this to happen only once on this instance. So let''s add the
     `instance` argument to the `cloud-init-per` helper script):'
+  id: totrans-127
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一方面，如果我们只想在`bootcmd`指令中运行一次命令，可以使用辅助脚本`cloud-init-per`。你可以选择每次`boot`时或每个`instance`时执行一次命令。在我们的例子中，我们想要格式化`/dev/xvdb`设备（因此，除非我们希望每次重启时都格式化磁盘，否则我们可能只希望在此实例上执行一次。让我们将`instance`参数添加到`cloud-init-per`辅助脚本中）：
 - en: '[PRE25]'
+  id: totrans-128
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE25]'
 - en: 'Finally, let''s use the `mounts` directive to mount the now formatted `/dev/xvdb`
     on the `/srv/www` folder:'
+  id: totrans-129
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，让我们使用`mounts`指令将现在格式化的`/dev/xvdb`挂载到`/srv/www`文件夹：
 - en: '[PRE26]'
+  id: totrans-130
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE26]'
 - en: 'After boot, let''s verify the block device is mounted:'
+  id: totrans-131
   prefs: []
   type: TYPE_NORMAL
+  zh: 启动后，让我们验证块设备是否已挂载：
 - en: '[PRE27]'
+  id: totrans-132
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE27]'
 - en: 'We can also test the existence of the file we created:'
+  id: totrans-133
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们还可以测试我们创建的文件是否存在：
 - en: '[PRE28]'
+  id: totrans-134
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE28]'
 - en: 'Try to delete this file and reboot the server: the file will be there again.'
+  id: totrans-135
   prefs: []
   type: TYPE_NORMAL
+  zh: 尝试删除这个文件并重启服务器：文件将再次出现。
 - en: 'Now, let''s take a look at how different the `runcmd` directive is. Let''s
     add a very similar command to the date output in the `bootcmd` directive:'
+  id: totrans-136
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，让我们来看一下`runcmd`指令有何不同。我们将向`bootcmd`指令中的日期输出添加一个非常相似的命令：
 - en: '[PRE29]'
+  id: totrans-137
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE29]'
 - en: 'Start a new instance, and observe the difference in timestamps:'
+  id: totrans-138
   prefs: []
   type: TYPE_NORMAL
+  zh: 启动一个新实例，并观察时间戳的变化：
 - en: '[PRE30]'
+  id: totrans-139
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE30]'
 - en: The `runcmd` directive started 12 seconds later than the `bootcmd` directive.
+  id: totrans-140
   prefs: []
   type: TYPE_NORMAL
+  zh: '`runcmd`指令比`bootcmd`指令晚12秒启动。'
 - en: 'Now reboot the instance, and observe that `runcmd` didn''t run again:'
+  id: totrans-141
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在重新启动实例，并观察到`runcmd`没有再次执行：
 - en: '[PRE31]'
+  id: totrans-142
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE31]'
 - en: Now we know what directive to use in each case.
+  id: totrans-143
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们知道在每种情况下该使用哪个指令了。
 - en: Configuring CoreOS using cloud-init
+  id: totrans-144
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用cloud-init配置CoreOS
 - en: CoreOS supports its own version of cloud-init, with added support for the CoreOS
     environment, and without everything else incompatible with its environment, so
     we can boot a fully configured system and cluster.
+  id: totrans-145
   prefs: []
   type: TYPE_NORMAL
+  zh: CoreOS 支持其自有版本的 cloud-init，并增强了对 CoreOS 环境的支持，同时不包含任何与其环境不兼容的部分，这样我们就可以启动一个完全配置好的系统和集群。
 - en: We'll take a look at the CoreOS specificities, as we can refer to earlier tips
     on how to manage users, files, authorized SSH keys, and other standard cloud-init
     directives. At the end of this part, you'll know how to configure the etcd key
     value store, the fleet cluster manager, the flannel overlay network, control the
     update mechanism, and ensure systemd units are started as early as possible.
+  id: totrans-146
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将看看 CoreOS 的特殊性，参考之前的提示，学习如何管理用户、文件、授权的 SSH 密钥以及其他标准的 cloud-init 指令。在这部分结束时，您将学会如何配置
+    etcd 键值存储、fleet 集群管理器、flannel 覆盖网络、控制更新机制，并确保 systemd 单元尽早启动。
 - en: Note
+  id: totrans-147
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: CoreOS proposes a very useful cloud-config file validator at [https://coreos.com/validate/](https://coreos.com/validate/).
     It's super useful when we're not sure if a directive is supported or not in the
     distribution.
+  id: totrans-148
   prefs: []
   type: TYPE_NORMAL
+  zh: CoreOS 提供了一个非常有用的云配置文件验证工具，位于 [https://coreos.com/validate/](https://coreos.com/validate/)。当我们不确定某个指令是否被发行版支持时，这个工具非常有用。
 - en: Getting ready
+  id: totrans-149
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: 'To step through this recipe, you will need:'
+  id: totrans-150
   prefs: []
   type: TYPE_NORMAL
+  zh: 要完成本配方，您将需要：
 - en: Access to a cloud-config enabled infrastructure
+  id: totrans-151
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 访问启用云配置的基础设施
 - en: How to do it…
+  id: totrans-152
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 如何操作……
 - en: We'll get through the most important configuration options that can be manipulated
     for CoreOS. This includes the etcd distributed key value store, the fleet scheduler,
     the fleet network, the update strategy, and some systemd unit configuration.
+  id: totrans-153
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将介绍可以为 CoreOS 配置的最重要选项。这包括 etcd 分布式键值存储、fleet 调度器、fleet 网络、更新策略以及一些 systemd
+    单元配置。
 - en: Configuring etcd using cloud-init
+  id: totrans-154
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 使用 cloud-init 配置 etcd
 - en: The etcd key value store is used in CoreOS to share multiple configuration data
     between members of a same cluster. To begin with, we need a discovery token, that
     can be obtained from [https://discovery.etcd.io/new](https://discovery.etcd.io/new).
+  id: totrans-155
   prefs: []
   type: TYPE_NORMAL
+  zh: etcd 键值存储在 CoreOS 中用于在同一集群的成员之间共享多个配置数据。首先，我们需要一个发现令牌，可以从[https://discovery.etcd.io/new](https://discovery.etcd.io/new)获得。
 - en: '[PRE32]'
+  id: totrans-156
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE32]'
 - en: Note
+  id: totrans-157
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: We can specify the minimum required size of the CoreOS cluster by adding the
     `size=` argument to the URL [https://discovery.etcd.io/new?size=3](https://discovery.etcd.io/new?size=3).
+  id: totrans-158
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们可以通过在 URL [https://discovery.etcd.io/new?size=3](https://discovery.etcd.io/new?size=3)
+    中添加 `size=` 参数来指定 CoreOS 集群的最小所需大小。
 - en: 'Now we have a valid discovery token, let''s add it to our `cloud-config.yml`
     file under the `etcd2` directive:'
+  id: totrans-159
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们有了有效的发现令牌，让我们将其添加到 `cloud-config.yml` 文件中的 `etcd2` 指令下：
 - en: '[PRE33]'
+  id: totrans-160
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE33]'
 - en: 'The next step is to configure etcd:'
+  id: totrans-161
   prefs: []
   type: TYPE_NORMAL
+  zh: 下一步是配置 etcd：
 - en: How should etcd listen for peer traffic? (`listen-peer-urls`). We want the local
     interface on the default port (TCP/`2380`).
+  id: totrans-162
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: etcd 应该如何监听对等流量？（`listen-peer-urls`）。我们希望使用本地接口，并使用默认端口（TCP/`2380`）。
 - en: How should etcd listen for client traffic? (`listen-client-urls`). We want all
     available interfaces on the default port (TCP/`2379`).
+  id: totrans-163
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: etcd 应该如何监听客户端流量？（`listen-client-urls`）。我们希望使用所有可用的接口，并使用默认端口（TCP/`2379`）。
 - en: How should etcd initially advertise to the rest of the cluster? (`initial-advertise-peer-urls`).
     We want the local interface, using the same peer traffic port (TCP/`2380`).
+  id: totrans-164
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: etcd 应该如何初步向集群的其他节点通告？（`initial-advertise-peer-urls`）。我们希望使用本地接口，并使用相同的对等流量端口（TCP/`2380`）。
 - en: How should etcd advertise the client URLs to the rest of the cluster? (`advertise-client-urls`).
     We want the local interface, using the same client traffic port (TCP/`2379`).
+  id: totrans-165
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: etcd 应该如何向集群的其他节点通告客户端 URL？（`advertise-client-urls`）。我们希望使用本地接口，并使用相同的客户端流量端口（TCP/`2379`）。
 - en: To make it more dynamic, we can use variables compatible with most IaaS providers—`$private_ipv4`
     and `$public_ipv4`.
+  id: totrans-166
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了使配置更具动态性，我们可以使用兼容大多数 IaaS 提供商的变量——`$private_ipv4` 和 `$public_ipv4`。
 - en: 'This is how our `cloud-config.yml` file looks with all the etcd configuration:'
+  id: totrans-167
   prefs: []
   type: TYPE_NORMAL
+  zh: 这就是我们包含所有 etcd 配置的 `cloud-config.yml` 文件：
 - en: '[PRE34]'
+  id: totrans-168
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE34]'
 - en: This will generate the right variables in the `systemd` unit file found at `/run/systemd/system/etcd2.service.d/20-cloudinit.conf`.
+  id: totrans-169
   prefs: []
   type: TYPE_NORMAL
+  zh: 这将生成在 `/run/systemd/system/etcd2.service.d/20-cloudinit.conf` 中找到的 `systemd`
+    单元文件中的正确变量。
 - en: '[PRE35]'
+  id: totrans-170
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE35]'
 - en: 'When we have our cluster ready, we''ll be able to request information as a
     client on the specified port:'
+  id: totrans-171
   prefs: []
   type: TYPE_NORMAL
+  zh: 当我们的集群准备好后，我们可以通过指定端口以客户端身份请求信息：
 - en: '[PRE36]'
+  id: totrans-172
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE36]'
 - en: 'We can also navigate the etcd key value store to confirm we can access it:'
+  id: totrans-173
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们还可以浏览 etcd 键值存储，以确认是否能够访问它：
 - en: '[PRE37]'
+  id: totrans-174
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE37]'
 - en: Configuring fleet using cloud-init
+  id: totrans-175
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 使用 cloud-init 配置 fleet
 - en: Fleet is a distributed init manager based on systemd that we use to schedule
     services on our CoreOS cluster.
+  id: totrans-176
   prefs: []
   type: TYPE_NORMAL
+  zh: Fleet是基于systemd的分布式初始化管理器，我们使用它在我们的CoreOS集群上安排服务。
 - en: 'The most important configuration parameters are the following:'
+  id: totrans-177
   prefs: []
   type: TYPE_NORMAL
+  zh: 最重要的配置参数如下：
 - en: '`public_ip`: This specifies which interface to use to communicate with other
     hosts. We want the public IP of the host so we can interact with fleet right from
     our workstation.'
+  id: totrans-178
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`public_ip`：这指定要用于与其他主机通信的接口。我们希望主机的公共IP，以便我们可以直接从我们的工作站与fleet互动。'
 - en: '`metadata`: This is any key value relevant to our needs, so we can schedule
     units accordingly. We want to store the provider (`aws`), the region (`eu-west-1`),
     and the name of the cluster (`mycluster`). This is totally arbitrary; adapt keys
     and values to your own needs.'
+  id: totrans-179
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`metadata`: 这是与我们需求相关的任何关键值，因此我们可以相应地安排单元。我们想要存储提供者（`aws`），地区（`eu-west-1`）以及集群的名称（`mycluster`）。这完全是任意的；请根据您自己的需求调整键和值。'
 - en: 'This is how it looks in the `cloud-config.yml` file:'
+  id: totrans-180
   prefs: []
   type: TYPE_NORMAL
+  zh: 这是在`cloud-config.yml`文件中的样子：
 - en: '[PRE38]'
+  id: totrans-181
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE38]'
 - en: 'This will generate the right variables in the systemd unit at `/run/systemd/system/fleet.service.d/20-cloudinit.conf`:'
+  id: totrans-182
   prefs: []
   type: TYPE_NORMAL
+  zh: 这将在`/run/systemd/system/fleet.service.d/20-cloudinit.conf`中的systemd单元中生成正确的变量：
 - en: '[PRE39]'
+  id: totrans-183
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE39]'
 - en: 'Using fleet is outside of the scope of this book, but we can at least verify
     the connection to the fleet cluster manager is working from the instance:'
+  id: totrans-184
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用fleet超出了本书的范围，但我们至少可以从实例验证与fleet集群管理器的连接是否正常：
 - en: '[PRE40]'
+  id: totrans-185
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE40]'
 - en: We can now submit and start services on our working fleet cluster!
+  id: totrans-186
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们可以提交并启动我们工作中的fleet集群上的服务！
 - en: Configuring the update strategy using cloud-init
+  id: totrans-187
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 使用cloud-init配置更新策略
 - en: 'CoreOS can handle updates in various ways, including rebooting immediately
     after a new CoreOS version is made available, scheduling with etcd for an ideal
     time so the cluster never breaks, a mix of both (the default), or even to never
     reboot. We can also explicitly specify which CoreOS channel to use (stable, beta,
     or alpha). We want to ensure the cluster never breaks, using the `etcd-lock` strategy,
     and be sure the stable release is used:'
+  id: totrans-188
   prefs: []
   type: TYPE_NORMAL
+  zh: CoreOS可以以各种方式处理更新，包括在新的CoreOS版本可用后立即重新启动，使用etcd进行理想时间的调度，使集群永不中断，两者混合（默认），甚至永不重新启动。我们还可以明确指定要使用的CoreOS通道（稳定版、测试版或Alpha版）。我们希望使用`etcd-lock`策略确保集群永不中断，并确保使用稳定的发布版：
 - en: '[PRE41]'
+  id: totrans-189
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE41]'
 - en: 'This section generates the `/etc/coreos/update.conf` file:'
+  id: totrans-190
   prefs: []
   type: TYPE_NORMAL
+  zh: 此部分生成`/etc/coreos/update.conf`文件：
 - en: '[PRE42]'
+  id: totrans-191
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE42]'
 - en: 'We can force an update check to verify it''s working (sample taken from a system
     with an update available):'
+  id: totrans-192
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们可以强制执行更新检查以验证其是否正常工作（从具有可用更新的系统中获取的示例）：
 - en: '[PRE43]'
+  id: totrans-193
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE43]'
 - en: Configuring locksmith using cloud-init
+  id: totrans-194
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 使用cloud-init配置locksmith
 - en: 'Now we''re sure the update system is correctly triggered, we are facing a new
     problem: nodes from our cluster can reboot at any time when an update is available.
     It''s probably less than desirable in a high load environment. So we can configure
     **locksmith** to allow reboots only during a specific timeframe, such as "every
     night from Friday to Saturday, between 4 am and 6 am". We''re not limited to a
     single day, so we could also allow reboots any day at 4 am:'
+  id: totrans-195
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们确信更新系统已正确触发，我们面临一个新问题：当更新可用时，我们的集群节点可以随时重新启动。在高负载环境中可能不太理想。因此，我们可以配置**locksmith**，仅允许在特定时间范围内重新启动，例如“每周五到周六的夜间，从凌晨4点到6点”。我们不限于一天，所以我们也可以允许在凌晨4点时的任何一天重新启动：
 - en: '[PRE44]'
+  id: totrans-196
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE44]'
 - en: 'This generates the following content in `/run/systemd/system/locksmithd.service.d/20-cloudinit.conf`:'
+  id: totrans-197
   prefs: []
   type: TYPE_NORMAL
+  zh: 这将在`/run/systemd/system/locksmithd.service.d/20-cloudinit.conf`中生成以下内容：
 - en: '[PRE45]'
+  id: totrans-198
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE45]'
 - en: 'At any time, we can check for a reboot slot availability using the `locksmithctl`
     command:'
+  id: totrans-199
   prefs: []
   type: TYPE_NORMAL
+  zh: 随时可以使用`locksmithctl`命令检查重启槽的可用性：
 - en: '[PRE46]'
+  id: totrans-200
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE46]'
 - en: If another machine is currently rebooting, its ID is displayed so we know who's
     rebooting.
+  id: totrans-201
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果另一台机器当前正在重新启动，其ID将显示出来，以便我们知道是谁在重新启动。
 - en: Configuring systemd units using cloud-init
+  id: totrans-202
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 使用cloud-init配置systemd单元
 - en: 'We can manage units easily from cloud-init, so critical parts of the system
     are started right when we need them. For example, we know we want the etcd2 and
     fleet services to start at every boot:'
+  id: totrans-203
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们可以轻松地从cloud-init管理单元，因此系统的关键部分在需要时立即启动。例如，我们知道我们希望etcd2和fleet服务在每次启动时启动：
 - en: '[PRE47]'
+  id: totrans-204
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE47]'
 - en: Configuring flannel using cloud-init
+  id: totrans-205
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 使用cloud-init配置flannel
 - en: 'Flannel is used to create an overlay network across all hosts in the cluster,
     so containers can talk to each other over the network, whatever node they run
     on. To configure flannel before starting it, we can add more configuration information
@@ -840,91 +1276,139 @@
     network, so we can create a drop-in systemd configuration file with its content
     that will be executed before the `flanneld` service. In this case, setting the
     flannel network is done by writing the key/value combination to etcd under `/coreos.com/network/config`:'
+  id: totrans-206
   prefs: []
   type: TYPE_NORMAL
+  zh: Flannel用于在集群中的所有主机之间创建一个覆盖网络，这样容器就可以通过网络相互通信，无论它们在哪个节点上运行。为了在启动Flannel之前进行配置，我们可以向cloud-config文件中添加更多配置内容。我们知道希望我们的Flannel网络在10.1.0.0/16网络上运行，因此我们可以创建一个drop-in
+    systemd配置文件，其中包含将在`flanneld`服务之前执行的内容。在这种情况下，设置Flannel网络的操作是通过将键/值组合写入etcd的`/coreos.com/network/config`下完成的：
 - en: '[PRE48]'
+  id: totrans-207
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE48]'
 - en: 'This will simply create the file `/etc/systemd/system/flanneld.service.d/50-network-config.conf`:'
+  id: totrans-208
   prefs: []
   type: TYPE_NORMAL
+  zh: 这将仅创建文件`/etc/systemd/system/flanneld.service.d/50-network-config.conf`：
 - en: '[PRE49]'
+  id: totrans-209
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE49]'
 - en: 'Verify we have a correct `flannel0` interface in the correct IP network range:'
+  id: totrans-210
   prefs: []
   type: TYPE_NORMAL
+  zh: 验证我们是否在正确的IP网络范围内有一个正确的`flannel0`接口：
 - en: '[PRE50]'
+  id: totrans-211
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE50]'
 - en: 'Launch a container to verify it''s also running in the 10.1.0.0/16 network:'
+  id: totrans-212
   prefs: []
   type: TYPE_NORMAL
+  zh: 启动一个容器，以验证它是否也在10.1.0.0/16网络中运行：
 - en: '[PRE51]'
+  id: totrans-213
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE51]'
 - en: It's all working great!
+  id: totrans-214
   prefs: []
   type: TYPE_NORMAL
+  zh: 一切都运行得非常顺利！
 - en: Note
+  id: totrans-215
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: Note that it may take a while to get the interface up, depending on the host
     Internet connection speed, as flannel is running from a container that needs to
     be downloaded first (51 MB to date).
+  id: totrans-216
   prefs: []
   type: TYPE_NORMAL
+  zh: 请注意，启动接口可能需要一些时间，这取决于主机的网络连接速度，因为flannel是从一个容器中运行的，首先需要下载该容器（截至目前为51 MB）。
 - en: We now know the most useful configuration options to bootstrap automatically
     a CoreOS cluster using cloud-init.
+  id: totrans-217
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们现在了解了使用cloud-init自动引导CoreOS集群的最有用配置选项。
 - en: Deploying Chef Client from start to finish using cloud-init
+  id: totrans-218
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 从头到尾使用cloud-init部署Chef客户端
 - en: We can deploy Chef using the official **omnibus** installer through cloud-init.
     This installer embeds everything needed to deploy Chef and all its dependencies.
     We'll then configure the Chef client to authenticate securely against the Chef
     Server organization, and finally apply an initial set of cookbooks.
+  id: totrans-219
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们可以通过cloud-init使用官方的**omnibus**安装程序来部署Chef。这个安装程序包含了部署Chef及其所有依赖项所需的所有内容。接着，我们将配置Chef客户端，以便与Chef服务器组织进行安全的身份验证，并最终应用初始的cookbook。
 - en: Note
+  id: totrans-220
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: 'Warning: The current cloud-init version shipped with Ubuntu 16.04 LTS and CentOS
     7 is having issues installing Chef. This recipe is using Ubuntu 14.04 LTS waiting
     for the issue to be fixed.'
+  id: totrans-221
   prefs: []
   type: TYPE_NORMAL
+  zh: 警告：当前与Ubuntu 16.04 LTS和CentOS 7一起发布的cloud-init版本在安装Chef时存在问题。此步骤使用的是Ubuntu 14.04
+    LTS，等待该问题修复。
 - en: Getting ready
+  id: totrans-222
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: 'To step through this recipe, you will need the following:'
+  id: totrans-223
   prefs: []
   type: TYPE_NORMAL
+  zh: 要按照此步骤进行操作，您将需要以下内容：
 - en: Access to a cloud-config enabled infrastructure
+  id: totrans-224
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 访问启用了cloud-config的基础设施
 - en: A working Chef Server and organization setup
+  id: totrans-225
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个可用的Chef服务器和组织设置
 - en: How to do it…
+  id: totrans-226
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 如何操作…
 - en: Everything related to Chef with cloud-init is configured under the directive
     named `chef`.
+  id: totrans-227
   prefs: []
   type: TYPE_NORMAL
+  zh: 与Chef相关的所有内容都在名为`chef`的指令下进行配置。
 - en: Deploying the Chef omnibus installer using cloud-init
+  id: totrans-228
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 使用cloud-init部署Chef omnibus安装程序
 - en: As we want to use the official omnibus build (other choices are installing Chef
     through a Ruby gem—deprecated and too dependent on a locally installed Ruby version
     and through a package, which is already documented), let's define the installation
@@ -932,71 +1416,106 @@
     client was found to be already present on the system. Finally, let's explicitly
     define the installer full URL, so we're sure about what we install (maybe point
     it to a local version on your own servers).
+  id: totrans-229
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于我们希望使用官方的omnibus构建（其他选择包括通过Ruby gem安装Chef——这种方法已经不推荐使用，并且过于依赖本地安装的Ruby版本，或者通过已记录的包进行安装），让我们将安装类型定义为`omnibus`，并确保即使出于某种原因，Chef客户端已经安装在系统上，也能安装该版本。最后，我们显式定义安装程序的完整URL，以确保我们安装的是正确的版本（可能将其指向您自己服务器上的本地版本）。
 - en: '[PRE52]'
+  id: totrans-230
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE52]'
 - en: 'This will output something like the following in the cloud-init logs:'
+  id: totrans-231
   prefs: []
   type: TYPE_NORMAL
+  zh: 这将在cloud-init日志中输出类似以下内容：
 - en: '[PRE53]'
+  id: totrans-232
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE53]'
 - en: At this point, you'll have a valid Chef installation under `/opt/chef`, though
     not yet configured.
+  id: totrans-233
   prefs: []
   type: TYPE_NORMAL
+  zh: 此时，您将会在`/opt/chef`目录下拥有一个有效的Chef安装，尽管尚未进行配置。
 - en: Configuring Chef against a Chef Server organization using cloud-init
+  id: totrans-234
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 使用cloud-init配置Chef与Chef服务器组织
 - en: 'Three pieces of information are needed for a chef client to authenticate correctly
     against a pre-existing Chef Server organization: the URL of the Chef server ([https://api.chef.io/organizations/iacbook](https://api.chef.io/organizations/iacbook)),
     the private key allowing you to add nodes to the organization, and the name linked
     to this key (by default, the organization name, such as `iacbook`). This information
     is mapped like this in the cloud-config file:'
+  id: totrans-235
   prefs: []
   type: TYPE_NORMAL
+  zh: chef 客户端需要以下三项信息才能正确地在现有的 Chef Server 组织中进行身份验证：Chef 服务器的 URL（[https://api.chef.io/organizations/iacbook](https://api.chef.io/organizations/iacbook)）、允许您向该组织添加节点的私钥，以及与此密钥关联的名称（默认为组织名称，如
+    `iacbook`）。这些信息在 cloud-config 文件中表示如下：
 - en: '[PRE54]'
+  id: totrans-236
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE54]'
 - en: 'With this information, the initial chef-client run will be able to authenticate
     itself against the Chef organization and add the node. In the cloud-init logs,
     this step is found at this moment:'
+  id: totrans-237
   prefs: []
   type: TYPE_NORMAL
+  zh: 有了这些信息，初次运行 chef-client 时将能够在 Chef 组织中进行身份验证并添加节点。在 cloud-init 日志中，此步骤出现在以下时刻：
 - en: '[PRE55]'
+  id: totrans-238
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE55]'
 - en: Applying a Chef cookbook at bootstrap using cloud-init
+  id: totrans-239
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 使用 cloud-init 在引导时应用 Chef 食谱
 - en: 'We certainly want to apply at least an initial cookbook for configuring the
     instance. In this case, we''ll simply apply the starter cookbook shipped with
     the starter kit, but we can add as many required roles and cookbooks as we want.
     Refer to the dedicated chapter of this book for more information on obtaining
     this cookbook:'
+  id: totrans-240
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们当然希望至少应用一个初步的食谱来配置实例。在这种情况下，我们将简单地应用随启动套件一起提供的初始食谱，但我们可以根据需要添加任意数量的角色和食谱。有关获取此食谱的更多信息，请参阅本书的专门章节：
 - en: '[PRE56]'
+  id: totrans-241
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE56]'
 - en: 'In the logs, we''ll see this being applied like this:'
+  id: totrans-242
   prefs: []
   type: TYPE_NORMAL
+  zh: 在日志中，我们将看到它以这种方式应用：
 - en: '[PRE57]'
+  id: totrans-243
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE57]'
 - en: Our instance is now both registered and configured automatically, as early as
     possible, with just a few lines in the cloud-config file.
+  id: totrans-244
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们的实例现在已经自动注册并配置完成，只需要在 cloud-config 文件中写几行代码即可。
 - en: Deploying a remote Docker server using cloud-init
+  id: totrans-245
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用 cloud-init 部署远程 Docker 服务器
 - en: It can be very handy to have a remote Docker server instead of the default local
     configuration from our workstation because of bandwidth issues, testing a production
     environment, maybe a customer demonstration, or distant team collaboration. Being
@@ -1005,71 +1524,111 @@
     and its public key. Docker will be modified to listen to the network through a
     socket kind of systemd service, and we'll configure the server time zone to be
     in New York.
+  id: totrans-246
   prefs: []
   type: TYPE_NORMAL
+  zh: 拥有一个远程 Docker 服务器而非工作站默认的本地配置可能非常有用，原因包括带宽问题、测试生产环境、客户演示或远程团队协作。能够向远程服务器发送常规
+    Docker 命令有很多优势。为了速度和舒适性，我们将部署一个基本的 CoreOS 系统，添加一个用户（Jane）及其公钥。Docker 将被修改为通过类似
+    socket 的 systemd 服务监听网络，我们还将把服务器时区配置为纽约。
 - en: Getting ready
+  id: totrans-247
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 准备工作
 - en: 'To step through this recipe, you will need:'
+  id: totrans-248
   prefs: []
   type: TYPE_NORMAL
+  zh: 要执行这个食谱，您需要：
 - en: Access to a cloud-config enabled infrastructure
+  id: totrans-249
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 访问启用 cloud-config 的基础设施
 - en: How to do it...
+  id: totrans-250
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 如何实现...
 - en: 'Let''s start by simply calling this server `"docker"`:'
+  id: totrans-251
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们先从简单地将这个服务器命名为 `"docker"` 开始：
 - en: '[PRE58]'
+  id: totrans-252
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE58]'
 - en: 'In the final system, this will set the hostname to the correct value:'
+  id: totrans-253
   prefs: []
   type: TYPE_NORMAL
+  zh: 在最终系统中，这将把主机名设置为正确的值：
 - en: '[PRE59]'
+  id: totrans-254
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE59]'
 - en: 'Now let''s create the `Jane` user, so she can log in to the instance to remotely
     help us. She needs to be in the `docker` group, so she can manipulate the containers,
     and she gave us her SSH public key. This is how it translates in the cloud-config
     file:'
+  id: totrans-255
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，让我们创建 `Jane` 用户，这样她就可以登录实例并远程帮助我们。她需要加入 `docker` 组，以便能够操作容器，并且她已经提供了她的 SSH
+    公钥。这是如何在 cloud-config 文件中表示的：
 - en: '[PRE60]'
+  id: totrans-256
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE60]'
 - en: 'In the final system, Jane is able to log in using her private key, and interact
     with the docker daemon as she''s a member of the docker group:'
+  id: totrans-257
   prefs: []
   type: TYPE_NORMAL
+  zh: 在最终系统中，Jane 可以使用她的私钥登录，并且由于她是 docker 组的成员，可以与 docker 守护进程进行交互：
 - en: '[PRE61]'
+  id: totrans-258
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE61]'
 - en: 'The SSH public key ends up in the following file:'
+  id: totrans-259
   prefs: []
   type: TYPE_NORMAL
+  zh: SSH 公钥最终会出现在以下文件中：
 - en: '[PRE62]'
+  id: totrans-260
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE62]'
 - en: Setting the timezone on CoreOS using cloud-init
+  id: totrans-261
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 使用 cloud-init 设置 CoreOS 的时区
 - en: 'CoreOS uses a system built around NTP (short for Network Time Protocol), controlled
     by the `timedatectl` command. We won''t find the usual `/etc/timezone` on CoreOS,
     so the default `timezone` directive from cloud-init we''ve seen earlier in this
     book won''t work. To set the time zone to New York on CoreOS, we would set it
     like this:'
+  id: totrans-262
   prefs: []
   type: TYPE_NORMAL
+  zh: CoreOS 使用一个基于 NTP（网络时间协议）系统，通过 `timedatectl` 命令进行控制。我们在 CoreOS 上找不到通常的 `/etc/timezone`
+    文件，因此我们在本书中之前看到的 cloud-init 的默认 `timezone` 指令将不起作用。要将时区设置为纽约，我们可以这样设置：
 - en: '[PRE63]'
+  id: totrans-263
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE63]'
 - en: 'Easy! So let''s launch that command through a systemd unit in the cloud-config
     file, so we''re sure the time zone is set. In-depth knowledge of systemd is out
     of the scope of this book, but to do that, we''ll have to add two options to the
@@ -1077,18 +1636,27 @@
     exited (`RemainAfterExit=yes`), and one that tells the unit type is not executing
     a long running process, but instead a short one that should exit before continuing
     (`Type=oneshot`).'
+  id: totrans-264
   prefs: []
   type: TYPE_NORMAL
+  zh: 很简单！所以我们通过 cloud-config 文件中的 systemd 单元来启动该命令，以确保时区已经设置。对 systemd 的深入了解超出了本书的范围，但为了做到这一点，我们需要为该单元添加两个选项：一个告诉
+    systemd 即使命令退出了也不要认为该单元崩溃了（`RemainAfterExit=yes`），另一个告诉该单元类型不是执行长期运行的进程，而是一个应该在继续之前退出的短期进程（`Type=oneshot`）。
 - en: 'Here''s the unit in the `cloud-config.yml` file:'
+  id: totrans-265
   prefs: []
   type: TYPE_NORMAL
+  zh: 这是 `cloud-config.yml` 文件中的单元：
 - en: '[PRE64]'
+  id: totrans-266
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE64]'
 - en: Enabling Docker TCP socket for network access
+  id: totrans-267
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 启用 Docker TCP 套接字以进行网络访问
 - en: 'Our final objective is to be able to use a Docker Engine remotely from our
     workstation. The default Docker configuration is to listen to the Unix socket
     (`/var/run/docker.sock`)—and we want it to listen to a TCP socket on port 2375
@@ -1100,57 +1668,91 @@
     requests on the TCP socket and not on the Unix socket (while keeping the possibility
     to activate more TCP sockets, or keeping the default `docker.service` clean).
     Here''s how it looks:'
+  id: totrans-268
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们的最终目标是能够从工作站远程使用 Docker 引擎。默认的 Docker 配置是监听 Unix 套接字（`/var/run/docker.sock`），而我们希望它监听
+    TCP 套接字上的 2375 端口（默认的非加密端口，强烈建议配置 TLS 加密；按照惯例，这将使用 TCP/2376）。为了配置这一点，我们将使用 systemd
+    的一项功能——套接字激活。简而言之，这会创建一个 systemd 服务，监听 2375 端口，并同时启动常规的 `docker.service` 单元和套接字描述。这样，这个特定的
+    Docker 引擎将会响应 TCP 套接字上的请求，而不是 Unix 套接字（同时可以激活更多 TCP 套接字，或保持默认的 `docker.service`
+    清洁）。以下是配置示例：
 - en: '[PRE65]'
+  id: totrans-269
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE65]'
 - en: 'Let''s start a remote server with this whole configuration and use it a little
     for the demonstration (in this example, the Docker remote host is `52.211.117.98`,
     and we''ll launch an `nginx` container with HTTP port forwarding). Refer to the
     Docker section of this book for more information on the command-line options used:'
+  id: totrans-270
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们启动一个远程服务器，使用完整的配置并稍作演示（在这个例子中，Docker 远程主机是 `52.211.117.98`，我们将启动一个带有 HTTP
+    端口转发的 `nginx` 容器）。有关使用的命令行选项的更多信息，请参考本书的 Docker 部分：
 - en: '[PRE66]'
+  id: totrans-271
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE66]'
 - en: Make some requests on the remote Docker host HTTP port and it will answer. We
     now have a full on-demand CoreOS host, capable of giving us control over a Docker
     Engine remotely, using a nifty systemd configuration feature!
+  id: totrans-272
   prefs: []
   type: TYPE_NORMAL
+  zh: 在远程 Docker 主机的 HTTP 端口上进行一些请求，它将会响应。现在我们拥有了一个完全按需的 CoreOS 主机，能够通过巧妙的 systemd
+    配置功能远程控制 Docker 引擎！
 - en: There's more...
+  id: totrans-273
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 还有更多...
 - en: 'When connecting to various remote Docker Engines, we will sooner or later connect
     to a server not using the same version of the server as our client. In this case,
     we''ll get the following error:'
+  id: totrans-274
   prefs: []
   type: TYPE_NORMAL
+  zh: 当连接到不同的远程 Docker 引擎时，我们迟早会遇到连接到一个服务器，而这个服务器的版本与我们客户端的版本不同。在这种情况下，我们会收到以下错误：
 - en: '[PRE67]'
+  id: totrans-275
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE67]'
 - en: 'The easy workaround is to override the `DOCKER_API_VERSION` environment variable
     and set it to the same value as the server (1.22 in this example):'
+  id: totrans-276
   prefs: []
   type: TYPE_NORMAL
+  zh: 一个简单的解决方法是重写 `DOCKER_API_VERSION` 环境变量，并将其设置为与服务器相同的值（在这个例子中为 1.22）：
 - en: '[PRE68]'
+  id: totrans-277
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE68]'
 - en: Note
+  id: totrans-278
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: Docker 1.13 greatly improved this situation, by managing the version/feature
     negotiation between the client and the server directly in the CLI.
+  id: totrans-279
   prefs: []
   type: TYPE_NORMAL
+  zh: Docker 1.13 大大改善了这种情况，通过在 CLI 中直接管理客户端和服务器之间的版本/功能协商。
 - en: See also
+  id: totrans-280
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 另见
 - en: For more information about systemd socket activation refer to [http://0pointer.de/blog/projects/socket-activation.html](http://0pointer.de/blog/projects/socket-activation.html).
+  id: totrans-281
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 有关 systemd 套接字激活的更多信息，请参考 [http://0pointer.de/blog/projects/socket-activation.html](http://0pointer.de/blog/projects/socket-activation.html)。
