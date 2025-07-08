@@ -1,4 +1,4 @@
-# 第一章 了解 Windows Azure Pack 及其架构
+# 第一章：了解 Windows Azure Pack 及其架构
 
 本章将介绍微软 Cloud OS 视野以及 Windows Azure Pack 在其中的角色。本章将帮助你理解 Windows Azure Pack 云解决方案的概述、功能和服务内容，以及其构建模块。之后，我们将讲解 Windows Azure Pack 组件的架构及其在测试和生产环境中的部署模型。
 

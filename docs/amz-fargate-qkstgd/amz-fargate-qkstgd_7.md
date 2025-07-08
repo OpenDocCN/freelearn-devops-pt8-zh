@@ -1,4 +1,4 @@
-# 使用亚马逊 ECS CLI
+# 第七章：使用亚马逊 ECS CLI
 
 亚马逊 ECS **命令行界面**（**CLI**）是一个命令行工具，用于创建、更新和监控 ECS 集群和任务。亚马逊 ECS CLI 支持 Fargate 启动类型。要使用 ECS CLI 创建容器应用程序，需要 Docker Compose（v1 或 v2）。在本章中，我们将使用 ECS CLI 在 Windows PowerShell 中启动 Fargate 启动类型的 ECS 集群。
 

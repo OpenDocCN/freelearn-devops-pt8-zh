@@ -1,4 +1,4 @@
-# 使用 AWS IAM 和 AWS Organizations 进行访问控制
+# 第六章：使用 AWS IAM 和 AWS Organizations 进行访问控制
 
 在上一章中，我们学习并探索了如何利用两个 AWS 服务——AWS Config 和 AWS CloudTrail 来管理你的云环境。在本章中，我们将继续安全之旅，重新审视 AWS IAM 并介绍一些实用功能，同时还会学习另一个服务——AWS Organizations！
 

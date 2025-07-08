@@ -1,4 +1,4 @@
-# 构建和管理 Azure Active Directory
+# 第一章：构建和管理 Azure Active Directory
 
 使用多个 **软件即服务**（**SaaS**）产品，如 Office 365、Dynamics CRM 或 Visual Studio Online，要求在 Azure **Active Directory**（**AD**）中构建良好的身份和访问管理基础结构，这些产品是这些解决方案的核心。作为管理员，您需要提供一个稳定的身份和访问管理平台，以便管理这些服务。
 

@@ -1,4 +1,4 @@
-# 安装 OpenStack
+# 第二章：安装 OpenStack
 
 手动安装、配置和维护 OpenStack 云可能是一项艰巨的任务。许多供应商提供基于 OpenStack 的可下载云软件，使用 Chef、Puppet、Ansible 等工具提供部署和管理策略。
 

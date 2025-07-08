@@ -1,4 +1,4 @@
-# 第四章 LXC 与 Python 的代码集成
+# 第四章：LXC 与 Python 的代码集成
 
 本章将介绍 LXC 和 libvirt API 提供的 Python 绑定。我们将探索哪些容器功能是可能的，哪些是不可能的，使用 Ubuntu 上的上游 `lxc-dev` 和 `python-libvirt` 包以及 CentOS 上的 `lxc-devel` 和 `libvirt-python` 包。
 

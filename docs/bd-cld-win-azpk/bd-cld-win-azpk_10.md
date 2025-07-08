@@ -330,7 +330,7 @@ ACI 通过为 Windows Azure Pack 开发 ACI 自定义资源提供程序和扩展
 
 除了网络策略外，ACI 还通过 Citrix 和 NetScaler 的产品为租户提供第 4 层到第 7 层的访问能力。要学习并开始实现 Cisco ACI 与 Windows Azure Pack 的集成，请访问[`www.cisco.com/c/en/us/td/docs/switches/datacenter/aci/apic/sw/1-x/`](http://www.cisco.com/c/en/us/td/docs/switches/datacenter/aci/apic/sw/1-x/)和[`www.cisco.com/c/en/us/td/docs/switches/datacenter/aci/apic/sw/1-x/virtualization/b_ACI_Virtualization_Guide.pdf`](http://www.cisco.com/c/en/us/td/docs/switches/datacenter/aci/apic/sw/1-x/virtualization/b_ACI_Virtualization_Guide.pdf)。
 
-# 5nine 云安全
+
 
 5nine 云安全为 Windows Azure Pack 提供了安全即服务的功能，使服务提供商能够为客户提供安全服务。它允许租户管理防火墙配置，并保护运行 Windows 或 Linux 的虚拟机。
 

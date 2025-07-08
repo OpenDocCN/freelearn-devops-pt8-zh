@@ -1,6 +1,6 @@
-# 10
 
-# OpenShift GitOps – Argo CD
+
+# 第十章：OpenShift GitOps – Argo CD
 
 在上一章中，我们学习了如何使用 Tekton 创建和运行管道，以构建和部署应用程序。虽然 Tekton 很适合构建和执行通常与 **持续集成** (**CI**) 相关的其他操作，但 **GitOps** 正成为 **持续部署** (**CD**) 的标准，尤其是在 Kubernetes 原生应用程序方面。在本章中，我们将深入探讨 GitOps，并讨论其中一个最适合 CD 的工具：**Argo CD**。
 

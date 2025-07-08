@@ -1,4 +1,4 @@
-# 使用 Amazon SNS 和 Amazon SQS 在云中进行消息传递
+# 第八章：使用 Amazon SNS 和 Amazon SQS 在云中进行消息传递
 
 在上一章中，我们简要探讨了 AWS 代码套件服务，即 AWS CodeCommit、AWS CodeDeploy 和 AWS CodePipeline，以及它们如何与应用程序的持续集成和持续交付生命周期结合。
 

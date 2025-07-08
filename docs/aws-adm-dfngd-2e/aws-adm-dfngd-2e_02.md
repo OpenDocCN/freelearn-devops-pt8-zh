@@ -1,4 +1,4 @@
-# 使用 Systems Manager 管理 EC2
+# 第二章：使用 Systems Manager 管理 EC2
 
 EC2 实例一直是 AWS 提供的核心服务，EC2 也在不断发展，每年都会添加新的功能和实例类型。AWS re:Invent 2016 中新增的一项非常酷的服务就是 EC2 Systems Manager！
 

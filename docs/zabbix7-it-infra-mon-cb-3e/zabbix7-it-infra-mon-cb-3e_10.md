@@ -1,6 +1,6 @@
-# 10
 
-# 使用自定义脚本和 Zabbix API 扩展 Zabbix 功能
+
+# 第十章：使用自定义脚本和 Zabbix API 扩展 Zabbix 功能
 
 Zabbix 提供了很多开箱即用的功能。但 Zabbix 真正出色的地方在于其可定制性，不仅仅是通过默认的前端，尤其是通过脚本和 Zabbix API 来进行扩展。
 

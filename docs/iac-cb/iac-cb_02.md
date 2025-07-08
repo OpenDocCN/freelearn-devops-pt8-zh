@@ -1,4 +1,4 @@
-# 第二章 使用 Terraform 提供 IaaS
+# 第二章：使用 Terraform 提供 IaaS
 
 在本章中，我们将覆盖以下教程：
 

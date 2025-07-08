@@ -1,6 +1,6 @@
-# 11
 
-# 使用 Flutter 自动化跨平台应用程序的 CI/CD
+
+# 第十一章：使用 Flutter 自动化跨平台应用程序的 CI/CD
 
 在上一章中，我们学习了如何创建一个管道来在 AWS 上部署一个容器化的 Web 应用程序。本章将深入探讨如何创建一个管道来自动化 Flutter 移动应用程序的 CI/CD。Flutter 是最著名的移动应用程序开发工具包。开发人员可以仅使用 Flutter 代码编写移动应用，而无需使用 Google 的 Kotlin 代码或 Apple 的 Swift 代码，Azure 管道可以构建并将 Flutter 代码部署到 Google 和 Apple 商店。这些商店是移动应用程序领域中使用最广泛的商店。在本章结束时，您将学会如何使用 YAML 创建一个管道，将 Flutter 应用程序部署到 Google Firebase、Google Play 控制台以及 Apple 环境中。
 

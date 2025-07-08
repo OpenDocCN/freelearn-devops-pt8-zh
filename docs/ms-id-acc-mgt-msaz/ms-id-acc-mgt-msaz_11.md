@@ -1,4 +1,4 @@
-# 在 Azure AD 上部署其他应用程序
+# 第九章：在 Azure AD 上部署其他应用程序
 
 为你的应用程序提供正确的身份验证至关重要，尤其是当你只希望允许来自**Azure Active Directory**（**Azure AD**）的用户或任何其他 Azure AD 的用户进行身份验证时。Azure AD 提供了两个概念来为你的用户提供所需的身份验证。
 

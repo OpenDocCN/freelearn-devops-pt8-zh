@@ -1,4 +1,4 @@
-# 实现和管理混合身份
+# 第十五章：实现和管理混合身份
 
 在上一章中，我们介绍了如何管理 **Azure Active Directory** (**Azure AD**)。本章继续进行 *身份管理* 目标。在本章中，我们将介绍如何实施和管理混合身份。我们将安装和配置 Azure AD Connect，将本地 Active Directory 中的身份同步到 Azure AD。然后，您将学习如何管理 Azure AD Connect。在本章的最后部分，我们将深入探讨密码同步和密码回写。您将学习如何在 Azure AD Connect 和 Azure 门户中启用密码同步。最后，您将学习如何管理密码同步。
 

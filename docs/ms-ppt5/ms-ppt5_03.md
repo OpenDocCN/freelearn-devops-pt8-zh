@@ -1,4 +1,4 @@
-# 扩展 Puppet
+# 第三章：扩展 Puppet
 
 Puppet 生态系统已有超过 10 年的历史，最初是用 Ruby 编写的。
 

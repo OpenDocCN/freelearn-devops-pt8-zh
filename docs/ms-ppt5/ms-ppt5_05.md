@@ -1,4 +1,4 @@
-# 管理代码
+# 第五章：管理代码
 
 代码管理在 Puppet 的生命周期中经历了很多变化。在 Puppet 的早期版本中，代码管理主要由个人用户负责。大多数用户开始时只是直接在 Puppet Master 上编辑代码。我曾为一个组织工作过，该组织为每个模块创建了 Yum RPM 包，在引入 Puppet 环境之前，允许我们在多个 Puppet Master 之间回滚和前进。许多用户将 Puppet 代码存储在 Git 或 Subversion 中，并将代码签出到 Puppet Master 的目录中。
 

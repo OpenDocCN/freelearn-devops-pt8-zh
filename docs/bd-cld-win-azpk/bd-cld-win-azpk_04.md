@@ -1,4 +1,4 @@
-# 第四章 构建虚拟机云和 IaaS 服务
+# 第四章：构建虚拟机云和 IaaS 服务
 
 在前一章中，我们安装并配置了 Windows Azure Pack 组件。此时，管理员和租户可以访问的门户在云服务提供方面非常基础。在本章中，我们将构建与 Windows Azure Pack、SPF 和 SCVMM 集成的虚拟机云。Windows Azure Pack 虚拟机云用于提供 IaaS（基础设施即服务）功能，如虚拟机、虚拟网络等。
 

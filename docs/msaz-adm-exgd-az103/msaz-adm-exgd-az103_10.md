@@ -1,4 +1,4 @@
-# 创建和配置 Windows 和 Linux 虚拟机
+# 第七章：创建和配置 Windows 和 Linux 虚拟机
 
 在上一章中，我们介绍了 Azure 文件共享以及如何使用 Azure 文件同步服务将本地文件共享与 Azure 同步。你还学会了如何在 Azure 中备份和恢复文件共享。
 

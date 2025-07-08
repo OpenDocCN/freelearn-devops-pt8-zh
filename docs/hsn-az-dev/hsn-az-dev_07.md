@@ -1,4 +1,4 @@
-# 无服务器和 Azure Functions
+# 第七章：无服务器和 Azure Functions
 
 Azure Functions 是 Azure 无服务器架构的主要产品。它们允许在完全托管的运行时内执行小段代码，因此我们不需要关心性能和可扩展性。它们是开源的，支持扩展，并建立在 App Services 之上，因此它们提供类似于 WebJobs 的体验。微软非常重视 Azure Functions 的新特性开发，并且在社区的极大支持下，它是快速开发简单和复杂应用程序的最佳工具之一。
 

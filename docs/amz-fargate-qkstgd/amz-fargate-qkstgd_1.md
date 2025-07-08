@@ -1,4 +1,4 @@
-# 入门 Amazon ECS 和 Amazon Fargate
+# 第一章：入门 Amazon ECS 和 Amazon Fargate
 
 Docker 可以安装在最常用的操作系统平台上。CoreOS 预安装 Docker，并且专为运行 Docker 容器而设计。Docker for AWS 提供了一个开箱即用的 Docker swarm 模式，在这个模式中，一个节点集群（称为 swarm）提供分布式平台以运行 Docker 容器应用程序。
 

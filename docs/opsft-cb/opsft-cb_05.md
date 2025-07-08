@@ -1,4 +1,4 @@
-# 第五章 使用 PostgreSQL 与 OpenShift 应用程序
+# 第五章：使用 PostgreSQL 与 OpenShift 应用程序
 
 本章介绍了一些教程，展示了如何开始使用 OpenShift PostgreSQL 数据库扩展模块。您将学习如何添加和管理 PostgreSQL 扩展模块，如何备份 PostgreSQL 数据库，如何列出并安装 PostgreSQL 扩展，如何与 OpenShift 应用程序一起使用 EnterpriseDB PostgreSQL Cloud Database 服务。本章中的具体教程包括：
 

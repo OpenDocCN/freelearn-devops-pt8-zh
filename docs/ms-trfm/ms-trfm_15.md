@@ -1,6 +1,6 @@
-# 15
 
-# 在 Google Cloud 上实现无服务器计算 – 使用 Google Cloud Functions 构建解决方案
+
+# 第十五章：在 Google Cloud 上实现无服务器计算 – 使用 Google Cloud Functions 构建解决方案
 
 我们快要完成了！在本章中，我们将构建本书中将要构建的九个解决方案中的最后一个。我们即将关闭 Google Cloud 的大门——但只有在我们完成将应用程序迁移到无服务器架构的最后一步之后，就像我们在 AWS 和 Azure 上所做的那样。在前两章中，我们努力使用虚拟机和容器在 Google Cloud 上实现了解决方案。
 

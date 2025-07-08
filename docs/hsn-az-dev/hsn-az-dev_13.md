@@ -1,4 +1,4 @@
-# 实时数据分析 - Azure Stream Analytics
+# 第十三章：实时数据分析 - Azure Stream Analytics
 
 虽然一些 Azure 组件使我们能够将数据传输到云中，但在大多数情况下，我们还需要某些专门用于分析和查询流数据的工具。其中一个服务是 Azure Stream Analytics，它是一个实时数据分析工具，能够读取所有通过 Event Hub 等传送的消息，并使用预定义的输出之一进行转换和保存。
 

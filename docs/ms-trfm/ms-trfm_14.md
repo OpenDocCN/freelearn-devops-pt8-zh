@@ -1,6 +1,6 @@
-# 14
 
-# 在 Google Cloud 上容器化 – 使用 GKE 构建解决方案
+
+# 第十四章：在 Google Cloud 上容器化 – 使用 GKE 构建解决方案
 
 在上一章中，我们通过利用 **Google Compute Engine**（**GCE**）在 Google Cloud 上构建并自动化了解决方案。我们使用 Packer 构建了 **虚拟机**（**VM**）镜像，并通过 Terraform 配置了我们的虚拟机。在本章中，我们将采取类似的路径，但我们不再使用虚拟机，而是将重点放在在 Kubernetes 集群中托管我们的应用程序。
 

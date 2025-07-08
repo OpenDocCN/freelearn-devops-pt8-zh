@@ -1,6 +1,6 @@
-# 11
 
-# 在 Azure 上容器化 – 使用 Azure Kubernetes 服务构建解决方案
+
+# 第十一章：在 Azure 上容器化 – 使用 Azure Kubernetes 服务构建解决方案
 
 在上一章中，我们使用 Azure 虚拟机（VM）构建并自动化了我们的解决方案。我们通过 Packer 构建虚拟机镜像，并使用 Terraform 配置虚拟机。在本章中，我们将走类似的路径，但不再使用虚拟机，而是考虑将我们的应用程序托管在 Kubernetes 集群中的容器里。
 

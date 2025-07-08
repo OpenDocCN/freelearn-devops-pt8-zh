@@ -1,4 +1,4 @@
-# 管理 Azure Active Directory
+# 第十四章：管理 Azure Active Directory
 
 在上一章中，我们讨论了如何使用 Azure 负载均衡器配置内部和外部负载均衡器。主要关注的是 Azure 负载均衡器的特性和功能，以及如何创建健康探测器和配置负载均衡规则。
 

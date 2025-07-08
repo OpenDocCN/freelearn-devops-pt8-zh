@@ -1,4 +1,4 @@
-# 扩展 Puppet
+# 第十一章：扩展 Puppet
 
 Puppet 用于集中管理组织中的所有服务器。在一些组织中，节点总数可能达到数百个。其他组织则拥有成千上万的服务器。对于较少的服务器，我们可以在一台服务器上配置单一的整体 Puppet Master（Puppetserver、PuppetDB 或 PE Console）。一旦达到一定规模，我们可以将 Puppet Enterprise 的组件导出到独立的服务器上。随着服务器规模的增大，我们可以开始逐个扩展每个组件。本章将介绍安装 Puppet Enterprise 的模型、扩展到三台服务器，并最终通过负载均衡多个 Puppet 组件来支持非常大的 Puppet 安装。
 

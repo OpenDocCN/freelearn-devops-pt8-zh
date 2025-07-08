@@ -1,4 +1,4 @@
-# 第十章 使用 OpenStack Dashboard
+# 第十章：使用 OpenStack Dashboard
 
 本章将涵盖以下主题：
 

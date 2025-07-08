@@ -1,4 +1,4 @@
-# 使用 Amazon EMR 和 Amazon Redshift 强化分析功能
+# 第九章：使用 Amazon EMR 和 Amazon Redshift 强化分析功能
 
 在上一章中，我们学习了两个非常有用的服务，开发人员可以利用这些服务在云中构建高度可扩展且解耦的应用程序：Amazon SNS 和 Amazon SQS。
 

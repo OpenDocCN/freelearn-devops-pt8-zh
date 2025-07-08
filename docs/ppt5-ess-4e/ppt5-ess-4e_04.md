@@ -1,4 +1,4 @@
-# 在类和定义类型中结合资源
+# 第四章：在类和定义类型中结合资源
 
 到目前为止，您已经使用 Puppet 执行了一些生产级任务。您学习了如何编写独立的 Manifest，并使用 `puppet apply` 来应用它们。在设置您的第一个 Puppet 主控和代理时，您在主控上为节点 Manifest 创建了一个简单的示例。在 `node '<hostname>'` 块中，您创建了一个 Manifest 文件的等效物。这样，Puppet 主控就只使用特定代理节点的这个 Manifest。
 

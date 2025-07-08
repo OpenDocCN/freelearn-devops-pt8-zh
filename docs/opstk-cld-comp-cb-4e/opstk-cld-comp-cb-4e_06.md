@@ -1,4 +1,4 @@
-# 第六章 Glance – OpenStack 镜像服务
+# 第六章：Glance – OpenStack 镜像服务
 
 在本章中，我们将涵盖以下主题：
 
