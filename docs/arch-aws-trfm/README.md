@@ -1,6 +1,6 @@
-# Github DevOps 加速指南
+# AWS Terraform 架构指南
 
-> 原文：[`annas-archive.org/md5/677f27c30764b3701bc2b6cf6de3a30e`](https://annas-archive.org/md5/677f27c30764b3701bc2b6cf6de3a30e)
+> 原文：[`annas-archive.org/md5/8b2d222956a050c7632b9eee086dadcf`](https://annas-archive.org/md5/8b2d222956a050c7632b9eee086dadcf)
 > 
 > 译者：[飞龙](https://github.com/wizardforcel)
 > 
