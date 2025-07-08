@@ -1,6 +1,6 @@
-# Github DevOps 加速指南
+# Salesforce CRM 管理权威手册第四版
 
-> 原文：[`annas-archive.org/md5/677f27c30764b3701bc2b6cf6de3a30e`](https://annas-archive.org/md5/677f27c30764b3701bc2b6cf6de3a30e)
+> 原文：[`annas-archive.org/md5/406bbb15107e3925f02960f1c5376535`](https://annas-archive.org/md5/406bbb15107e3925f02960f1c5376535)
 > 
 > 译者：[飞龙](https://github.com/wizardforcel)
 > 

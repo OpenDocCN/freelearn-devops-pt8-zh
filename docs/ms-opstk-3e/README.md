@@ -1,6 +1,6 @@
-# Github DevOps 加速指南
+# 精通 Openstack 第三版
 
-> 原文：[`annas-archive.org/md5/677f27c30764b3701bc2b6cf6de3a30e`](https://annas-archive.org/md5/677f27c30764b3701bc2b6cf6de3a30e)
+> 原文：[`annas-archive.org/md5/2a88c2973d2d6ce43abf497882295bd4`](https://annas-archive.org/md5/2a88c2973d2d6ce43abf497882295bd4)
 > 
 > 译者：[飞龙](https://github.com/wizardforcel)
 > 

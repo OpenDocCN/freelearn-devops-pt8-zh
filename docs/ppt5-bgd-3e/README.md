@@ -1,6 +1,6 @@
-# Github DevOps 加速指南
+# Puppet5 初学者指南第三版
 
-> 原文：[`annas-archive.org/md5/677f27c30764b3701bc2b6cf6de3a30e`](https://annas-archive.org/md5/677f27c30764b3701bc2b6cf6de3a30e)
+> 原文：[`annas-archive.org/md5/d9e5b9495adc5799164a508075d35174`](https://annas-archive.org/md5/d9e5b9495adc5799164a508075d35174)
 > 
 > 译者：[飞龙](https://github.com/wizardforcel)
 > 

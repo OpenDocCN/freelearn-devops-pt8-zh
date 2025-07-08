@@ -1,6 +1,6 @@
-# Github DevOps 加速指南
+# Zabbix7 IT 基础设施监控秘籍第三版
 
-> 原文：[`annas-archive.org/md5/677f27c30764b3701bc2b6cf6de3a30e`](https://annas-archive.org/md5/677f27c30764b3701bc2b6cf6de3a30e)
+> 原文：[`annas-archive.org/md5/74d6e1997f063295d429f8383644708c`](https://annas-archive.org/md5/74d6e1997f063295d429f8383644708c)
 > 
 > 译者：[飞龙](https://github.com/wizardforcel)
 > 

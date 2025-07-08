@@ -1,6 +1,6 @@
-# Github DevOps 加速指南
+# Openshift 秘籍
 
-> 原文：[`annas-archive.org/md5/677f27c30764b3701bc2b6cf6de3a30e`](https://annas-archive.org/md5/677f27c30764b3701bc2b6cf6de3a30e)
+> 原文：[`annas-archive.org/md5/7320f539efdfdc3ef301be2659f9986e`](https://annas-archive.org/md5/7320f539efdfdc3ef301be2659f9986e)
 > 
 > 译者：[飞龙](https://github.com/wizardforcel)
 > 
